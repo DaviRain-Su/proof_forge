@@ -3,7 +3,7 @@ id: TARGET-SOROBAN
 title: Stellar Soroban target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-13
+updated: 2026-08-15
 normative: true
 ---
 
@@ -28,7 +28,8 @@ Soroban 在 Stellar host 中执行受限 Wasm，并以 XDR、host objects、授�
 | Finalize | **zero-tool**；`deployable=false` |
 | Capability | 仅 `failure.atomic-rollback` / `state.persistent` / `value.bool` / `value.checked-arithmetic` |
 | 存储约定 | 单一 **instance** storage；无 TTL 策略选择 |
-| 明确拒 | event / sync call / async / pf.assets / nonempty invariants / multi-width / aggregates |
+| 明确拒 | event / sync call / async / pf.assets / nonempty invariants / Int8/16/32 / mixed UInt64↔Int64 / aggregates |
+| 整数域 | 齐次 UInt64 或 Int64（混用 fail closed；未使用的 interned UInt64 类型行不强制 mixed） |
 
 制品：`{name}.rs`（`soroban-sdk` 风格 `#[contract]` / instance get/set / `checked_*` panic→rollback）。
 **不**声称可直接 `stellar contract build`、Wasm、auth tree、XDR/spec 或 testnet。
@@ -51,7 +52,7 @@ Portable（S0 子集）：Cell、entry/view、checked arithmetic、transaction a
 
 ```text
 SorobanPlan {
-  programName, sourceHash, semanticHash,
+  programName, sourceHash, semanticHash, signedNumeric,
   states, initializer?, entries, views
 }
 ```

@@ -421,27 +421,147 @@ unsafe def testFailClosedPrivateState : IO Unit := do
       | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
       | .ok _ => throw <| IO.userError "private state must fail closed at Quint plan"
 
-/-- Fail closed: Int64. -/
-unsafe def testFailClosedInt : IO Unit := do
+/-- Homogeneous Int64: signed decimal domain + overflow range on unbounded int. -/
+unsafe def testInt64Cell : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
-    "program I where\n" ++
-    "  entry neg(x : Int64) : Int64 do\n" ++
+    "program Int64Cell where\n" ++
+    "  state count : Int64\n" ++
+    "  init(initial : Int64) do\n" ++
+    "    count := initial\n" ++
+    "  entry increment(delta : Int64) : Int64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : Int64 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-int64>" "Tests.QuintInt64" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  expect plan.signedNumeric "Int64Cell Plan is signed"
+  let files ← liftResult <| buildQuint compiled
+  let some qntFile := files.find? (·.path == "Int64Cell.qnt") |
+    throw <| IO.userError "quint: missing Int64Cell.qnt"
+  let qnt := qntFile.contents
+  expect (qnt.contains "PF_MIN_I64") "signed model must bind PF_MIN_I64"
+  expect (qnt.contains "PF_MAX_I64") "signed model must bind PF_MAX_I64"
+  expect (qnt.contains "-9223372036854775808") "PF_MIN_I64 is Int64 min"
+  expect (qnt.contains "9223372036854775807") "PF_MAX_I64 is Int64 max"
+  expect (qnt.contains "oneOf(PF_MIN_I64.to(PF_MAX_I64))")
+    "Int64 param domain is the closed signed range"
+  expect (!qnt.contains "oneOf(0.to(PF_MAX_U64))")
+    "signed program must not use the UInt64 param domain"
+
+/-- Mixing UInt64 and Int64 user-facing slots is fail closed. -/
+unsafe def testMixedInt64UInt64Fc : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MixInt64 where\n" ++
+    "  state count : Int64\n" ++
+    "  init(initial : Int64) do\n" ++
+    "    count := initial\n" ++
+    "  entry increment(delta : Int64) : Int64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return 0\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-mix-int64>" "Tests.QuintMixInt64" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planQuint compiled with
+  | .error (.planInvariant .quint msg) =>
+      expect (msg.contains "mixes")
+        s!"mixed Int64/UInt64 must name mixes, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
+  | .ok _ => throw <| IO.userError "mixed Int64/UInt64 must fail closed at Quint plan"
+
+/-- Homogeneous Array UInt64 2 flatten: two Plan/`.qnt` var leaves, no List. -/
+unsafe def testArraySlotsFlatten : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArraySlots where\n" ++
+    "  state slots : Array UInt64 2\n" ++
+    "  init(a : UInt64, b : UInt64) do\n" ++
+    "    slots[0] := a\n" ++
+    "    slots[1] := b\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    slots[0] := v\n" ++
+    "    return slots[0]\n" ++
+    "  view get0() : UInt64 do\n" ++
+    "    return slots[0]\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-array-slots>" "Tests.QuintArraySlots" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  expect (!plan.signedNumeric) "ArraySlots stays unsigned"
+  expect (plan.states.map (·.name) == #["slots_0", "slots_1"])
+    "Array UInt64 2 must flatten to slots_0/slots_1 Plan leaves"
+  match plan.initializer with
+  | some initFn =>
+      expect (initFn.stores.size == 2)
+        "ArraySlots init must store both flattened leaves"
+  | none => throw <| IO.userError "ArraySlots must have an initializer"
+  liftResult <| Targets.Quint.validatePlan plan
+  let files ← liftResult <| buildQuint compiled
+  let some qntFile := files.find? (·.path == "ArraySlots.qnt") |
+    throw <| IO.userError "quint: missing ArraySlots.qnt"
+  let qnt := qntFile.contents
+  expect (qnt.contains "var pf_state_slots_0")
+    "ArraySlots.qnt must declare pf_state_slots_0"
+  expect (qnt.contains "var pf_state_slots_1")
+    "ArraySlots.qnt must declare pf_state_slots_1"
+  expect (!qnt.contains "List[")
+    "Array flatten must not emit a native Quint List"
+
+/-- N=9 exceeds the 1..8 flatten cap. -/
+unsafe def testArrayN9FailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrayNine where\n" ++
+    "  state slots : Array UInt64 9\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    slots[0] := v\n" ++
+    "    return slots[0]\n" ++
+    "  view get0() : UInt64 do\n" ++
+    "    return slots[0]\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-array-n9>" "Tests.QuintArrayNine" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planQuint compiled with
+  | .error (.planInvariant .quint msg) =>
+      expect (msg.contains "cap" || msg.contains "container")
+        s!"Array UInt64 9 must cite cap/container, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
+  | .ok _ => throw <| IO.userError "Array UInt64 9 must fail closed at Quint plan"
+
+/-- Fail closed: Int32 (narrow signed; Int64 is the admitted width). -/
+unsafe def testFailClosedInt32 : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program I32 where\n" ++
+    "  entry id(x : Int32) : Int32 do\n" ++
     "    return x\n"
   let parsed ← liftResult (← session.selectProgramV1
-    source "<quint-int>" "Tests.QuintInt" none)
-  match Compiler.compileValidatedSourceV1 parsed with
-  | .error _ => pure ()
-  | .ok compiled =>
-      match planQuint compiled with
-      | .error (.planInvariant .quint msg) =>
-          expect (msg.contains "Int" || msg.contains "width" ||
-              msg.contains "UInt64" || msg.contains "parameter")
-            s!"Int must fail closed, got: {msg}"
-      | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
-      | .ok _ => throw <| IO.userError "Int must fail closed at Quint plan"
+    source "<quint-int32>" "Tests.QuintInt32" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planQuint compiled with
+  | .error (.planInvariant .quint msg) =>
+      expect (msg.contains "UInt64/Int64" || msg.contains "width")
+        s!"Int32 must fail closed on the width needle, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
+  | .ok _ => throw <| IO.userError "Int32 must fail closed at Quint plan"
 
 /-- Fail closed: non-Q0 UInt widths are never silently widened to Quint int. -/
 unsafe def testFailClosedUInt32 : IO Unit := do
@@ -1204,7 +1324,11 @@ unsafe def run : IO Unit := do
   testCapabilityProductPath
   testUnknownProfileFailClosed
   testFailClosedPrivateState
-  testFailClosedInt
+  testInt64Cell
+  testMixedInt64UInt64Fc
+  testArraySlotsFlatten
+  testArrayN9FailClosed
+  testFailClosedInt32
   testFailClosedUInt32
   testFailClosedMultiblock
   testFailClosedConstant

@@ -89,11 +89,33 @@ private def paramName (_params : Array String) (index : Nat) : CompileResult Str
   | some n => pure n
   | none => planError "Soroban IR parameter index out of range"
 
+/-- Complete Rust numeric token. Unsigned stays `{n}_u64`. Signed uses the
+    UInt64 two's-complement bit pattern as `i64` (special-case `i64::MIN`). -/
+private def rustNumericLit (signed : Bool) (v : UInt64) : String :=
+  if !signed then
+    s!"{v.toNat}_u64"
+  else
+    let n := v.toNat
+    if n < 9223372036854775808 then
+      s!"{n}_i64"
+    else if n == 9223372036854775808 then
+      "i64::MIN"
+    else
+      let mag := (0 - v).toNat
+      s!"-{mag}_i64"
+
+private def rustZeroLit (signed : Bool) : String :=
+  if signed then "0_i64" else "0_u64"
+
+private def rustNumericTy (signed : Bool) : String :=
+  if signed then "i64" else "u64"
+
 private partial def lowerExpr
     (plan : Plan) (params : Array String) (stateLocals : Array String)
     (e : Expr) : CompileResult RExpr := do
+  let signed := plan.signedNumeric
   match e with
-  | .litU64 v => pure (.u64Lit (toString v.toNat))
+  | .litU64 v => pure (.u64Lit (rustNumericLit signed v))
   | .litBool b => pure (.boolLit b)
   | .param i => do
       let n ← paramName params i
@@ -109,16 +131,26 @@ private partial def lowerExpr
       let rr ← lowerExpr plan params stateLocals r
       match op with
       | .add => pure (.checkedArith "checked_add" rl rr "overflow")
-      | .sub => pure (.checkedArith "checked_sub" rl rr "underflow")
+      | .sub =>
+          let msg := if signed then "overflow" else "underflow"
+          pure (.checkedArith "checked_sub" rl rr msg)
       | .mul => pure (.checkedArith "checked_mul" rl rr "overflow")
       | .div =>
-          pure (.ifExpr
-            (.binary .ne rr (.u64Lit "0"))
-            (.binary .div rl rr)
-            (.panic "division by zero"))
+          let zero := .u64Lit (rustZeroLit signed)
+          let nz : RExpr := .binary .ne rr zero
+          let cond : RExpr :=
+            if signed then
+              .binary .and nz
+                (.unary .not
+                  (.binary .and
+                    (.binary .eq rl (.u64Lit "i64::MIN"))
+                    (.binary .eq rr (.u64Lit "-1_i64"))))
+            else
+              nz
+          pure (.ifExpr cond (.binary .div rl rr) (.panic "division by zero"))
       | .mod =>
           pure (.ifExpr
-            (.binary .ne rr (.u64Lit "0"))
+            (.binary .ne rr (.u64Lit (rustZeroLit signed)))
             (.binary .mod rl rr)
             (.panic "division by zero"))
   | .compare op l r => do
@@ -174,17 +206,19 @@ private def emitStores
 private def resultTypeStr : ResultKind → Option String
   | .unit => none
   | .uint64 => some "u64"
+  | .int64 => some "i64"
   | .bool => some "bool"
 
 private def lower (plan : Plan) : CompileResult IR := do
   validatePlan plan
+  let numericTy := rustNumericTy plan.signedNumeric
   let mut fns : Array RFn := #[]
   -- Initializer
   match plan.initializer with
   | some init => do
       let mut fnParams : Array (String × String) := #[("env", "Env")]
       for p in init.params do
-        fnParams := fnParams.push (p, "u64")
+        fnParams := fnParams.push (p, numericTy)
       let storeStmts ← emitStores plan init.params #[] init.stores
       fns := fns.push {
         name := "init"
@@ -197,7 +231,7 @@ private def lower (plan : Plan) : CompileResult IR := do
   for ent in plan.entries do
     let mut fnParams : Array (String × String) := #[("env", "Env")]
     for p in ent.params do
-      fnParams := fnParams.push (p, "u64")
+      fnParams := fnParams.push (p, numericTy)
     let mut body : Array RStatement := #[]
     -- Load pre-state into locals so Plan stateLoad nodes stay snapshot-stable
     -- across subsequent stores (single-block overlay honesty).
@@ -216,7 +250,7 @@ private def lower (plan : Plan) : CompileResult IR := do
     body := body ++ storeStmts
     match ent.resultKind, ent.result? with
     | .unit, _ => pure ()
-    | .uint64, some e | .bool, some e => do
+    | .uint64, some e | .int64, some e | .bool, some e => do
         let re ← lowerExpr plan ent.params stateLocals e
         body := body.push (.returnExpr re)
     | _, _ => pure ()
@@ -230,7 +264,7 @@ private def lower (plan : Plan) : CompileResult IR := do
   for v in plan.views do
     let mut fnParams : Array (String × String) := #[("env", "Env")]
     for p in v.params do
-      fnParams := fnParams.push (p, "u64")
+      fnParams := fnParams.push (p, numericTy)
     let re ← lowerExpr plan v.params #[] v.value
     fns := fns.push {
       name := v.name
@@ -263,36 +297,37 @@ private def binOpStr : RBinOp → String
   | .and => "&&"
   | .or => "||"
 
-private partial def renderExpr : RExpr → String
+private partial def renderExpr (signed : Bool) : RExpr → String
   | .name id => id
-  | .u64Lit v => s!"{v}_u64"
+  | .u64Lit v => v
   | .boolLit true => "true"
   | .boolLit false => "false"
   | .binary op l r =>
-      s!"({renderExpr l} {binOpStr op} {renderExpr r})"
+      s!"({renderExpr signed l} {binOpStr op} {renderExpr signed r})"
   | .unary .not o =>
-      s!"(!{renderExpr o})"
+      s!"(!{renderExpr signed o})"
   | .checkedArith method receiver arg panicMsg =>
-      s!"{renderExpr receiver}.{method}({renderExpr arg}).expect(\"{panicMsg}\")"
+      s!"{renderExpr signed receiver}.{method}({renderExpr signed arg}).expect(\"{panicMsg}\")"
   | .storageGet key =>
-      s!"env.storage().instance().get(&symbol_short!(\"{key}\")).unwrap_or(0_u64)"
+      let zero := rustZeroLit signed
+      s!"env.storage().instance().get(&symbol_short!(\"{key}\")).unwrap_or({zero})"
   | .storageSet key value =>
-      s!"env.storage().instance().set(&symbol_short!(\"{key}\"), &{renderExpr value})"
+      s!"env.storage().instance().set(&symbol_short!(\"{key}\"), &{renderExpr signed value})"
   | .ifExpr cond thenE elseE =>
-      s!"if {renderExpr cond} \{ {renderExpr thenE} } else \{ {renderExpr elseE} }"
+      s!"if {renderExpr signed cond} \{ {renderExpr signed thenE} } else \{ {renderExpr signed elseE} }"
   | .panic msg => s!"panic!(\"{msg}\")"
   | .unit => "()"
 
 private def indent (n : Nat) (s : String) : String :=
   String.ofList (List.replicate n ' ') ++ s
 
-private def renderStatement (s : RStatement) : String :=
+private def renderStatement (signed : Bool) (s : RStatement) : String :=
   match s with
-  | .letBind name value => s!"let {name} = {renderExpr value};"
-  | .expr value => s!"{renderExpr value};"
-  | .returnExpr value => renderExpr value
+  | .letBind name value => s!"let {name} = {renderExpr signed value};"
+  | .expr value => s!"{renderExpr signed value};"
+  | .returnExpr value => renderExpr signed value
 
-private def renderFn (f : RFn) : Array String := Id.run do
+private def renderFn (signed : Bool) (f : RFn) : Array String := Id.run do
   let mut lines : Array String := #[]
   let params := String.intercalate ", "
     (f.params.map (fun (n, t) => if n == "env" then s!"{n}: {t}" else s!"{n}: {t}")).toList
@@ -303,12 +338,13 @@ private def renderFn (f : RFn) : Array String := Id.run do
   for i in [0:f.body.size] do
     match f.body[i]? with
     | some stmt =>
-        lines := lines.push (indent 8 (renderStatement stmt))
+        lines := lines.push (indent 8 (renderStatement signed stmt))
     | none => pure ()
   lines := lines.push (indent 4 "}")
   pure lines
 
-private def renderContract (c : RContract) (sourceHash semanticHash : String) : String := Id.run do
+private def renderContract
+    (c : RContract) (sourceHash semanticHash : String) (signed : Bool) : String := Id.run do
   let mut lines : Array String := #[]
   lines := lines.push "// ProofForge Soroban S0 source recipe; not a deployable Wasm claim; zero-tool finalize."
   lines := lines.push s!"// source: {sourceHash}"
@@ -323,13 +359,14 @@ private def renderContract (c : RContract) (sourceHash semanticHash : String) : 
   lines := lines.push s!"impl {c.contractName} \{"
   for f in c.fns do
     lines := lines.push ""
-    lines := lines ++ renderFn f
+    lines := lines ++ renderFn signed f
   lines := lines.push "}"
   lines := lines.push ""
   pure (String.intercalate "\n" lines.toList)
 
 private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) := do
-  let source := renderContract ir.contract ir.sourcePlan.sourceHash ir.sourcePlan.semanticHash
+  let source := renderContract ir.contract ir.sourcePlan.sourceHash
+    ir.sourcePlan.semanticHash ir.sourcePlan.signedNumeric
   pure #[{
     path := s!"{ir.sourcePlan.programName}.rs"
     mediaType := "text/x-rust"

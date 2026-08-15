@@ -1,8 +1,29 @@
 # Next-wave drain queue (2026-08-12)
 
 **Authority:** `docs/engineering-backlog.md` 推荐击杀顺序 · ADR-0036 · AGENTS Next task  
-**Live status:** Goal-auto drain **empty**. Track A/B/F and later honesty pins are all `done`. **Do not** launch `/goal @.grok/goals/prompt-next-wave.md` or `/workflow next-wave-runner`. Formal `TASK-D2-07` / `TST-SEM-002/003` stay pending — not a coding slice. Next **engineering** lane = [`docs/plan/capability-layer-tasks.md`](../docs/plan/capability-layer-tasks.md) (default **CAP-1a**). Audit = `docs/research/28-project-wide-honesty-audit.md`. Backlog wins on conflict.
-**Mode:** Retired drain. Do **not** invent new LH/F rows.  
+**Live status:** Honesty-matrix drain **retired**. Current engineering wave = **later-target type-surface 拉齐** (implement real Plan/IR/emit, not new FC matrices). Formal `TASK-D2-07` / `TST-SEM-002/003` stay pending. CAP-D host bindings stay blocked until a human yes. Audit = `docs/research/28-project-wide-honesty-audit.md`. Backlog wins on conflict.
+
+### Live 拉齐 wave (2026-08-15)
+
+Goal: lift envelope-4 toward mid-tier (CW/TON/Aleo/Psy), then mid-tier toward the original four, without claiming runtime/formal parity.
+
+| id | owner | files | status |
+|---|---|---|---|
+| ICP-INT64 | main | `Targets/Icp/**` · `IcpPlanV1` | **landing this commit** — Candid 0x79 + signed overflow |
+| QUINT-INT64 | main | `Targets/Quint/**` · `QuintSourceV1` | **landing this commit** — `PF_MIN_I64..PF_MAX_I64` |
+| SOR-INT64 | cursor-impl `w3M:p4` | `Targets/Soroban/**` · `SorobanPlanV1.lean` | **landing this commit** — `i64` + checked arith |
+| OVM-INT64 | worktree subagent | `Targets/OpenVM/**` · `OpenVmGuestSourceV1.lean` | **landing this commit** — guest `i64` + checked add/sub |
+| ICP-BOOL | main | ICP Bool results + comparisons (Candid `bool` 0x7e) | **landing this commit** — BoolPredicate eleven-admit |
+| QUINT-ARRAY | cursor-impl | Array UInt64 N≤8 flatten on Quint (N scalar `int` vars; no native List) | **landing this commit** — ArrayBox Quint admit |
+| ENV4-ARRAY | next | Array UInt64 N≤8 flatten on **Soroban / OpenVM / ICP** (ICP = extra i64 globals, **no** Candid vec) | queued |
+| ENV4-OPTION | after Array | Option UInt64 construct/store on Quint/Soroban/OpenVM; **ICP Option honest FC** (needs Candid `opt` + compare) | queued |
+| ENV4-MAP | after Option+select | Map UInt64 cap-8 on Quint/Soroban/OpenVM; **ICP Map honest FC** | queued |
+| ENV4-MULDIV | after Array or parallel | ICP + OpenVM checked mul/div (Quint/Soroban already have signed mul) | queued |
+| MID-UNBLOCKED | scout **done** | next mid-tier leaves: Aleo views/u128/i8–32, CW UInt128 ABI; Psy type-surface already mid-tier | mapped |
+
+**File lock:** workers must not edit `Tests/Materialization/Targets.lean`, `FieldComparison*`, or another target's tree. Main agent integrates WideInt64 / OptInt / ArrInt / MapInt needles after each leaf lands.
+
+**Mode:** Retired honesty drain. Do **not** invent new LH/F rows.  
 **Sole L1 step:** `SemanticProgramV1 → admitReferenceProgramSliceV1 → stepReferenceSliceV1`  
 **Forbidden:** close formal TASK/TST/EV · Anvil lossless OutcomeWire (spec-FC) · invent TASK-* · push · `git add -A` · `git reset --hard` · supersede ADR-0027 · silent accepted-PRD expansion
 

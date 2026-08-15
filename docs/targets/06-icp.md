@@ -54,7 +54,7 @@ async workflow 必须标出每个 message 的 pre/post state 和 callback contin
 
 ## 6. 工具链
 
-冻结 interface spec 工程引用面（[IC Interface Specification](https://docs.internetcomputer.org/references/ic-interface-spec/)）+ Candid nat64 inline codec；
+冻结 interface spec 工程引用面（[IC Interface Specification](https://docs.internetcomputer.org/references/ic-interface-spec/)）+ Candid homogeneous nat64/int64 inline codec；
 Finalize 钉 locked `wat2wasm`（与 NEAR/CosmWasm 同 Tool Lock 供给）。
 ICP-3 工程门：PocketIC **server 15.0.0** + Rust `pocket-ic = "=15.0.0"`（`runtime-tests/icp`）；
 `just icp-runtime` / `proof-forge-next local --target icp` → `scripts/pf_icp_test.sh`（缺
@@ -77,7 +77,7 @@ Candid/stable schema golden → Wasm/System API validation → local replica sin
 | Slice | 状态 | 内容 |
 |---|---|---|
 | **ICP-1** | **done / control plane** | registry implemented、descriptor、resolver（sync+event FC；async advertise）、list/inspect |
-| **ICP-2** | **done / leaf** | target-owned Plan/IR → `.wat` + `.did`；Counter/StateCell UInt64；checked +/-；store-then-read overlay rewrite；**CAP-1a** `unixTimeSeconds`→`ic0.time` ns÷10⁹ |
+| **ICP-2** | **done / leaf** | target-owned Plan/IR → `.wat` + `.did`；Counter/StateCell 齐次 UInt64 **或** Int64（Candid `nat64`/`int64`，混用 FC）；checked +/-（unsigned wrap / signed two's-complement overflow）；store-then-read overlay rewrite；**CAP-1a** `unixTimeSeconds`→`ic0.time` ns÷10⁹ |
 | **ICP-3** | **done / host-optional** | `wat2wasm` Finalize → `.wasm`（`deployable=true`）；PocketIC 15.0.0 StateCell gate；maturity 仍 `source-only`；非 formal/mainnet |
 
 Capability（honest）：`state.persistent`、`value.checked-arithmetic`、`value.bool`、

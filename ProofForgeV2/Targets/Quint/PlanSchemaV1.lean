@@ -31,6 +31,7 @@ def encodeEngineeringQuintPlanBytesV1 (plan : Plan) : Except String ByteArray :=
     reprStr plan.programName ++ "\u0000" ++
     reprStr plan.sourceHash ++ "\u0000" ++
     reprStr plan.semanticHash ++ "\u0000" ++
+    reprStr plan.signedNumeric ++ "\u0000" ++
     reprStr plan.states ++ "\u0000" ++
     reprStr plan.initializer ++ "\u0000" ++
     reprStr plan.entries ++ "\u0000" ++

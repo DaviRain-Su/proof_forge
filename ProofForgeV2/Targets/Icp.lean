@@ -18,13 +18,18 @@ like Quint/Aleo/Psy/Noir. Plan types and Semantic→Plan lowering live in
 + `.did` emission in `EmitIRV1`; wat2wasm finalization in `FinalizeV1`
 (PocketIC remains a separate host-optional runtime lane).
 
-ICP-2 envelope: public UInt64 state only; `init`/entry(mutate)/view; single-
-block callable bodies; checked `+`/`-` only (literal/param/stateLoad/store/
-return). Everything else — pureFn, invariants, constants, events, errors,
-emit, sync call, schedule, `Op.ContextRead`, `Op.Commit`, aggregates, multi-
-width integers, Field, Principal — fails closed. ICP-1's async advertisement
-(`effect.asynchronous-workflow`) stays a resolver-level advertisement only;
-no ICP-2 Plan shape realizes it.
+ICP-2 envelope: public UInt64 **or** public Int64 state (homogeneous
+numeric domain: every integer state/param/result is UInt64, or every
+one is Int64; mixing fails closed); `init`/entry(mutate)/view; single-
+block callable bodies; checked `+`/`-` and comparisons (literal/param/
+stateLoad/store/return; Bool results). `Op.ContextRead` admits only
+`context.unixTimeSeconds`.
+Everything else — pureFn, invariants, constants, events, errors, emit,
+sync call, schedule, residual ContextRead keys, `Op.Commit`, aggregates,
+containers, Int8/16/32, UInt8/16/32/128/256, Field, Principal — fails
+closed. ICP-1's async advertisement (`effect.asynchronous-workflow`)
+stays a resolver-level advertisement only; no ICP-2 Plan shape realizes
+it.
 -/
 
 namespace ProofForgeV2.Targets.Icp

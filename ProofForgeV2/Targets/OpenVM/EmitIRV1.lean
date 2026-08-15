@@ -15,8 +15,9 @@ main.rs) is shared by both profiles and targets an OpenVM-compilable
 zero-tool; the opt-in `openvm-guest-elf-v1` profile (ADR-0046) may build and
 transpile this guest with locked `cargo-openvm`. Neither profile invokes
 keygen, execute, or any prove/verify toolchain. Overflow/underflow use native
-Rust `checked_add`/`checked_sub`; bare assert and zero-payload declared
-revert become early `Err` returns.
+Rust `checked_add`/`checked_sub` on `u64` (unsigned) or `i64` (homogeneous
+signed domain); bare assert and zero-payload declared revert become early
+`Err` returns.
 -/
 
 namespace ProofForgeV2.Targets.OpenVM
@@ -71,7 +72,8 @@ inductive StateAccess where
 
 structure RustFn where
   name : String
-  /-- All O0 scalar params render as `u64` (Bool params are outside O0). -/
+  /-- Scalar params render as `u64` or `i64` from `IR.signedNumeric`.
+      Bool params remain outside O0. -/
   params : Array String
   stateAccess : StateAccess
   isInit : Bool := false
@@ -81,11 +83,15 @@ structure RustFn where
 
 structure IR where
   sourcePlan : Plan
+  signedNumeric : Bool
   stateFields : Array String
   initFn : RustFn
   entryFns : Array RustFn
   viewFns : Array RustFn
   deriving BEq, Inhabited, Repr
+
+private def numericRustType (signed : Bool) : String :=
+  if signed then "i64" else "u64"
 
 -- ---------------------------------------------------------------------------
 -- Plan Expr → RExpr
@@ -119,7 +125,11 @@ private partial def lowerExprToRExpr
   | .arith .sub l r => do
       let rl ← lowerExprToRExpr plan params l
       let rr ← lowerExprToRExpr plan params r
-      pure (.checkedSub rl rr FailureKind.underflow.code)
+      -- Signed sub overflow (`i64::MIN - 1`) is overflow, not unsigned underflow.
+      let code :=
+        if plan.signedNumeric then FailureKind.overflow.code
+        else FailureKind.underflow.code
+      pure (.checkedSub rl rr code)
   | .compare op l r => do
       let rl ← lowerExprToRExpr plan params l
       let rr ← lowerExprToRExpr plan params r
@@ -152,6 +162,7 @@ private def guardChecksOf (checks : Array Check) : Array Check :=
 private def resultRustType : ResultKind → String
   | .unit => "()"
   | .uint64 => "u64"
+  | .int64 => "i64"
   | .bool => "bool"
 
 private def buildEntryFn (plan : Plan) (ent : PlanEntry) : CompileResult RustFn := do
@@ -226,7 +237,11 @@ private def lower (plan : Plan) : CompileResult IR := do
   let mut viewFns : Array RustFn := #[]
   for v in plan.views do
     viewFns := viewFns.push (← buildViewFn plan v)
-  pure { sourcePlan := plan, stateFields, initFn, entryFns, viewFns }
+  pure {
+    sourcePlan := plan
+    signedNumeric := plan.signedNumeric
+    stateFields, initFn, entryFns, viewFns
+  }
 
 -- ---------------------------------------------------------------------------
 -- Rust renderer
@@ -235,39 +250,41 @@ private def lower (plan : Plan) : CompileResult IR := do
 private def cmpSym : RCmpOp → String
   | .eq => "==" | .ne => "!=" | .lt => "<" | .le => "<=" | .gt => ">" | .ge => ">="
 
-private partial def renderRExpr : RExpr → String
-  | .litU64 v => s!"{v}u64"
+private partial def renderRExpr (signed : Bool) : RExpr → String
+  | .litU64 v =>
+      if signed then s!"({v}u64 as i64)" else s!"{v}u64"
   | .litBool true => "true"
   | .litBool false => "false"
   | .name id => id
   | .checkedAdd l r code =>
-      s!"({renderRExpr l}).checked_add({renderRExpr r}).ok_or({code}u32)?"
+      s!"({renderRExpr signed l}).checked_add({renderRExpr signed r}).ok_or({code}u32)?"
   | .checkedSub l r code =>
-      s!"({renderRExpr l}).checked_sub({renderRExpr r}).ok_or({code}u32)?"
+      s!"({renderRExpr signed l}).checked_sub({renderRExpr signed r}).ok_or({code}u32)?"
   | .compareOp op l r =>
-      s!"({renderRExpr l} {cmpSym op} {renderRExpr r})"
-  | .boolAnd l r => s!"({renderRExpr l} && {renderRExpr r})"
-  | .boolOr l r => s!"({renderRExpr l} || {renderRExpr r})"
-  | .boolNot o => s!"(!{renderRExpr o})"
+      s!"({renderRExpr signed l} {cmpSym op} {renderRExpr signed r})"
+  | .boolAnd l r => s!"({renderRExpr signed l} && {renderRExpr signed r})"
+  | .boolOr l r => s!"({renderRExpr signed l} || {renderRExpr signed r})"
+  | .boolNot o => s!"(!{renderRExpr signed o})"
   | .okUnit => "Ok(())"
-  | .okValue v => s!"Ok({renderRExpr v})"
+  | .okValue v => s!"Ok({renderRExpr signed v})"
 
 private def indent (n : Nat) (s : String) : String :=
   String.ofList (List.replicate n ' ') ++ s
 
-private def renderStmt (level : Nat) : RStmt → String
+private def renderStmt (signed : Bool) (level : Nat) : RStmt → String
   | .guard cond code =>
-      indent level s!"if !({renderRExpr cond}) \{ return Err({code}u32); }"
+      indent level s!"if !({renderRExpr signed cond}) \{ return Err({code}u32); }"
   | .storeField field value =>
-      indent level s!"state.{field} = {renderRExpr value};"
+      indent level s!"state.{field} = {renderRExpr signed value};"
   | .tail value =>
-      indent level (renderRExpr value)
+      indent level (renderRExpr signed value)
   | .unreachableAfterRevert =>
       indent level
         "unreachable!(\"O0 template: a prior guard always returns before this point\")"
 
-private def paramsSig (fn : RustFn) : String :=
-  let base := fn.params.map (fun p => s!"{p}: u64")
+private def paramsSig (signed : Bool) (fn : RustFn) : String :=
+  let ty := numericRustType signed
+  let base := fn.params.map (fun p => s!"{p}: {ty}")
   let withState :=
     match fn.stateAccess with
     | .none_ => base
@@ -275,27 +292,29 @@ private def paramsSig (fn : RustFn) : String :=
     | .refMut => #["state: &mut State"] ++ base
   String.intercalate ", " withState.toList
 
-private def renderFn (fn : RustFn) : Array String := Id.run do
+private def renderFn (signed : Bool) (fn : RustFn) : Array String := Id.run do
   let mut lines : Array String := #[]
-  lines := lines.push s!"pub fn {fn.name}({paramsSig fn}) -> {fn.retType} \{"
+  lines := lines.push s!"pub fn {fn.name}({paramsSig signed fn}) -> {fn.retType} \{"
   if fn.isInit then
     lines := lines.push (indent 4 "let mut state = State::default();")
   for stmt in fn.stmts do
-    lines := lines.push (renderStmt 4 stmt)
+    lines := lines.push (renderStmt signed 4 stmt)
   lines := lines.push "}"
   pure lines
 
-private def renderState (fields : Array String) : Array String := Id.run do
+private def renderState (signed : Bool) (fields : Array String) : Array String := Id.run do
+  let ty := numericRustType signed
   let mut lines : Array String :=
     #["#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]", "pub struct State {"]
   for f in fields do
-    lines := lines.push (indent 4 s!"pub {f}: u64,")
+    lines := lines.push (indent 4 s!"pub {f}: {ty},")
   lines := lines.push "}"
   pure lines
 
-/-- `let {p}: u64 = openvm::io::read();` — every O0 scalar param is `u64`. -/
-private def readParamStmt (p : String) : String :=
-  indent 4 s!"let {p}: u64 = openvm::io::read();"
+/-- `let {p}: u64|i64 = openvm::io::read();` — O0 scalar params follow the
+    homogeneous numeric domain. -/
+private def readParamStmt (signed : Bool) (p : String) : String :=
+  indent 4 s!"let {p}: {numericRustType signed} = openvm::io::read();"
 
 private def callArgsList (leading params : Array String) : String :=
   String.intercalate ", " (leading ++ params).toList
@@ -305,6 +324,7 @@ private def callArgsList (leading params : Array String) : String :=
 private def okOutcomeArm : ResultKind → String
   | .unit => "Ok(()) => (1u8, 0u64)"
   | .uint64 => "Ok(v) => (1u8, v)"
+  | .int64 => "Ok(v) => (1u8, v as u64)"
   | .bool => "Ok(v) => (1u8, if v { 1u64 } else { 0u64 })"
 
 /-- Deterministic `main` body: read init params, construct state, read the
@@ -312,14 +332,14 @@ private def okOutcomeArm : ResultKind → String
     (`byte0`=1 ok/0 err, `bytes[1..9]`=LE value-or-errCode as u64). Plan
     validation guarantees at least one entry, so `entryFn`/`resultKind` are
     always available at this call site. -/
-private def renderMainBody (initFn entryFn : RustFn) (resultKind : ResultKind) :
-    Array String := Id.run do
+private def renderMainBody (signed : Bool) (initFn entryFn : RustFn)
+    (resultKind : ResultKind) : Array String := Id.run do
   let mut lines : Array String := #[]
   for p in initFn.params do
-    lines := lines.push (readParamStmt p)
+    lines := lines.push (readParamStmt signed p)
   lines := lines.push (indent 4 s!"let mut state = {initFn.name}({callArgsList #[] initFn.params});")
   for p in entryFn.params do
-    lines := lines.push (readParamStmt p)
+    lines := lines.push (readParamStmt signed p)
   let callArgs := callArgsList #["&mut state"] entryFn.params
   lines := lines.push (indent 4 s!"let (ok, value): (u8, u64) = match {entryFn.name}({callArgs}) \{")
   lines := lines.push (indent 8 s!"{okOutcomeArm resultKind},")
@@ -351,20 +371,21 @@ private def renderMainRs (ir : IR) : String := Id.run do
   lines := lines.push ""
   lines := lines.push "openvm::entry!(main);"
   lines := lines.push ""
-  lines := lines ++ renderState ir.stateFields
+  let signed := ir.signedNumeric
+  lines := lines ++ renderState signed ir.stateFields
   lines := lines.push ""
-  lines := lines ++ renderFn ir.initFn
+  lines := lines ++ renderFn signed ir.initFn
   for fn in ir.entryFns do
     lines := lines.push ""
-    lines := lines ++ renderFn fn
+    lines := lines ++ renderFn signed fn
   for fn in ir.viewFns do
     lines := lines.push ""
-    lines := lines ++ renderFn fn
+    lines := lines ++ renderFn signed fn
   lines := lines.push ""
   lines := lines.push "fn main() {"
   match ir.entryFns[0]?, ir.sourcePlan.entries[0]? with
   | some entryFn, some planEntry =>
-      lines := lines ++ renderMainBody ir.initFn entryFn planEntry.resultKind
+      lines := lines ++ renderMainBody signed ir.initFn entryFn planEntry.resultKind
   | _, _ =>
       lines := lines.push
         (indent 4 "// unreachable: OpenVM Plan validation requires at least one entry")
@@ -438,6 +459,8 @@ private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) := do
 
 def validateIR (ir : IR) : CompileResult Unit := do
   validatePlan ir.sourcePlan
+  unless ir.signedNumeric == ir.sourcePlan.signedNumeric do
+    planError "OpenVM IR signedNumeric diverges from Plan lowering"
 
 /-- Capability-gated public IR entry. -/
 def irFromCapability (capability : ResolvedEngineeringBuildV1) : CompileResult IR := do

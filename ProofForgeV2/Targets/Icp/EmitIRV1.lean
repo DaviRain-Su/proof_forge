@@ -14,11 +14,12 @@ Honesty notes (ICP-2 engineering pilot, not formal / hermetic / deployed):
   stable-memory persistence across canister upgrade (no
   `canister_pre_upgrade`/`canister_post_upgrade`). A real upgrade would lose
   state; this leaf has no upgrade story.
-* The Candid wire codec here is a minimal inline codec scoped to an
-  all-`nat64` argument/result domain (zero or more `nat64` args, zero or one
-  `nat64` result; zero-entry type table; type opcode `0x78`; values as
-  little-endian 8-byte payloads; LEB128 only for table/arg counts). Finalize
-  uses locked `wat2wasm` only; PocketIC is a separate host-optional ICP-3
+* The Candid wire codec here is a minimal inline codec scoped to a
+  homogeneous integer domain: all-`nat64` (`0x78`) or all-`int64` (`0x79`)
+  (zero or more args, zero or one result; zero-entry type table; values as
+  little-endian 8-byte payloads; LEB128 only for table/arg counts). Signed
+  programs use two's-complement overflow traps on `+`/`-`. Finalize uses
+  locked `wat2wasm` only; PocketIC is a separate host-optional ICP-3
   lane (`scripts/icp_runtime_test.sh`), not invoked from Finalize.
 * `canister_init` does not call `ic0.msg_reply` (the install path has no
   reply expectation); `canister_update`/`canister_query` methods do.
@@ -45,6 +46,7 @@ inductive Operation where
   | unixTimeSeconds (destination : Nat)
   | checkedAdd (destination lhs rhs : Nat)
   | checkedSub (destination lhs rhs : Nat)
+  | compare (destination : Nat) (op : CompareOp) (lhs rhs : Nat)
   | storeState (fieldIndex value : Nat)
   deriving BEq, Inhabited, Repr
 
@@ -60,6 +62,7 @@ structure MethodIR where
 
 structure IR where
   sourcePlan : Plan
+  signedNumeric : Bool
   initializer : MethodIR
   entries : Array MethodIR
   views : Array MethodIR
@@ -95,6 +98,14 @@ private partial def lowerExpr (next : Nat) : Expr → LoweredExpr
       let r := lowerExpr l.next rhs
       {
         operations := l.operations ++ r.operations ++ #[.checkedSub r.next l.value r.value]
+        value := r.next
+        next := r.next + 1
+      }
+  | .compare op lhs rhs =>
+      let l := lowerExpr next lhs
+      let r := lowerExpr l.next rhs
+      {
+        operations := l.operations ++ r.operations ++ #[.compare r.next op l.value r.value]
         value := r.next
         next := r.next + 1
       }
@@ -134,6 +145,7 @@ private def lower (plan : Plan) : CompileResult IR := do
   validatePlan plan
   pure {
     sourcePlan := plan
+    signedNumeric := plan.signedNumeric
     initializer := lowerMethod plan.initializer
     entries := plan.entries.map lowerMethod
     views := plan.views.map lowerMethod
@@ -151,9 +163,18 @@ private def argBufCap : Nat := 512
 private def replyBufOffset : Nat := 4096
 
 /-- Candid primitive type opcode for `nat64` (SLEB128 `-8`, single byte
-    `0x78`). ICP-2's declared type domain is nat64-only, so every type-code
-    slot in the header is this exact byte. -/
+    `0x78`) and `int64` (SLEB128 `-7`, `0x79`). A given Plan is homogeneous:
+    every integer slot uses exactly one of these opcodes. -/
 private def candidNat64Opcode : Nat := 120
+private def candidInt64Opcode : Nat := 121
+/-- Candid `bool` (SLEB128 `-2`, single byte `0x7e`). -/
+private def candidBoolOpcode : Nat := 126
+
+private def candidIntOpcode (signed : Bool) : Nat :=
+  if signed then candidInt64Opcode else candidNat64Opcode
+
+private def candidIntName (signed : Bool) : String :=
+  if signed then "int64" else "nat64"
 
 private def wasmFuncName (name : String) : String := "$" ++ name
 
@@ -215,7 +236,27 @@ private def preludeWat : String :=
   "    )\n" ++
   "  )\n"
 
-private def renderOperation : Operation → String
+/-- Same-sign add that wraps to the opposite sign is overflow.
+    Different-sign sub that does not preserve the lhs sign is overflow. -/
+private def renderSignedAddTrap (destination lhs rhs : Nat) : String :=
+  s!"    (local.set $t{destination} (i64.add (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
+  s!"    (if (i32.and\n" ++
+  s!"          (i64.eqz (i64.xor (i64.shr_s (local.get $t{lhs}) (i64.const 63))\n" ++
+  s!"                            (i64.shr_s (local.get $t{rhs}) (i64.const 63))))\n" ++
+  s!"          (i32.eqz (i64.eqz (i64.xor (i64.shr_s (local.get $t{lhs}) (i64.const 63))\n" ++
+  s!"                                     (i64.shr_s (local.get $t{destination}) (i64.const 63))))))\n" ++
+  s!"      (then unreachable))\n"
+
+private def renderSignedSubTrap (destination lhs rhs : Nat) : String :=
+  s!"    (local.set $t{destination} (i64.sub (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
+  s!"    (if (i32.and\n" ++
+  s!"          (i32.eqz (i64.eqz (i64.xor (i64.shr_s (local.get $t{lhs}) (i64.const 63))\n" ++
+  s!"                                     (i64.shr_s (local.get $t{rhs}) (i64.const 63)))))\n" ++
+  s!"          (i32.eqz (i64.eqz (i64.xor (i64.shr_s (local.get $t{lhs}) (i64.const 63))\n" ++
+  s!"                                     (i64.shr_s (local.get $t{destination}) (i64.const 63))))))\n" ++
+  s!"      (then unreachable))\n"
+
+private def renderOperation (signed : Bool) : Operation → String
   | .literal destination value =>
       s!"    (local.set $t{destination} (i64.const {value.toNat}))\n"
   | .stateLoad destination fieldIndex =>
@@ -224,13 +265,33 @@ private def renderOperation : Operation → String
       -- CAP-1a: ic0.time is nanoseconds; catalog key is whole Unix seconds.
       s!"    (local.set $t{destination} (i64.div_u (call $ic0_time) (i64.const 1000000000)))\n"
   | .checkedAdd destination lhs rhs =>
-      s!"    (local.set $t{destination} (i64.add (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
-      s!"    (if (i64.lt_u (local.get $t{destination}) (local.get $t{lhs})) (then unreachable))\n"
+      if signed then
+        renderSignedAddTrap destination lhs rhs
+      else
+        s!"    (local.set $t{destination} (i64.add (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
+        s!"    (if (i64.lt_u (local.get $t{destination}) (local.get $t{lhs})) (then unreachable))\n"
   | .checkedSub destination lhs rhs =>
-      s!"    (if (i64.lt_u (local.get $t{lhs}) (local.get $t{rhs})) (then unreachable))\n" ++
-      s!"    (local.set $t{destination} (i64.sub (local.get $t{lhs}) (local.get $t{rhs})))\n"
+      if signed then
+        renderSignedSubTrap destination lhs rhs
+      else
+        s!"    (if (i64.lt_u (local.get $t{lhs}) (local.get $t{rhs})) (then unreachable))\n" ++
+        s!"    (local.set $t{destination} (i64.sub (local.get $t{lhs}) (local.get $t{rhs})))\n"
   | .storeState fieldIndex value =>
       s!"    (global.set $g_state_{fieldIndex} (local.get $t{value}))\n"
+  | .compare destination op lhs rhs =>
+      let insn :=
+        match op, signed with
+        | .eq, _ => "i64.eq"
+        | .ne, _ => "i64.ne"
+        | .lt, true => "i64.lt_s"
+        | .lt, false => "i64.lt_u"
+        | .le, true => "i64.le_s"
+        | .le, false => "i64.le_u"
+        | .gt, true => "i64.gt_s"
+        | .gt, false => "i64.gt_u"
+        | .ge, true => "i64.ge_s"
+        | .ge, false => "i64.ge_u"
+      s!"    (local.set $t{destination} (i64.extend_i32_u ({insn} (local.get $t{lhs}) (local.get $t{rhs}))))\n"
 
 private def renderLocals (tempCount : Nat) : String :=
   if tempCount == 0 then ""
@@ -239,10 +300,12 @@ private def renderLocals (tempCount : Nat) : String :=
     "    " ++ String.intercalate " " names ++ "\n"
 
 /-- Copy the incoming Candid message into the argument scratch buffer,
-    validate the "DIDL" magic + empty type table + exact `nat64`×paramCount
+    validate the "DIDL" magic + empty type table + exact integer×paramCount
     argument-type sequence, then decode the values into `t0..t{paramCount-1}`
     in order. -/
-private def renderArgDecodePrologue (paramCount : Nat) : String := Id.run do
+private def renderArgDecodePrologue (signed : Bool) (paramCount : Nat) : String :=
+  Id.run do
+  let opcode := candidIntOpcode signed
   let mut out := ""
   out := out ++
     s!"    (if (i32.gt_u (call $ic0_msg_arg_data_size) (i32.const {argBufCap})) (then unreachable))\n"
@@ -255,18 +318,20 @@ private def renderArgDecodePrologue (paramCount : Nat) : String := Id.run do
     s!"    (if (i64.ne (call $pf_leb_read) (i64.const {paramCount})) (then unreachable))\n"
   for _ in [0:paramCount] do
     out := out ++
-      s!"    (if (i32.ne (call $pf_read_byte) (i32.const {candidNat64Opcode})) (then unreachable))\n"
+      s!"    (if (i32.ne (call $pf_read_byte) (i32.const {opcode})) (then unreachable))\n"
   for i in [0:paramCount] do
-    -- Candid nat64 values are little-endian 8 bytes (not LEB128).
+    -- Candid nat64/int64 values are little-endian 8 bytes (not LEB128).
     out := out ++
       s!"    (local.set $t{i} (i64.load (global.get $pf_cursor)))\n"
     out := out ++
       "    (global.set $pf_cursor (i32.add (global.get $pf_cursor) (i32.const 8)))\n"
   pure out
 
-/-- Encode the Candid reply ("DIDL" + empty type table + 0/1 `nat64` result)
+/-- Encode the Candid reply ("DIDL" + empty type table + 0/1 integer result)
     and hand it to the host. -/
-private def renderReplyEpilogue (result? : Option Nat) : String := Id.run do
+private def renderReplyEpilogue
+    (signed : Bool) (resultKind : ResultKind) (result? : Option Nat) : String :=
+  Id.run do
   let mut out := ""
   out := out ++ s!"    (global.set $pf_reply_len (i32.const {replyBufOffset}))\n"
   out := out ++ "    (call $pf_write_didl)\n"
@@ -276,25 +341,32 @@ private def renderReplyEpilogue (result? : Option Nat) : String := Id.run do
       out := out ++ "    (call $pf_leb_write (i64.const 0))\n"
   | some temp =>
       out := out ++ "    (call $pf_leb_write (i64.const 1))\n"
-      out := out ++ s!"    (call $pf_write_byte (i32.const {candidNat64Opcode}))\n"
-      -- Candid nat64 payload: little-endian 8 bytes at the reply cursor.
-      out := out ++ s!"    (i64.store (global.get $pf_reply_len) (local.get $t{temp}))\n"
-      out := out ++
-        "    (global.set $pf_reply_len (i32.add (global.get $pf_reply_len) (i32.const 8)))\n"
+      if resultKind == .bool then
+        out := out ++ s!"    (call $pf_write_byte (i32.const {candidBoolOpcode}))\n"
+        out := out ++
+          s!"    (call $pf_write_byte (i32.wrap_i64 (local.get $t{temp})))\n"
+      else
+        let opcode := candidIntOpcode signed
+        out := out ++ s!"    (call $pf_write_byte (i32.const {opcode}))\n"
+        out := out ++ s!"    (i64.store (global.get $pf_reply_len) (local.get $t{temp}))\n"
+        out := out ++
+          "    (global.set $pf_reply_len (i32.add (global.get $pf_reply_len) (i32.const 8)))\n"
   out := out ++
     s!"    (call $ic0_msg_reply_data_append (i32.const {replyBufOffset}) (i32.sub (global.get $pf_reply_len) (i32.const {replyBufOffset})))\n"
   out := out ++ "    (call $ic0_msg_reply)\n"
   pure out
 
-private def renderMethodFunc (m : MethodIR) (funcName : String) (emitReply : Bool) : String :=
+private def renderMethodFunc
+    (signed : Bool) (m : MethodIR) (funcName : String) (emitReply : Bool) :
+    String :=
   Id.run do
     let mut out := s!"  (func {funcName}\n"
     out := out ++ renderLocals m.tempCount
-    out := out ++ renderArgDecodePrologue m.paramCount
+    out := out ++ renderArgDecodePrologue signed m.paramCount
     for op in m.operations do
-      out := out ++ renderOperation op
+      out := out ++ renderOperation signed op
     if emitReply then
-      out := out ++ renderReplyEpilogue m.result?
+      out := out ++ renderReplyEpilogue signed m.resultKind m.result?
     out := out ++ "  )\n"
     pure out
 
@@ -324,9 +396,12 @@ private def renderModule (ir : IR) : String := Id.run do
   out := out ++
     "  ;; ICP-2 engineering pilot: MVP heap globals only (no stable-memory\n"
   out := out ++
-    "  ;; upgrade persistence); Candid nat64-only inline codec (type opcode\n"
+    (if ir.signedNumeric then
+      "  ;; upgrade persistence); Candid int64 (0x79) inline codec\n"
+    else
+      "  ;; upgrade persistence); Candid nat64-only inline codec\n")
   out := out ++
-    "  ;; 0x78 + LE8 values; LEB128 for table/arg counts; no compound types);\n"
+    "  ;; (type opcode 0x78/0x79 + LE8 values; LEB128 for table/arg counts);\n"
   out := out ++
     "  ;; not formal; PocketIC engineering gate is a separate host-optional lane.\n"
   out := out ++
@@ -345,15 +420,15 @@ private def renderModule (ir : IR) : String := Id.run do
   out := out ++ "  (global $pf_reply_len (mut i32) (i32.const 0))\n"
   out := out ++ renderStateGlobals ir.sourcePlan.states
   out := out ++ preludeWat
-  out := out ++ renderMethodFunc ir.initializer "$canister_init" false
+  out := out ++ renderMethodFunc ir.signedNumeric ir.initializer "$canister_init" false
   out := out ++ "  (export \"canister_init\" (func $canister_init))\n"
   for ent in ir.entries do
     let fn := wasmFuncName ent.name
-    out := out ++ renderMethodFunc ent fn true
+    out := out ++ renderMethodFunc ir.signedNumeric ent fn true
     out := out ++ s!"  (export \"canister_update {ent.name}\" (func {fn}))\n"
   for v in ir.views do
     let fn := wasmFuncName v.name
-    out := out ++ renderMethodFunc v fn true
+    out := out ++ renderMethodFunc ir.signedNumeric v fn true
     out := out ++ s!"  (export \"canister_query {v.name}\" (func {fn}))\n"
   out := out ++ ")\n"
   pure out
@@ -362,21 +437,30 @@ private def renderModule (ir : IR) : String := Id.run do
 -- Candid `.did` renderer
 -- ---------------------------------------------------------------------------
 
-private def natArgList (paramCount : Nat) : String :=
-  String.intercalate ", " (List.replicate paramCount "nat64")
+private def intArgList (signed : Bool) (paramCount : Nat) : String :=
+  String.intercalate ", " (List.replicate paramCount (candidIntName signed))
 
 private def renderCandidService (ir : IR) : String := Id.run do
+  let signed := ir.signedNumeric
   let mut out := "service : "
   if !ir.sourcePlan.initializer.params.isEmpty then
-    out := out ++ s!"({natArgList ir.sourcePlan.initializer.params.size}) "
+    out := out ++ s!"({intArgList signed ir.sourcePlan.initializer.params.size}) "
   out := out ++ "{\n"
   for ent in ir.entries do
     let resultStr : String := match ent.resultKind with
       | .unit => ""
       | .uint64 => "nat64"
-    out := out ++ s!"  {ent.name} : ({natArgList ent.paramCount}) -> ({resultStr});\n"
+      | .int64 => "int64"
+      | .bool => "bool"
+    out := out ++
+      s!"  {ent.name} : ({intArgList signed ent.paramCount}) -> ({resultStr});\n"
   for v in ir.views do
-    out := out ++ s!"  {v.name} : ({natArgList v.paramCount}) -> (nat64) query;\n"
+    let viewRet := match v.resultKind with
+      | .bool => "bool"
+      | .int64 => "int64"
+      | _ => candidIntName signed
+    out := out ++
+      s!"  {v.name} : ({intArgList signed v.paramCount}) -> ({viewRet}) query;\n"
   out := out ++ "}\n"
   pure out
 
@@ -401,6 +485,8 @@ private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) := do
 def validateIR (ir : IR) : CompileResult Unit := do
   validatePlan ir.sourcePlan
   let expected ← lower ir.sourcePlan
+  unless expected.signedNumeric == ir.signedNumeric do
+    planError "ICP IR signedNumeric diverges from Plan lowering"
   unless expected.initializer == ir.initializer do
     planError "ICP IR initializer diverges from Plan lowering"
   unless expected.entries == ir.entries do

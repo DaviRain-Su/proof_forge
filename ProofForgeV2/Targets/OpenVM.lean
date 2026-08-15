@@ -18,11 +18,12 @@ like Aleo/Psy/Quint. Plan types and Semantic→Plan lowering live in
 IR + `.rs`/`.toml`/`.json` emission in `EmitIRV1`; zero-tool finalization in
 `FinalizeV1`.
 
-O0 envelope: anonymous UInt64/Bool/Unit only; public UInt64 state/params;
-public Unit/UInt64/Bool results; single-block callables; pureFn inline
-(depth ≤ 64); checked `+`/`-` only; bare assert; zero-payload declared
+O0 envelope: anonymous UInt64/Int64/Bool/Unit; public homogeneous UInt64
+**or** Int64 state/params (mixing fail closed); public Unit/UInt64/Int64/Bool
+results; single-block callables; pureFn inline (depth ≤ 64); checked `+`/`-`
+only (signed uses Rust `i64::checked_*`); bare assert; zero-payload declared
 revert; empty events/constants; no call/schedule/ContextRead/Commit/
-aggregates/multi-width/invariants/Principal/pf.assets. Everything else fails
+aggregates/narrow-Int/invariants/Principal/pf.assets. Everything else fails
 closed. Zero-tool finalize — no guest build/transpile/keygen/execute/
 prove/verify.
 -/

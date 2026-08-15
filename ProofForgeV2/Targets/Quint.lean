@@ -17,7 +17,9 @@ exactly like Aleo/Psy/Noir. Plan types and Semantic→Plan lowering live in
 `LowerSemanticV1`; plan canonicity in `ValidatePlanV1`; structured IR +
 `.qnt` emission in `EmitIRV1`; zero-tool finalization in `FinalizeV1`.
 
-Q0 envelope: public UInt64 state/params; Unit/UInt64/Bool results; single-block
+Q0 envelope: public homogeneous UInt64 **or** Int64 state/params
+(mixing fail closed); Unit/UInt64/Int64/Bool results; `Array UInt64 N`
+(N=1..8) state flattens to N UInt64 leaves (no native List); single-block
 callables; pureFn inline (depth ≤ 64); zero-param Bool invariants; empty
 constants/events and zero-payload declared errors only. Everything else fails closed.
 -/

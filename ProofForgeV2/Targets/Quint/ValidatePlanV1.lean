@@ -55,13 +55,14 @@ private partial def exprUsesVaultNativeV1 (e : Expr) : Bool :=
 private partial def inferExprType
     (e : Expr) (what : String)
     (paramCount stateCount assetOpCount fuel : Nat)
-    (paramIsPrincipal : Array Bool) :
+    (paramIsPrincipal : Array Bool) (signed : Bool) :
     CompileResult (ExprType × Nat) := do
   if fuel == 0 then
     planError s!"Quint plan {what} expression exhausted type-check fuel"
   let remaining := fuel - 1
+  let numeric : ExprType := if signed then .int64 else .uint64
   match e with
-  | .litU64 _ => pure (.uint64, remaining)
+  | .litU64 _ => pure (numeric, remaining)
   | .litBool _ => pure (.bool, remaining)
   | .param index =>
       unless index < paramCount do
@@ -69,11 +70,11 @@ private partial def inferExprType
       if paramIsPrincipal[index]? == some true then
         pure (.principal, remaining)
       else
-        pure (.uint64, remaining)
+        pure (numeric, remaining)
   | .stateLoad fieldIndex =>
       unless fieldIndex < stateCount do
         planError s!"Quint plan {what} references unknown state field {fieldIndex}"
-      pure (.uint64, remaining)
+      pure (numeric, remaining)
   | .vaultNative => pure (.uint64, remaining)
   | .externalOk ordinal =>
       unless ordinal < assetOpCount do
@@ -81,36 +82,43 @@ private partial def inferExprType
       pure (.bool, remaining)
   | .arith _ lhs rhs => do
       let (lhsTy, remaining) ←
-        inferExprType lhs what paramCount stateCount assetOpCount remaining paramIsPrincipal
+        inferExprType lhs what paramCount stateCount assetOpCount remaining
+          paramIsPrincipal signed
       let (rhsTy, remaining) ←
-        inferExprType rhs what paramCount stateCount assetOpCount remaining paramIsPrincipal
-      unless lhsTy == .uint64 && rhsTy == .uint64 do
-        planError s!"Quint plan {what} arithmetic operands must be UInt64"
-      pure (.uint64, remaining)
+        inferExprType rhs what paramCount stateCount assetOpCount remaining
+          paramIsPrincipal signed
+      unless lhsTy == numeric && rhsTy == numeric do
+        planError s!"Quint plan {what} arithmetic operands must match the numeric domain"
+      pure (numeric, remaining)
   | .compare op lhs rhs => do
       let (lhsTy, remaining) ←
-        inferExprType lhs what paramCount stateCount assetOpCount remaining paramIsPrincipal
+        inferExprType lhs what paramCount stateCount assetOpCount remaining
+          paramIsPrincipal signed
       let (rhsTy, remaining) ←
-        inferExprType rhs what paramCount stateCount assetOpCount remaining paramIsPrincipal
+        inferExprType rhs what paramCount stateCount assetOpCount remaining
+          paramIsPrincipal signed
       match op with
       | .eq | .ne =>
-          unless lhsTy == rhsTy && (lhsTy == .uint64 || lhsTy == .bool) do
-            planError s!"Quint plan {what} equality operands must share UInt64/Bool type"
+          unless lhsTy == rhsTy && (lhsTy == .uint64 || lhsTy == .int64 || lhsTy == .bool) do
+            planError s!"Quint plan {what} equality operands must share UInt64/Int64/Bool type"
       | .lt | .le | .gt | .ge =>
-          unless lhsTy == .uint64 && rhsTy == .uint64 do
-            planError s!"Quint plan {what} ordering operands must be UInt64"
+          unless lhsTy == numeric && rhsTy == numeric do
+            planError s!"Quint plan {what} ordering operands must match the numeric domain"
       pure (.bool, remaining)
   | .boolAnd lhs rhs | .boolOr lhs rhs => do
       let (lhsTy, remaining) ←
-        inferExprType lhs what paramCount stateCount assetOpCount remaining paramIsPrincipal
+        inferExprType lhs what paramCount stateCount assetOpCount remaining
+          paramIsPrincipal signed
       let (rhsTy, remaining) ←
-        inferExprType rhs what paramCount stateCount assetOpCount remaining paramIsPrincipal
+        inferExprType rhs what paramCount stateCount assetOpCount remaining
+          paramIsPrincipal signed
       unless lhsTy == .bool && rhsTy == .bool do
         planError s!"Quint plan {what} logical operands must be Bool"
       pure (.bool, remaining)
   | .boolNot operand => do
       let (operandTy, remaining) ←
-        inferExprType operand what paramCount stateCount assetOpCount remaining paramIsPrincipal
+        inferExprType operand what paramCount stateCount assetOpCount remaining
+          paramIsPrincipal signed
       unless operandTy == .bool do
         planError s!"Quint plan {what} logical-not operand must be Bool"
       pure (.bool, remaining)
@@ -122,7 +130,7 @@ private partial def inferExprType
 private def validateExpr
     (e : Expr) (expected : ExprType) (what : String)
     (paramCount stateCount assetOpCount remaining0 : Nat)
-    (paramIsPrincipal : Array Bool) : CompileResult Nat := do
+    (paramIsPrincipal : Array Bool) (signed : Bool) : CompileResult Nat := do
   let mut stack : Array (Expr × Nat) := #[(e, 1)]
   let mut remaining := remaining0
   let mut localNodes : Nat := 0
@@ -166,24 +174,26 @@ private def validateExpr
     | .boolNot operand =>
         stack := stack.push (operand, depth + 1)
   let (actual, _) ←
-    inferExprType e what paramCount stateCount assetOpCount maxExprNodes paramIsPrincipal
+    inferExprType e what paramCount stateCount assetOpCount maxExprNodes
+      paramIsPrincipal signed
   unless actual == expected do
     planError s!"Quint plan {what} expression type does not match its use site"
   pure remaining
 
 private def validateCheck
     (ck : Check) (paramCount stateCount assetOpCount remaining : Nat)
-    (paramIsPrincipal : Array Bool) : CompileResult Nat :=
+    (paramIsPrincipal : Array Bool) (signed : Bool) : CompileResult Nat :=
   validateExpr ck.condition .bool "check condition" paramCount stateCount assetOpCount
-    remaining paramIsPrincipal
+    remaining paramIsPrincipal signed
 
 private def validateStores
     (stores : Array (Nat × Expr)) (stateCount paramCount remaining0 : Nat)
-    (paramIsPrincipal : Array Bool) : CompileResult Nat := do
+    (paramIsPrincipal : Array Bool) (signed : Bool) : CompileResult Nat := do
   unless stores.size ≤ maxStores do
     planError "Quint plan store count exceeds limit"
   let mut seen : Array Nat := #[]
   let mut remaining := remaining0
+  let storeTy : ExprType := if signed then .int64 else .uint64
   for (fi, e) in stores do
     unless fi < stateCount do
       planError "Quint plan store references an unknown state field"
@@ -191,17 +201,18 @@ private def validateStores
       planError "Quint plan store list has duplicate field indices"
     seen := seen.push fi
     remaining ←
-      validateExpr e .uint64 "store value" paramCount stateCount 0 remaining paramIsPrincipal
+      validateExpr e storeTy "store value" paramCount stateCount 0 remaining
+        paramIsPrincipal signed
   pure remaining
 
 private def validateAssetOps
     (ops : Array PfAssetsOp) (paramCount stateCount remaining0 : Nat)
-    (paramIsPrincipal : Array Bool) : CompileResult Nat := do
+    (paramIsPrincipal : Array Bool) (signed : Bool) : CompileResult Nat := do
   let mut remaining := remaining0
   for op in ops do
     remaining ←
       validateExpr op.amount .uint64 "asset op amount" paramCount stateCount ops.size
-        remaining paramIsPrincipal
+        remaining paramIsPrincipal signed
   pure remaining
 
 private def validateParams (params : Array String) : CompileResult Unit := do
@@ -237,6 +248,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     planError "Quint plan exceeds the invariant limit"
   unless plan.entries.size > 0 do
     planError "Quint plan requires at least one entry"
+  let signed := plan.signedNumeric
   let mut exprBudget := maxPlanExprNodes
   let mut stateNames : Array String := #[]
   for st in plan.states do
@@ -252,7 +264,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
         planError s!"Quint initializer '{init.name}' is not a safe identifier"
       validateParams init.params
       exprBudget ←
-        validateStores init.stores plan.states.size init.params.size exprBudget #[]
+        validateStores init.stores plan.states.size init.params.size exprBudget #[] signed
   let mut entryNames : Array String := #[]
   let mut expectedAction : Nat := 1
   let mut anyVaultUse := false
@@ -274,16 +286,16 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
       anyVaultUse := true
     exprBudget ←
       validateAssetOps ent.assetOps ent.params.size plan.states.size exprBudget
-        ent.paramIsPrincipal
+        ent.paramIsPrincipal signed
     for ck in ent.checks do
       exprBudget ←
         validateCheck ck ent.params.size plan.states.size ent.assetOps.size exprBudget
-          ent.paramIsPrincipal
+          ent.paramIsPrincipal signed
       if exprUsesVaultNativeV1 ck.condition then
         anyVaultUse := true
     exprBudget ←
       validateStores ent.stores plan.states.size ent.params.size exprBudget
-        ent.paramIsPrincipal
+        ent.paramIsPrincipal signed
     for (_fi, se) in ent.stores do
       if exprUsesVaultNativeV1 se then
         anyVaultUse := true
@@ -309,17 +321,23 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
           anyVaultUse := true
         exprBudget ←
           validateExpr e .uint64 "entry result" ent.params.size plan.states.size
-            ent.assetOps.size exprBudget ent.paramIsPrincipal
+            ent.assetOps.size exprBudget ent.paramIsPrincipal signed
+    | .int64, some e, false =>
+        if exprUsesVaultNativeV1 e then
+          anyVaultUse := true
+        exprBudget ←
+          validateExpr e .int64 "entry result" ent.params.size plan.states.size
+            ent.assetOps.size exprBudget ent.paramIsPrincipal signed
     | .bool, some e, false =>
         if exprUsesVaultNativeV1 e then
           anyVaultUse := true
         exprBudget ←
           validateExpr e .bool "entry result" ent.params.size plan.states.size
-            ent.assetOps.size exprBudget ent.paramIsPrincipal
-    | .uint64, some _, true | .bool, some _, true =>
+            ent.assetOps.size exprBudget ent.paramIsPrincipal signed
+    | .uint64, some _, true | .int64, some _, true | .bool, some _, true =>
         planError s!"Quint entry '{ent.name}' terminal revert must not carry a result expression"
-    | .uint64, none, true | .bool, none, true => pure ()
-    | .uint64, none, false | .bool, none, false =>
+    | .uint64, none, true | .int64, none, true | .bool, none, true => pure ()
+    | .uint64, none, false | .int64, none, false | .bool, none, false =>
         planError s!"Quint entry '{ent.name}' non-Unit result is missing without terminal revert"
   let mut viewNames : Array String := #[]
   for v in plan.views do
@@ -336,11 +354,15 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     | .uint64 =>
         exprBudget ←
           validateExpr v.value .uint64 "view value" v.params.size plan.states.size 0
-            exprBudget #[]
+            exprBudget #[] signed
+    | .int64 =>
+        exprBudget ←
+          validateExpr v.value .int64 "view value" v.params.size plan.states.size 0
+            exprBudget #[] signed
     | .bool =>
         exprBudget ←
           validateExpr v.value .bool "view value" v.params.size plan.states.size 0
-            exprBudget #[]
+            exprBudget #[] signed
   -- ADR-0030 E2: usesVaultNative covers entry asset ops AND env-read vaultNative
   -- expressions in entries/views (not only nonempty assetOps).
   unless plan.usesVaultNative == anyVaultUse do
@@ -358,9 +380,10 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     for ck in inv.checks do
       if isTerminalRevertKind ck.kind then
         planError s!"Quint invariant '{inv.name}' cannot carry a terminal-revert marker"
-      exprBudget ← validateCheck ck 0 plan.states.size 0 exprBudget #[]
+      exprBudget ← validateCheck ck 0 plan.states.size 0 exprBudget #[] signed
     exprBudget ←
       validateExpr inv.value .bool "invariant value" 0 plan.states.size 0 exprBudget #[]
+        signed
   pure ()
 
 end ProofForgeV2.Targets.Quint

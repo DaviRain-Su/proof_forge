@@ -3,7 +3,7 @@ id: TARGET-QUINT
 title: Quint executable-specification target dossier
 status: draft
 owner: architecture
-updated: 2026-08-04
+updated: 2026-08-15
 normative: true
 ---
 
@@ -48,16 +48,15 @@ reconciliation 见 **ADR-0036**。
 [`pf-assets-extension-v1.json`](../specs/pf-assets-extension-v1.json) 对齐）；其它
 target 对使用该 extension 的程序 **PF-REQ-UNSUPPORTED**。
 
-**Q0 合法 Semantic 子集**：anonymous `UInt64`/`Bool`/`Unit`/`Principal`（Principal 仅作
-pf.assets identity 参数，不可算术）；public `UInt64`
-state/params；target Plan 合法面为 public `Unit`/`UInt64`/`Bool` result（当前 source Normalize
+**Q0 合法 Semantic 子集**：anonymous `UInt64`/`Int64`/`Bool`/`Unit`/`Principal`（Principal 仅作
+pf.assets identity 参数，不可算术）；`Array UInt64 N`（N=1..8）state 展平为 N 个 UInt64 Plan 叶（不发射原生 Quint List；signedNumeric+Array / N=0/N>8 / 非字面量下标 fail closed）；public 齐次 `UInt64` **或** `Int64`
+state/params（混用 fail closed）；target Plan 合法面为 public `Unit`/`UInt64`/`Int64`/`Bool` result（当前 source Normalize
 尚不物化 bare-Unit entry return，产品可达 Unit 主要是 initializer）；zero-parameter public-Bool、只读
 Q0 invariant；view 仅 check-free 只读表达式；至少一个 entry，且 **single-block CFG**（无 loop /
-branch / switch / block params）；op 面限 literal、state load+store、checked `UInt64` 算术、比较、Bool
+branch / switch / block params）；op 面限 literal、state load+store、checked `UInt64` 算术或齐次 `Int64` 有符号范围检查、比较、Bool
 and/or/not、`pureCall`、bare assert、zero-payload declared revert（failure code=`256+ErrorId`）、
-以及 Phase A 准入的 void `ExternalCall` vault 子集（见下）。
-**完整 `UInt64`
-输入域**，禁止小域近似。其它形状一律 fail closed。
+以及 Phase A 准入的 void `ExternalCall` vault 子集（见下；vault 金额仍为 UInt64，故 Int64 程序不能混用 vault）。
+**完整 `UInt64` 输入域**或 **完整 `Int64` 输入域**，禁止小域近似。其它形状一律 fail closed。
 
 **失败语义**：失败 = **显式 outcome + 业务状态 stutter**；禁止用 blocked action
 掩盖业务失败。

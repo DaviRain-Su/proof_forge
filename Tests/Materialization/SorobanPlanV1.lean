@@ -55,6 +55,8 @@ unsafe def testStateCellSorobanSource : IO Unit := do
     "StateCell Soroban plan must carry the increment entry"
   expect (plan.views.map (·.name) == #["get"])
     "StateCell Soroban plan must carry the get view"
+  expect (!plan.signedNumeric)
+    "StateCell stays unsigned UInt64"
   match plan.initializer with
   | some initFn =>
       expect (initFn.params == #["initial"])
@@ -95,12 +97,87 @@ unsafe def testStateCellSorobanSource : IO Unit := do
     "Soroban entry must snapshot state into a local before stores"
   expect (rs.contains "st_count.checked_add(delta)")
     "Soroban source must use checked_add on the pre-state local"
+  expect (rs.contains "delta: u64")
+    "unsigned StateCell params stay u64"
+  expect (rs.contains "-> u64")
+    "unsigned StateCell results stay u64"
+  expect (rs.contains "unwrap_or(0_u64)")
+    "unsigned StateCell storage default stays 0_u64"
+  expect (!rs.contains "i64")
+    "unsigned StateCell must not emit i64"
   expect (!rs.contains "unwrap_or(0_u64).checked_add(delta).expect(\"overflow\") <= ")
     "Soroban must not re-get storage inside overflow predicates"
   expect (rs.contains "ProofForge Soroban S0")
     "Soroban source must carry the S0 honesty header"
   expect (!rs.contains "sol_invoke")
     "Soroban source must not invent Solana CPI"
+
+/-- Homogeneous Int64: signed Rust domain + checked signed arith. -/
+unsafe def testInt64CellSorobanSource : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Int64Cell where\n" ++
+    "  state count : Int64\n" ++
+    "  init(initial : Int64) do\n" ++
+    "    count := initial\n" ++
+    "  entry increment(delta : Int64) : Int64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : Int64 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-int64-cell>" "Tests.SorobanInt64Cell" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  expect plan.signedNumeric "Int64Cell Plan is signed"
+  expect (plan.states.map (·.name) == #["count"])
+    "Int64Cell Soroban plan must carry the count state field"
+  liftResult <| Targets.Soroban.validatePlan plan
+  let files ← liftResult <| buildSoroban compiled
+  let some rsFile := files.find? (fun f => f.path == "Int64Cell.rs") |
+    throw <| IO.userError "soroban: missing Int64Cell.rs"
+  let rs := rsFile.contents
+  expect (rs.contains "i64")
+    "signed Soroban source must use i64"
+  expect (rs.contains "delta: i64")
+    "signed Soroban params must be i64"
+  expect (rs.contains "-> i64")
+    "signed Soroban results must be i64"
+  expect (rs.contains "st_count.checked_add(delta)")
+    "signed Soroban source must use checked_add"
+  expect (rs.contains "unwrap_or(0_i64)")
+    "signed Soroban storage default is 0_i64"
+  expect (!rs.contains "0_u64")
+    "signed program must not use the UInt64 storage default"
+  expect (!rs.contains "delta: u64")
+    "signed program must not type params as u64"
+
+/-- Mixing Int64 state with a UInt64 view is fail closed. -/
+unsafe def testMixedInt64UInt64Fc : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MixInt64 where\n" ++
+    "  state count : Int64\n" ++
+    "  init(initial : Int64) do\n" ++
+    "    count := initial\n" ++
+    "  entry increment(delta : Int64) : Int64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return 0\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-mix-int64>" "Tests.SorobanMixInt64" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planSoroban compiled with
+  | .error (.planInvariant .soroban msg) =>
+      expect (msg.contains "mixes")
+        s!"mixed Int64/UInt64 must name mixes, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .soroban, got {e.render}"
+  | .ok _ => throw <| IO.userError "mixed Int64/UInt64 must fail closed at Soroban plan"
 
 /-- Multi-width UInt fails closed. -/
 unsafe def testMultiWidthFailClosed : IO Unit := do
@@ -351,6 +428,8 @@ unsafe def testUnknownProfileFailClosed : IO Unit := do
 
 unsafe def run : IO Unit := do
   testStateCellSorobanSource
+  testInt64CellSorobanSource
+  testMixedInt64UInt64Fc
   testMultiWidthFailClosed
   testInvariantFailClosed
   testCallFailClosed

@@ -47,47 +47,55 @@ private def isSafeIdent (name : String) : Bool :=
 
 private partial def inferExprType
     (e : Expr) (what : String)
-    (paramCount stateCount fuel : Nat) :
+    (paramCount stateCount fuel : Nat) (signed : Bool) :
     CompileResult (ExprType × Nat) := do
   if fuel == 0 then
     planError s!"OpenVM plan {what} expression exhausted type-check fuel"
   let remaining := fuel - 1
+  let numeric : ExprType := if signed then .int64 else .uint64
   match e with
-  | .litU64 _ => pure (.uint64, remaining)
+  | .litU64 _ => pure (numeric, remaining)
   | .litBool _ => pure (.bool, remaining)
   | .param index =>
       unless index < paramCount do
         planError s!"OpenVM plan {what} references unknown parameter {index}"
-      pure (.uint64, remaining)
+      pure (numeric, remaining)
   | .stateLoad fieldIndex =>
       unless fieldIndex < stateCount do
         planError s!"OpenVM plan {what} references unknown state field {fieldIndex}"
-      pure (.uint64, remaining)
+      pure (numeric, remaining)
   | .arith _ lhs rhs => do
-      let (lhsTy, remaining) ← inferExprType lhs what paramCount stateCount remaining
-      let (rhsTy, remaining) ← inferExprType rhs what paramCount stateCount remaining
-      unless lhsTy == .uint64 && rhsTy == .uint64 do
-        planError s!"OpenVM plan {what} arithmetic operands must be UInt64"
-      pure (.uint64, remaining)
+      let (lhsTy, remaining) ←
+        inferExprType lhs what paramCount stateCount remaining signed
+      let (rhsTy, remaining) ←
+        inferExprType rhs what paramCount stateCount remaining signed
+      unless lhsTy == numeric && rhsTy == numeric do
+        planError s!"OpenVM plan {what} arithmetic operands must match the numeric domain"
+      pure (numeric, remaining)
   | .compare op lhs rhs => do
-      let (lhsTy, remaining) ← inferExprType lhs what paramCount stateCount remaining
-      let (rhsTy, remaining) ← inferExprType rhs what paramCount stateCount remaining
+      let (lhsTy, remaining) ←
+        inferExprType lhs what paramCount stateCount remaining signed
+      let (rhsTy, remaining) ←
+        inferExprType rhs what paramCount stateCount remaining signed
       match op with
       | .eq | .ne =>
-          unless lhsTy == rhsTy && (lhsTy == .uint64 || lhsTy == .bool) do
-            planError s!"OpenVM plan {what} equality operands must share UInt64/Bool type"
+          unless lhsTy == rhsTy && (lhsTy == .uint64 || lhsTy == .int64 || lhsTy == .bool) do
+            planError s!"OpenVM plan {what} equality operands must share UInt64/Int64/Bool type"
       | .lt | .le | .gt | .ge =>
-          unless lhsTy == .uint64 && rhsTy == .uint64 do
-            planError s!"OpenVM plan {what} ordering operands must be UInt64"
+          unless lhsTy == numeric && rhsTy == numeric do
+            planError s!"OpenVM plan {what} ordering operands must match the numeric domain"
       pure (.bool, remaining)
   | .boolAnd lhs rhs | .boolOr lhs rhs => do
-      let (lhsTy, remaining) ← inferExprType lhs what paramCount stateCount remaining
-      let (rhsTy, remaining) ← inferExprType rhs what paramCount stateCount remaining
+      let (lhsTy, remaining) ←
+        inferExprType lhs what paramCount stateCount remaining signed
+      let (rhsTy, remaining) ←
+        inferExprType rhs what paramCount stateCount remaining signed
       unless lhsTy == .bool && rhsTy == .bool do
         planError s!"OpenVM plan {what} logical operands must be Bool"
       pure (.bool, remaining)
   | .boolNot operand => do
-      let (operandTy, remaining) ← inferExprType operand what paramCount stateCount remaining
+      let (operandTy, remaining) ←
+        inferExprType operand what paramCount stateCount remaining signed
       unless operandTy == .bool do
         planError s!"OpenVM plan {what} logical-not operand must be Bool"
       pure (.bool, remaining)
@@ -98,7 +106,7 @@ private partial def inferExprType
     remaining plan-wide node budget. -/
 private def validateExpr
     (e : Expr) (expected : ExprType) (what : String)
-    (paramCount stateCount remaining0 : Nat) : CompileResult Nat := do
+    (paramCount stateCount remaining0 : Nat) (signed : Bool) : CompileResult Nat := do
   let mut stack : Array (Expr × Nat) := #[(e, 1)]
   let mut remaining := remaining0
   let mut localNodes : Nat := 0
@@ -123,29 +131,33 @@ private def validateExpr
         stack := stack.push (lhs, depth + 1)
     | .boolNot operand =>
         stack := stack.push (operand, depth + 1)
-  let (actual, _) ← inferExprType e what paramCount stateCount maxExprNodes
+  let (actual, _) ← inferExprType e what paramCount stateCount maxExprNodes signed
   unless actual == expected do
     planError s!"OpenVM plan {what} expression type does not match its use site"
   pure remaining
 
 private def validateCheck
-    (ck : Check) (paramCount stateCount remaining : Nat) : CompileResult Nat :=
+    (ck : Check) (paramCount stateCount remaining : Nat) (signed : Bool) :
+    CompileResult Nat :=
   validateExpr ck.condition .bool "check condition" paramCount stateCount remaining
+    signed
 
 private def validateStores
-    (stores : Array (Nat × Expr)) (stateCount paramCount remaining0 : Nat) :
-    CompileResult Nat := do
+    (stores : Array (Nat × Expr)) (stateCount paramCount remaining0 : Nat)
+    (signed : Bool) : CompileResult Nat := do
   unless stores.size ≤ maxStores do
     planError "OpenVM plan store count exceeds limit"
   let mut seen : Array Nat := #[]
   let mut remaining := remaining0
+  let storeTy : ExprType := if signed then .int64 else .uint64
   for (fi, e) in stores do
     unless fi < stateCount do
       planError "OpenVM plan store references an unknown state field"
     if seen.contains fi then
       planError "OpenVM plan store list has duplicate field indices"
     seen := seen.push fi
-    remaining ← validateExpr e .uint64 "store value" paramCount stateCount remaining
+    remaining ←
+      validateExpr e storeTy "store value" paramCount stateCount remaining signed
   pure remaining
 
 private def validateParams (params : Array String) : CompileResult Unit := do
@@ -179,6 +191,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     planError "OpenVM plan exceeds the view limit"
   unless plan.entries.size > 0 do
     planError "OpenVM plan requires at least one entry"
+  let signed := plan.signedNumeric
   let mut exprBudget := maxPlanExprNodes
   let mut stateNames : Array String := #[]
   for st in plan.states do
@@ -194,7 +207,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
         planError s!"OpenVM initializer '{init.name}' is not a safe identifier"
       validateParams init.params
       exprBudget ←
-        validateStores init.stores plan.states.size init.params.size exprBudget
+        validateStores init.stores plan.states.size init.params.size exprBudget signed
   let mut entryNames : Array String := #[]
   let mut expectedAction : Nat := 1
   for ent in plan.entries do
@@ -210,9 +223,10 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     unless ent.checks.size ≤ maxChecks do
       planError "OpenVM entry check count exceeds limit"
     for ck in ent.checks do
-      exprBudget ← validateCheck ck ent.params.size plan.states.size exprBudget
+      exprBudget ←
+        validateCheck ck ent.params.size plan.states.size exprBudget signed
     exprBudget ←
-      validateStores ent.stores plan.states.size ent.params.size exprBudget
+      validateStores ent.stores plan.states.size ent.params.size exprBudget signed
     let terminalMarkerCount := ent.checks.foldl
       (fun n ck => if isTerminalRevertKind ck.kind then n + 1 else n) 0
     if ent.terminalRevert then
@@ -232,14 +246,20 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
         planError s!"OpenVM entry '{ent.name}' Unit result must not carry a result expression"
     | .uint64, some e, false =>
         exprBudget ←
-          validateExpr e .uint64 "entry result" ent.params.size plan.states.size exprBudget
+          validateExpr e .uint64 "entry result" ent.params.size plan.states.size
+            exprBudget signed
+    | .int64, some e, false =>
+        exprBudget ←
+          validateExpr e .int64 "entry result" ent.params.size plan.states.size
+            exprBudget signed
     | .bool, some e, false =>
         exprBudget ←
-          validateExpr e .bool "entry result" ent.params.size plan.states.size exprBudget
-    | .uint64, some _, true | .bool, some _, true =>
+          validateExpr e .bool "entry result" ent.params.size plan.states.size
+            exprBudget signed
+    | .uint64, some _, true | .int64, some _, true | .bool, some _, true =>
         planError s!"OpenVM entry '{ent.name}' terminal revert must not carry a result expression"
-    | .uint64, none, true | .bool, none, true => pure ()
-    | .uint64, none, false | .bool, none, false =>
+    | .uint64, none, true | .int64, none, true | .bool, none, true => pure ()
+    | .uint64, none, false | .int64, none, false | .bool, none, false =>
         planError s!"OpenVM entry '{ent.name}' non-Unit result is missing without terminal revert"
   let mut viewNames : Array String := #[]
   for v in plan.views do
@@ -253,10 +273,16 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     | .unit => planError s!"OpenVM view '{v.name}' cannot have Unit result"
     | .uint64 =>
         exprBudget ←
-          validateExpr v.value .uint64 "view value" v.params.size plan.states.size exprBudget
+          validateExpr v.value .uint64 "view value" v.params.size plan.states.size
+            exprBudget signed
+    | .int64 =>
+        exprBudget ←
+          validateExpr v.value .int64 "view value" v.params.size plan.states.size
+            exprBudget signed
     | .bool =>
         exprBudget ←
-          validateExpr v.value .bool "view value" v.params.size plan.states.size exprBudget
+          validateExpr v.value .bool "view value" v.params.size plan.states.size
+            exprBudget signed
   pure ()
 
 end ProofForgeV2.Targets.OpenVM

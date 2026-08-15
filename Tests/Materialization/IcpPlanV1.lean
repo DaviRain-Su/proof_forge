@@ -1,12 +1,13 @@
 /-
   ICP Plan/IR/WAT engineering suite (ICP-2 Counter/StateCell leaf, ADR-0047).
 
-  Pins StateCell plan shape (public UInt64 state, init/entry(mutate)/view,
-  checked add/sub), IR/wat/.did surface (ic0 imports, mutable i64 state globals,
-  DIDL/LEB128 header handling, canister_init/canister_update/canister_query
-  exports, Candid nat64 service), registry materialize dispatch, and explicit
-  fail-closed boundaries (sync call, emit, schedule, nonempty invariant,
-  aggregates/multi-width). CAP-1a admits `context.unixTimeSeconds` as
+  Pins StateCell plan shape (public UInt64 **or** homogeneous Int64 state,
+  init/entry(mutate)/view, checked add/sub), IR/wat/.did surface (ic0 imports,
+  mutable i64 state globals, DIDL/LEB128 header handling,
+  canister_init/canister_update/canister_query exports, Candid nat64 or
+  int64 service), registry materialize dispatch, and explicit fail-closed
+  boundaries (sync call, emit, schedule, nonempty invariant,
+  aggregates/mixed UInt64+Int64). CAP-1a admits `context.unixTimeSeconds` as
   `ic0.time` ns÷10⁹ on init/update/query; other UInt64 ContextRead keys stay
   named fail-closed.
 
@@ -114,6 +115,7 @@ private unsafe def testStateCellPlan
   expect (plan.initializer.mode == .initialize) "init mode"
   expect (plan.initializer.resultKind == .unit) "init result Unit"
   expect (plan.initializer.params.size == 1) "init one param"
+  expect (plan.signedNumeric == false) "StateCell stays unsigned nat64"
   expect (plan.entries.size == 1) "one entry"
   expect (plan.views.size == 1) "one view"
   let inc ← findMethod plan "increment"
@@ -149,6 +151,7 @@ private unsafe def testStateCellIRAndWat
   let compiled ← compileSource session stateCellSourceText stateCellModuleName
     "<icp-stateCell-ir>"
   let ir ← liftResult <| irIcp compiled
+  expect (ir.signedNumeric == false) "StateCell IR stays unsigned"
   expect (ir.entries.size == 1) "one entry method"
   expect (ir.views.size == 1) "one view method"
   let files ← liftResult <| filesIcp compiled
@@ -172,6 +175,9 @@ private unsafe def testStateCellIRAndWat
   expect (wat.contains "(export \"canister_query get\" (func $get))")
     "canister_query get export"
   expect (wat.contains "i64.add") "checked add present"
+  expect (wat.contains "i64.lt_u") "unsigned overflow uses i64.lt_u"
+  expect (!wat.contains "i64.shr_s") "unsigned StateCell must not emit signed overflow"
+  expect (wat.contains "(i32.const 120)") "Candid nat64 opcode 0x78"
   expect (wat.contains "unreachable") "overflow trap present"
   -- Honesty notes present.
   expect (wat.contains "MVP heap globals only") "MVP heap globals honesty note"
@@ -185,6 +191,110 @@ private unsafe def testStateCellIRAndWat
   expect (did.contains "increment : (nat64) -> (nat64);") "did increment signature"
   expect (did.contains "get : () -> (nat64) query;") "did get query signature"
   IO.println "  ✓ StateCell IR/wat/.did shape"
+
+/-- Homogeneous Int64 StateCell: Candid `int64` (0x79) + signed overflow. -/
+private unsafe def testInt64StateCell
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "Int64Cell" <|
+    "  state count : Int64\n\n" ++
+    "  init(initial : Int64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry increment(delta : Int64) : Int64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n\n" ++
+    "  entry decrement(delta : Int64) : Int64 do\n" ++
+    "    count := count - delta\n" ++
+    "    return count\n\n" ++
+    "  view get() : Int64 do\n" ++
+    "    return count\n"
+  let compiled ← compileSource session src "Examples.Int64Cell" "<icp-int64-cell>"
+  let plan ← liftResult <| planIcp compiled
+  expect (plan.signedNumeric == true) "Int64Cell Plan is signed"
+  expect (plan.states.size == 1) "one Int64 state"
+  let inc ← findMethod plan "increment"
+  expect (inc.resultKind == .int64) "increment result Int64"
+  let dec ← findMethod plan "decrement"
+  expect (dec.resultKind == .int64) "decrement result Int64"
+  let get ← findMethod plan "get"
+  expect (get.mode == .query && get.resultKind == .int64) "get view Int64"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"Int64Cell plan must validate: {e.render}"
+  let ir ← liftResult <| irIcp compiled
+  expect (ir.signedNumeric == true) "Int64Cell IR is signed"
+  let files ← liftResult <| filesIcp compiled
+  let wat ← findFile files "Int64Cell.wat"
+  let did ← findFile files "Int64Cell.did"
+  expect (wat.contains "Candid int64 (0x79) inline codec")
+    "signed honesty note"
+  expect (wat.contains "(i32.const 121)") "Candid int64 opcode 0x79"
+  expect (!wat.contains "(i32.const 120)") "signed program must not emit nat64 opcode"
+  expect (wat.contains "i64.shr_s") "signed overflow inspects the sign bit"
+  expect (wat.contains "i64.const 63") "sign-bit shift is 63"
+  expect (!wat.contains "i64.lt_u") "signed overflow must not use unsigned lt_u"
+  expect (wat.contains "(export \"canister_update increment\" (func $increment))")
+    "signed increment export"
+  expect (wat.contains "(export \"canister_update decrement\" (func $decrement))")
+    "signed decrement export"
+  expect (did.contains "service : (int64) {") "did init arg int64"
+  expect (did.contains "increment : (int64) -> (int64);") "did increment int64"
+  expect (did.contains "decrement : (int64) -> (int64);") "did decrement int64"
+  expect (did.contains "get : () -> (int64) query;") "did get query int64"
+  expect (!did.contains "nat64") "signed .did must not mention nat64"
+  IO.println "  ✓ Int64Cell Plan/IR/wat/.did (Candid int64 + signed overflow)"
+
+/-- Mixing UInt64 and Int64 user-facing slots is fail closed. -/
+private unsafe def testMixedInt64UInt64Fc
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "MixInt64" <|
+    "  state count : Int64\n\n" ++
+    "  init(initial : Int64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry increment(delta : Int64) : Int64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return 0\n"
+  let compiled ← compileSource session src "Examples.MixInt64" "<icp-mix-int64>"
+  expectPlanErrorContaining "mixed Int64/UInt64" "mixes"
+    (planFromCompiledSemanticV1 compiled)
+  IO.println "  ✓ mixed Int64/UInt64 fail closed"
+
+/-- Resolver already advertises `value.bool`. Bool views/entries + comparisons. -/
+private unsafe def testBoolPredicate
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "BoolPredicate" <|
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n\n" ++
+    "  view positive() : Bool do\n" ++
+    "    return count > 0\n\n" ++
+    "  entry equalsCount(delta : UInt64) : Bool do\n" ++
+    "    return count == delta\n"
+  let compiled ← compileSource session src "Examples.BoolPredicate" "<icp-bool>"
+  let plan ← liftResult <| planIcp compiled
+  expect (plan.signedNumeric == false) "BoolPredicate stays unsigned"
+  let pos ← findMethod plan "positive"
+  expect (pos.mode == .query && pos.resultKind == .bool) "positive is Bool query"
+  expect (pos.body == #[.returnValue (.compare .gt (.stateLoad 0) (.literal 0))])
+    "positive returns count > 0"
+  let eq ← findMethod plan "equalsCount"
+  expect (eq.mode == .mutate && eq.resultKind == .bool) "equalsCount is Bool update"
+  expect (eq.body == #[.returnValue (.compare .eq (.stateLoad 0) (.param 0))])
+    "equalsCount returns count == delta"
+  let files ← liftResult <| filesIcp compiled
+  let wat ← findFile files "BoolPredicate.wat"
+  let did ← findFile files "BoolPredicate.did"
+  expect (wat.contains "i64.gt_u") "unsigned > uses i64.gt_u"
+  expect (wat.contains "i64.eq") "equality uses i64.eq"
+  expect (wat.contains "(i32.const 126)") "Candid bool opcode 0x7e"
+  expect (did.contains "positive : () -> (bool) query;") "did positive bool query"
+  expect (did.contains "equalsCount : (nat64) -> (bool);") "did equalsCount bool"
+  expect (did.contains "bump : (nat64) -> (nat64);") "did bump stays nat64"
+  IO.println "  ✓ BoolPredicate Plan/IR/wat/.did (Candid bool + comparisons)"
 
 private unsafe def testCallSyncFc
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -505,6 +615,9 @@ unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testStateCellPlan session
   testStateCellIRAndWat session
+  testInt64StateCell session
+  testMixedInt64UInt64Fc session
+  testBoolPredicate session
   testCallSyncFc session
   testCryptoSha256StayFailClosed session
   testUnixTimeSecondsAdmitted session

@@ -102,6 +102,8 @@ structure IR where
 -- ---------------------------------------------------------------------------
 
 private def maxU64Lit : String := "18446744073709551615"
+private def minI64Lit : String := "-9223372036854775808"
+private def maxI64Lit : String := "9223372036854775807"
 
 private def emittedModuleName (sourceName : String) : String :=
   "PFModel_" ++ sourceName
@@ -124,6 +126,17 @@ private def initParamName (paramIndex : Nat) : String :=
 private def u64Lit (v : UInt64) : QExpr :=
   .intLit (toString v.toNat)
 
+/-- Emit a two's-complement UInt64 word as a signed Quint `int` literal. -/
+private def i64Lit (v : UInt64) : QExpr :=
+  let n := v.toNat
+  if n >= 9223372036854775808 then
+    .intLit ("-" ++ toString (18446744073709551616 - n))
+  else
+    .intLit (toString n)
+
+private def numericLit (signed : Bool) (v : UInt64) : QExpr :=
+  if signed then i64Lit v else u64Lit v
+
 private def stateVar (plan : Plan) (fieldIndex : Nat) : CompileResult String := do
   match plan.states[fieldIndex]? with
   | some st => pure (emittedStateName st.name)
@@ -143,7 +156,7 @@ private partial def lowerExpr
     (externalOkNames : Array String)
     (e : Expr) : CompileResult QExpr := do
   match e with
-  | .litU64 v => pure (u64Lit v)
+  | .litU64 v => pure (numericLit plan.signedNumeric v)
   | .litBool b => pure (.boolLit b)
   | .param i => do
       let n ← paramVar params i
@@ -194,9 +207,17 @@ private partial def lowerExpr
       pure (.unary .not qo)
 
 private def pfMaxRef : QExpr := .name "PF_MAX_U64"
+private def pfMinI64Ref : QExpr := .name "PF_MIN_I64"
+private def pfMaxI64Ref : QExpr := .name "PF_MAX_I64"
 
 private def u64Domain : QExpr :=
   .call "oneOf" #[.call "to" #[.intLit "0", pfMaxRef]]
+
+private def i64Domain : QExpr :=
+  .call "oneOf" #[.call "to" #[pfMinI64Ref, pfMaxI64Ref]]
+
+private def numericDomain (signed : Bool) : QExpr :=
+  if signed then i64Domain else u64Domain
 
 /-- Opaque Principal param domain: singleton token (identity not modeled in Q0). -/
 private def principalOpaqueDomain : QExpr :=
@@ -213,7 +234,10 @@ private def externalOkName (actionIndex ordinal : Nat) : String :=
     to use `PF_MAX_U64` for the exact product spelling. -/
 private partial def rewriteMaxBound : QExpr → QExpr
   | .intLit s =>
-      if s == maxU64Lit then pfMaxRef else .intLit s
+      if s == maxU64Lit then pfMaxRef
+      else if s == maxI64Lit then pfMaxI64Ref
+      else if s == minI64Lit then pfMinI64Ref
+      else .intLit s
   | .binary op l r => .binary op (rewriteMaxBound l) (rewriteMaxBound r)
   | .unary op o => .unary op (rewriteMaxBound o)
   | .call c args => .call c (args.map rewriteMaxBound)
@@ -296,7 +320,7 @@ private def emitEntryBranch (plan : Plan) (ent : PlanEntry) :
     emittedParams := emittedParams.push name
     let domain :=
       if ent.paramIsPrincipal[i]? == some true then principalOpaqueDomain
-      else u64Domain
+      else numericDomain plan.signedNumeric
     nondets := nondets.push { name, domain }
   -- Nondet external outcomes for pf.assets ops (Reference responses cursor).
   let mut externalOkNames : Array String := #[]
@@ -343,13 +367,13 @@ private def emitEntryBranch (plan : Plan) (ent : PlanEntry) :
         | none => pure ()
       match ent.resultKind, resultPure? with
       | .unit, _ => pure ()
-      | .uint64, some rn | .bool, some rn =>
+      | .uint64, some rn | .int64, some rn | .bool, some rn =>
           assigns := assigns.push {
             target := lastResultName ent.name
             value := .ifThenElse (.name successName) (.name rn)
               (.name (lastResultName ent.name))
           }
-      | .uint64, none | .bool, none =>
+      | .uint64, none | .int64, none | .bool, none =>
           assigns := assigns.push {
             target := lastResultName ent.name
             value := .name (lastResultName ent.name)
@@ -362,7 +386,7 @@ private def emitEntryBranch (plan : Plan) (ent : PlanEntry) :
         }
       match other.resultKind with
       | .unit => pure ()
-      | .uint64 | .bool =>
+      | .uint64 | .int64 | .bool =>
           assigns := assigns.push {
             target := lastResultName other.name
             value := .name (lastResultName other.name)
@@ -414,7 +438,7 @@ private def emitInitBranch (plan : Plan) (init : PlanInit) :
   for i in [0:init.params.size] do
     let name := initParamName i
     emittedParams := emittedParams.push name
-    nondets := nondets.push { name, domain := u64Domain }
+    nondets := nondets.push { name, domain := numericDomain plan.signedNumeric }
   let mut assigns : Array QAssign := #[]
   assigns := assigns.push {
     target := "pf_last_action"
@@ -454,7 +478,7 @@ private def emitInitBranch (plan : Plan) (init : PlanInit) :
       }
     match ent.resultKind with
     | .unit => pure ()
-    | .uint64 =>
+    | .uint64 | .int64 =>
         assigns := assigns.push {
           target := lastResultName ent.name
           value := .intLit "0"
@@ -470,6 +494,9 @@ private def lower (plan : Plan) : CompileResult IR := do
   validatePlan plan
   let mut decls : Array QDecl := #[]
   decls := decls.push <| .pureConst "PF_MAX_U64" "int" (.intLit maxU64Lit)
+  if plan.signedNumeric then
+    decls := decls.push <| .pureConst "PF_MIN_I64" "int" (.intLit minI64Lit)
+    decls := decls.push <| .pureConst "PF_MAX_I64" "int" (.intLit maxI64Lit)
   -- Business state vars use a target-owned namespace, so source state names
   -- cannot collide with Quint built-ins, view names, or instrumentation.
   for st in plan.states do
@@ -486,7 +513,7 @@ private def lower (plan : Plan) : CompileResult IR := do
       decls := decls.push (.varDecl (lastArgName ent.name i) "int")
     match ent.resultKind with
     | .unit => pure ()
-    | .uint64 =>
+    | .uint64 | .int64 =>
         decls := decls.push (.varDecl (lastResultName ent.name) "int")
     | .bool =>
         decls := decls.push (.varDecl (lastResultName ent.name) "bool")

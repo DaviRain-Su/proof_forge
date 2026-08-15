@@ -10,7 +10,10 @@ import ProofForgeV2.Targets.EnvelopeV1
 
 Narrow ICP-2 Counter/StateCell target leaf (ADR-0047). Envelope:
 
-* public UInt64 state only (no Bool/Int/Field/Principal/aggregates/containers)
+* public UInt64 **or** public Int64 state (homogeneous numeric domain: a
+  program is entirely UInt64 or entirely Int64 on every integer
+  state/param/result; mixing is fail closed). No Bool/Field/Principal/
+  aggregates/containers
 * `init` (initializer), `entry` (canister_update), `view` (canister_query)
 * single-block callable bodies; checked `+`/`-` only (no mul/div/mod/compare/
   bitwise/bool); literal, param, stateLoad, stateStore, return
@@ -68,9 +71,12 @@ private def isUnboundUInt64ContextKey
 -- Target-owned Plan surface
 -- ---------------------------------------------------------------------------
 
-/-- Untyped UInt64 expression nodes. Every value in this Plan is UInt64 — no
-    Bool/comparisons are represented (the Counter/StateCell envelope has no
-    conditional shape). -/
+/-- Numeric and Bool expression nodes. Comparisons produce a 0/1 Bool; there
+    is still no control-flow `if` (single-block Counter/StateCell envelope). -/
+inductive CompareOp where
+  | eq | ne | lt | le | gt | ge
+  deriving BEq, Inhabited, Repr
+
 inductive Expr where
   | literal (value : UInt64)
   | param (index : Nat)
@@ -79,6 +85,7 @@ inductive Expr where
   | unixTimeSeconds
   | checkedAdd (lhs rhs : Expr)
   | checkedSub (lhs rhs : Expr)
+  | compare (op : CompareOp) (lhs rhs : Expr)
   deriving BEq, Inhabited, Repr
 
 /-- Method body statement. `returnNone` is the explicit Unit terminator
@@ -100,6 +107,8 @@ inductive MethodMode where
 inductive ResultKind where
   | unit
   | uint64
+  | int64
+  | bool
   deriving BEq, Inhabited, Repr
 
 structure StateField where
@@ -114,11 +123,15 @@ structure Method where
   body : Array Statement
   deriving BEq, Inhabited, Repr
 
-/-- Target-owned ICP Plan. Digests + artifact name only; no Semantic carrier. -/
+/-- Target-owned ICP Plan. Digests + artifact name only; no Semantic carrier.
+    `signedNumeric` is true iff every integer state/param/result is Int64
+    (Candid `int64` + signed overflow). False is the historical all-`nat64`
+    domain. Mixed UInt64/Int64 programs fail closed at lowering. -/
 structure Plan where
   programName : String
   sourceHash : String
   semanticHash : String
+  signedNumeric : Bool
   states : Array StateField
   initializer : Method
   entries : Array Method
@@ -126,16 +139,16 @@ structure Plan where
   deriving BEq, Inhabited, Repr
 
 -- ---------------------------------------------------------------------------
--- Type closure (anonymous unique UInt64 only; Unit for init/Unit results)
+-- Type closure (anonymous unique UInt64 required; Int64 optional; Unit for init)
 -- ---------------------------------------------------------------------------
 
 private def icpTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "ICP"
   uint32DuplicateDetail := "expected at most one anonymous UInt32 type"
   badIntegerWidthDetail :=
-    "only anonymous UInt64 width is supported"
+    "only anonymous UInt64/Int64 widths are supported"
   unsupportedShapeDetail :=
-    "only anonymous UInt64, Bool, and Unit are supported (Int/Field/Principal/aggregates/containers/String fail closed on the ICP-2 Counter/StateCell envelope)"
+    "only anonymous UInt64, Int64, Bool, and Unit are supported (narrow Int/Field/Principal/aggregates/containers/String fail closed on the ICP-2 Counter/StateCell envelope)"
 
 private def pilotUintWidthPolicyU64Only : PilotUintWidthPolicy where
   admittedWidths := #[64]
@@ -146,7 +159,7 @@ private def validateIcpTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult IcpTypeClosureV1 :=
   validatePilotTypeClosure icpPlanErr icpTypeClosureWording types
     pilotUintWidthPolicyU64Only
-    (intPolicy := pilotIntWidthPolicyNone)
+    (intPolicy := pilotIntWidthPolicyI64)
     (fieldPolicy := pilotFieldPolicyNone)
     (principalPolicy := pilotPrincipalPolicyNone)
 
@@ -163,8 +176,33 @@ private def isIdentifier (value : String) : Bool :=
 private def isUInt64Type (types : IcpTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   typeId == types.uint64TypeId
 
+private def isInt64Type (types : IcpTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  types.int64TypeId == some typeId
+
 private def isUnitType (types : IcpTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   types.unitTypeId == some typeId
+
+private def isBoolType (types : IcpTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  types.boolTypeId == some typeId
+
+/-- First-seen integer domain. Mixed UInt64/Int64 user-facing slots fail closed. -/
+private def noteIntegerDomain
+    (types : IcpTypeClosureV1) (typeId : TypeIdV1) (signed? : Option Bool)
+    (owner : String) : CompileResult (Option Bool) := do
+  if isInt64Type types typeId then
+    match signed? with
+    | some false =>
+        planError
+          s!"unsupported ICP semantic shape: {owner} mixes Int64 with UInt64 (ICP-2 numeric domain is homogeneous)"
+    | _ => pure (some true)
+  else if isUInt64Type types typeId then
+    match signed? with
+    | some true =>
+        planError
+          s!"unsupported ICP semantic shape: {owner} mixes UInt64 with Int64 (ICP-2 numeric domain is homogeneous)"
+    | _ => pure (some false)
+  else
+    pure signed?
 
 -- ---------------------------------------------------------------------------
 -- Lowering helpers
@@ -237,7 +275,8 @@ private def bumpOp (acc : BodyAccum) : CompileResult BodyAccum := do
 
 private partial def exprNodes : Expr → Nat
   | .literal _ | .param _ | .stateLoad _ | .unixTimeSeconds => 1
-  | .checkedAdd lhs rhs | .checkedSub lhs rhs => 1 + exprNodes lhs + exprNodes rhs
+  | .checkedAdd lhs rhs | .checkedSub lhs rhs | .compare _ lhs rhs =>
+      1 + exprNodes lhs + exprNodes rhs
 
 private def checkedExprNodes (what : String) (e : Expr) : CompileResult Expr := do
   unless exprNodes e ≤ maxExpandedExprNodes do
@@ -248,19 +287,29 @@ private def checkedExprNodes (what : String) (e : Expr) : CompileResult Expr := 
 private def lowerLiteral
     (types : IcpTypeClosureV1) (typeId : TypeIdV1) (valueBytes : ByteArray) :
     CompileResult Expr := do
-  unless isUInt64Type types typeId do
-    planError "unsupported ICP semantic shape: literal type is outside UInt64"
-  let v ← decodeUInt64LiteralLe icpPlanErr "ICP" valueBytes
-  pure (.literal v)
+  if isInt64Type types typeId then
+    let v ← decodeInt64LiteralLe icpPlanErr "ICP" valueBytes
+    pure (.literal v)
+  else if isUInt64Type types typeId then
+    let v ← decodeUInt64LiteralLe icpPlanErr "ICP" valueBytes
+    pure (.literal v)
+  else
+    planError "unsupported ICP semantic shape: literal type is outside UInt64/Int64"
 
 private def lowerBinary (op : BinaryOpV1) (lhs rhs : Expr) : CompileResult Expr := do
   match op with
   | .add => checkedExprNodes "add" (.checkedAdd lhs rhs)
   | .sub => checkedExprNodes "sub" (.checkedSub lhs rhs)
-  | .mul | .div | .mod | .eq | .ne | .lt | .le | .gt | .ge | .and | .or
+  | .eq => checkedExprNodes "eq" (.compare .eq lhs rhs)
+  | .ne => checkedExprNodes "ne" (.compare .ne lhs rhs)
+  | .lt => checkedExprNodes "lt" (.compare .lt lhs rhs)
+  | .le => checkedExprNodes "le" (.compare .le lhs rhs)
+  | .gt => checkedExprNodes "gt" (.compare .gt lhs rhs)
+  | .ge => checkedExprNodes "ge" (.compare .ge lhs rhs)
+  | .mul | .div | .mod | .and | .or
   | .bitAnd | .bitOr | .bitXor | .shl | .shr =>
       planError
-        "unsupported ICP semantic shape: only checked add/sub are admitted on the ICP-2 Counter/StateCell envelope"
+        "unsupported ICP semantic shape: only checked add/sub and comparisons are admitted on the ICP-2 Counter/StateCell envelope"
 
 /-- Single-block instruction walk (ICP-2 has no pureFn/invariant closures, no
     branching, no async continuations — StateCell shape only). -/
@@ -384,7 +433,7 @@ private def seedParamEnv (types : IcpTypeClosureV1) (owner : String)
   let mut names : Array String := #[]
   let mut i : Nat := 0
   for p in callable.params do
-    requirePublicUInt64Param icpPlanErr types.uint64TypeId owner p
+    requirePublicUInt64OrInt64Param icpPlanErr types owner p
     unless isIdentifier p.name do
       planError s!"parameter '{p.name}' in {owner} is not a safe identifier"
     env := envInsert env p.valueId (.param i)
@@ -416,8 +465,10 @@ private def resultKindOf
     (types : IcpTypeClosureV1) (typeId : TypeIdV1) (owner : String) :
     CompileResult ResultKind := do
   if isUnitType types typeId then pure .unit
+  else if isBoolType types typeId then pure .bool
+  else if isInt64Type types typeId then pure .int64
   else if isUInt64Type types typeId then pure .uint64
-  else planError s!"{owner} result must be public Unit or UInt64"
+  else planError s!"{owner} result must be public Unit, UInt64, Int64, or Bool"
 
 private def makePlanFromSemanticDataV1
     (data : SemanticProgramDataV1) (programName : String)
@@ -433,9 +484,11 @@ private def makePlanFromSemanticDataV1
   unless data.invariants.isEmpty do
     planError "unsupported ICP semantic shape: invariants must be empty (nonempty invariants fail closed on ICP-2)"
   let types ← validateIcpTypeClosureV1 data.types
+  let mut signed? : Option Bool := none
   let mut states : Array StateField := #[]
   for st in data.logicalState do
-    requirePublicUInt64State icpPlanErr types.uint64TypeId st
+    requirePublicUInt64OrInt64State icpPlanErr types st
+    signed? ← noteIntegerDomain types st.typeId signed? s!"state '{st.name}'"
     unless isIdentifier st.name do
       planError s!"state name '{st.name}' is not a safe identifier"
     unless st.id.toNat == states.size do
@@ -459,6 +512,8 @@ private def makePlanFromSemanticDataV1
           planError "unsupported ICP semantic shape: initializer result must be Unit"
         unless callable.result.visibility == .public_ do
           planError "unsupported ICP semantic shape: initializer result must be public"
+        for p in callable.params do
+          signed? ← noteIntegerDomain types p.typeId signed? s!"initializer parameter '{p.name}'"
         let (params, stores, ret?) ←
           lowerCallableBody data types (allowStateWrite := true) (seedZeroState := true)
             "initializer" callable
@@ -475,8 +530,14 @@ private def makePlanFromSemanticDataV1
         unless isIdentifier name do
           planError s!"entry '{name}' is not a safe identifier"
         let rk ← resultKindOf types callable.result.typeId s!"entry '{name}'"
+        unless rk == .unit || rk == .bool do
+          signed? ←
+            noteIntegerDomain types callable.result.typeId signed? s!"entry '{name}' result"
         unless callable.result.visibility == .public_ do
           planError s!"entry '{name}' result must be public"
+        for p in callable.params do
+          signed? ←
+            noteIntegerDomain types p.typeId signed? s!"entry '{name}' parameter '{p.name}'"
         let (params, stores, ret?) ←
           lowerCallableBody data types (allowStateWrite := true) (seedZeroState := false)
             s!"entry '{name}'" callable
@@ -484,8 +545,9 @@ private def makePlanFromSemanticDataV1
           | .unit, none => pure stores
           | .unit, some _ =>
               planError s!"entry '{name}' Unit result must not return a value"
-          | .uint64, some e => pure (stores.push (.returnValue e))
-          | .uint64, none =>
+          | .uint64, some e | .int64, some e | .bool, some e =>
+              pure (stores.push (.returnValue e))
+          | .uint64, none | .int64, none | .bool, none =>
               planError s!"entry '{name}' non-Unit result is missing"
         entries := entries.push {
           name, params, mode := .mutate, resultKind := rk, body
@@ -497,10 +559,16 @@ private def makePlanFromSemanticDataV1
         unless isIdentifier name do
           planError s!"view '{name}' is not a safe identifier"
         let rk ← resultKindOf types callable.result.typeId s!"view '{name}'"
-        unless rk == .uint64 do
-          planError s!"view '{name}' result must be UInt64 (query methods must return a value)"
+        unless rk == .uint64 || rk == .int64 || rk == .bool do
+          planError s!"view '{name}' result must be UInt64, Int64, or Bool (query methods must return a value)"
+        unless rk == .bool do
+          signed? ←
+            noteIntegerDomain types callable.result.typeId signed? s!"view '{name}' result"
         unless callable.result.visibility == .public_ do
           planError s!"view '{name}' result must be public"
+        for p in callable.params do
+          signed? ←
+            noteIntegerDomain types p.typeId signed? s!"view '{name}' parameter '{p.name}'"
         let (params, stores, ret?) ←
           lowerCallableBody data types (allowStateWrite := false) (seedZeroState := false)
             s!"view '{name}'" callable
@@ -521,6 +589,7 @@ private def makePlanFromSemanticDataV1
     programName
     sourceHash
     semanticHash
+    signedNumeric := signed? == some true
     states
     initializer
     entries

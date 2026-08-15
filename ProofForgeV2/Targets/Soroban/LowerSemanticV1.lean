@@ -8,18 +8,20 @@ import ProofForgeV2.Targets.EnvelopeV1
 /-!
 # Soroban LowerSemanticV1 — Plan types + SemanticProgramV1 → Plan lowering
 
-S0 source-only Soroban target: public UInt64 state, public UInt64
-params, public Unit/UInt64/Bool results, single-block callables,
-pureFn inline (depth ≤ 64). Plan is target-owned and retains no
-Semantic carrier.
+S0 source-only Soroban target: public homogeneous UInt64 or Int64
+state/params, public Unit/UInt64/Int64/Bool results, single-block
+callables, pureFn inline (depth ≤ 64). Plan is target-owned and
+retains no Semantic carrier.
 
 Language subset (fail closed otherwise):
-- anonymous UInt64/Bool/Unit; public UInt64 state/params
+- anonymous UInt64/Int64/Bool/Unit; public homogeneous UInt64 or Int64
+  state/params (mixing fail closed; unused interned UInt64 type-table
+  row does not force mixed)
 - init/entry/view/pureFn; single-block only
-- literal, state load/store, checked UInt64 arith (+-*/%), compare,
+- literal, state load/store, checked UInt64/Int64 arith (+-*/%), compare,
   bool and/or/not, pureCall inline ≤ 64, bare assert, zero-payload revert
 - REJECT: nonempty invariants, constants, events, call/schedule,
-  ContextRead/Commit, multi-width, aggregates, Field/Principal/String, emit
+  ContextRead/Commit, Int8/16/32, aggregates, Field/Principal/String, emit
 -/
 
 namespace ProofForgeV2.Targets.Soroban
@@ -66,6 +68,7 @@ private def isNamedUInt64ContextKey
 
 inductive ExprType where
   | uint64
+  | int64
   | bool
   deriving BEq, Inhabited, Repr
 
@@ -119,6 +122,7 @@ structure Check where
 inductive ResultKind where
   | unit
   | uint64
+  | int64
   | bool
   deriving BEq, Inhabited, Repr
 
@@ -153,6 +157,9 @@ structure Plan where
   programName : String
   sourceHash : String
   semanticHash : String
+  /-- True iff every integer state/param/result is Int64. False is the
+      historical all-UInt64 domain. Mixing UInt64/Int64 fails closed. -/
+  signedNumeric : Bool
   states : Array PlanState
   initializer : Option PlanInit
   entries : Array PlanEntry
@@ -167,9 +174,9 @@ private def sorobanTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "Soroban"
   uint32DuplicateDetail := "expected at most one anonymous UInt32 type"
   badIntegerWidthDetail :=
-    "only anonymous UInt64 width is supported"
+    "only anonymous UInt64/Int64 widths are supported"
   unsupportedShapeDetail :=
-    "only anonymous UInt64, Bool, and Unit are supported (Int/Field/Principal/aggregates/containers fail closed)"
+    "only anonymous UInt64, Int64, Bool, and Unit are supported (narrow Int/Field/Principal/aggregates/containers fail closed)"
 
 private def pilotUintWidthPolicyU64Only : PilotUintWidthPolicy where
   admittedWidths := #[64]
@@ -180,7 +187,7 @@ private def validateSorobanTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult SorobanTypeClosureV1 :=
   validatePilotTypeClosure sorobanPlanErr sorobanTypeClosureWording types
     pilotUintWidthPolicyU64Only
-    (intPolicy := pilotIntWidthPolicyNone)
+    (intPolicy := pilotIntWidthPolicyI64)
     (fieldPolicy := pilotFieldPolicyNone)
     (principalPolicy := pilotPrincipalPolicyNone)
 
@@ -213,11 +220,41 @@ private def isIdentifier (value : String) : Bool :=
 private def isUInt64Type (types : SorobanTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   typeId == types.uint64TypeId
 
+private def isInt64Type (types : SorobanTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  types.int64TypeId == some typeId
+
 private def isBoolType (types : SorobanTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   types.boolTypeId == some typeId
 
 private def isUnitType (types : SorobanTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   types.unitTypeId == some typeId
+
+/-- First-seen integer domain. Mixed UInt64/Int64 user-facing slots fail closed. -/
+private def noteIntegerDomain
+    (types : SorobanTypeClosureV1) (typeId : TypeIdV1) (signed? : Option Bool)
+    (owner : String) : CompileResult (Option Bool) := do
+  if isInt64Type types typeId then
+    match signed? with
+    | some false =>
+        planError
+          s!"unsupported Soroban semantic shape: {owner} mixes Int64 with UInt64 (S0 numeric domain is homogeneous)"
+    | _ => pure (some true)
+  else if isUInt64Type types typeId then
+    match signed? with
+    | some true =>
+        planError
+          s!"unsupported Soroban semantic shape: {owner} mixes UInt64 with Int64 (S0 numeric domain is homogeneous)"
+    | _ => pure (some false)
+  else
+    pure signed?
+
+private def numericTyOf (signed : Bool) : ExprType :=
+  if signed then .int64 else .uint64
+
+private def maxU64Value : UInt64 := UInt64.ofNat 18446744073709551615
+private def minI64Bits : UInt64 := UInt64.ofNat 9223372036854775808
+private def maxI64Bits : UInt64 := UInt64.ofNat 9223372036854775807
+private def negOneBits : UInt64 := UInt64.ofNat 18446744073709551615
 
 -- ---------------------------------------------------------------------------
 -- Lowering helpers
@@ -288,68 +325,118 @@ private def requireTy (v : TypedExpr) (ty : ExprType) (what : String) :
 private def lowerLiteral
     (types : SorobanTypeClosureV1) (typeId : TypeIdV1) (valueBytes : ByteArray) :
     CompileResult TypedExpr := do
-  if isUInt64Type types typeId then
+  if isInt64Type types typeId then
+    let v ← decodeInt64LiteralLe sorobanPlanErr "Soroban" valueBytes
+    pure { ty := .int64, expr := .litU64 v, expandedNodes := 1 }
+  else if isUInt64Type types typeId then
     let v ← decodeUInt64LiteralLe sorobanPlanErr "Soroban" valueBytes
     pure { ty := .uint64, expr := .litU64 v, expandedNodes := 1 }
   else if isBoolType types typeId then
     let b ← decodeBoolLiteralBit sorobanPlanErr "Soroban" valueBytes
     pure { ty := .bool, expr := .litBool b, expandedNodes := 1 }
   else
-    planError "unsupported Soroban semantic shape: literal type is outside UInt64/Bool"
+    planError "unsupported Soroban semantic shape: literal type is outside UInt64/Int64/Bool"
+
+private def signedRangeCond (e : Expr) : Expr :=
+  .boolAnd
+    (.compare .ge e (.litU64 minI64Bits))
+    (.compare .le e (.litU64 maxI64Bits))
 
 private def lowerBinary
     (op : BinaryOpV1) (lhs rhs : TypedExpr) :
     CompileResult (TypedExpr × Array Check) := do
   match op with
   | .add => do
-      let l ← requireTy lhs .uint64 "add lhs"
-      let r ← requireTy rhs .uint64 "add rhs"
-      let nodes ← binaryExprNodes "add" lhs rhs
-      let e : Expr := .arith .add l r
-      let _ ← checkedExprNodes "add overflow check" (nodes + 2)
-      let cond : Expr := .compare .le e (.litU64 (UInt64.ofNat 18446744073709551615))
-      pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
-        #[{ kind := .overflow, condition := cond }])
+      if lhs.ty == .int64 && rhs.ty == .int64 then
+        let nodes ← binaryExprNodes "add" lhs rhs
+        let e : Expr := .arith .add lhs.expr rhs.expr
+        let _ ← checkedExprNodes "signed add overflow check" (nodes + 5)
+        pure ({ ty := .int64, expr := e, expandedNodes := nodes },
+          #[{ kind := .overflow, condition := signedRangeCond e }])
+      else
+        let l ← requireTy lhs .uint64 "add lhs"
+        let r ← requireTy rhs .uint64 "add rhs"
+        let nodes ← binaryExprNodes "add" lhs rhs
+        let e : Expr := .arith .add l r
+        let _ ← checkedExprNodes "add overflow check" (nodes + 2)
+        let cond : Expr := .compare .le e (.litU64 maxU64Value)
+        pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
+          #[{ kind := .overflow, condition := cond }])
   | .sub => do
-      let l ← requireTy lhs .uint64 "sub lhs"
-      let r ← requireTy rhs .uint64 "sub rhs"
-      let nodes ← binaryExprNodes "sub" lhs rhs
-      let e : Expr := .arith .sub l r
-      let cond : Expr := .compare .ge l r
-      pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
-        #[{ kind := .underflow, condition := cond }])
+      if lhs.ty == .int64 && rhs.ty == .int64 then
+        let nodes ← binaryExprNodes "sub" lhs rhs
+        let e : Expr := .arith .sub lhs.expr rhs.expr
+        let _ ← checkedExprNodes "signed sub overflow check" (nodes + 5)
+        pure ({ ty := .int64, expr := e, expandedNodes := nodes },
+          #[{ kind := .overflow, condition := signedRangeCond e }])
+      else
+        let l ← requireTy lhs .uint64 "sub lhs"
+        let r ← requireTy rhs .uint64 "sub rhs"
+        let nodes ← binaryExprNodes "sub" lhs rhs
+        let e : Expr := .arith .sub l r
+        let cond : Expr := .compare .ge l r
+        pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
+          #[{ kind := .underflow, condition := cond }])
   | .mul => do
-      let l ← requireTy lhs .uint64 "mul lhs"
-      let r ← requireTy rhs .uint64 "mul rhs"
-      let nodes ← binaryExprNodes "mul" lhs rhs
-      let e : Expr := .arith .mul l r
-      let _ ← checkedExprNodes "mul overflow check" (nodes + 2)
-      let cond : Expr := .compare .le e (.litU64 (UInt64.ofNat 18446744073709551615))
-      pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
-        #[{ kind := .overflow, condition := cond }])
+      if lhs.ty == .int64 && rhs.ty == .int64 then
+        let nodes ← binaryExprNodes "mul" lhs rhs
+        let e : Expr := .arith .mul lhs.expr rhs.expr
+        let _ ← checkedExprNodes "signed mul overflow check" (nodes + 5)
+        pure ({ ty := .int64, expr := e, expandedNodes := nodes },
+          #[{ kind := .overflow, condition := signedRangeCond e }])
+      else
+        let l ← requireTy lhs .uint64 "mul lhs"
+        let r ← requireTy rhs .uint64 "mul rhs"
+        let nodes ← binaryExprNodes "mul" lhs rhs
+        let e : Expr := .arith .mul l r
+        let _ ← checkedExprNodes "mul overflow check" (nodes + 2)
+        let cond : Expr := .compare .le e (.litU64 maxU64Value)
+        pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
+          #[{ kind := .overflow, condition := cond }])
   | .div => do
-      let l ← requireTy lhs .uint64 "div lhs"
-      let r ← requireTy rhs .uint64 "div rhs"
-      let nodes ← guardedDivModExprNodes "div" lhs rhs
-      let _ ← checkedExprNodes "div zero check" (rhs.expandedNodes + 2)
-      let e : Expr := .arith .div l r
-      let cond : Expr := .compare .ne r (.litU64 0)
-      pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
-        #[{ kind := .divByZero, condition := cond }])
+      if lhs.ty == .int64 && rhs.ty == .int64 then
+        let nodes ← guardedDivModExprNodes "div" lhs rhs
+        let e : Expr := .arith .div lhs.expr rhs.expr
+        let nz : Expr := .compare .ne rhs.expr (.litU64 0)
+        let notMinDiv : Expr :=
+          .boolOr
+            (.compare .ne lhs.expr (.litU64 minI64Bits))
+            (.compare .ne rhs.expr (.litU64 negOneBits))
+        let cond : Expr := .boolAnd nz notMinDiv
+        let _ ← checkedExprNodes "signed div check" (nodes + 8)
+        pure ({ ty := .int64, expr := e, expandedNodes := nodes },
+          #[{ kind := .divByZero, condition := cond }])
+      else
+        let l ← requireTy lhs .uint64 "div lhs"
+        let r ← requireTy rhs .uint64 "div rhs"
+        let nodes ← guardedDivModExprNodes "div" lhs rhs
+        let _ ← checkedExprNodes "div zero check" (rhs.expandedNodes + 2)
+        let e : Expr := .arith .div l r
+        let cond : Expr := .compare .ne r (.litU64 0)
+        pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
+          #[{ kind := .divByZero, condition := cond }])
   | .mod => do
-      let l ← requireTy lhs .uint64 "mod lhs"
-      let r ← requireTy rhs .uint64 "mod rhs"
-      let nodes ← guardedDivModExprNodes "mod" lhs rhs
-      let _ ← checkedExprNodes "mod zero check" (rhs.expandedNodes + 2)
-      let e : Expr := .arith .mod l r
-      let cond : Expr := .compare .ne r (.litU64 0)
-      pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
-        #[{ kind := .divByZero, condition := cond }])
+      if lhs.ty == .int64 && rhs.ty == .int64 then
+        let nodes ← guardedDivModExprNodes "mod" lhs rhs
+        let _ ← checkedExprNodes "signed mod zero check" (rhs.expandedNodes + 2)
+        let e : Expr := .arith .mod lhs.expr rhs.expr
+        let cond : Expr := .compare .ne rhs.expr (.litU64 0)
+        pure ({ ty := .int64, expr := e, expandedNodes := nodes },
+          #[{ kind := .divByZero, condition := cond }])
+      else
+        let l ← requireTy lhs .uint64 "mod lhs"
+        let r ← requireTy rhs .uint64 "mod rhs"
+        let nodes ← guardedDivModExprNodes "mod" lhs rhs
+        let _ ← checkedExprNodes "mod zero check" (rhs.expandedNodes + 2)
+        let e : Expr := .arith .mod l r
+        let cond : Expr := .compare .ne r (.litU64 0)
+        pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
+          #[{ kind := .divByZero, condition := cond }])
   | .eq | .ne | .lt | .le | .gt | .ge => do
       unless lhs.ty == rhs.ty do
         planError "unsupported Soroban semantic shape: comparison operands must share a type"
-      unless lhs.ty == .uint64 || lhs.ty == .bool do
-        planError "unsupported Soroban semantic shape: comparison operands must be UInt64 or Bool"
+      unless lhs.ty == .uint64 || lhs.ty == .int64 || lhs.ty == .bool do
+        planError "unsupported Soroban semantic shape: comparison operands must be UInt64, Int64, or Bool"
       if lhs.ty == .bool && !(op == .eq || op == .ne) then
         planError "unsupported Soroban semantic shape: Bool comparison only supports eq/ne"
       let cop : ComparisonOp :=
@@ -393,13 +480,15 @@ private def resultKindOf
     (types : SorobanTypeClosureV1) (typeId : TypeIdV1) (owner : String) :
     CompileResult ResultKind := do
   if isUnitType types typeId then pure .unit
+  else if isInt64Type types typeId then pure .int64
   else if isUInt64Type types typeId then pure .uint64
   else if isBoolType types typeId then pure .bool
-  else planError s!"{owner} result must be public Unit, UInt64, or Bool"
+  else planError s!"{owner} result must be public Unit, UInt64, Int64, or Bool"
 
 private partial def lowerInstructions
     (data : SemanticProgramDataV1) (types : SorobanTypeClosureV1)
     (idx : CallableIndex) (callable : CallableV1)
+    (numericTy : ExprType)
     (allowStateRead allowStateWrite : Bool)
     (forbidChecks : Bool) (inlineDepth : Nat)
     (acc0 : BodyAccum) :
@@ -435,7 +524,7 @@ private partial def lowerInstructions
               match overlayLookup acc.overlay stateId with
               | some ov => ov
               | none => {
-                  ty := .uint64
+                  ty := numericTy
                   expr := .stateLoad stateId.toNat
                   expandedNodes := 1
                 }
@@ -446,7 +535,7 @@ private partial def lowerInstructions
         let v ← match envLookup acc.env value with
           | some tv => pure tv
           | none => planError "unsupported Soroban semantic shape: stateStore value undefined"
-        let _ ← requireTy v .uint64 "stateStore value"
+        let _ ← requireTy v numericTy "stateStore value"
         unless stateId.toNat < data.logicalState.size do
           planError "unsupported Soroban semantic shape: stateStore references unknown state"
         acc := { acc with overlay := overlayInsert acc.overlay stateId v }
@@ -491,12 +580,13 @@ private partial def lowerInstructions
           let av ← match envLookup acc.env argId with
             | some v => pure v
             | none => planError "unsupported Soroban semantic shape: pureCall arg undefined"
-          unless isUInt64Type types p.typeId && av.ty == .uint64 do
-            planError "unsupported Soroban semantic shape: pureFn params must be public UInt64"
+          unless (isUInt64Type types p.typeId && av.ty == .uint64) ||
+              (isInt64Type types p.typeId && av.ty == .int64) do
+            planError "unsupported Soroban semantic shape: pureFn params must be public UInt64 or Int64"
           cEnv := envInsert cEnv p.valueId av
         let cAcc0 : BodyAccum := emptyBodyAccum cEnv { entries := #[] }
         let (cAcc, ret?, _endedRevert) ←
-          lowerInstructions data types idx callee
+          lowerInstructions data types idx callee numericTy
             (allowStateRead := false) (allowStateWrite := false)
             (forbidChecks := forbidChecks) (inlineDepth := inlineDepth + 1) cAcc0
         let expandedOpCount := acc.opCount + cAcc.opCount
@@ -592,10 +682,10 @@ private def seedParamEnv
       planError "unsupported Soroban semantic shape: parameters must be public"
     unless isIdentifier p.name do
       planError s!"parameter '{p.name}' is not a safe identifier"
-    unless isUInt64Type types p.typeId do
-      planError "unsupported Soroban semantic shape: parameters must be public UInt64"
+    requirePublicUInt64OrInt64Param sorobanPlanErr types "callable" p
+    let ty := if isInt64Type types p.typeId then ExprType.int64 else .uint64
     env := envInsert env p.valueId {
-      ty := .uint64
+      ty
       expr := .param i
       expandedNodes := 1
     }
@@ -607,7 +697,7 @@ private def seedParamEnv
 
 private def lowerCallableBody
     (data : SemanticProgramDataV1) (types : SorobanTypeClosureV1)
-    (idx : CallableIndex) (callable : CallableV1)
+    (idx : CallableIndex) (callable : CallableV1) (numericTy : ExprType)
     (allowStateRead allowStateWrite forbidChecks initialStateDefaults : Bool) :
     CompileResult
       (Array String × Array Check × Array (Nat × Expr) ×
@@ -617,13 +707,13 @@ private def lowerCallableBody
   if initialStateDefaults then
     for st in data.logicalState do
       overlay0 := overlayInsert overlay0 st.id {
-        ty := .uint64
+        ty := numericTy
         expr := .litU64 0
         expandedNodes := 1
       }
   let acc0 : BodyAccum := emptyBodyAccum env0 overlay0
   let (acc, ret?, endedRevert) ←
-    lowerInstructions data types idx callable
+    lowerInstructions data types idx callable numericTy
       allowStateRead allowStateWrite forbidChecks 0 acc0
   let stores := overlayFinalStores acc.overlay
   pure (paramNames, acc.checks, stores, ret?, endedRevert)
@@ -643,9 +733,20 @@ private def makePlanFromSemanticDataV1
   unless data.invariants.isEmpty do
     planError "unsupported Soroban semantic shape: invariants are outside S0"
   let types ← validateSorobanTypeClosureV1 data.types
+  let mut signed? : Option Bool := none
+  for st in data.logicalState do
+    signed? ← noteIntegerDomain types st.typeId signed? s!"state '{st.name}'"
+  for c in data.callables do
+    signed? ←
+      noteIntegerDomain types c.result.typeId signed? "callable result"
+    for p in c.params do
+      signed? ←
+        noteIntegerDomain types p.typeId signed? s!"parameter '{p.name}'"
+  let signedNumeric := signed? == some true
+  let numericTy := numericTyOf signedNumeric
   let mut states : Array PlanState := #[]
   for st in data.logicalState do
-    requirePublicUInt64State sorobanPlanErr types.uint64TypeId st
+    requirePublicUInt64OrInt64State sorobanPlanErr types st
     unless isIdentifier st.name do
       planError s!"state name '{st.name}' is not a safe identifier"
     unless st.id.toNat == states.size do
@@ -673,7 +774,7 @@ private def makePlanFromSemanticDataV1
         unless callable.result.visibility == .public_ do
           planError s!"pureFn '{name}' result must be public"
         let (_params, _checks, stores, ret?, endedRevert) ←
-          lowerCallableBody data types idx callable
+          lowerCallableBody data types idx callable numericTy
             (allowStateRead := false) (allowStateWrite := false) (forbidChecks := false)
             (initialStateDefaults := false)
         unless stores.isEmpty do
@@ -685,14 +786,17 @@ private def makePlanFromSemanticDataV1
         | .uint64, some tv, false =>
             let _ ← requireTy tv .uint64 s!"pureFn '{name}' result"
             pure ()
+        | .int64, some tv, false =>
+            let _ ← requireTy tv .int64 s!"pureFn '{name}' result"
+            pure ()
         | .bool, some tv, false =>
             let _ ← requireTy tv .bool s!"pureFn '{name}' result"
             pure ()
-        | .uint64, none, true | .bool, none, true =>
+        | .uint64, none, true | .int64, none, true | .bool, none, true =>
             planError s!"pureFn '{name}' non-Unit revert-only result is outside S0"
-        | .uint64, none, false | .bool, none, false =>
+        | .uint64, none, false | .int64, none, false | .bool, none, false =>
             planError s!"pureFn '{name}' non-Unit return is missing"
-        | .uint64, some _, true | .bool, some _, true =>
+        | .uint64, some _, true | .int64, some _, true | .bool, some _, true =>
             planError s!"pureFn '{name}' revert path cannot carry a return value"
     | .initializer => do
         unless initializer.isNone do
@@ -705,7 +809,7 @@ private def makePlanFromSemanticDataV1
         unless callable.result.visibility == .public_ do
           planError "unsupported Soroban semantic shape: initializer result must be public"
         let (params, checks, stores, ret?, endedRevert) ←
-          lowerCallableBody data types idx callable
+          lowerCallableBody data types idx callable numericTy
             (allowStateRead := true) (allowStateWrite := true) (forbidChecks := true)
             (initialStateDefaults := true)
         if endedRevert then
@@ -725,7 +829,7 @@ private def makePlanFromSemanticDataV1
         unless callable.result.visibility == .public_ do
           planError s!"entry '{name}' result must be public"
         let (params, checks, stores, ret?, endedRevert) ←
-          lowerCallableBody data types idx callable
+          lowerCallableBody data types idx callable numericTy
             (allowStateRead := true) (allowStateWrite := true) (forbidChecks := false)
             (initialStateDefaults := false)
         let result? ← match rk, ret?, endedRevert with
@@ -735,14 +839,17 @@ private def makePlanFromSemanticDataV1
           | .uint64, some tv, false =>
               let e ← requireTy tv .uint64 s!"entry '{name}' result"
               pure (some e)
+          | .int64, some tv, false =>
+              let e ← requireTy tv .int64 s!"entry '{name}' result"
+              pure (some e)
           | .bool, some tv, false =>
               let e ← requireTy tv .bool s!"entry '{name}' result"
               pure (some e)
-          | .uint64, none, true | .bool, none, true =>
+          | .uint64, none, true | .int64, none, true | .bool, none, true =>
               pure none
-          | .uint64, none, false | .bool, none, false =>
+          | .uint64, none, false | .int64, none, false | .bool, none, false =>
               planError s!"entry '{name}' non-Unit return is missing"
-          | .uint64, some _, true | .bool, some _, true =>
+          | .uint64, some _, true | .int64, some _, true | .bool, some _, true =>
               planError s!"entry '{name}' revert path cannot carry a return value"
         entries := entries.push {
           name, params, resultKind := rk, checks, stores
@@ -756,11 +863,11 @@ private def makePlanFromSemanticDataV1
           planError s!"view '{name}' is not a safe identifier"
         let rk ← resultKindOf types callable.result.typeId s!"view '{name}'"
         unless rk != .unit do
-          planError s!"view '{name}' result must be UInt64 or Bool"
+          planError s!"view '{name}' result must be UInt64, Int64, or Bool"
         unless callable.result.visibility == .public_ do
           planError s!"view '{name}' result must be public"
         let (params, checks, stores, ret?, endedRevert) ←
-          lowerCallableBody data types idx callable
+          lowerCallableBody data types idx callable numericTy
             (allowStateRead := true) (allowStateWrite := false) (forbidChecks := false)
             (initialStateDefaults := false)
         if endedRevert then
@@ -774,8 +881,9 @@ private def makePlanFromSemanticDataV1
           | none => planError s!"view '{name}' must return a value"
         let value ← match rk with
           | .uint64 => requireTy tv .uint64 s!"view '{name}' result"
+          | .int64 => requireTy tv .int64 s!"view '{name}' result"
           | .bool => requireTy tv .bool s!"view '{name}' result"
-          | .unit => planError s!"view '{name}' result must be UInt64 or Bool"
+          | .unit => planError s!"view '{name}' result must be UInt64, Int64, or Bool"
         views := views.push { name, params, resultKind := rk, value }
     | .invariant =>
         planError "unsupported Soroban semantic shape: invariants are outside S0"
@@ -785,6 +893,7 @@ private def makePlanFromSemanticDataV1
     programName
     sourceHash
     semanticHash
+    signedNumeric
     states
     initializer
     entries

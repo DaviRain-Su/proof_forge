@@ -17,9 +17,10 @@ exactly like Quint/Aleo/Psy/Noir. Plan types and Semantic→Plan lowering live i
 `LowerSemanticV1`; plan canonicity in `ValidatePlanV1`; structured IR +
 `.rs` emission in `EmitIRV1`; zero-tool finalization in `FinalizeV1`.
 
-S0 envelope: public UInt64 state/params; Unit/UInt64/Bool results; single-block
-callables; pureFn inline (depth ≤ 64); no invariants/constants/events/call/schedule.
-Everything else fails closed.
+S0 envelope: public homogeneous UInt64 or Int64 state/params;
+Unit/UInt64/Int64/Bool results; single-block callables; pureFn inline
+(depth ≤ 64); no invariants/constants/events/call/schedule. Mixing
+UInt64/Int64, Int8/16/32, and aggregates fail closed.
 -/
 
 namespace ProofForgeV2.Targets.Soroban

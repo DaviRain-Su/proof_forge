@@ -31,7 +31,7 @@ EVM-oriented proof。依据官方 [Overview](https://docs.openvm.dev/book/writin
 
 ## 3. Portable fragment 与扩展
 
-O0/O1 共享 portable 子集：public UInt64/Bool/Unit、single-block、checked `+`/`-`、bare
+O0/O1 共享 portable 子集：public 齐次 UInt64 **或** Int64（混用 FC）/Bool/Unit、single-block、checked `+`/`-`（unsigned `u64` / signed `i64::checked_*`）、bare
 assert、zero-payload revert（ADR-0045）。扩展（commit/reveal 之外的 guest I/O、RV32
 extensions、crypto accelerators、continuations/aggregation、EVM proof mode）均未开放；
 每项未来须绑定 OpenVM config hash。O1 只新增 Finalize-time build/transpile，不扩大

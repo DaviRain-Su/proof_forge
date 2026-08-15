@@ -749,6 +749,12 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-15 | **MAT-WIDE-INT32-QS**：WideInt32 四 target admit；NEAR 8-byte-field、Aleo 宽度、CW/TON narrow-Int、Quint 四家宽度针。**不**开 Int8/16。 |
 | 2026-08-15 | **MAT-WIDE-INT16-QS**：WideInt16 四 target admit；NEAR 8-byte-field、Aleo 宽度、CW/TON narrow-Int、Quint 四家宽度针。**不**开 Int8。 |
 | 2026-08-15 | **MAT-WIDE-INT8-QS**：WideInt8 四 target admit；NEAR 8-byte-field、Aleo 宽度、CW/TON narrow-Int、Quint 四家宽度针。窄 signed 宽度钉完。 |
+| 2026-08-15 | **ICP-INT64**：ICP-2 齐次 Int64（Candid `int64` 0x79 + 有符号加减溢出 trap）。WideInt64 当时九家 admit（ICP 新开）。混用 UInt64/Int64 user-facing slot FC。Quint/Soroban/OpenVM 当时仍宽度针。**不**开 Int8/16/32、容器、formal。 |
+| 2026-08-15 | **QUINT-INT64**：Q0 齐次 Int64（`int` 域 `PF_MIN_I64..PF_MAX_I64` + 有符号加减乘范围检查 / 除零与 `intMin/-1`）。WideInt64 当时十家 admit（Quint 新开）。混用 FC。Soroban/OpenVM 当时仍宽度针。**不**开 Int8/16/32、容器、formal。 |
+| 2026-08-15 | **SOR-INT64**：Soroban S0 齐次 Int64（Rust `i64` + `checked_add/sub/mul`）。WideInt64 十一家 admit。混用 FC。OpenVM 仍宽度针。**不**开 SOR-1 / 容器 / formal。 |
+| 2026-08-15 | **ICP-BOOL**：ICP-2 Bool 结果 + 比较（Candid `bool` 0x7e，`i64.eq/gt_u`）。BoolPredicate 十一家 admit（仅 Aleo computed-view FC）。**不**开 if/match、Bool state、formal。 |
+| 2026-08-15 | **OVM-INT64**：OpenVM O0 齐次 Int64（guest `i64` + `checked_add/sub`）。WideInt64 十二家 admit。mul/div 仍 FC。**不**开容器 / formal / prove。 |
+| 2026-08-15 | **QUINT-ARRAY**：Q0 Array UInt64 N∈1..8 flatten 为 N 个标量 `int` 变量（无 native List）。ArrayBox Quint admit；Array return / 非 UInt64 元素 / N∉1..8 / 与 signedNumeric 混用 FC。**不**开 Option/Map / formal。 |
 | 2026-08-15 | **MAT-ARR-U128-QS**：ArrU128 仅 EVM admit；五家 Array-U64-element、Aleo 宽度、TON UInt128/256、Quint 四家宽度针。**不**开其余十一家 Array-of-UInt128。 |
 | 2026-08-15 | **MAT-ARR-U256-QS**：ArrU256 仅 EVM admit（UInt256 ≠ UInt128）；五家 Array-U64-element、Aleo 宽度、TON UInt128/256、Quint 四家宽度针。**不**开其余十一家 Array-of-UInt256。 |
 | 2026-08-15 | **MAT-MAP-U128-QS**：MapU128 十二 target 全 FC；Aleo/TON 走宽度针（异于 MapInt 的 Map-U64-U64）。**不**开 Map-of-UInt128。 |

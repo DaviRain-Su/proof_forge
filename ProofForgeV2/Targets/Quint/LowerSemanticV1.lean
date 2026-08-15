@@ -9,10 +9,16 @@ import ProofForgeV2.Targets.EnvelopeV1
 /-!
 # Quint LowerSemanticV1 — Plan types + SemanticProgramV1 → Plan lowering
 
-Q0 source-only Quint target: public UInt64 state, public UInt64/Principal
-params (Principal identity-only for pf.assets args), public Unit/UInt64/Bool
-results, single-block callables, pureFn inline (depth ≤ 64), zero-param Bool
-invariants. Plan is target-owned and retains no Semantic carrier.
+Q0 source-only Quint target: public UInt64 **or** public Int64 state
+(homogeneous numeric domain), public UInt64/Int64/Principal params
+(Principal identity-only for pf.assets args; mixing UInt64 with Int64
+fails closed), public Unit/UInt64/Int64/Bool results, single-block
+callables, pureFn inline (depth ≤ 64), zero-param Bool invariants.
+Anonymous `Array UInt64 N` (N=1..8) **state** flattens to N UInt64
+Plan leaves `{name}_0`..`{name}_{N-1}` (no native Quint List).
+Array + signedNumeric, Array param/return, N=0/N>8, non-UInt64
+element, non-literal index, and nested arrays fail closed.
+Plan is target-owned and retains no Semantic carrier.
 
 ADR-0029 Phase A5: void `Op.ExternalCall` whose callee is in the closed
 `pf.assets` catalog is admitted only when the retained freeze carries exact
@@ -66,6 +72,7 @@ private def quintPlanErr (message : String) : CompileError :=
 
 inductive ExprType where
   | uint64
+  | int64
   | bool
   /-- Opaque identity for pf.assets destination args; not arithmetic. -/
   | principal
@@ -145,6 +152,8 @@ structure TypedExpr where
       and pureFn arguments so a small CFG cannot manufacture exponentially
       large rendered Quint expressions. -/
   expandedNodes : Nat
+  /-- Nonempty = flattened `Array UInt64 N` leaves. Empty = scalar. -/
+  leaves : Array Expr := #[]
   deriving BEq, Inhabited, Repr
 
 /-- Success condition (Bool) that must hold; evaluated in array order. -/
@@ -156,6 +165,7 @@ structure Check where
 inductive ResultKind where
   | unit
   | uint64
+  | int64
   | bool
   deriving BEq, Inhabited, Repr
 
@@ -206,6 +216,9 @@ structure Plan where
   programName : String
   sourceHash : String
   semanticHash : String
+  /-- True iff every integer state/param/result is Int64. False is the
+      historical all-UInt64 domain. Mixing UInt64/Int64 fails closed. -/
+  signedNumeric : Bool
   states : Array PlanState
   initializer : Option PlanInit
   entries : Array PlanEntry
@@ -223,22 +236,23 @@ private def quintTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "Quint"
   uint32DuplicateDetail := "expected at most one anonymous UInt32 type"
   badIntegerWidthDetail :=
-    "only anonymous UInt64 width is supported"
+    "only anonymous UInt64/Int64 widths are supported"
   unsupportedShapeDetail :=
-    "only anonymous UInt64, Bool, Unit, and Principal (pf.assets identity args only) are supported (Int/Field/aggregates/containers fail closed)"
+    "only anonymous UInt64, Int64, Bool, Unit, Principal (pf.assets identity args only), and Array UInt64 N state flatten are supported (narrow Int/Field/aggregates/Map/Option/Bytes fail closed)"
 
-private def pilotUintWidthPolicyU64Only : PilotUintWidthPolicy where
-  admittedWidths := #[64]
+private def pilotUintWidthPolicyU64U32Index : PilotUintWidthPolicy where
+  admittedWidths := #[64, 32]
 
 private abbrev QuintTypeClosureV1 := PilotTypeClosureV1
 
 private def validateQuintTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult QuintTypeClosureV1 :=
   validatePilotTypeClosure quintPlanErr quintTypeClosureWording types
-    pilotUintWidthPolicyU64Only
-    (intPolicy := pilotIntWidthPolicyNone)
+    pilotUintWidthPolicyU64U32Index
+    (intPolicy := pilotIntWidthPolicyI64)
     (fieldPolicy := pilotFieldPolicyNone)
     (principalPolicy := pilotPrincipalPolicyAdmit)
+    (containerPolicy := pilotContainerStatePolicyArrayOnly)
 
 private def maxIdentifierBytes : Nat := 200
 private def maxPureInlineDepth : Nat := 64
@@ -273,6 +287,9 @@ private def isIdentifier (value : String) : Bool :=
 private def isUInt64Type (types : QuintTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   typeId == types.uint64TypeId
 
+private def isInt64Type (types : QuintTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  types.int64TypeId == some typeId
+
 private def isBoolType (types : QuintTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   types.boolTypeId == some typeId
 
@@ -282,7 +299,118 @@ private def isUnitType (types : QuintTypeClosureV1) (typeId : TypeIdV1) : Bool :
 private def isPrincipalType (types : QuintTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   types.principalTypeId == some typeId
 
+private def isUInt32Type (types : QuintTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  types.uintTypeIdAt 32 == some typeId
+
+private def isArrayValue (v : TypedExpr) : Bool :=
+  !v.leaves.isEmpty
+
+private def mkArrayLeaves (leaves : Array Expr) (nodes : Nat) : TypedExpr :=
+  { ty := .uint64
+    expr := leaves[0]?.getD (.litU64 0)
+    expandedNodes := nodes
+    leaves }
+
+/-- CosmWasm-style Array UInt64 N flatten: `some n` for admitted 1..8;
+    `none` for scalars. Nested/narrow/Map/Bytes/N=0/N>8 fail closed. -/
+private def arrayUInt64LenV1
+    (typeDecls : Array TypeDeclV1) (types : QuintTypeClosureV1)
+    (typeId : TypeIdV1) : CompileResult (Option Nat) := do
+  unless types.isContainer typeId do
+    return none
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .array elTid len, .. } =>
+      unless elTid == types.uint64TypeId do
+        planError
+          "unsupported Quint semantic shape: Array element must be UInt64 (nested/narrow/Int arrays fail closed; no native Quint List)"
+      let n := len.toNat
+      unless 1 ≤ n && n ≤ 8 do
+        planError
+          s!"unsupported Quint semantic shape: Array UInt64 N state must be 1..8 (got {n}; cap 8 flatten; no native Quint List)"
+      pure (some n)
+  | _ =>
+      planError
+        "unsupported Quint semantic shape: container TypeId is not Array UInt64 (Map/Bytes/Option stay fail closed)"
+
+/-- Physical PlanState leaves after Array flatten. `leavesOf[logicalId]` is
+    the dense field-index list (`name` or `name_0`..`name_{N-1}`). -/
+private structure StateLayout where
+  states : Array PlanState
+  leavesOf : Array (Array Nat)
+  deriving Inhabited
+
+private def physicalLeaves
+    (layout : StateLayout) (sid : StateIdV1) : CompileResult (Array Nat) := do
+  match layout.leavesOf[sid.toNat]? with
+  | some phys =>
+      unless !phys.isEmpty do
+        planError "unsupported Quint semantic shape: state produced zero flatten leaves"
+      pure phys
+  | none =>
+      planError "unsupported Quint semantic shape: stateLoad/store references unknown state"
+
+private def makeStateLayoutV1
+    (data : SemanticProgramDataV1) (types : QuintTypeClosureV1)
+    (signedNumeric : Bool) : CompileResult StateLayout := do
+  let mut states : Array PlanState := #[]
+  let mut leavesOf : Array (Array Nat) := #[]
+  for st in data.logicalState do
+    unless st.id.toNat == leavesOf.size do
+      planError "unsupported Quint semantic shape: state ids must match declaration order"
+    unless isIdentifier st.name do
+      planError s!"state name '{st.name}' is not a safe identifier"
+    match ← arrayUInt64LenV1 data.types types st.typeId with
+    | some n =>
+        if signedNumeric then
+          planError
+            "unsupported Quint semantic shape: signedNumeric Int64 programs cannot carry Array state (Array flatten is unsigned UInt64 only)"
+        if states.size + n > maxStateFields then
+          planError "unsupported Quint semantic shape: state field count exceeds limit"
+        let mut leaves : Array Nat := #[]
+        for i in [0:n] do
+          let leafName := st.name ++ "_" ++ toString i
+          unless isIdentifier leafName do
+            planError s!"state name '{leafName}' is not a safe identifier"
+          leaves := leaves.push states.size
+          states := states.push { name := leafName }
+        leavesOf := leavesOf.push leaves
+    | none =>
+        requirePublicUInt64OrInt64State quintPlanErr types st
+        if states.size + 1 > maxStateFields then
+          planError "unsupported Quint semantic shape: state field count exceeds limit"
+        let fi := states.size
+        states := states.push { name := st.name }
+        leavesOf := leavesOf.push #[fi]
+  unless states.size ≤ maxStateFields do
+    planError "unsupported Quint semantic shape: state field count exceeds limit"
+  pure { states, leavesOf }
+
+/-- First-seen integer domain. Mixed UInt64/Int64 user-facing slots fail closed. -/
+private def noteIntegerDomain
+    (types : QuintTypeClosureV1) (typeId : TypeIdV1) (signed? : Option Bool)
+    (owner : String) : CompileResult (Option Bool) := do
+  if isInt64Type types typeId then
+    match signed? with
+    | some false =>
+        planError
+          s!"unsupported Quint semantic shape: {owner} mixes Int64 with UInt64 (Q0 numeric domain is homogeneous)"
+    | _ => pure (some true)
+  else if isUInt64Type types typeId then
+    match signed? with
+    | some true =>
+        planError
+          s!"unsupported Quint semantic shape: {owner} mixes UInt64 with Int64 (Q0 numeric domain is homogeneous)"
+    | _ => pure (some false)
+  else
+    pure signed?
+
+private def numericTyOf (signed : Bool) : ExprType :=
+  if signed then .int64 else .uint64
+
 private def maxU64Value : UInt64 := UInt64.ofNat 18446744073709551615
+private def minI64Bits : UInt64 := UInt64.ofNat 9223372036854775808
+private def maxI64Bits : UInt64 := UInt64.ofNat 9223372036854775807
+private def negOneBits : UInt64 := UInt64.ofNat 18446744073709551615
 
 private def qnJoined (qn : ProofForgeV2.Core.Common.QualifiedName) : String :=
   String.intercalate "." (ProofForgeV2.Core.Common.NonEmptyArray.toArray qn.components).toList
@@ -341,14 +469,30 @@ private def overlayInsert
   let withoutOld := ov.entries.filter (fun item => item.1 != sid)
   { ov with entries := withoutOld.push (sid, e) }
 
-/-- Emit final stores in ascending field-index order. -/
-private def overlayFinalStores (ov : StateOverlay) : Array (Nat × Expr) := Id.run do
+/-- Emit final stores in ascending **physical** field-index order. Array
+    overlays expand to N UInt64 leaves; scalars stay one field. -/
+private def overlayFinalStores
+    (ov : StateOverlay) (layout : StateLayout) : Array (Nat × Expr) := Id.run do
   let mut last : Array (Option Expr) := #[]
   for (sid, e) in ov.entries do
-    let i := sid.toNat
-    while last.size ≤ i do
-      last := last.push none
-    last := last.set! i (some e.expr)
+    match layout.leavesOf[sid.toNat]? with
+    | none => pure ()
+    | some phys =>
+        if e.leaves.isEmpty then
+          match phys[0]? with
+          | none => pure ()
+          | some fi =>
+              while last.size ≤ fi do
+                last := last.push none
+              last := last.set! fi (some e.expr)
+        else
+          for i in [0:e.leaves.size] do
+            match phys[i]?, e.leaves[i]? with
+            | some fi, some leaf =>
+                while last.size ≤ fi do
+                  last := last.push none
+                last := last.set! fi (some leaf)
+            | _, _ => pure ()
   let mut out : Array (Nat × Expr) := #[]
   for i in [0:last.size] do
     match last[i]? with
@@ -391,9 +535,21 @@ private def bumpOp (acc : BodyAccum) : CompileResult BodyAccum := do
 
 private def requireTy (v : TypedExpr) (ty : ExprType) (what : String) :
     CompileResult Expr := do
+  if isArrayValue v then
+    planError s!"unsupported Quint semantic shape: {what} cannot be an Array aggregate"
   unless v.ty == ty do
     planError s!"unsupported Quint semantic shape: {what} type mismatch"
   pure v.expr
+
+private def literalIndexNatV1 (v : TypedExpr) : CompileResult Nat := do
+  unless !isArrayValue v && v.ty == .uint64 do
+    planError
+      "unsupported Quint semantic shape: Array index must be a UInt32/UInt64 literal"
+  match v.expr with
+  | .litU64 n => pure n.toNat
+  | _ =>
+      planError
+        "unsupported Quint semantic shape: Array IndexGet/IndexSet requires a compile-time constant index"
 
 /-- Lower void pf.assets ExternalCall into vault math + nondet outcome checks. -/
 private def lowerPfAssetsExternalCall
@@ -464,69 +620,122 @@ private def lowerPfAssetsExternalCall
 private def lowerLiteral
     (types : QuintTypeClosureV1) (typeId : TypeIdV1) (valueBytes : ByteArray) :
     CompileResult TypedExpr := do
-  if isUInt64Type types typeId then
+  if isInt64Type types typeId then
+    let v ← decodeInt64LiteralLe quintPlanErr "Quint" valueBytes
+    pure { ty := .int64, expr := .litU64 v, expandedNodes := 1 }
+  else if isUInt64Type types typeId then
     let v ← decodeUInt64LiteralLe quintPlanErr "Quint" valueBytes
+    pure { ty := .uint64, expr := .litU64 v, expandedNodes := 1 }
+  else if isUInt32Type types typeId then
+    let v ← decodeUInt32LiteralLe quintPlanErr "Quint" valueBytes
     pure { ty := .uint64, expr := .litU64 v, expandedNodes := 1 }
   else if isBoolType types typeId then
     let b ← decodeBoolLiteralBit quintPlanErr "Quint" valueBytes
     pure { ty := .bool, expr := .litBool b, expandedNodes := 1 }
   else
-    planError "unsupported Quint semantic shape: literal type is outside UInt64/Bool"
+    planError "unsupported Quint semantic shape: literal type is outside UInt64/Int64/UInt32/Bool"
+
+private def signedRangeCond (e : Expr) : Expr :=
+  .boolAnd
+    (.compare .ge e (.litU64 minI64Bits))
+    (.compare .le e (.litU64 maxI64Bits))
 
 private def lowerBinary
     (op : BinaryOpV1) (lhs rhs : TypedExpr) :
     CompileResult (TypedExpr × Array Check) := do
   match op with
   | .add => do
-      let l ← requireTy lhs .uint64 "add lhs"
-      let r ← requireTy rhs .uint64 "add rhs"
-      let nodes ← binaryExprNodes "add" lhs rhs
-      let e : Expr := .arith .add l r
-      -- success when lhs + rhs ≤ 2^64−1 (unbounded int at emission)
-      let _ ← checkedExprNodes "add overflow check" (nodes + 2)
-      let cond : Expr := .compare .le e (.litU64 (UInt64.ofNat 18446744073709551615))
-      pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
-        #[{ kind := .overflow, condition := cond }])
+      if lhs.ty == .int64 && rhs.ty == .int64 then
+        let nodes ← binaryExprNodes "add" lhs rhs
+        let e : Expr := .arith .add lhs.expr rhs.expr
+        let _ ← checkedExprNodes "signed add overflow check" (nodes + 5)
+        pure ({ ty := .int64, expr := e, expandedNodes := nodes },
+          #[{ kind := .overflow, condition := signedRangeCond e }])
+      else
+        let l ← requireTy lhs .uint64 "add lhs"
+        let r ← requireTy rhs .uint64 "add rhs"
+        let nodes ← binaryExprNodes "add" lhs rhs
+        let e : Expr := .arith .add l r
+        -- success when lhs + rhs ≤ 2^64−1 (unbounded int at emission)
+        let _ ← checkedExprNodes "add overflow check" (nodes + 2)
+        let cond : Expr := .compare .le e (.litU64 maxU64Value)
+        pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
+          #[{ kind := .overflow, condition := cond }])
   | .sub => do
-      let l ← requireTy lhs .uint64 "sub lhs"
-      let r ← requireTy rhs .uint64 "sub rhs"
-      let nodes ← binaryExprNodes "sub" lhs rhs
-      let e : Expr := .arith .sub l r
-      let cond : Expr := .compare .ge l r
-      pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
-        #[{ kind := .underflow, condition := cond }])
+      if lhs.ty == .int64 && rhs.ty == .int64 then
+        let nodes ← binaryExprNodes "sub" lhs rhs
+        let e : Expr := .arith .sub lhs.expr rhs.expr
+        let _ ← checkedExprNodes "signed sub overflow check" (nodes + 5)
+        pure ({ ty := .int64, expr := e, expandedNodes := nodes },
+          #[{ kind := .overflow, condition := signedRangeCond e }])
+      else
+        let l ← requireTy lhs .uint64 "sub lhs"
+        let r ← requireTy rhs .uint64 "sub rhs"
+        let nodes ← binaryExprNodes "sub" lhs rhs
+        let e : Expr := .arith .sub l r
+        let cond : Expr := .compare .ge l r
+        pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
+          #[{ kind := .underflow, condition := cond }])
   | .mul => do
-      let l ← requireTy lhs .uint64 "mul lhs"
-      let r ← requireTy rhs .uint64 "mul rhs"
-      let nodes ← binaryExprNodes "mul" lhs rhs
-      let e : Expr := .arith .mul l r
-      let _ ← checkedExprNodes "mul overflow check" (nodes + 2)
-      let cond : Expr := .compare .le e (.litU64 (UInt64.ofNat 18446744073709551615))
-      pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
-        #[{ kind := .overflow, condition := cond }])
+      if lhs.ty == .int64 && rhs.ty == .int64 then
+        let nodes ← binaryExprNodes "mul" lhs rhs
+        let e : Expr := .arith .mul lhs.expr rhs.expr
+        let _ ← checkedExprNodes "signed mul overflow check" (nodes + 5)
+        pure ({ ty := .int64, expr := e, expandedNodes := nodes },
+          #[{ kind := .overflow, condition := signedRangeCond e }])
+      else
+        let l ← requireTy lhs .uint64 "mul lhs"
+        let r ← requireTy rhs .uint64 "mul rhs"
+        let nodes ← binaryExprNodes "mul" lhs rhs
+        let e : Expr := .arith .mul l r
+        let _ ← checkedExprNodes "mul overflow check" (nodes + 2)
+        let cond : Expr := .compare .le e (.litU64 maxU64Value)
+        pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
+          #[{ kind := .overflow, condition := cond }])
   | .div => do
-      let l ← requireTy lhs .uint64 "div lhs"
-      let r ← requireTy rhs .uint64 "div rhs"
-      let nodes ← guardedDivModExprNodes "div" lhs rhs
-      let _ ← checkedExprNodes "div zero check" (rhs.expandedNodes + 2)
-      let e : Expr := .arith .div l r
-      let cond : Expr := .compare .ne r (.litU64 0)
-      pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
-        #[{ kind := .divByZero, condition := cond }])
+      if lhs.ty == .int64 && rhs.ty == .int64 then
+        let nodes ← guardedDivModExprNodes "div" lhs rhs
+        let e : Expr := .arith .div lhs.expr rhs.expr
+        let nz : Expr := .compare .ne rhs.expr (.litU64 0)
+        let notMinDiv : Expr :=
+          .boolOr
+            (.compare .ne lhs.expr (.litU64 minI64Bits))
+            (.compare .ne rhs.expr (.litU64 negOneBits))
+        let cond : Expr := .boolAnd nz notMinDiv
+        let _ ← checkedExprNodes "signed div check" (nodes + 8)
+        pure ({ ty := .int64, expr := e, expandedNodes := nodes },
+          #[{ kind := .divByZero, condition := cond }])
+      else
+        let l ← requireTy lhs .uint64 "div lhs"
+        let r ← requireTy rhs .uint64 "div rhs"
+        let nodes ← guardedDivModExprNodes "div" lhs rhs
+        let _ ← checkedExprNodes "div zero check" (rhs.expandedNodes + 2)
+        let e : Expr := .arith .div l r
+        let cond : Expr := .compare .ne r (.litU64 0)
+        pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
+          #[{ kind := .divByZero, condition := cond }])
   | .mod => do
-      let l ← requireTy lhs .uint64 "mod lhs"
-      let r ← requireTy rhs .uint64 "mod rhs"
-      let nodes ← guardedDivModExprNodes "mod" lhs rhs
-      let _ ← checkedExprNodes "mod zero check" (rhs.expandedNodes + 2)
-      let e : Expr := .arith .mod l r
-      let cond : Expr := .compare .ne r (.litU64 0)
-      pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
-        #[{ kind := .divByZero, condition := cond }])
+      if lhs.ty == .int64 && rhs.ty == .int64 then
+        let nodes ← guardedDivModExprNodes "mod" lhs rhs
+        let _ ← checkedExprNodes "signed mod zero check" (rhs.expandedNodes + 2)
+        let e : Expr := .arith .mod lhs.expr rhs.expr
+        let cond : Expr := .compare .ne rhs.expr (.litU64 0)
+        pure ({ ty := .int64, expr := e, expandedNodes := nodes },
+          #[{ kind := .divByZero, condition := cond }])
+      else
+        let l ← requireTy lhs .uint64 "mod lhs"
+        let r ← requireTy rhs .uint64 "mod rhs"
+        let nodes ← guardedDivModExprNodes "mod" lhs rhs
+        let _ ← checkedExprNodes "mod zero check" (rhs.expandedNodes + 2)
+        let e : Expr := .arith .mod l r
+        let cond : Expr := .compare .ne r (.litU64 0)
+        pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
+          #[{ kind := .divByZero, condition := cond }])
   | .eq | .ne | .lt | .le | .gt | .ge => do
       unless lhs.ty == rhs.ty do
         planError "unsupported Quint semantic shape: comparison operands must share a type"
-      unless lhs.ty == .uint64 || lhs.ty == .bool do
-        planError "unsupported Quint semantic shape: comparison operands must be UInt64 or Bool"
+      unless lhs.ty == .uint64 || lhs.ty == .int64 || lhs.ty == .bool do
+        planError "unsupported Quint semantic shape: comparison operands must be UInt64, Int64, or Bool"
       if lhs.ty == .bool && !(op == .eq || op == .ne) then
         planError "unsupported Quint semantic shape: Bool comparison only supports eq/ne"
       let cop : ComparisonOp :=
@@ -572,14 +781,19 @@ private def resultKindOf
     (types : QuintTypeClosureV1) (typeId : TypeIdV1) (owner : String) :
     CompileResult ResultKind := do
   if isUnitType types typeId then pure .unit
+  else if isInt64Type types typeId then pure .int64
   else if isUInt64Type types typeId then pure .uint64
   else if isBoolType types typeId then pure .bool
-  else planError s!"{owner} result must be public Unit, UInt64, or Bool"
+  else if types.isContainer typeId then
+    planError
+      s!"{owner} Array return is outside Q0 (only Array UInt64 N state flattens; no native Quint List)"
+  else planError s!"{owner} result must be public Unit, UInt64, Int64, or Bool"
 
 /-- Single-block instruction walk with optional pureFn inline. -/
 private partial def lowerInstructions
     (data : SemanticProgramDataV1) (types : QuintTypeClosureV1)
     (idx : CallableIndex) (callable : CallableV1)
+    (numericTy : ExprType) (layout : StateLayout)
     (allowStateRead allowStateWrite : Bool)
     (forbidChecks : Bool) (inlineDepth : Nat)
     (acc0 : BodyAccum) :
@@ -612,14 +826,17 @@ private partial def lowerInstructions
         | some vd =>
             unless stateId.toNat < data.logicalState.size do
               planError "unsupported Quint semantic shape: stateLoad references unknown state"
+            let phys ← physicalLeaves layout stateId
             let value : TypedExpr :=
               match overlayLookup acc.overlay stateId with
               | some ov => ov
-              | none => {
-                  ty := .uint64
-                  expr := .stateLoad stateId.toNat
-                  expandedNodes := 1
-                }
+              | none =>
+                  if phys.size == 1 then
+                    { ty := numericTy
+                      expr := .stateLoad phys[0]!
+                      expandedNodes := 1 }
+                  else
+                    mkArrayLeaves (phys.map (fun fi => .stateLoad fi)) phys.size
             acc := { acc with env := envInsert acc.env vd.valueId value }
     | .stateStore stateId value => do
         unless allowStateWrite do
@@ -627,9 +844,16 @@ private partial def lowerInstructions
         let v ← match envLookup acc.env value with
           | some tv => pure tv
           | none => planError "unsupported Quint semantic shape: stateStore value undefined"
-        let _ ← requireTy v .uint64 "stateStore value"
         unless stateId.toNat < data.logicalState.size do
           planError "unsupported Quint semantic shape: stateStore references unknown state"
+        let phys ← physicalLeaves layout stateId
+        if isArrayValue v then
+          unless v.leaves.size == phys.size do
+            planError "unsupported Quint semantic shape: stateStore Array leaf count mismatch"
+        else
+          unless phys.size == 1 do
+            planError "unsupported Quint semantic shape: stateStore scalar into Array state"
+          let _ ← requireTy v numericTy "stateStore value"
         acc := { acc with overlay := overlayInsert acc.overlay stateId v }
     | .binary op lhs rhs => do
         let lv ← match envLookup acc.env lhs with
@@ -673,12 +897,13 @@ private partial def lowerInstructions
           let av ← match envLookup acc.env argId with
             | some v => pure v
             | none => planError "unsupported Quint semantic shape: pureCall arg undefined"
-          unless isUInt64Type types p.typeId && av.ty == .uint64 do
-            planError "unsupported Quint semantic shape: pureFn params must be public UInt64"
+          unless (isUInt64Type types p.typeId && av.ty == .uint64) ||
+              (isInt64Type types p.typeId && av.ty == .int64) do
+            planError "unsupported Quint semantic shape: pureFn params must be public UInt64 or Int64"
           cEnv := envInsert cEnv p.valueId av
         let cAcc0 : BodyAccum := emptyBodyAccum cEnv { entries := #[] }
         let (cAcc, ret?, _endedRevert) ←
-          lowerInstructions data types idx callee
+          lowerInstructions data types idx callee numericTy layout
             (allowStateRead := false) (allowStateWrite := false)
             (forbidChecks := forbidChecks) (inlineDepth := inlineDepth + 1) cAcc0
         -- Bound the fully expanded inline tree, not only each callable body.
@@ -784,8 +1009,82 @@ private partial def lowerInstructions
             s!"unsupported Quint semantic shape: ContextRead '{key.value}' has no Quint host binding (unixTimeSeconds/blockHeight/attachedValue/chainId stay fail closed)"
         -- caller/self remain on this generic envelope (no caller/self host).
         planError "unsupported Quint semantic shape: op is outside Q0"
-    | .constant .. | .construct .. | .fieldGet .. | .fieldSet ..
-    | .variantTag .. | .variantPayload .. | .indexGet .. | .indexSet ..
+    | .construct typeId ctorIdx argIds => do
+        match instr.result with
+        | none => planError "unsupported Quint semantic shape: construct must produce a value"
+        | some vd =>
+            let n ← match ← arrayUInt64LenV1 data.types types typeId with
+              | some n => pure n
+              | none =>
+                  planError
+                    "unsupported Quint semantic shape: construct admits only Array UInt64 N on Quint"
+            unless ctorIdx == 0 do
+              planError "unsupported Quint semantic shape: Array construct ctorIdx must be 0"
+            unless argIds.size == n do
+              planError "unsupported Quint semantic shape: Array construct arity mismatch"
+            let mut leafExprs : Array Expr := #[]
+            let mut nodes : Nat := 0
+            for argId in argIds do
+              let av ← match envLookup acc.env argId with
+                | some v => pure v
+                | none => planError "unsupported Quint semantic shape: construct arg undefined"
+              unless !isArrayValue av && av.ty == .uint64 do
+                planError
+                  "unsupported Quint semantic shape: Array construct args must be scalar UInt64"
+              leafExprs := leafExprs.push av.expr
+              nodes := nodes + av.expandedNodes
+            acc := { acc with
+              env := envInsert acc.env vd.valueId (mkArrayLeaves leafExprs (nodes + n)) }
+    | .indexGet base index => do
+        match instr.result with
+        | none => planError "unsupported Quint semantic shape: IndexGet must produce a value"
+        | some vd =>
+            let bv ← match envLookup acc.env base with
+              | some v => pure v
+              | none => planError "unsupported Quint semantic shape: IndexGet base undefined"
+            unless isArrayValue bv do
+              planError
+                "unsupported Quint semantic shape: IndexGet base must be an Array UInt64 aggregate"
+            let iv ← match envLookup acc.env index with
+              | some v => pure v
+              | none => planError "unsupported Quint semantic shape: IndexGet index undefined"
+            let i ← literalIndexNatV1 iv
+            unless i < bv.leaves.size do
+              planError "unsupported Quint semantic shape: Array IndexGet index out of range"
+            let some leaf := bv.leaves[i]? |
+              planError "unsupported Quint semantic shape: Array IndexGet leaf missing"
+            acc := { acc with env := envInsert acc.env vd.valueId {
+              ty := .uint64
+              expr := leaf
+              expandedNodes := 1
+            } }
+    | .indexSet base index value => do
+        match instr.result with
+        | none => planError "unsupported Quint semantic shape: IndexSet must produce a value"
+        | some vd =>
+            let bv ← match envLookup acc.env base with
+              | some v => pure v
+              | none => planError "unsupported Quint semantic shape: IndexSet base undefined"
+            unless isArrayValue bv do
+              planError
+                "unsupported Quint semantic shape: IndexSet base must be an Array UInt64 aggregate"
+            let iv ← match envLookup acc.env index with
+              | some v => pure v
+              | none => planError "unsupported Quint semantic shape: IndexSet index undefined"
+            let i ← literalIndexNatV1 iv
+            unless i < bv.leaves.size do
+              planError "unsupported Quint semantic shape: Array IndexSet index out of range"
+            let vv ← match envLookup acc.env value with
+              | some v => pure v
+              | none => planError "unsupported Quint semantic shape: IndexSet value undefined"
+            unless !isArrayValue vv && vv.ty == .uint64 do
+              planError
+                "unsupported Quint semantic shape: Array IndexSet value must be scalar UInt64"
+            let newLeaves := bv.leaves.set! i vv.expr
+            let tv := mkArrayLeaves newLeaves (1 + bv.expandedNodes + vv.expandedNodes)
+            acc := { acc with env := envInsert acc.env vd.valueId tv }
+    | .constant .. | .fieldGet .. | .fieldSet ..
+    | .variantTag .. | .variantPayload ..
     | .checkedCast .. | .commit ..
     | .emit .. | .schedule .. =>
         planError "unsupported Quint semantic shape: op is outside Q0"
@@ -821,7 +1120,17 @@ private def seedParamEnv
       planError "unsupported Quint semantic shape: parameters must be public"
     unless isIdentifier p.name do
       planError s!"parameter '{p.name}' is not a safe identifier"
-    if isUInt64Type types p.typeId then
+    if types.isContainer p.typeId then
+      planError
+        "unsupported Quint semantic shape: Array params are outside Q0 (only Array UInt64 N state flattens; no native Quint List)"
+    if isInt64Type types p.typeId then
+      env := envInsert env p.valueId {
+        ty := .int64
+        expr := .param i
+        expandedNodes := 1
+      }
+      isPrincipal := isPrincipal.push false
+    else if isUInt64Type types p.typeId then
       env := envInsert env p.valueId {
         ty := .uint64
         expr := .param i
@@ -837,7 +1146,7 @@ private def seedParamEnv
       isPrincipal := isPrincipal.push true
     else
       planError
-        "unsupported Quint semantic shape: parameters must be public UInt64 or Principal"
+        "unsupported Quint semantic shape: parameters must be public UInt64, Int64, or Principal"
     names := names.push p.name
     i := i + 1
   unless names.size ≤ maxParams do
@@ -846,28 +1155,34 @@ private def seedParamEnv
 
 private def lowerCallableBody
     (data : SemanticProgramDataV1) (types : QuintTypeClosureV1)
-    (idx : CallableIndex) (callable : CallableV1)
+    (idx : CallableIndex) (callable : CallableV1) (numericTy : ExprType)
+    (layout : StateLayout)
     (allowStateRead allowStateWrite forbidChecks initialStateDefaults : Bool) :
     CompileResult
       (Array String × Array Bool × Array Check × Array (Nat × Expr) ×
         Array PfAssetsOp × Option TypedExpr × Bool × Bool) := do
   let (env0, paramNames, paramIsPrincipal) ← seedParamEnv types callable
-  -- Reference initialization starts from canonical UInt64 zero values. Seed
-  -- the initializer overlay accordingly so an init StateLoad never refers to
+  -- Reference initialization starts from canonical numeric zero. Seed the
+  -- initializer overlay accordingly so an init StateLoad never refers to
   -- an unconstrained pre-state variable in the Quint initial action.
   let mut overlay0 : StateOverlay := { entries := #[] }
   if initialStateDefaults then
     for st in data.logicalState do
-      overlay0 := overlayInsert overlay0 st.id {
-        ty := .uint64
-        expr := .litU64 0
-        expandedNodes := 1
-      }
+      let phys ← physicalLeaves layout st.id
+      if phys.size == 1 then
+        overlay0 := overlayInsert overlay0 st.id {
+          ty := numericTy
+          expr := .litU64 0
+          expandedNodes := 1
+        }
+      else
+        let zeros := phys.map (fun _ => Expr.litU64 0)
+        overlay0 := overlayInsert overlay0 st.id (mkArrayLeaves zeros phys.size)
   let acc0 : BodyAccum := emptyBodyAccum env0 overlay0
   let (acc, ret?, endedRevert) ←
-    lowerInstructions data types idx callable
+    lowerInstructions data types idx callable numericTy layout
       allowStateRead allowStateWrite forbidChecks 0 acc0
-  let stores := overlayFinalStores acc.overlay
+  let stores := overlayFinalStores acc.overlay layout
   -- Asset ops always touch the vault; env-read sets the flag explicitly.
   let usesVault := acc.usesVaultNative || !acc.assetOps.isEmpty
   pure (paramNames, paramIsPrincipal, acc.checks, stores, acc.assetOps, ret?,
@@ -886,17 +1201,20 @@ private def makePlanFromSemanticDataV1
     unless err.fields.isEmpty do
       planError "unsupported Quint semantic shape: declared errors must have zero payload fields"
   let types ← validateQuintTypeClosureV1 data.types
-  -- States: public UInt64 only (vault is target-owned, not program logical state)
-  let mut states : Array PlanState := #[]
+  let mut signed? : Option Bool := none
   for st in data.logicalState do
-    requirePublicUInt64State quintPlanErr types.uint64TypeId st
-    unless isIdentifier st.name do
-      planError s!"state name '{st.name}' is not a safe identifier"
-    unless st.id.toNat == states.size do
-      planError "unsupported Quint semantic shape: state ids must match declaration order"
-    states := states.push { name := st.name }
-  unless states.size ≤ maxStateFields do
-    planError "unsupported Quint semantic shape: state field count exceeds limit"
+    signed? ← noteIntegerDomain types st.typeId signed? s!"state '{st.name}'"
+  for c in data.callables do
+    signed? ←
+      noteIntegerDomain types c.result.typeId signed? "callable result"
+    for p in c.params do
+      signed? ←
+        noteIntegerDomain types p.typeId signed? s!"parameter '{p.name}'"
+  let signedNumeric := signed? == some true
+  let numericTy := numericTyOf signedNumeric
+  -- States: public UInt64 or Int64, or Array UInt64 N flattened to N leaves.
+  let layout ← makeStateLayoutV1 data types signedNumeric
+  let states := layout.states
   -- PureFn index for inline + pf.assets declaration gate for catalog QNs.
   let mut pureFns : Array (CallableIdV1 × CallableV1) := #[]
   for c in data.callables do
@@ -927,7 +1245,7 @@ private def makePlanFromSemanticDataV1
           planError s!"pureFn '{name}' result must be public"
         let (_params, paramIsPrincipal, _checks, stores, assetOps, ret?, endedRevert,
             bodyUsesVault) ←
-          lowerCallableBody data types idx callable
+          lowerCallableBody data types idx callable numericTy layout
             (allowStateRead := false) (allowStateWrite := false) (forbidChecks := false)
             (initialStateDefaults := false)
         unless stores.isEmpty do
@@ -945,14 +1263,17 @@ private def makePlanFromSemanticDataV1
         | .uint64, some tv, false =>
             let _ ← requireTy tv .uint64 s!"pureFn '{name}' result"
             pure ()
+        | .int64, some tv, false =>
+            let _ ← requireTy tv .int64 s!"pureFn '{name}' result"
+            pure ()
         | .bool, some tv, false =>
             let _ ← requireTy tv .bool s!"pureFn '{name}' result"
             pure ()
-        | .uint64, none, true | .bool, none, true =>
+        | .uint64, none, true | .int64, none, true | .bool, none, true =>
             planError s!"pureFn '{name}' non-Unit revert-only result is outside Q0"
-        | .uint64, none, false | .bool, none, false =>
+        | .uint64, none, false | .int64, none, false | .bool, none, false =>
             planError s!"pureFn '{name}' non-Unit return is missing"
-        | .uint64, some _, true | .bool, some _, true =>
+        | .uint64, some _, true | .int64, some _, true | .bool, some _, true =>
             planError s!"pureFn '{name}' revert path cannot carry a return value"
     | .initializer => do
         unless initializer.isNone do
@@ -966,7 +1287,7 @@ private def makePlanFromSemanticDataV1
           planError "unsupported Quint semantic shape: initializer result must be public"
         let (params, paramIsPrincipal, checks, stores, assetOps, ret?, endedRevert,
             bodyUsesVault) ←
-          lowerCallableBody data types idx callable
+          lowerCallableBody data types idx callable numericTy layout
             (allowStateRead := true) (allowStateWrite := true) (forbidChecks := true)
             (initialStateDefaults := true)
         if endedRevert then
@@ -993,7 +1314,7 @@ private def makePlanFromSemanticDataV1
           planError s!"entry '{name}' result must be public"
         let (params, paramIsPrincipal, checks, stores, assetOps, ret?, endedRevert,
             bodyUsesVault) ←
-          lowerCallableBody data types idx callable
+          lowerCallableBody data types idx callable numericTy layout
             (allowStateRead := true) (allowStateWrite := true) (forbidChecks := false)
             (initialStateDefaults := false)
         let result? ← match rk, ret?, endedRevert with
@@ -1003,15 +1324,18 @@ private def makePlanFromSemanticDataV1
           | .uint64, some tv, false =>
               let e ← requireTy tv .uint64 s!"entry '{name}' result"
               pure (some e)
+          | .int64, some tv, false =>
+              let e ← requireTy tv .int64 s!"entry '{name}' result"
+              pure (some e)
           | .bool, some tv, false =>
               let e ← requireTy tv .bool s!"entry '{name}' result"
               pure (some e)
-          | .uint64, none, true | .bool, none, true =>
+          | .uint64, none, true | .int64, none, true | .bool, none, true =>
               -- Revert-only path: no result expression.
               pure none
-          | .uint64, none, false | .bool, none, false =>
+          | .uint64, none, false | .int64, none, false | .bool, none, false =>
               planError s!"entry '{name}' non-Unit return is missing"
-          | .uint64, some _, true | .bool, some _, true =>
+          | .uint64, some _, true | .int64, some _, true | .bool, some _, true =>
               planError s!"entry '{name}' revert path cannot carry a return value"
         if bodyUsesVault then
           usesVaultNative := true
@@ -1030,12 +1354,12 @@ private def makePlanFromSemanticDataV1
           planError s!"view '{name}' is not a safe identifier"
         let rk ← resultKindOf types callable.result.typeId s!"view '{name}'"
         unless rk != .unit do
-          planError s!"view '{name}' result must be UInt64 or Bool"
+          planError s!"view '{name}' result must be UInt64, Int64, or Bool"
         unless callable.result.visibility == .public_ do
           planError s!"view '{name}' result must be public"
         let (params, paramIsPrincipal, checks, stores, assetOps, ret?, endedRevert,
             bodyUsesVault) ←
-          lowerCallableBody data types idx callable
+          lowerCallableBody data types idx callable numericTy layout
             (allowStateRead := true) (allowStateWrite := false) (forbidChecks := false)
             (initialStateDefaults := false)
         if endedRevert then
@@ -1056,8 +1380,9 @@ private def makePlanFromSemanticDataV1
           | none => planError s!"view '{name}' must return a value"
         let value ← match rk with
           | .uint64 => requireTy tv .uint64 s!"view '{name}' result"
+          | .int64 => requireTy tv .int64 s!"view '{name}' result"
           | .bool => requireTy tv .bool s!"view '{name}' result"
-          | .unit => planError s!"view '{name}' result must be UInt64 or Bool"
+          | .unit => planError s!"view '{name}' result must be UInt64, Int64, or Bool"
         if bodyUsesVault then
           usesVaultNative := true
         views := views.push { name, params, resultKind := rk, value }
@@ -1075,7 +1400,7 @@ private def makePlanFromSemanticDataV1
           planError s!"invariant '{name}' result must be public"
         let (params, _paramIsPrincipal, checks, stores, assetOps, ret?, endedRevert,
             bodyUsesVault) ←
-          lowerCallableBody data types idx callable
+          lowerCallableBody data types idx callable numericTy layout
             (allowStateRead := true) (allowStateWrite := false) (forbidChecks := false)
             (initialStateDefaults := false)
         if endedRevert then
@@ -1099,6 +1424,7 @@ private def makePlanFromSemanticDataV1
     programName
     sourceHash
     semanticHash
+    signedNumeric
     states
     initializer
     entries

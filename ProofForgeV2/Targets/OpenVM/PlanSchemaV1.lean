@@ -31,6 +31,7 @@ def encodeEngineeringOpenVmPlanBytesV1 (plan : Plan) : Except String ByteArray :
     reprStr plan.programName ++ "\u0000" ++
     reprStr plan.sourceHash ++ "\u0000" ++
     reprStr plan.semanticHash ++ "\u0000" ++
+    reprStr plan.signedNumeric ++ "\u0000" ++
     reprStr plan.profile ++ "\u0000" ++
     reprStr plan.vmConfig ++ "\u0000" ++
     reprStr plan.states ++ "\u0000" ++

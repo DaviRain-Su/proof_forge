@@ -40,7 +40,8 @@ private def isSafeIdent (name : String) : Bool :=
 
 private partial def exprNodeCount : Expr → Nat
   | .literal _ | .param _ | .stateLoad _ | .unixTimeSeconds => 1
-  | .checkedAdd lhs rhs | .checkedSub lhs rhs => 1 + exprNodeCount lhs + exprNodeCount rhs
+  | .checkedAdd lhs rhs | .checkedSub lhs rhs | .compare _ lhs rhs =>
+      1 + exprNodeCount lhs + exprNodeCount rhs
 
 /-- Iterative, fuel-bounded expression validation over param/state references.
     Returns the remaining plan-wide node budget. -/
@@ -69,7 +70,7 @@ private def validateExpr
     | .stateLoad fieldIndex =>
         unless fieldIndex < stateCount do
           planError s!"ICP plan {what} references unknown state field {fieldIndex}"
-    | .checkedAdd lhs rhs | .checkedSub lhs rhs =>
+    | .checkedAdd lhs rhs | .checkedSub lhs rhs | .compare _ lhs rhs =>
         stack := stack.push (rhs, depth + 1)
         stack := stack.push (lhs, depth + 1)
   unless exprNodeCount e ≤ maxExprNodes do
@@ -117,7 +118,7 @@ private def validateBody
     | .returnValue value =>
         sawTerminal := true
         sawTerminalValue := true
-        unless resultKind == .uint64 do
+        unless resultKind == .uint64 || resultKind == .int64 || resultKind == .bool do
           planError s!"ICP {owner} Unit result must not return a value"
         remaining ←
           validateExpr value "return value" paramCount stateCount remaining
@@ -128,7 +129,7 @@ private def validateBody
   match mode with
   | .initialize | .mutate =>
       match resultKind, sawTerminalValue with
-      | .uint64, false =>
+      | .uint64, false | .int64, false | .bool, false =>
           planError s!"ICP {owner} non-Unit result is missing its return statement"
       | _, _ => pure ()
   | .query =>
@@ -186,11 +187,11 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     methodNames := methodNames.push v.name
     unless v.mode == .query do
       planError s!"ICP view '{v.name}' must carry MethodMode.query"
-    unless v.resultKind == .uint64 do
-      planError s!"ICP view '{v.name}' result must be UInt64"
+    unless v.resultKind == .uint64 || v.resultKind == .int64 || v.resultKind == .bool do
+      planError s!"ICP view '{v.name}' result must be UInt64, Int64, or Bool"
     validateParams s!"view '{v.name}'" v.params
     exprBudget ←
-      validateBody s!"view '{v.name}'" .query .uint64 (allowStores := false)
+      validateBody s!"view '{v.name}'" .query v.resultKind (allowStores := false)
         v.params.size plan.states.size exprBudget v.body
   pure ()
 

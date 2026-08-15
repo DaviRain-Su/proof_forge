@@ -59,6 +59,8 @@ unsafe def testStateCellOpenVmSource : IO Unit := do
     "StateCell OpenVM plan must carry the increment entry"
   expect (plan.views.map (·.name) == #["get"])
     "StateCell OpenVM plan must carry the get view"
+  expect (plan.signedNumeric == false)
+    "StateCell stays unsigned u64"
   expect (plan.profile == "openvm-guest-source-v1")
     "OpenVM plan must carry the frozen profile string"
   expect (plan.vmConfig == "openvm-2.0.x-rv32im-stub-v1")
@@ -111,6 +113,8 @@ unsafe def testStateCellOpenVmSource : IO Unit := do
     "main.rs must declare the State struct"
   expect (rs.contains "pub count: u64,")
     "main.rs State struct must carry the count field"
+  expect (!rs.contains "i64")
+    "unsigned StateCell must not force i64"
   expect (rs.contains "pub fn initialize(initial: u64) -> State {")
     "main.rs must declare initialize with the initial parameter"
   expect (rs.contains "pub fn increment(state: &mut State, delta: u64) -> Result<u64, u32> {")
@@ -664,27 +668,101 @@ unsafe def testFailClosedPrivateState : IO Unit := do
       | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
       | .ok _ => throw <| IO.userError "private state must fail closed at OpenVM plan"
 
-/-- Fail closed: Int64. -/
-unsafe def testFailClosedInt : IO Unit := do
+/-- Homogeneous Int64: guest `i64` + Rust `i64::checked_add`. -/
+unsafe def testInt64Cell : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
-    "program I where\n" ++
-    "  entry neg(x : Int64) : Int64 do\n" ++
+    "program Int64Cell where\n" ++
+    "  state count : Int64\n" ++
+    "  init(initial : Int64) do\n" ++
+    "    count := initial\n" ++
+    "  entry increment(delta : Int64) : Int64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : Int64 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<openvm-int64>" "Tests.OpenVmInt64" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planOpenVm compiled
+  expect plan.signedNumeric "Int64Cell Plan is signed"
+  expect (plan.states.map (·.name) == #["count"])
+    "Int64Cell plan must carry the count state field"
+  let some inc := plan.entries[0]? |
+    throw <| IO.userError "missing increment entry"
+  expect (inc.resultKind == .int64) "increment result Int64"
+  let signedOverflowOk :=
+    match inc.checks[0]? with
+    | some ck => inc.checks.size == 1 && ck.kind == .overflow
+    | none => false
+  expect signedOverflowOk
+    "signed increment must carry a single overflow check"
+  let some get := plan.views[0]? |
+    throw <| IO.userError "missing get view"
+  expect (get.resultKind == .int64) "get view Int64"
+  liftResult <| Targets.OpenVM.validatePlan plan
+  let files ← liftResult <| buildOpenVm compiled
+  let some mainRs := files.find? (·.path == "guest/src/main.rs") |
+    throw <| IO.userError "openvm: missing guest/src/main.rs"
+  let rs := mainRs.contents
+  expect (rs.contains "pub count: i64,")
+    "signed State struct must carry i64 count"
+  expect (rs.contains "pub fn initialize(initial: i64) -> State {")
+    "signed initialize must take i64"
+  expect (rs.contains "pub fn increment(state: &mut State, delta: i64) -> Result<i64, u32> {")
+    "signed increment must use i64 params/result"
+  expect (rs.contains "checked_add(delta).ok_or(1u32)?")
+    "signed increment must use i64 checked_add with overflow code 1"
+  expect (rs.contains "pub fn get(state: &State) -> i64 {")
+    "signed get must return i64"
+  expect (!rs.contains "pub count: u64,")
+    "signed program must not emit u64 state fields"
+
+/-- Mixing Int64 state with a UInt64 view/result is fail closed. -/
+unsafe def testMixedInt64UInt64Fc : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MixInt64 where\n" ++
+    "  state count : Int64\n" ++
+    "  init(initial : Int64) do\n" ++
+    "    count := initial\n" ++
+    "  entry increment(delta : Int64) : Int64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return 0\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<openvm-mix-int64>" "Tests.OpenVmMixInt64" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planOpenVm compiled with
+  | .error (.planInvariant .openvm msg) =>
+      expect (msg.contains "mixes")
+        s!"mixed Int64/UInt64 must name mixes, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
+  | .ok _ => throw <| IO.userError "mixed Int64/UInt64 must fail closed at OpenVM plan"
+
+/-- Fail closed: Int32 (narrow signed; Int64 is the admitted width). -/
+unsafe def testFailClosedInt32 : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program I32 where\n" ++
+    "  entry id(x : Int32) : Int32 do\n" ++
     "    return x\n"
   let parsed ← liftResult (← session.selectProgramV1
-    source "<openvm-int>" "Tests.OpenVmInt" none)
-  match Compiler.compileValidatedSourceV1 parsed with
-  | .error _ => pure ()
-  | .ok compiled =>
-      match planOpenVm compiled with
-      | .error (.planInvariant .openvm msg) =>
-          expect (msg.contains "Int" || msg.contains "width" ||
-              msg.contains "UInt64" || msg.contains "parameter")
-            s!"Int must fail closed, got: {msg}"
-      | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
-      | .ok _ => throw <| IO.userError "Int must fail closed at OpenVM plan"
+    source "<openvm-int32>" "Tests.OpenVmInt32" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planOpenVm compiled with
+  | .error (.planInvariant .openvm msg) =>
+      expect (msg.contains "UInt64/Int64" || msg.contains "width")
+        s!"Int32 must fail closed on the width needle, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
+  | .ok _ => throw <| IO.userError "Int32 must fail closed at OpenVM plan"
 
 /-- OPENVM-1a: grammar-valid but unregistered profile stays unknown.
     Do not invent a third OpenVM CodegenProfileId. -/
@@ -721,7 +799,9 @@ unsafe def run : IO Unit := do
   testFailClosedMultiblock
   testFailClosedConstant
   testFailClosedPrivateState
-  testFailClosedInt
+  testInt64Cell
+  testMixedInt64UInt64Fc
+  testFailClosedInt32
   IO.println "Tests.Materialization.OpenVmGuestSourceV1: ok"
 
 end Tests.Materialization.OpenVmGuestSourceV1
