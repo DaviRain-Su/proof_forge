@@ -1835,6 +1835,21 @@ private unsafe def testForLoopSemanticPlans : IO Unit := do
     throw <| IO.userError "for-loop: missing Noir addUp relation"
   expect (addUpNr.contents.contains "if " && addUpNr.contents.contains "assert(false)")
     "for-loop Noir source must render unrolled predicated ifs with the bound guard"
+  -- Extra eight from probe; LoopSum bounded-for lighthouse. Psy/Aleo/CW/TON
+  -- admit. Quint/Soroban/OpenVM/ICP stay on the single-block envelope.
+  -- Not opening multi-block/for; existing four Plan/IR pins unchanged.
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.psy, TargetId.aleo, TargetId.cosmwasm, TargetId.ton] do
+    let out ← liftResult <| materializeSelected target compiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"LoopSum: {target} must materialize"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm),
+      (TargetId.icp, TargetKind.icp)] do
+    expectMaterializePlanInvariantV1 "LoopSum" target kind compiled
+      "exactly one block"
 
 /-- ProgramV1 BitLogic source text for the Wave H shift/bitwise/logical leaf. -/
 private def bitLogicSourceTextV1 : String :=
