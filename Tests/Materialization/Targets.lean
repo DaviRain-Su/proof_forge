@@ -608,23 +608,49 @@ private unsafe def testAnonymousResultMaterializationFailClosed : IO Unit := do
           s!"anonymous-result {target} message must cite Array/container boundary, got {e.render}"
 
 private def testSemanticPlanSourceAuthority : IO Unit := do
-  for target in #["Evm", "Solana", "Near", "Noir"] do
-    let path := s!"ProofForgeV2/Targets/{target}.lean"
-    let forbidden ← IO.Process.output {
+  -- Extra eight from probe; Soroban facade defers the three tokens to
+  -- LowerSemanticV1. Forbidden stays residual-alpha-free. Not a 13th target.
+  for target in #["Evm", "Solana", "Near", "Noir", "Aleo", "Psy", "Quint",
+      "CosmWasm", "Ton", "Soroban", "OpenVM", "Icp"] do
+    let facade := s!"ProofForgeV2/Targets/{target}.lean"
+    let lower := s!"ProofForgeV2/Targets/{target}/LowerSemanticV1.lean"
+    let forbiddenNeedle :=
+      "alphaResidualOf|makePlanFromAlpha|validateRequirementEnvelope|Semantic\\.deriveRequirements"
+    let requiredNeedle :=
+      "semanticV1Of|validateSemanticProgramV1|makePlanFromSemanticV1"
+    let forbiddenFacade ← IO.Process.output {
       cmd := "rg"
-      args := #["-n", "alphaResidualOf|makePlanFromAlpha|validateRequirementEnvelope|Semantic\\.deriveRequirements", path]
+      args := #["-n", forbiddenNeedle, facade]
     }
-    expect (forbidden.exitCode == 1)
-      s!"{target} Plan body must not retain a residual-alpha route:\n{forbidden.stdout}"
-    let required ← IO.Process.output {
+    expect (forbiddenFacade.exitCode == 1)
+      s!"{target} facade must not retain a residual-alpha route:\n{forbiddenFacade.stdout}"
+    let forbiddenLower ← IO.Process.output {
       cmd := "rg"
-      args := #["-n", "semanticV1Of|validateSemanticProgramV1|makePlanFromSemanticV1", path]
+      args := #["-n", forbiddenNeedle, lower]
     }
-    expect (required.exitCode == 0 &&
-        required.stdout.contains "semanticV1Of" &&
-        required.stdout.contains "validateSemanticProgramV1" &&
-        required.stdout.contains "makePlanFromSemanticV1")
-      s!"{target} Plan body must visibly consume retained SemanticProgramV1:\n{required.stdout}"
+    expect (forbiddenLower.exitCode == 1)
+      s!"{target} LowerSemanticV1 must not retain a residual-alpha route:\n{forbiddenLower.stdout}"
+    let requiredFacade ← IO.Process.output {
+      cmd := "rg"
+      args := #["-n", requiredNeedle, facade]
+    }
+    let facadeHasAll :=
+      requiredFacade.exitCode == 0 &&
+        requiredFacade.stdout.contains "semanticV1Of" &&
+        requiredFacade.stdout.contains "validateSemanticProgramV1" &&
+        requiredFacade.stdout.contains "makePlanFromSemanticV1"
+    if facadeHasAll then
+      pure ()
+    else
+      let requiredLower ← IO.Process.output {
+        cmd := "rg"
+        args := #["-n", requiredNeedle, lower]
+      }
+      expect (requiredLower.exitCode == 0 &&
+          requiredLower.stdout.contains "semanticV1Of" &&
+          requiredLower.stdout.contains "validateSemanticProgramV1" &&
+          requiredLower.stdout.contains "makePlanFromSemanticV1")
+        s!"{target} Plan body (facade or LowerSemanticV1) must visibly consume retained SemanticProgramV1:\nfacade={requiredFacade.stdout}\nlower={requiredLower.stdout}"
 
 private unsafe def testRichUInt64SemanticPlans : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
