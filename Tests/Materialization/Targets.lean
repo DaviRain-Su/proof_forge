@@ -5704,6 +5704,47 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "OptStr" TargetId.icp TargetKind.icp
     optStrCompiled "containers/String fail closed"
 
+  -- OptBool: Option Bool state. All twelve stay named payload/pilot FC.
+  -- Not opening Option-of-Bool. OptStr / OptBox / BoolPredicate /
+  -- ArrBool stay.
+  let optBoolSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program OptBool where\n" ++
+    "  state o : Option Bool\n\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n\n" ++
+    "  entry setSome(v : UInt64) : UInt64 do\n" ++
+    "    o := Option.some(false)\n" ++
+    "    return v\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let optBoolV1 ← match ← session.selectProgramV1 optBoolSource
+      "<targets-opt-bool>" "Examples.OptBool" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"OptBool select: {e.render}"
+  let optBoolCompiled ← liftResult <| Compiler.compileValidatedSourceV1 optBoolV1
+  expectMaterializePlanInvariantV1 "OptBool" TargetId.evm TargetKind.evm
+    optBoolCompiled "Option state admits only UInt64 payload"
+  expectMaterializePlanInvariantV1 "OptBool" TargetId.solana TargetKind.solana
+    optBoolCompiled "Option state 'o' element must be UInt64"
+  for (target, kind) in #[
+      (TargetId.near, TargetKind.near),
+      (TargetId.noir, TargetKind.noir),
+      (TargetId.aleo, TargetKind.aleo),
+      (TargetId.psy, TargetKind.psy),
+      (TargetId.cosmwasm, TargetKind.cosmwasm),
+      (TargetId.ton, TargetKind.ton)] do
+    expectMaterializePlanInvariantV1 "OptBool" target kind optBoolCompiled
+      "Option state 'o' requires UInt64 payload"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm),
+      (TargetId.icp, TargetKind.icp)] do
+    expectMaterializePlanInvariantV1 "OptBool" target kind optBoolCompiled
+      "anonymous Option is outside the current container-state pilot"
+
   -- N5: Commit identity admitted on EVM/Solana/NEAR (Plan passthrough into
   -- commitment state). Noir declines (public relation slots cannot hold
   -- commitment labels). Psy declines. ContextRead declined on every Phase-1
