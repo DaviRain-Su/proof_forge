@@ -4743,6 +4743,46 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "ArrStr" TargetId.icp TargetKind.icp
     arrStrCompiled "containers/String fail closed"
 
+  -- ArrBool: Array Bool 2 state. All twelve stay named element/pilot FC.
+  -- Not opening Array-of-Bool. ArrStr / ArrayBox / BoolPredicate stay.
+  let arrBoolSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ArrBool where\n" ++
+    "  state slots : Array Bool 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := false\n" ++
+    "    slots[1] := true\n\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    slots[0] := false\n" ++
+    "    return v\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let arrBoolV1 ← match ← session.selectProgramV1 arrBoolSource
+      "<targets-arr-bool>" "Examples.ArrBool" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"ArrBool select: {e.render}"
+  let arrBoolCompiled ← liftResult <| Compiler.compileValidatedSourceV1 arrBoolV1
+  expectMaterializePlanInvariantV1 "ArrBool" TargetId.evm TargetKind.evm
+    arrBoolCompiled "Array state element must be UInt8/16/32/64"
+  for (target, kind) in #[
+      (TargetId.solana, TargetKind.solana),
+      (TargetId.near, TargetKind.near),
+      (TargetId.noir, TargetKind.noir),
+      (TargetId.aleo, TargetKind.aleo),
+      (TargetId.psy, TargetKind.psy),
+      (TargetId.cosmwasm, TargetKind.cosmwasm),
+      (TargetId.ton, TargetKind.ton)] do
+    expectMaterializePlanInvariantV1 "ArrBool" target kind arrBoolCompiled
+      "Array state element must be UInt64"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm),
+      (TargetId.icp, TargetKind.icp)] do
+    expectMaterializePlanInvariantV1 "ArrBool" target kind arrBoolCompiled
+      "anonymous Array is outside the current container-state pilot"
+
   -- MapMini: Map UInt64 UInt64 state. Eight materializers admit; Quint/
   -- Soroban/ICP/OpenVM stay envelope FC. Not opening Map on those four.
   -- No Plan-shape pins; files-nonempty or named decline only.
