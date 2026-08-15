@@ -2195,6 +2195,47 @@ private unsafe def testCallScheduleSemanticPlans : IO Unit := do
       | .schedule 0 #["ledger", "daily"] #[.stateLoad 0] => pure ()
       | _ => throw <| IO.userError "Noir later must keep the schedule statement"
   | none => throw <| IO.userError "Noir later body is too short"
+  -- Extra ten from probe; ExtFlow emit + void call + schedule lighthouse.
+  -- EVM/Noir admit. Others stay named FC. Not opening call/schedule;
+  -- existing EVM/Noir/NEAR/Solana Plan pins unchanged. B-CALL-SEM stays open.
+  for target in [TargetId.evm, TargetId.noir] do
+    let out ← liftResult <| materializeSelected target compiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"ExtFlow: {target} must materialize"
+  for target in [TargetId.solana, TargetId.psy, TargetId.aleo, TargetId.quint,
+      TargetId.soroban, TargetId.openvm] do
+    match materializeSelected target compiled with
+    | .error (.unsupportedRequirementV1 message) =>
+        expect (message.contains "effect.asynchronous-workflow")
+          s!"ExtFlow/{target}: expected effect.asynchronous-workflow, got {message}"
+    | .error error =>
+        throw <| IO.userError
+          s!"ExtFlow/{target}: expected PF-REQ-UNSUPPORTED, got {error.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"ExtFlow/{target}: materialization must fail closed"
+  match materializeSelected TargetId.ton compiled with
+  | .error (.unsupportedRequirementV1 message) =>
+      expect (message.contains "effect.synchronous-call")
+        s!"ExtFlow/ton: expected effect.synchronous-call, got {message}"
+  | .error error =>
+      throw <| IO.userError
+        s!"ExtFlow/ton: expected PF-REQ-UNSUPPORTED, got {error.render}"
+  | .ok _ =>
+      throw <| IO.userError "ExtFlow/ton: materialization must fail closed"
+  match materializeSelected TargetId.icp compiled with
+  | .error (.unsupportedRequirementV1 message) =>
+      expect (message.contains "effect.event")
+        s!"ExtFlow/icp: expected effect.event, got {message}"
+  | .error error =>
+      throw <| IO.userError
+        s!"ExtFlow/icp: expected PF-REQ-UNSUPPORTED, got {error.render}"
+  | .ok _ =>
+      throw <| IO.userError "ExtFlow/icp: materialization must fail closed"
+  expectMaterializePlanInvariantV1 "ExtFlow" TargetId.near TargetKind.near
+    compiled "synchronous external calls are outside the NEAR envelope"
+  expectMaterializePlanInvariantV1 "ExtFlow" TargetId.cosmwasm TargetKind.cosmwasm
+    compiled "call/sync external call is outside the CosmWasm MVP envelope"
 
 -- Fast regression for the retained-V1 target Plan seam and fail-closed tables.
 set_option maxRecDepth 10000 in

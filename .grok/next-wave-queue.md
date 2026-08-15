@@ -137,6 +137,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | MAT-ARITH-QS | done | ArithFlow 12-target: seven admit; Aleo computed-view + Quint/Soroban bitNot + OpenVM/ICP add/sub-only FC. Four Plan/IR pins kept. **Not** opening mul/div/mod/bitNot |
 | MAT-FN-QS | done | FnFlow 12-target: six admit (incl. CW/TON); Aleo/Psy typed payload + Quint/Soroban/OpenVM zero-payload errors + ICP empty-errors FC. Four Plan/IR pins kept. **Not** opening localCall/typed-revert |
 | MAT-ACC-QS | done | Accumulator 12-target: eleven materialize; Aleo reserved `add` identifier FC. Four-target goldens kept. **Not** a rename/shape |
+| MAT-EXT-QS | done | ExtFlow 12-target: EVM/Noir admit; ten named FC (async/sync/event). Four Plan pins kept. **Not** B-CALL-SEM |
 | MAT-STOP | skip | CAP-D-SOL-TIME / ICP-PRINCIPAL / SOR-LEDGER / TON-SHA stay product decisions |
 | NEAR-CALL-RET-FC | done | Pin `let x : UInt64 := call Oracle.feed` Plan FC (`result-bearing ExternalCall` needle, distinct from void sync). Allowlist `NearHostModel.lean`. **Not** opening NEAR sync |
 | DOC-MATRIX-CTRL | done | research/12 D-1=12+0 + §1d Soroban/OpenVM/ICP；ContextRead 行对齐 S3/S4/S3b；ADR-0031 S2 不再写 CPI Clock residual FC。**Not** formal |
