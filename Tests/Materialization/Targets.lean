@@ -3912,6 +3912,42 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "WideInt256" target kind wideI256Compiled
       "only anonymous UInt64 width is supported"
 
+  -- WideInt64: Int64 state/return. Opposite of WideInt128/256: eight
+  -- targets admit files-nonempty. Quint/Soroban/OpenVM/ICP stay on the
+  -- width needle. Not opening Int8/16/32. WideInt128 / WideInt256 /
+  -- WideUInt / WideUInt256 stay.
+  let wideInt64Source :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program WideInt64 where\n" ++
+    "  state n : Int64\n\n" ++
+    "  init(x : Int64) do\n" ++
+    "    n := x\n\n" ++
+    "  entry bump(d : Int64) : Int64 do\n" ++
+    "    n := n + d\n" ++
+    "    return n\n\n" ++
+    "  view get() : Int64 do\n" ++
+    "    return n\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let wideI64V1 ← match ← session.selectProgramV1 wideInt64Source
+      "<targets-int64>" "Examples.WideInt64" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"WideInt64 select: {e.render}"
+  let wideI64Compiled ← liftResult <| Compiler.compileValidatedSourceV1 wideI64V1
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.aleo, TargetId.psy, TargetId.cosmwasm, TargetId.ton] do
+    let out ← liftResult <| materializeSelected target wideI64Compiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"WideInt64: {target} must materialize Int64"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm),
+      (TargetId.icp, TargetKind.icp)] do
+    expectMaterializePlanInvariantV1 "WideInt64" target kind wideI64Compiled
+      "only anonymous UInt64 width is supported"
+
   -- N2c + B-3 PrincipalAddr + T10/T12 Principal storage pilot.
   -- Normalize admits identity-only Principal (state/params/eq/ne). Wire is
   -- variable-length u32-prefixed 1..4096 body. T10 opens EVM; T12 opens
