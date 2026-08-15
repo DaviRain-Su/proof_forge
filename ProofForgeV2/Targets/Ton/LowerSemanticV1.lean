@@ -622,25 +622,47 @@ private abbrev TonTypeClosureV1 := PilotTypeClosureV1
 private def tonPlanErr (message : String) : CompileError :=
   .planInvariant .ton message
 
-/-- Ton multi-width policy (BL-14 / T8 pattern): UInt{8,16,32,64} for body and
-    state/param ABI. UInt128/256 stay fail closed (no multiword TVM path).
-    Int{8,16,32,64} use native Tolk `intN` + `loadInt`/`storeInt`.
-    Reuses the named NearAbi width set without admitting 128/256. -/
-private def tonUintWidthPolicyV1 : PilotUintWidthPolicy :=
-  pilotUintWidthPolicyNearAbi
+/-- Ton multi-width policy: UInt{8,16,32,64,128} for body and state/param ABI.
+    UInt128 is one Tolk `uint128` cell / `loadUint(128)` / int257 temp with
+    `0 ≤ t < 2^128`. UInt256 stays fail closed this slice.
+    Int{8,16,32,64} use native Tolk `intN` + `loadInt`/`storeInt`. -/
+private def tonUintWidthPolicyV1 : PilotUintWidthPolicy where
+  admittedWidths := #[64, 32, 8, 16, 128]
 
-/-- Body/ABI UInt width gate for Ton: `{8,16,32,64}` only (not NearBody 128/256). -/
-private def isTonBodyUintWidth (w : Nat) : Bool := isPilotBodyUintWidth w
+/-- Body/ABI UInt width gate for Ton: `{8,16,32,64,128}` (not 256). -/
+private def isTonBodyUintWidth (w : Nat) : Bool :=
+  w == 8 || w == 16 || w == 32 || w == 64 || w == 128
 
-private def isTonAbiUintWidth (w : Nat) : Bool := isAbiUintWidth w
+private def isTonAbiUintWidth (w : Nat) : Bool := isTonBodyUintWidth w
+
+/-- TON ABI predicate: UInt{8,16,32,64,128} or Int{8,16,32,64}. -/
+private def isTonUintAbiOrInt64
+    (types : TonTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  match types.uintWidthOf typeId with
+  | some w => isTonAbiUintWidth w
+  | none =>
+      match types.intWidthOf typeId with
+      | some w => isAbiIntWidth w
+      | none => false
+
+private def requirePublicTonUintAbiOrInt64State
+    (types : TonTypeClosureV1) (state : StateDeclV1) : CompileResult Unit := do
+  unless isTonUintAbiOrInt64 types state.typeId do
+    throw <| tonPlanErr s!"state '{state.name}' is not public UInt64"
+
+private def requirePublicTonUintAbiOrInt64Param
+    (types : TonTypeClosureV1) (owner : String) (param : ParameterV1) :
+    CompileResult Unit := do
+  unless isTonUintAbiOrInt64 types param.typeId do
+    throw <| tonPlanErr s!"parameter '{param.name}' in {owner} is not public UInt64"
 
 private def tonTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "Ton"
   uint32DuplicateDetail := "expected one anonymous UInt32 type"
   badIntegerWidthDetail :=
-    "only anonymous UInt{8,16,32,64} and Int{8,16,32,64} integer types are supported (UInt128/256 and Int128/256 fail closed)"
+    "only anonymous UInt{8,16,32,64,128} and Int{8,16,32,64} integer types are supported (UInt256 and Int128/256 fail closed)"
   unsupportedShapeDetail :=
-    "only UInt{8,16,32,64}, Int{8,16,32,64}, Unit, Bool, named Struct/Enum, and anonymous Array/Map/Bytes/Option are supported (no Field/Principal; UInt128/256 and Int128/256 fail closed)"
+    "only UInt{8,16,32,64,128}, Int{8,16,32,64}, Unit, Bool, named Struct/Enum, and anonymous Array/Map/Bytes/Option are supported (no Field/Principal; UInt256 and Int128/256 fail closed)"
 
 /-- Ton multi-width + aggregate type closure.
     **Named Struct/Enum** via `pilotNamedAggregateStatePolicyAdmit` (flatten to
@@ -727,8 +749,8 @@ private def decodePrincipalLiteralLeavesV1 (bytes : ByteArray) :
     leaves := leaves.push (.literal (UInt64.ofNat word))
   pure leaves
 
-/-- Resolve admitted scalar state/param TypeId to physical byte width (1/2/4/8).
-    Ton admits UInt{8,16,32,64}/Int{8,16,32,64} (UInt128/256 and Int128/256 FC). -/
+/-- Resolve admitted scalar state/param TypeId to physical byte width (1/2/4/8/16).
+    Ton admits UInt{8,16,32,64,128}/Int{8,16,32,64} (UInt256 and Int128/256 FC). -/
 private def abiByteWidthOfTypeV1
     (types : TonTypeClosureV1) (typeId : TypeIdV1) : CompileResult Nat := do
   match types.uintWidthOf typeId with
@@ -1263,9 +1285,9 @@ private def makeStorageLayoutV1
             }
           stateLeaves := stateLeaves.push leaves
         else
-          -- BL-14/T8b: scalar state admits UInt{8,16,32,64} / Int{8,16,32,64}
-          -- with byteWidth 1/2/4/8. Cell fields use exact bit width at emit.
-          requirePublicUintAbiOrInt64State tonPlanErr types state (allowNonPublic := true)
+          -- BL-14/T8b: scalar state admits UInt{8,16,32,64,128} / Int{8,16,32,64}
+          -- with byteWidth 1/2/4/8/16. Cell fields use exact bit width at emit.
+          requirePublicTonUintAbiOrInt64State types state
           let byteWidth ← abiByteWidthOfTypeV1 types state.typeId
           let isInt := (types.intWidthOf state.typeId).isSome
           let fi := fields.size
@@ -1462,10 +1484,9 @@ private def makeParamsV1 (owner : String) (types : TonTypeClosureV1)
       values := values.push (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
         (leafByteWidth := 1))
     else
-      -- BL-14/T8b: ABI params admit UInt{8,16,32,64}/Int{8,16,32,64}; pitch
-      -- is 8-byte slots (narrow values occupy low bits of a 64-bit input word).
-      requirePublicUintAbiOrInt64Param tonPlanErr types owner param
-        (allowNonPublic := true)
+      -- BL-14/T8b: ABI params admit UInt{8,16,32,64,128}/Int{8,16,32,64}.
+      -- UInt128 pitch is 16 bytes; narrower values occupy one 8-byte slot.
+      requirePublicTonUintAbiOrInt64Param types owner param
       let isInt := (types.intWidthOf param.typeId).isSome
       let byteWidth ← abiByteWidthOfTypeV1 types param.typeId
       let bitWidth := bitWidthOfByteWidth byteWidth
@@ -1775,7 +1796,7 @@ private def makeCompareValueV1
       lhsId rhsId lhs rhs
 
 /-- Admit a wire result TypeId for UInt-width arithmetic/bitwise and return
-    `(typeId, kind, bitWidth)`. UInt8/16/32/64 only; UInt128/256 fail closed. -/
+    `(typeId, kind, bitWidth)`. UInt8/16/32/64/128; UInt256 fail closed. -/
 private def admitUIntWidthResultTypeV1
     (types : TonTypeClosureV1) (resultTypeId : TypeIdV1) :
     CompileResult (TypeIdV1 × TonValueKindV1 × Nat) := do
@@ -2353,11 +2374,10 @@ private def lowerBlockInstructionsV1
                 s!"unsupported Ton semantic shape: UInt{bitWidth} is not an admitted body width"
             if op == .add || op == .sub || op == .mul || op == .div ||
                 op == .mod || op == .bitAnd || op == .bitOr || op == .bitXor then
-              -- UInt128/256 multiword is fail-closed on Ton (type policy + body
-              -- gate). Single-limb int257 path covers UInt{8,16,32,64} only.
-              if bitWidth > 64 then
+              -- UInt128 is one int257 temp + width guard. UInt256 stays FC.
+              if bitWidth > 128 then
                 throw <| .planInvariant .ton
-                  "unsupported Ton semantic shape: multiword UInt is fail-closed on Ton"
+                  "unsupported Ton semantic shape: UInt256 is fail-closed on Ton"
               let (widthTid, kind, w) ← admitUIntWidthResultTypeV1 types result.typeId
               unless kind == lhs.kind && w == bitWidth do
                 throw <| .planInvariant .ton
@@ -3751,16 +3771,17 @@ private def makeEntryV1
       throw <| .planInvariant .ton
         s!"entry '{name}' cannot return multi-leaf Principal aggregate (Ton B-RET-ABI admits only named Struct/Enum and anonymous Array/Option view returns, cap-8 leaves)"
     else
-      -- BL-14: scalar ABI is UInt{8,16,32,64} / Bool / Int{8,16,32,64}
-      -- (UInt128/256 and Int128/256 FC).
+      -- BL-14: scalar ABI is UInt{8,16,32,64,128} / Bool / Int{8,16,32,64}
+      -- (UInt256 and Int128/256 FC).
       match types.uintWidthOf callable.result.typeId with
       | some 8 => pure (MethodResultKind.uint8, ExpectedReturnV1.scalar .uint8)
       | some 16 => pure (MethodResultKind.uint16, ExpectedReturnV1.scalar .uint16)
       | some 32 => pure (MethodResultKind.uint32, ExpectedReturnV1.scalar .uint32)
       | some 64 => pure (MethodResultKind.uint64, ExpectedReturnV1.scalar .uint64)
+      | some 128 => pure (MethodResultKind.uint128, ExpectedReturnV1.scalar .uint128)
       | some w =>
           throw <| .planInvariant .ton
-            s!"entry '{name}' does not return public UInt8/16/32/64 (UInt{w} fail closed on Ton)"
+            s!"entry '{name}' does not return public UInt8/16/32/64/128 (UInt{w} fail closed on Ton)"
       | none =>
           match types.intWidthOf callable.result.typeId with
           | some 8 => pure (MethodResultKind.int8, ExpectedReturnV1.scalar .int8)

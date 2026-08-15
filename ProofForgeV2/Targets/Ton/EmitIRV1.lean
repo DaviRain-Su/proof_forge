@@ -46,6 +46,9 @@ inductive Operation where
   | requireLayout (marker : UInt64)
   | zeroState (fieldIndex : Nat)
   | literal (destination : Nat) (value : UInt64)
+  /-- UInt128 (and future wide) constant. `value` is the full unsigned
+      magnitude; emit prints it as a decimal int257 literal. -/
+  | wideLiteral (destination bitWidth value : Nat)
   /-- B-CTX-OPEN: block unix time seconds — Tolk `blockchain.now()` (stdlib
       wrapper over TVM `NOW`). No range guard: unixtime is ~1.7e9 today,
       always far inside UInt64. -/
@@ -167,8 +170,8 @@ private partial def lowerExpr (next : Nat)
     (paramAsTemp : Bool) (localEnv : Array (Nat × Nat)) : Expr → LoweredExpr
   | .literal value =>
       { operations := #[.literal next value], value := next, next := next + 1 }
-  | .bigLiteral _ value =>
-      { operations := #[.literal next (UInt64.ofNat value)], value := next, next := next + 1 }
+  | .bigLiteral bitWidth value =>
+      { operations := #[.wideLiteral next bitWidth value], value := next, next := next + 1 }
   | .param inputOffset =>
       if paramAsTemp then
         { operations := #[], value := inputOffset / 8, next := next }
@@ -742,6 +745,7 @@ private def storageFieldTolkType (byteWidth : Nat) (isInt : Bool := false) : Str
     | 1 => "uint8"
     | 2 => "uint16"
     | 4 => "uint32"
+    | 16 => "uint128"
     | _ => "uint64"
 
 /-- Message-body load bit width from param physical byte width. -/
@@ -767,6 +771,9 @@ private partial def renderOps (plan : Plan) (method? : Option MethodIR)
         dirty := true
     | .literal dest value =>
         out := out ++ pad ++ s!"val {tempName dest} = {value};\n"
+    | .wideLiteral dest bitWidth value =>
+        out := out ++ pad ++ s!"val {tempName dest} = {value};\n"
+        out := out ++ pad ++ uintWidthRangeCheck bitWidth (tempName dest) ++ "\n"
     | .blockUnixTimeSeconds dest =>
         -- B-CTX-OPEN: Tolk stdlib `blockchain.now()` (asm NOW) returns block
         -- unixtime as int (~1.7e9). No UInt64 range guard: always ≪ 2^64.
@@ -1225,6 +1232,7 @@ private def abiJsonTypeOfByteWidth (byteWidth : Nat) (isInt : Bool := false) : S
     | 1 => "uint8"
     | 2 => "uint16"
     | 4 => "uint32"
+    | 16 => "uint128"
     | _ => "uint64"
 
 private def renderPfAbi (plan : Plan) (ir : IR) : String := Id.run do

@@ -34,8 +34,8 @@ value=0、`SEND_MODE_PAY_FEES_SEPARATELY`、destination=`(0,SHA-256(UTF-8 target
 stub、body=`op32 · query_id=0 · UInt64 args`；仅 init/mutate，view/pureFn FC。它是诚实的
 最小异步 out-message，但不等于真实地址/value 经济或 callback round-trip。
 
-**后续工程扩面**：UInt8/16/32 与 Int8/16/32/64 state/param/result 已开（Tolk `intN`/
-`uintN` cell + `loadInt`/`loadUint` + int257 width guards；UInt128/256 与 Int128/256
+**后续工程扩面**：UInt8/16/32/128 与 Int8/16/32/64 state/param/result 已开（Tolk `intN`/
+`uintN`/`uint128` cell + `loadInt`/`loadUint` + int257 width guards；UInt256 与 Int128/256
 仍 FC）；named Struct/Enum、`Array UInt64 N`、dense `Map UInt64 UInt64` cap-8 与
 fixed `Bytes N` state 已 flatten 到 c4；named Struct/Enum 以及 anonymous
 `Array UInt64 N`（1..8）/`Option UInt64` **view** 返回已开多栈 get-method。entry aggregate、

@@ -645,11 +645,10 @@ private unsafe def testSignedContainerFc
   | .ok _ => throw <| IO.userError "OptI8: expected FC, got ok"
   IO.println "  ✓ Array/Map/Option of Int stay fail closed"
 
-/-- BL-14: UInt128/256 and Int128 stay fail closed. -/
-private unsafe def testMultiWidthFc
+/-- BL-14: UInt128 state/param/body as one uint128 cell + loadUint(128). -/
+private unsafe def testUint128Abi
     (session : Language.Loader.ParserSession) : IO Unit := do
-  -- UInt128 state/param/return
-  let src128 := wrapProgram "Wide128" <|
+  let src := wrapProgram "Wide128" <|
     "  state s : UInt128\n\n" ++
     "  init(x : UInt128) do\n" ++
     "    s := x\n\n" ++
@@ -658,23 +657,40 @@ private unsafe def testMultiWidthFc
     "    return s\n\n" ++
     "  view peek() : UInt128 do\n" ++
     "    return s\n"
-  match ← (do
-      try
-        let c ← compileSource session src128 "Examples.Wide128" "<ton-u128-fc>"
-        pure (some c)
-      catch _ => pure none) with
-  | none => pure ()  -- may fail at Normalize if not admitted
-  | some c =>
-      match planTon c with
-      | .error (.planInvariant .ton msg) =>
-          expect (msg.length > 0) "UInt128 planInvariant nonempty"
-          expect (
-              msg.contains "128" || msg.contains "multi-width" ||
-              msg.contains "UInt" || msg.contains "admitted" ||
-              msg.contains "integer" || msg.contains "fail closed")
-            s!"UInt128 FC message must cite width/admitted, got: {msg}"
-      | .error e => throw <| IO.userError s!"UInt128: unexpected {e.render}"
-      | .ok _ => throw <| IO.userError "UInt128: expected FC, got ok"
+  let compiled ← compileSource session src "Examples.Wide128" "<ton-u128>"
+  let plan ← liftResult <| planTon compiled
+  expect (plan.storage.fields.size == 1) "UInt128 one state field"
+  expect (plan.storage.fields[0]!.byteWidth == 16) "UInt128 state byteWidth=16"
+  expect (!plan.storage.fields[0]!.isInt) "UInt128 state is unsigned"
+  let some go := plan.entries.find? (·.name == "go") |
+    throw <| IO.userError "missing go"
+  expect (go.resultKind == .uint128) "go returns UInt128"
+  expect (go.params.size == 1 && go.params[0]!.byteWidth == 16)
+    "go param byteWidth=16"
+  let hasNarrowAdd := go.body.any fun s =>
+    match s with
+    | .store store =>
+        match store.value with
+        | .narrowCheckedAdd 128 _ _ => true
+        | _ => false
+    | _ => false
+  expect hasNarrowAdd "entry go uses narrowCheckedAdd 128"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"Wide128 plan validate: {e.render}"
+  let files ← liftResult <| filesTon compiled
+  let tolk ← findFile files "Wide128.tolk"
+  expect (tolk.contains "s: uint128") "Storage field s: uint128"
+  expect (tolk.contains "body.loadUint(128)") "param loadUint(128)"
+  expect (tolk.contains "(1 << 128)") "UInt128 range guard bound"
+  let abi ← findFile files "Wide128.ton-abi.json"
+  expect (abi.contains "\"type\":\"uint128\"") "ABI uint128 type"
+  expect (abi.contains "\"returns\":\"uint128\"") "ABI returns uint128"
+  IO.println "  ✓ UInt128 state/param/body + int257 width guard"
+
+/-- BL-14: UInt256 and Int128 stay fail closed. -/
+private unsafe def testMultiWidthFc
+    (session : Language.Loader.ParserSession) : IO Unit := do
   -- UInt256
   let src256 := wrapProgram "Wide256" <|
     "  state s : UInt256\n\n" ++
@@ -721,7 +737,7 @@ private unsafe def testMultiWidthFc
             s!"Int128 FC message must cite width, got: {msg}"
       | .error e => throw <| IO.userError s!"Int128: unexpected {e.render}"
       | .ok _ => throw <| IO.userError "Int128: expected FC, got ok"
-  IO.println "  ✓ UInt128/256 + Int128 fail closed"
+  IO.println "  ✓ UInt256 + Int128 fail closed"
 
 private unsafe def testRegistryDispatch
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -1831,6 +1847,7 @@ unsafe def run : IO Unit := do
   testNarrowInt8 session
   testNarrowInt16Int32 session
   testSignedContainerFc session
+  testUint128Abi session
   testMultiWidthFc session
   testRegistryDispatch session
   testNamedStructReturn session
