@@ -245,6 +245,49 @@ private unsafe def testCallStillFailClosed
         (engineeringPlanFromCompiled compiled)
   IO.println "  ✓ call/sync still fail closed"
 
+/-- Value-position Oracle.feed is a distinct envelope gate from the void
+    statement pin above. Product resolve currently mints the sync-call
+    capability (C2); Plan is the fail-closed authority. Resolve success
+    is not an open of CALL. -/
+unsafe def testResultBearingExternalCallFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let src := wrapProgram "CallRetCw" <|
+    "  state s : UInt64\n\n" ++
+    "  init(x : UInt64) do\n" ++
+    "    s := x\n\n" ++
+    "  entry go() : UInt64 do\n" ++
+    "    let y : UInt64 := call Oracle.feed(s)\n" ++
+    "    return s\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return s\n"
+  let validated ← liftResult (← session.selectProgramV1 src
+    "<cw-call-ret>" "Examples.CallRetCw" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 validated
+  -- ADR-0029 C2: generic non-catalog sync mints a capability; Plan is the
+  -- fail-closed authority. Resolve success is not an open of CALL.
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.cosmwasm none
+  let cap ← match Targets.resolveEngineeringRequirementsV1 selection compiled with
+    | .ok c => pure c
+    | .error e =>
+        throw <| IO.userError
+          s!"product resolve currently mints capability (C2); Plan is FC, got {e.render}"
+  match planFromCapability cap with
+  | .error e =>
+      expect (e.render.contains
+          "result-bearing ExternalCall is outside the CosmWasm envelope")
+        s!"product Plan must name the result-bearing gate, got: {e.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "result-bearing Oracle.feed must fail closed at CosmWasm product Plan"
+  match engineeringPlanFromCompiled compiled with
+  | .error e =>
+      expect (e.render.contains
+          "result-bearing ExternalCall is outside the CosmWasm envelope")
+        s!"result-bearing must fail at the named envelope gate, got: {e.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "result-bearing Oracle.feed must fail closed at CosmWasm engineering Plan"
+
 /-- SYS-S5: CosmWasm has no sha256 or keccak256 host. Exact `pf.crypto.*`
     QNs stay Plan fail closed (no hashed / stdlib fallback). -/
 private unsafe def testCryptoSha256StayFailClosed
@@ -1740,6 +1783,7 @@ unsafe def run : IO Unit := do
   testStateCellIRAndWat session
   testMultiField session
   testCallStillFailClosed session
+  testResultBearingExternalCallFailClosed
   testCryptoSha256StayFailClosed session
   testBase64HelperMatrix
   testScheduleSubMsg session
