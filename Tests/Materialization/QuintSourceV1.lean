@@ -3,8 +3,12 @@
   Uses planFromCompiledSemanticV1 / buildFromCompiledSemanticV1 so the suite
   does not require registry wiring. Main agent registers this suite.
 -/
-import ProofForgeV2
+import ProofForgeV2.Compiler.Pipeline
+import ProofForgeV2.Core.RequirementIdsV1
+import ProofForgeV2.Materialization.MaterializedArtifactsV1
+import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.Quint
+import ProofForgeV2.Targets.Registry
 import Tests.Language.ParserSession
 import Tests.Compiler.ValidatedSourceV1Pipeline
 
@@ -892,6 +896,41 @@ unsafe def testNonCatalogExternalCallFailClosed : IO Unit := do
   | .error e => throw <| IO.userError s!"expected planInvariant, got {e.render}"
   | .ok _ => throw <| IO.userError "Oracle.feed must fail closed at Quint Plan"
 
+/-- Value-position Oracle.feed is a distinct Q0 gate from the void statement
+    pin above. Resolver still admits effect.synchronous-call (A5); Plan
+    rejects the result-bearing form by name. -/
+unsafe def testResultBearingExternalCallFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OracleCallRet where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(x : UInt64) : UInt64 do\n" ++
+    "    let y : UInt64 := call Oracle.feed(x)\n" ++
+    "    count := count + x\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-oracle-ret>" "Tests.QuintOracleRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    Targets.BuildSelectionV1.resolveBuildSelectionV1 TargetId.quint none
+  let cap ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  expect (Targets.ResolvedEngineeringBuildV1.targetIdOf cap == TargetId.quint)
+    "result-bearing Oracle.feed resolves on Quint via sync-call"
+  match Targets.Quint.planFromCapability cap with
+  | .error (.planInvariant .quint msg) =>
+      expect (msg.contains "result-bearing externalCall is outside Q0")
+        s!"result-bearing must fail at the named Q0 gate, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant, got {e.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "result-bearing Oracle.feed must fail closed at Quint Plan"
+  IO.println "QUINT-CALL-RET-FC: result-bearing Oracle.feed Plan FC ok"
+
 /-- SYS-S5: Quint has no sha256 host. Exact `pf.crypto.*` stays Plan fail
     closed instead of the generic pf.assets catch-all. -/
 unsafe def testCryptoSha256StayFailClosed : IO Unit := do
@@ -1179,6 +1218,7 @@ unsafe def run : IO Unit := do
   testPfAssetsVaultDepositTransfer
   testPfAssetsRequiresDeclaration
   testNonCatalogExternalCallFailClosed
+  testResultBearingExternalCallFailClosed
   testCryptoSha256StayFailClosed
   testPfAssetsAsyncAndTokenFailClosed
   testDualExtensionResolveFailClosed
