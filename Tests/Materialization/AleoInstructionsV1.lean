@@ -739,11 +739,11 @@ private def testHandBuiltMultiLeafStructural : IO Unit := do
   | none => throw <| IO.userError "multi-leaf encode→decode failed"
   | some p2 => expect (p2 == prog) "multi-leaf structural round-trip"
 
-/-- ALEO-IR-4: product OptionState (entry-only; Aleo FC computed views) →
-    tag+payload dual mapping + storeAggregate. -/
+/-- ALEO-IR-4: product OptionState (entry-only Instructions golden).
+    Full-example `peek` is a query descriptor, not this fixture. -/
 unsafe def testProductOptionStateMultiLeaf : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
-  -- Inline entry-only surface (Examples/OptionState view peek is Aleo FC).
+  -- Inline entry-only surface (full Examples/OptionState peek is query-only).
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
@@ -783,8 +783,8 @@ unsafe def testProductOptionStateMultiLeaf : IO Unit := do
   | none => throw <| IO.userError "OptionState encode→decode failed"
   | some p2 => expect (p2 == prog) "OptionState structural round-trip"
 
-/-- ALEO-IR-4: product MapMini (entry put only; view get is Aleo computed-view FC)
-    → 6 Map leaves + put storeAggregate / ternary. -/
+/-- ALEO-IR-4: product MapMini (entry put only). Full-example `get` is a
+    query descriptor, not this fixture. 6 Map leaves + put storeAggregate. -/
 unsafe def testProductMapMiniMultiLeaf : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -1907,6 +1907,10 @@ unsafe def testMultiGoldenMapMiniAdmitSurface : IO Unit := do
   expect (q.contents.contains "\"kind\":\"computed\"" &&
       q.contents.contains "\"name\":\"get\"")
     "query contract must advertise computed get"
+  let some aleo := fullFiles.find? (·.path == "mapmini.aleo") |
+    throw <| IO.userError "full MapMini missing Instructions"
+  expect (!aleo.contents.contains "function get")
+    "Instructions must omit computed get"
   let prog ← productProgramFromSource mapMiniAdmitProgramId
     mapMiniAdmitSourceV1 mapMiniAdmitModuleName
   expect (prog.name == "mapmini.aleo") "MapMini program name"
