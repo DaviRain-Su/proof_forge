@@ -31,8 +31,11 @@ open ProofForgeV2.Targets.EnvelopeV1
     Shared across UInt64 and narrow UInt{8,16,32} (BL-14): overflow/underflow
     of the declared width, divide-by-zero, and invalid shift counts all reuse
     these codes so the error-code table stays deterministic and compact.
-    Narrow widths do **not** get separate codes — the guard is width-parameterized
-    (`assert (0 <= t && t < (1 << bitWidth)) throw 100`). -/
+    Narrow/wide widths do **not** get separate codes — the guard is
+    width-parameterized (`assert (0 <= t && t < (1 << bitWidth)) throw 100`
+    for bitWidth < 256). UInt256 uses `assert (0 <= t)`: TVM int257 is
+    signed 257-bit, so any representable nonnegative value is already
+    `< 2^256`; `(1 << 256)` is not representable. -/
 def errOverflow : Nat := 100
 def errDivZero : Nat := 101
 def errInvalidShift : Nat := 102
@@ -46,8 +49,8 @@ inductive Operation where
   | requireLayout (marker : UInt64)
   | zeroState (fieldIndex : Nat)
   | literal (destination : Nat) (value : UInt64)
-  /-- UInt128 (and future wide) constant. `value` is the full unsigned
-      magnitude; emit prints it as a decimal int257 literal. -/
+  /-- UInt128/UInt256 constant. `value` is the full unsigned magnitude;
+      emit prints it as a decimal int257 literal (never UInt64 truncate). -/
   | wideLiteral (destination bitWidth value : Nat)
   /-- B-CTX-OPEN: block unix time seconds — Tolk `blockchain.now()` (stdlib
       wrapper over TVM `NOW`). No range guard: unixtime is ~1.7e9 today,
@@ -102,9 +105,12 @@ inductive Operation where
   | shl (destination lhs rhs : Nat)
   | shr (destination lhs rhs : Nat)
   | bitNot (destination source : Nat)
-  /-- Narrow/wide body checked arithmetic (`bitWidth ∈ {8,16,32,128}`);
+  /-- Narrow/wide body checked arithmetic (`bitWidth ∈ {8,16,32,128,256}`);
       UInt64 keeps historical `checked*`. Emit attaches
-      `assert (0 ≤ t < 2^bitWidth)`. -/
+      `assert (0 <= t && t < (1 << bitWidth))` for bitWidth < 256;
+      UInt256 attaches `assert (0 <= t)` (nonnegative int257 is already
+      `< 2^256`). Add/mul that would produce `≥ 2^256` overflow TVM
+      ADD/MUL before this guard. -/
   | narrowCheckedAdd (bitWidth destination lhs rhs : Nat)
   | narrowCheckedSub (bitWidth destination lhs rhs : Nat)
   | narrowCheckedMul (bitWidth destination lhs rhs : Nat)
@@ -714,10 +720,18 @@ private def cmpOp : ComparisonOp → String
 private def uint64RangeCheck (dst : String) : String :=
   s!"assert (0 <= {dst} && {dst} < (1 << 64)) throw {errOverflow};"
 
-/-- Width-parameterized unsigned range check for UInt{8,16,32,64,128} on int257.
-    Same `errOverflow` code as UInt64; high bits above `bitWidth` must be 0. -/
+/-- Width-parameterized unsigned range check for UInt{8,16,32,64,128,256} on
+    int257. Same `errOverflow` code as UInt64. For bitWidth < 256 the upper
+    bound is `(1 << bitWidth)` (representable). For bitWidth == 256 the
+    machine integer is signed 257-bit `[-2^256, 2^256-1]`, so any
+    representable nonnegative value is already `< 2^256`; `(1 << 256)`
+    is not representable. Add/mul that would produce `≥ 2^256` overflow
+    TVM ADD/MUL before this guard; sub-underflow is `errOverflow`. -/
 private def uintWidthRangeCheck (bitWidth : Nat) (dst : String) : String :=
-  s!"assert (0 <= {dst} && {dst} < (1 << {bitWidth})) throw {errOverflow};"
+  if bitWidth == 256 then
+    s!"assert (0 <= {dst}) throw {errOverflow};"
+  else
+    s!"assert (0 <= {dst} && {dst} < (1 << {bitWidth})) throw {errOverflow};"
 
 /-- Mask to low `bitWidth` bits (bitwise/not results). -/
 private def uintWidthMask (bitWidth : Nat) : String :=
@@ -747,6 +761,7 @@ private def storageFieldTolkType (byteWidth : Nat) (isInt : Bool := false) : Str
     | 2 => "uint16"
     | 4 => "uint32"
     | 16 => "uint128"
+    | 32 => "uint256"
     | _ => "uint64"
 
 /-- Message-body load bit width from param physical byte width. -/
@@ -1143,10 +1158,10 @@ private def renderMessageHandler (plan : Plan) (method : MethodIR) : String := I
   let mut out := s!"// op {method.opCode} → {method.name}\n"
   out := out ++ s!"if (op == {method.opCode}) \{\n"
   for p in method.params do
-    -- BL-14: exact-width param load (`loadUint`/`loadInt` of 8/16/32/64/128).
+    -- BL-14: exact-width param load (`loadUint`/`loadInt` of 8/16/32/64/128/256).
     -- Unsigned zero-extends; signed sign-extends into int temps. Slot pitch
-    -- is 8 bytes for ≤64-bit params and 16 bytes for UInt128; message body
-    -- packs consecutive exact widths.
+    -- is 8 bytes for ≤64-bit params, 16 for UInt128, 32 for UInt256;
+    -- message body packs consecutive exact widths.
     let bits := paramLoadBits p.byteWidth
     let loadFn := if p.isInt then "loadInt" else "loadUint"
     out := out ++ s!"    val {p.name} = body.{loadFn}({bits});\n"
@@ -1234,6 +1249,7 @@ private def abiJsonTypeOfByteWidth (byteWidth : Nat) (isInt : Bool := false) : S
     | 2 => "uint16"
     | 4 => "uint32"
     | 16 => "uint128"
+    | 32 => "uint256"
     | _ => "uint64"
 
 private def renderPfAbi (plan : Plan) (ir : IR) : String := Id.run do

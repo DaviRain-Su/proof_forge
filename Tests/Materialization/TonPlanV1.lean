@@ -8,16 +8,17 @@
   op+query_id envelope, UInt64 range-check markers, schedule→createMessage
   out-message emission (dest hash stub / NoBounce / value=0 /
   PAY_FEES_SEPARATELY / op32·query_id·args body), BL-14 multi-width
-  UInt{8,16,32,128} body/state/param (narrow/wide guards + exact cell/param
-  widths; UInt128 is one uint128 cell / loadUint(128) / int257 temp),
-  B-RET-ABI named Struct/Enum view multi-stack returns, N-ANON-RESULT
-  anonymous Array UInt64 N / Option UInt64 view returns (entry aggregate FC),
-  B-OPT-STATE Option UInt64 state (Enum-shaped 2-leaf c4 layout, none default,
-  payload zeroing, match read, tolk→fif), B-CTX-OPEN context.unixTimeSeconds
-  → Plan blockUnixTimeSeconds / Tolk blockchain.now() (entry+view;
-  caller/unknown FC), and explicit fail-closed boundaries (sync call,
-  UInt256, Int128/256, Array/Map/Option of UInt128, UInt128 shifts/bitwise,
-  Map/Bytes returns, N>8, nested/narrow-element containers,
+  UInt{8,16,32,128,256} body/state/param (narrow/wide guards + exact cell/param
+  widths; UInt128/256 are one uintN cell / loadUint(N) / int257 temp, not
+  CosmWasm multi-limb; UInt256 guard is `assert (0 <= t)`, never `(1 << 256)`),
+  B-RET-ABI named Struct/Enum view multi-stack returns,
+  N-ANON-RESULT anonymous Array UInt64 N / Option UInt64 view returns (entry
+  aggregate FC), B-OPT-STATE Option UInt64 state (Enum-shaped 2-leaf c4
+  layout, none default, payload zeroing, match read, tolk→fif), B-CTX-OPEN
+  context.unixTimeSeconds → Plan blockUnixTimeSeconds / Tolk blockchain.now()
+  (entry+view; caller/unknown FC), and explicit fail-closed boundaries (sync
+  call, Int128/256, Array/Map/Option of UInt128/256, UInt128/256
+  shifts/bitwise, Map/Bytes returns, N>8, nested/narrow-element containers,
   Option non-UInt64 / Option params, invariants, Field/Principal).
 
   Registered in Tests/Shards/Targets. Not @ton/sandbox runtime (TON-3).
@@ -778,11 +779,10 @@ private unsafe def testUint128ShiftFc
   | .ok _ => throw <| IO.userError "UInt128 shr: expected FC, got ok"
   IO.println "  ✓ UInt128 shl/shr stay fail closed"
 
-/-- BL-14: UInt256 and Int128 stay fail closed. -/
-private unsafe def testMultiWidthFc
+/-- BL-14: UInt256 state/param/body as one uint256 cell + loadUint(256). -/
+private unsafe def testUint256Abi
     (session : Language.Loader.ParserSession) : IO Unit := do
-  -- UInt256
-  let src256 := wrapProgram "Wide256" <|
+  let src := wrapProgram "Wide256" <|
     "  state s : UInt256\n\n" ++
     "  init(x : UInt256) do\n" ++
     "    s := x\n\n" ++
@@ -791,18 +791,225 @@ private unsafe def testMultiWidthFc
     "    return s\n\n" ++
     "  view peek() : UInt256 do\n" ++
     "    return s\n"
-  match ← (do
-      try
-        let c ← compileSource session src256 "Examples.Wide256" "<ton-u256-fc>"
-        pure (some c)
-      catch _ => pure none) with
-  | none => pure ()
-  | some c =>
-      match planTon c with
-      | .error (.planInvariant .ton msg) =>
-          expect (msg.length > 0) "UInt256 planInvariant nonempty"
-      | .error e => throw <| IO.userError s!"UInt256: unexpected {e.render}"
-      | .ok _ => throw <| IO.userError "UInt256: expected FC, got ok"
+  let compiled ← compileSource session src "Examples.Wide256" "<ton-u256>"
+  let plan ← liftResult <| planTon compiled
+  expect (plan.storage.fields.size == 1) "UInt256 one state field"
+  expect (plan.storage.fields[0]!.byteWidth == 32) "UInt256 state byteWidth=32"
+  expect (!plan.storage.fields[0]!.isInt) "UInt256 state is unsigned"
+  let some go := plan.entries.find? (·.name == "go") |
+    throw <| IO.userError "missing go"
+  expect (go.resultKind == .uint256) "go returns UInt256"
+  expect (go.params.size == 1 && go.params[0]!.byteWidth == 32)
+    "go param byteWidth=32"
+  let hasNarrowAdd := go.body.any fun s =>
+    match s with
+    | .store store =>
+        match store.value with
+        | .narrowCheckedAdd 256 _ _ => true
+        | _ => false
+    | _ => false
+  expect hasNarrowAdd "entry go uses narrowCheckedAdd 256"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"Wide256 plan validate: {e.render}"
+  let ir ← liftResult <| irTon compiled
+  let some goIR := ir.methods.find? (·.name == "go") |
+    throw <| IO.userError "missing IR go"
+  let hasNarrowOp := goIR.operations.any fun
+    | .narrowCheckedAdd 256 _ _ _ => true
+    | _ => false
+  expect hasNarrowOp "IR emits narrowCheckedAdd 256"
+  let files ← liftResult <| filesTon compiled
+  let tolk ← findFile files "Wide256.tolk"
+  expect (tolk.contains "s: uint256") "Storage field s: uint256"
+  expect (tolk.contains "body.loadUint(256)") "param loadUint(256)"
+  expect (tolk.contains "assert (0 <= t") "UInt256 nonnegative int257 guard"
+  expect (!tolk.contains "(1 << 256)")
+    "UInt256 must not emit unrepresentable (1 << 256)"
+  let abi ← findFile files "Wide256.ton-abi.json"
+  expect (abi.contains "\"type\":\"uint256\"") "ABI uint256 type"
+  expect (abi.contains "\"returns\":\"uint256\"") "ABI returns uint256"
+  IO.println "  ✓ UInt256 state/param/body + int257 width guard"
+
+/-- UInt256 body literal 2^128 must emit a full decimal, not UInt64/UInt128
+    truncation. -/
+private unsafe def testUint256WideLiteral
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- 2^128 = 340282366920938463463374607431768211456.
+  -- UInt64.ofNat would wrap this to 0; a width-128 wideLiteral of this
+  -- Nat would be a silent UInt128 truncate.
+  let src := wrapProgram "WideLit256" <|
+    "  state s : UInt256\n\n" ++
+    "  init() do\n" ++
+    "    s := 0\n\n" ++
+    "  entry go() : UInt256 do\n" ++
+    "    s := 0x100000000000000000000000000000000\n" ++
+    "    return s\n\n" ++
+    "  view peek() : UInt256 do\n" ++
+    "    return s\n"
+  let compiled ← compileSource session src "Examples.WideLit256" "<ton-u256-lit>"
+  let plan ← liftResult <| planTon compiled
+  let some go := plan.entries.find? (·.name == "go") |
+    throw <| IO.userError "missing go"
+  let hasBigLit := go.body.any fun s =>
+    match s with
+    | .store store =>
+        match store.value with
+        | .bigLiteral 256 340282366920938463463374607431768211456 => true
+        | _ => false
+    | _ => false
+  expect hasBigLit "entry go stores bigLiteral 256 of 2^128"
+  let ir ← liftResult <| irTon compiled
+  let some goIR := ir.methods.find? (·.name == "go") |
+    throw <| IO.userError "missing IR go"
+  let hasWideLit := goIR.operations.any fun
+    | .wideLiteral _ 256 340282366920938463463374607431768211456 => true
+    | _ => false
+  expect hasWideLit
+    "IR emits wideLiteral 256 = 340282366920938463463374607431768211456"
+  expect (!goIR.operations.any fun
+    | .literal _ 0 => true
+    | _ => false)
+    "IR must not truncate 2^128 to UInt64 0"
+  expect (!goIR.operations.any fun
+    | .wideLiteral _ 128 340282366920938463463374607431768211456 => true
+    | _ => false)
+    "IR must not emit this value as width-128 wideLiteral"
+  let files ← liftResult <| filesTon compiled
+  let tolk ← findFile files "WideLit256.tolk"
+  expect (tolk.contains "340282366920938463463374607431768211456")
+    "Tolk prints the full UInt256 decimal (not a truncated 0)"
+  expect (tolk.contains "assert (0 <= t")
+    "wideLiteral attaches UInt256 nonnegative int257 guard"
+  expect (!tolk.contains "(1 << 256)")
+    "wideLiteral must not emit unrepresentable (1 << 256)"
+  IO.println "  ✓ UInt256 body literal 2^128 keeps full decimal"
+
+/-- UInt256 shl/shr stay fail closed (int257 can hold the value; 64-count
+    shift would drop high bits). -/
+private unsafe def testUint256ShiftFc
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let srcShl := wrapProgram "Wide256Shl" <|
+    "  state s : UInt256\n\n" ++
+    "  init(x : UInt256) do\n" ++
+    "    s := x\n\n" ++
+    "  entry go(d : UInt32) : UInt256 do\n" ++
+    "    s := s << d\n" ++
+    "    return s\n\n" ++
+    "  view peek() : UInt256 do\n" ++
+    "    return s\n"
+  let compiledShl ← compileSource session srcShl "Examples.Wide256Shl" "<ton-u256-shl>"
+  match planTon compiledShl with
+  | .error (.planInvariant .ton msg) =>
+      expect (msg.contains "shift" || msg.contains "multiword")
+        s!"UInt256 shl FC must cite shift/multiword, got: {msg}"
+  | .error e => throw <| IO.userError s!"UInt256 shl: unexpected {e.render}"
+  | .ok _ => throw <| IO.userError "UInt256 shl: expected FC, got ok"
+  let srcShr := wrapProgram "Wide256Shr" <|
+    "  state s : UInt256\n\n" ++
+    "  init(x : UInt256) do\n" ++
+    "    s := x\n\n" ++
+    "  entry go(d : UInt32) : UInt256 do\n" ++
+    "    s := s >> d\n" ++
+    "    return s\n\n" ++
+    "  view peek() : UInt256 do\n" ++
+    "    return s\n"
+  let compiledShr ← compileSource session srcShr "Examples.Wide256Shr" "<ton-u256-shr>"
+  match planTon compiledShr with
+  | .error (.planInvariant .ton msg) =>
+      expect (msg.contains "shift" || msg.contains "multiword")
+        s!"UInt256 shr FC must cite shift/multiword, got: {msg}"
+  | .error e => throw <| IO.userError s!"UInt256 shr: unexpected {e.render}"
+  | .ok _ => throw <| IO.userError "UInt256 shr: expected FC, got ok"
+  IO.println "  ✓ UInt256 shl/shr stay fail closed"
+
+/-- Array/Map/Option of UInt256 stay fail closed (scalar UInt256 only). -/
+private unsafe def testUint256ContainerFc
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let srcArr := wrapProgram "ArrU256" <|
+    "  state slots : Array UInt256 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    slots[0] := 0\n" ++
+    "    return v\n"
+  let compiledArr ← compileSource session srcArr "Examples.ArrU256" "<ton-arr-u256>"
+  match planTon compiledArr with
+  | .error (.planInvariant .ton msg) =>
+      expect (msg.contains "Array state element must be UInt64")
+        s!"ArrU256 FC must cite Array UInt64 element, got: {msg}"
+  | .error e => throw <| IO.userError s!"ArrU256: unexpected {e.render}"
+  | .ok _ => throw <| IO.userError "ArrU256: expected FC, got ok"
+  let srcMap := wrapProgram "MapU256" <|
+    "  state m : Map UInt64 UInt256\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    return v\n"
+  let compiledMap ← compileSource session srcMap "Examples.MapU256" "<ton-map-u256>"
+  match planTon compiledMap with
+  | .error (.planInvariant .ton msg) =>
+      expect (msg.contains "Map state admits only Map UInt64 UInt64")
+        s!"MapU256 FC must cite Map UInt64 UInt64, got: {msg}"
+  | .error e => throw <| IO.userError s!"MapU256: unexpected {e.render}"
+  | .ok _ => throw <| IO.userError "MapU256: expected FC, got ok"
+  let srcOpt := wrapProgram "OptU256" <|
+    "  state o : Option UInt256\n\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return 0\n"
+  let compiledOpt ← compileSource session srcOpt "Examples.OptU256" "<ton-opt-u256>"
+  match planTon compiledOpt with
+  | .error (.planInvariant .ton msg) =>
+      expect (msg.contains "Option state 'o' requires UInt64 payload")
+        s!"OptU256 FC must cite Option UInt64 payload, got: {msg}"
+  | .error e => throw <| IO.userError s!"OptU256: unexpected {e.render}"
+  | .ok _ => throw <| IO.userError "OptU256: expected FC, got ok"
+  IO.println "  ✓ Array/Map/Option of UInt256 stay fail closed"
+
+/-- UInt256 bitwise stays fail closed (same class as shift >64). -/
+private unsafe def testUint256BitwiseFc
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let srcAnd := wrapProgram "Wide256And" <|
+    "  state s : UInt256\n\n" ++
+    "  init(x : UInt256) do\n" ++
+    "    s := x\n\n" ++
+    "  entry go(d : UInt256) : UInt256 do\n" ++
+    "    s := s & d\n" ++
+    "    return s\n\n" ++
+    "  view peek() : UInt256 do\n" ++
+    "    return s\n"
+  let compiledAnd ← compileSource session srcAnd "Examples.Wide256And" "<ton-u256-and>"
+  match planTon compiledAnd with
+  | .error (.planInvariant .ton msg) =>
+      expect (msg.contains "bitwise" || msg.contains "multiword")
+        s!"UInt256 bitAnd FC must cite bitwise/multiword, got: {msg}"
+  | .error e => throw <| IO.userError s!"UInt256 bitAnd: unexpected {e.render}"
+  | .ok _ => throw <| IO.userError "UInt256 bitAnd: expected FC, got ok"
+  let srcNot := wrapProgram "Wide256Not" <|
+    "  state s : UInt256\n\n" ++
+    "  init(x : UInt256) do\n" ++
+    "    s := x\n\n" ++
+    "  entry go() : UInt256 do\n" ++
+    "    s := ~s\n" ++
+    "    return s\n\n" ++
+    "  view peek() : UInt256 do\n" ++
+    "    return s\n"
+  let compiledNot ← compileSource session srcNot "Examples.Wide256Not" "<ton-u256-not>"
+  match planTon compiledNot with
+  | .error (.planInvariant .ton msg) =>
+      expect (msg.contains "bitwise" || msg.contains "multiword" ||
+          msg.contains "bitNot")
+        s!"UInt256 bitNot FC must cite bitwise/multiword, got: {msg}"
+  | .error e => throw <| IO.userError s!"UInt256 bitNot: unexpected {e.render}"
+  | .ok _ => throw <| IO.userError "UInt256 bitNot: expected FC, got ok"
+  IO.println "  ✓ UInt256 bitwise stay fail closed"
+
+/-- BL-14: Int128/256 stay fail closed. Scalar UInt256 is admitted separately. -/
+private unsafe def testMultiWidthFc
+    (session : Language.Loader.ParserSession) : IO Unit := do
   -- Int128 stays fail closed (narrow Int8/16/32 admitted separately).
   let srcI128 := wrapProgram "WideI128" <|
     "  state s : Int128\n\n" ++
@@ -827,7 +1034,31 @@ private unsafe def testMultiWidthFc
             s!"Int128 FC message must cite width, got: {msg}"
       | .error e => throw <| IO.userError s!"Int128: unexpected {e.render}"
       | .ok _ => throw <| IO.userError "Int128: expected FC, got ok"
-  IO.println "  ✓ UInt256 + Int128 fail closed"
+  -- Int256 stays fail closed (same signed-wide class as Int128).
+  let srcI256 := wrapProgram "WideI256" <|
+    "  state s : Int256\n\n" ++
+    "  init(x : Int256) do\n" ++
+    "    s := x\n\n" ++
+    "  entry go(d : Int256) : Int256 do\n" ++
+    "    s := s + d\n" ++
+    "    return s\n\n" ++
+    "  view peek() : Int256 do\n" ++
+    "    return s\n"
+  match ← (do
+      try
+        let c ← compileSource session srcI256 "Examples.WideI256" "<ton-i256-fc>"
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()
+  | some c =>
+      match planTon c with
+      | .error (.planInvariant .ton msg) =>
+          expect (msg.contains "Int256" || msg.contains "256" ||
+              msg.contains "fail closed" || msg.contains "integer")
+            s!"Int256 FC message must cite width, got: {msg}"
+      | .error e => throw <| IO.userError s!"Int256: unexpected {e.render}"
+      | .ok _ => throw <| IO.userError "Int256: expected FC, got ok"
+  IO.println "  ✓ Int128 + Int256 fail closed"
 
 private unsafe def testRegistryDispatch
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -1940,6 +2171,11 @@ unsafe def run : IO Unit := do
   testUint128Abi session
   testUint128WideLiteral session
   testUint128ShiftFc session
+  testUint256Abi session
+  testUint256WideLiteral session
+  testUint256ShiftFc session
+  testUint256ContainerFc session
+  testUint256BitwiseFc session
   testMultiWidthFc session
   testRegistryDispatch session
   testNamedStructReturn session

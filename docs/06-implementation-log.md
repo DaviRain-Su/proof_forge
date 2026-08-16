@@ -16603,3 +16603,17 @@ normative: false
   `¬ PreservationBaseNoInitializerV1` / `¬ PreservationTheoremV1`，且
   `preservationTheorem_of_subjectBodyV1_ord2` 不存在。**不**声称 formal
   TASK-D2-07 / TST-SEM-002/003 / target refinement。
+
+## 2026-08-16 — TON-U256 one-cell uint256 / loadUint(256)（engineering）
+
+- TON 将公共 UInt256 作为单个 Tolk `uint256` cell / TVM int257 temp 接入：
+  `admittedWidths` 含 256；state/param/result ABI `byteWidth=32`、
+  `resultKind=.uint256`、`narrowCheckedAdd 256`、Tolk `s: uint256` +
+  `body.loadUint(256)` + `assert (0 <= t)`（非负 int257 已蕴含
+  `0≤t<2^256`；不得发射不可表示的 `(1 << 256)`）、ABI `"type":"uint256"`。
+  不是 CosmWasm lo/hi 或 4-limb。2^128 字面量走 `bigLiteral`/`wideLiteral`
+  256，不截成 UInt64/UInt128。
+- Array/Map/Option of UInt256 与 UInt256 shl/shr/bitwise 仍 fail closed；
+  Int128/256 仍 FC。WideUInt256 六 target files-nonempty admit
+  （evm/solana/near/noir/psy/ton）。**不**声称 formal / runtime / sandbox
+  parity，也**不**关闭 TASK/TST。

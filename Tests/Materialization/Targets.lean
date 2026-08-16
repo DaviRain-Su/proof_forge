@@ -3771,9 +3771,10 @@ unsafe def runWideIntegerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "WideUInt" target kind wideCompiled
       "only anonymous UInt64/Int64 widths are supported"
 
-  -- WideUInt256: UInt256 state/return. Same five-target admit as WideUInt
-  -- except Aleo (native u128, not u256). Quint/Soroban/OpenVM/ICP/CW/TON
-  -- stay named FC. Not opening signed 128/256.
+  -- WideUInt256: UInt256 state/return. Six-target files-nonempty admit
+  -- (evm/solana/near/noir/psy/ton). Aleo stays width FC (native u128, not
+  -- u256). Quint/Soroban/OpenVM/ICP/CW stay named FC. Not opening signed
+  -- 128/256. TON is one uint256 cell / loadUint(256), not CW 4-limb.
   let wideUInt256Source :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -3794,7 +3795,7 @@ unsafe def runWideIntegerNeedles : IO Unit := do
     | .error e => throw <| IO.userError s!"WideUInt256 select: {e.render}"
   let wide256Compiled ← liftResult <| Compiler.compileValidatedSourceV1 wide256V1
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
-      TargetId.psy] do
+      TargetId.psy, TargetId.ton] do
     let out ← liftResult <| materializeSelected target wide256Compiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"WideUInt256: {target} must materialize UInt256"
@@ -3809,8 +3810,6 @@ unsafe def runWideIntegerNeedles : IO Unit := do
       "only anonymous UInt64/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "WideUInt256" TargetId.cosmwasm TargetKind.cosmwasm
     wide256Compiled "state 'n' is not public UInt64"
-  expectMaterializePlanInvariantV1 "WideUInt256" TargetId.ton TargetKind.ton
-    wide256Compiled "UInt256"
 
   -- WideInt128: Int128 state/return. All twelve targets stay named width
   -- FC. Not opening Int128 or Int256. WideUInt / WideUInt256 pins stay.
@@ -5008,7 +5007,7 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
 
   -- ArrU256: Array UInt256 2 state. Same EVM-only admit / eleven-decline
   -- set as ArrU128, but UInt256 ≠ UInt128 so it is its own pin.
-  -- WideUInt256 admits bare UInt256 on five targets; Array-of-UInt256
+  -- WideUInt256 admits bare UInt256 on six targets; Array-of-UInt256
   -- admits only EVM. Not opening Array-of-UInt256 on the eleven.
   -- ArrU128 / ArrInt / ArrBool / WideUInt256 stay.
   let arrU256Source :=
@@ -5043,7 +5042,7 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "ArrU256" TargetId.aleo TargetKind.aleo
     arrU256Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64/Int32/Int16/Int8 widths are supported"
   expectMaterializePlanInvariantV1 "ArrU256" TargetId.ton TargetKind.ton
-    arrU256Compiled "UInt256"
+    arrU256Compiled "Array state element must be UInt64"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -5937,9 +5936,10 @@ unsafe def runSignedContainerNeedles : IO Unit := do
       "only anonymous UInt64/Int64 widths are supported"
 
   -- MapU256: Map UInt64 UInt256 state. Same twelve named-FC needles as
-  -- MapU128, but UInt256 ≠ UInt128 so it is its own pin. Aleo/TON stay
-  -- on width, not Map-U64-U64. Not opening Map-of-UInt256. MapU128 /
-  -- MapInt / MapIntKey / ArrU256 / WideUInt256 stay.
+  -- MapU128, but UInt256 ≠ UInt128 so it is its own pin. Aleo stays on
+  -- width; TON now uses Map-U64-U64 (bare UInt256 is admitted). Not
+  -- opening Map-of-UInt256. MapU128 / MapInt / MapIntKey / ArrU256 /
+  -- WideUInt256 stay.
   let mapU256Source :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -5972,7 +5972,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "MapU256" TargetId.aleo TargetKind.aleo
     mapU256Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64/Int32/Int16/Int8 widths are supported"
   expectMaterializePlanInvariantV1 "MapU256" TargetId.ton TargetKind.ton
-    mapU256Compiled "UInt256"
+    mapU256Compiled "Map state admits only Map UInt64 UInt64"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -6028,9 +6028,9 @@ unsafe def runSignedContainerNeedles : IO Unit := do
 
   -- MapU256Key: Map UInt256 UInt64 state. Same twelve named-FC needles
   -- as MapU128Key, but UInt256-key ≠ UInt128-key so it is its own pin.
-  -- EVM/Solana stay key-shape, not MapU256 value. Aleo/TON stay width,
-  -- not MapIntKey Map-U64-U64. Not opening UInt256-key Map. MapU128Key
-  -- / MapU256 / MapIntKey / OptU256 stay.
+  -- EVM/Solana stay key-shape, not MapU256 value. Aleo stays width;
+  -- TON now uses Map-U64-U64 (bare UInt256 is admitted). Not opening
+  -- UInt256-key Map. MapU128Key / MapU256 / MapIntKey / OptU256 stay.
   let mapU256KeySource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -6063,7 +6063,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "MapU256Key" TargetId.aleo TargetKind.aleo
     mapU256KeyCompiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64/Int32/Int16/Int8 widths are supported"
   expectMaterializePlanInvariantV1 "MapU256Key" TargetId.ton TargetKind.ton
-    mapU256KeyCompiled "UInt256"
+    mapU256KeyCompiled "Map state admits only Map UInt64 UInt64"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -7066,11 +7066,11 @@ unsafe def runRemainingNeedles : IO Unit := do
       "only anonymous UInt64/Int64 widths are supported"
 
   -- OptU256: Option UInt256 state. Same twelve named-FC needles as
-  -- OptU128, but UInt256 ≠ UInt128 so it is its own pin. Aleo/TON stay
-  -- on width, not OptInt payload. Quint/Soroban/OpenVM/ICP stay on the
-  -- UInt64 width needle, not OptBool's Option-pilot. Not opening
-  -- Option-of-UInt256. OptU128 / OptInt / OptBool / MapU256 / ArrU256
-  -- stay.
+  -- OptU128, but UInt256 ≠ UInt128 so it is its own pin. Aleo stays on
+  -- width; TON now uses Option-UInt64-payload (bare UInt256 is
+  -- admitted). Quint/Soroban/OpenVM/ICP stay on the UInt64 width
+  -- needle, not OptBool's Option-pilot. Not opening Option-of-UInt256.
+  -- OptU128 / OptInt / OptBool / MapU256 / ArrU256 stay.
   let optU256Source :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -7102,7 +7102,7 @@ unsafe def runRemainingNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "OptU256" TargetId.aleo TargetKind.aleo
     optU256Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64/Int32/Int16/Int8 widths are supported"
   expectMaterializePlanInvariantV1 "OptU256" TargetId.ton TargetKind.ton
-    optU256Compiled "UInt256"
+    optU256Compiled "Option state 'o' requires UInt64 payload"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -7679,7 +7679,7 @@ unsafe def runRemainingNeedles : IO Unit := do
     selfCompiled
   expectContextMatrixFailClosed "context.contractId/ton"
     TargetId.ton .ton
-    "unsupported Ton semantic shape: only UInt{8,16,32,64,128}, Int{8,16,32,64}, Unit, Bool, named Struct/Enum, and anonymous Array/Map/Bytes/Option are supported (no Field/Principal; UInt256 and Int128/256 fail closed)"
+    "unsupported Ton semantic shape: only UInt{8,16,32,64,128,256}, Int{8,16,32,64}, Unit, Bool, named Struct/Enum, and anonymous Array/Map/Bytes/Option are supported (no Field/Principal; Int128/256 fail closed)"
     selfCompiled
   expectContextMatrixFailClosed "context.contractId/noir"
     TargetId.noir .noir
