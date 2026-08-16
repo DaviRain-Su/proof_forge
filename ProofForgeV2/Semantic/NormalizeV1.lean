@@ -4004,34 +4004,26 @@ private def evalConstDeclValueV1
       failUnsupported
         "S1 const value must be a literal (or `-` integer literal); place reads, binary ops, constructors, calls, and match fail closed"
 
-/-- Core lowering after Typed CheckV1 has succeeded.
+/-- Production result of declaration-table preparation. This is a real
+    normalizer stage, not a proof-side mirror: `lowerProgramDataV1` consumes
+    this carrier directly before lowering callable bodies. -/
+structure ProgramLoweringTablesV1 where
+  interner : TypeInternerV1
+  stateRows : Array StateDeclV1
+  stateTable : StateTableV1
+  eventRows : Array EventDeclV1
+  eventTable : EventTableV1
+  errorRows : Array ErrorDeclV1
+  errorTable : ErrorTableV1
+  fnTable : FnTableV1
+  constantRows : Array ConstantV1
+  constantTable : ConstantTableV1
 
-  Passes over ProgramV1 items (not NameResolution tables):
-  0. Register source-order named Struct/Enum TypeDecls (contiguous prefix).
-  1. Collect/validate all legal-UInt/Int states (public/private/commitment)
-     into a complete logicalState table (IDs are source-order among state
-     decls, independent of callable position). Visibility is retained via
-     `mapVisibility`; product disclosure is enforced by CheckV1/DisclosureCheck
-     before this lowering (not by the state table gate).
-  2a. Fn signature table (param/result types interned).
-  2b. Complete constants table (dense source-order IDs + type interning +
-     literal valueBytes via sole `evalConstDeclValueV1`) **after** fn
-     signatures and **before** any callable body so forward const references
-     resolve while preserving the older "all fn signature types before const
-     types" interning order. Const types are deterministic; post-declared
-     novel const shapes still cut over relative to earlier body-only shapes
-     (N-CONST-REF engineering identity — not a claim of full hash stability).
-     Const type/value grammar is owned by TypeCheck + `evalConstDeclValueV1`
-     (no second allowlist authority here).
-  2c. Lower init/entry/view/fn/invariant bodies against complete tables.
-     Target note: EVM/Solana/NEAR/Noir fail closed on any nonempty constants
-     table; Aleo/Psy fail closed when an `Op.Constant` appears in a body
-     (unused table rows alone are not a six-target early reject).
--/
-def lowerProgramDataV1 (source : ValidatedSourceV1) :
-    Except NormalizeErrorV1 SemanticProgramDataV1 := do
-  let qn ← programIdentityToQualifiedNameV1 source.programIdentity
-  let program := source.program
+/-- Production passes 0, 1, 2a and 2b: register named types, collect interface
+    declarations, build local-function signatures, and freeze literal-backed
+    constants before any callable body is lowered. -/
+def prepareProgramLoweringTablesV1 (program : ProgramV1) :
+    Except NormalizeErrorV1 ProgramLoweringTablesV1 := do
   -- Pass 0: named Struct/Enum occupy types[0..namedCount) before any anonymous.
   let mut interner ← registerNamedTypesV1 program.items emptyInterner
   let mut stateRows : Array StateDeclV1 := #[]
@@ -4105,13 +4097,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
     | _ => pure ()
 
   -- Pass 2a: fn signature table for localCall resolution. CallableIds follow
-  -- the unified source order of **every item that becomes a callable** in
-  -- pass 2c: init/entry/view/fn/**invariant** (same order pass 2c lowers them).
-  -- Invariants occupy an ordinal so that a pureFn declared after an invariant
-  -- still receives the correct PureCall calleeId. Fn params stay public
-  -- legal-UInt/Int/Field/Principal; results are public legal
-  -- UInt/Int/Unit/Bool/Field/Principal. Signature types intern before const
-  -- types (pass 2b below) to keep prior fn-before-const interning order.
+  -- the unified source order of every callable-producing item.
   let mut fnTable : FnTableV1 := ⟨#[]⟩
   let mut fnCallableOrdinal : Nat := 0
   for item in program.items.toList do
@@ -4138,10 +4124,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         fnCallableOrdinal := fnCallableOrdinal + 1
     | _ => pure ()
 
-  -- Pass 2b: complete constants table before any callable body
-  -- (N-CONST-REF). Dense ConstantId by const declaration source order;
-  -- valueBytes sole path is `evalConstDeclValueV1` (same literal encoder as
-  -- Op.Literal). Type/value legality: TypeCheck + evalConstDeclValueV1 only.
+  -- Pass 2b: complete constants table before any callable body.
   let mut constantRows : Array ConstantV1 := #[]
   let mut constantTable : ConstantTableV1 := ⟨#[]⟩
   for item in program.items.toList do
@@ -4160,218 +4143,464 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
           rows := constantTable.rows.push (raw d.name, cid, tid)
         }
     | _ => pure ()
+  pure {
+    interner
+    stateRows
+    stateTable
+    eventRows
+    eventTable
+    errorRows
+    errorTable
+    fnTable
+    constantRows
+    constantTable
+  }
 
-  -- Pass 2c: lower supported callables; reject unsupported item kinds.
-  let mut callables : Array CallableV1 := #[]
-  let mut invariantRows : Array WireV1.InvariantDeclV1 := #[]
-  let mut callableId : Nat := 0
-  let mut usedContextUnixTime := false
-  let mut usedContextCaller := false
-  let mut usedContextBlockHeight := false
-  let mut usedContextChainId := false
-  let mut usedContextSelf := false
-  let mut usedContextAttachedValue := false
-  let mut usedCommit := false
-  let mut usedSolanaCpiExtension := false
-  let mut pfAssetsDeclaredVersion? : Option String := none
-  for item in program.items.toList do
-    match item with
-    | .state _ => pure ()
-    | .init d =>
-        let (interner', params) ← lowerParams d.params interner
-        interner := interner'
-        let (interner'', unitTid) := internShape interner .unit
-        interner := interner''
-        let (blocks, loopBounds, interner''', ux, uc, uh, uch, usf, uav, cm) ←
-          lowerBlock d.body params unitTid interner stateTable constantTable
-            eventTable errorTable fnTable
-            true true usedContextUnixTime usedContextCaller usedContextBlockHeight
-              usedContextChainId usedContextSelf usedContextAttachedValue usedCommit
+/-- Production result of pass 2c. Context/effect observations stay attached to
+    the body-lowering result until the final requirements freeze. -/
+structure ProgramLoweringBodiesV1 where
+  interner : TypeInternerV1
+  callables : Array CallableV1
+  invariantRows : Array WireV1.InvariantDeclV1
+  usedContextUnixTime : Bool
+  usedContextCaller : Bool
+  usedContextBlockHeight : Bool
+  usedContextChainId : Bool
+  usedContextSelf : Bool
+  usedContextAttachedValue : Bool
+  usedCommit : Bool
+  usedSolanaCpiExtension : Bool
+  pfAssetsDeclaredVersion? : Option String
+
+/-- Production accumulator for pass 2c. Exposing the item boundary lets kernel
+    proofs compose source-order callable lowering one item at a time without
+    copying a body lowerer or forcing one monolithic reduction. -/
+structure ProgramCallableLoweringStateV1 where
+  interner : TypeInternerV1
+  callables : Array CallableV1
+  invariantRows : Array WireV1.InvariantDeclV1
+  callableId : Nat
+  usedContextUnixTime : Bool
+  usedContextCaller : Bool
+  usedContextBlockHeight : Bool
+  usedContextChainId : Bool
+  usedContextSelf : Bool
+  usedContextAttachedValue : Bool
+  usedCommit : Bool
+  usedSolanaCpiExtension : Bool
+  pfAssetsDeclaredVersion? : Option String
+
+/-- Initial state of the sole production callable-body pass. -/
+def initialProgramCallableLoweringStateV1
+    (tables : ProgramLoweringTablesV1) : ProgramCallableLoweringStateV1 := {
+  interner := tables.interner
+  callables := #[]
+  invariantRows := #[]
+  callableId := 0
+  usedContextUnixTime := false
+  usedContextCaller := false
+  usedContextBlockHeight := false
+  usedContextChainId := false
+  usedContextSelf := false
+  usedContextAttachedValue := false
+  usedCommit := false
+  usedSolanaCpiExtension := false
+  pfAssetsDeclaredVersion? := none
+}
+
+/-- Lower one source item in pass 2c. This is the production step used by the
+    source-list driver below; declarations that do not produce bodies leave the
+    accumulator unchanged. -/
+def lowerProgramCallableItemV1
+    (tables : ProgramLoweringTablesV1)
+    (state : ProgramCallableLoweringStateV1)
+    (item : ProgramItemV1) :
+    Except NormalizeErrorV1 ProgramCallableLoweringStateV1 := do
+  match item with
+  | .state _ => pure state
+  | .init d =>
+      let (interner', params) ← lowerParams d.params state.interner
+      let (interner'', unitTid) := internShape interner' .unit
+      let (blocks, loopBounds, interner''', ux, uc, uh, uch, usf, uav, cm) ←
+        lowerBlock d.body params unitTid interner'' tables.stateTable
+          tables.constantTable tables.eventTable tables.errorTable tables.fnTable
+          true true state.usedContextUnixTime state.usedContextCaller
+            state.usedContextBlockHeight state.usedContextChainId
+            state.usedContextSelf state.usedContextAttachedValue state.usedCommit
+      pure { state with
         interner := interner'''
-        usedContextUnixTime := ux
-        usedContextCaller := uc
-        usedContextBlockHeight := uh
-        usedContextChainId := uch
-        usedContextSelf := usf
-        usedContextAttachedValue := uav
-        usedCommit := cm
-        callables := callables.push (mkCallable
-          (UInt32.ofNat callableId) .initializer none params
+        callables := state.callables.push (mkCallable
+          (UInt32.ofNat state.callableId) .initializer none params
           { typeId := unitTid, visibility := VisibilityV1.public_ } blocks loopBounds)
-        callableId := callableId + 1
-    | .entry e =>
-        let (interner', params) ← lowerParams e.params interner
-        interner := interner'
-        let (interner'', resultTid) ← internSourceType interner e.result
-        interner := interner''
-        requireCallableResultTypeId interner.types resultTid s!"entry '{raw e.name}' result"
-        let allowImplicitReturnNone :=
-          match anonShapeOf? interner.types resultTid with
-          | some .unit => true
-          | _ => false
-        let (blocks, loopBounds, interner''', ux, uc, uh, uch, usf, uav, cm) ←
-          lowerBlock e.body params resultTid interner stateTable constantTable
-            eventTable errorTable fnTable
-            allowImplicitReturnNone true usedContextUnixTime usedContextCaller
-              usedContextBlockHeight usedContextChainId usedContextSelf
-              usedContextAttachedValue usedCommit
-        interner := interner'''
+        callableId := state.callableId + 1
         usedContextUnixTime := ux
         usedContextCaller := uc
         usedContextBlockHeight := uh
         usedContextChainId := uch
         usedContextSelf := usf
         usedContextAttachedValue := uav
-        usedCommit := cm
-        callables := callables.push (mkCallable
-          (UInt32.ofNat callableId) .entry (some (raw e.name)) params
-          { typeId := resultTid, visibility := VisibilityV1.public_ } blocks loopBounds)
-        callableId := callableId + 1
-    | .view v =>
-        let (interner', params) ← lowerParams v.params interner
-        interner := interner'
-        let (interner'', resultTid) ← internSourceType interner v.result
-        interner := interner''
-        requireCallableResultTypeId interner.types resultTid s!"view '{raw v.name}' result"
-        let (blocks, loopBounds, interner''', ux, uc, uh, uch, usf, uav, cm) ←
-          lowerBlock v.body params resultTid interner stateTable constantTable
-            eventTable errorTable fnTable
-            false true usedContextUnixTime usedContextCaller usedContextBlockHeight
-              usedContextChainId usedContextSelf usedContextAttachedValue usedCommit
+        usedCommit := cm }
+  | .entry e =>
+      let (interner', params) ← lowerParams e.params state.interner
+      let (interner'', resultTid) ← internSourceType interner' e.result
+      requireCallableResultTypeId interner''.types resultTid s!"entry '{raw e.name}' result"
+      let allowImplicitReturnNone :=
+        match anonShapeOf? interner''.types resultTid with
+        | some .unit => true
+        | _ => false
+      let (blocks, loopBounds, interner''', ux, uc, uh, uch, usf, uav, cm) ←
+        lowerBlock e.body params resultTid interner'' tables.stateTable
+          tables.constantTable tables.eventTable tables.errorTable tables.fnTable
+          allowImplicitReturnNone true state.usedContextUnixTime
+            state.usedContextCaller state.usedContextBlockHeight
+            state.usedContextChainId state.usedContextSelf
+            state.usedContextAttachedValue state.usedCommit
+      pure { state with
         interner := interner'''
+        callables := state.callables.push (mkCallable
+          (UInt32.ofNat state.callableId) .entry (some (raw e.name)) params
+          { typeId := resultTid, visibility := VisibilityV1.public_ } blocks loopBounds)
+        callableId := state.callableId + 1
         usedContextUnixTime := ux
         usedContextCaller := uc
         usedContextBlockHeight := uh
         usedContextChainId := uch
         usedContextSelf := usf
         usedContextAttachedValue := uav
-        usedCommit := cm
-        callables := callables.push (mkCallable
-          (UInt32.ofNat callableId) .view (some (raw v.name)) params
-          { typeId := resultTid, visibility := VisibilityV1.public_ } blocks loopBounds)
-        callableId := callableId + 1
-    | .struct _ => pure ()  -- registered in Pass0; no callable body
-    | .enum _ => pure ()    -- registered in Pass0; no callable body
-    | .const _ => pure ()   -- Pass 2b complete constants table
-    | .event _ => pure ()
-    | .error _ => pure ()
-    | .fn d =>
-        let (interner', params) ← lowerParams d.params interner
-        interner := interner'
-        let (interner'', resultTid) ← internSourceType interner d.result
-        interner := interner''
-        requireCallableResultTypeId interner.types resultTid s!"fn '{raw d.name}' result"
-        -- Fn purity: the body resolves bare places against an empty state
-        -- table, so any state name fails closed (fn effects are revert-only).
-        -- Constants remain visible (compile-time values, not state).
-        -- N5: ContextRead/Commit also fail closed (allowContextCommit=false).
-        -- Usage flags start false so a prior entry/view ContextRead cannot
-        -- poison this fn's body-local purity check.
-        let emptyStates : StateTableV1 := ⟨#[]⟩
-        let (blocks, loopBounds, interner''', ux, uc, uh, uch, usf, uav, cm) ←
-          lowerBlock d.body params resultTid interner emptyStates constantTable
-            eventTable errorTable fnTable
-            false false false false false false false false false
+        usedCommit := cm }
+  | .view v =>
+      let (interner', params) ← lowerParams v.params state.interner
+      let (interner'', resultTid) ← internSourceType interner' v.result
+      requireCallableResultTypeId interner''.types resultTid s!"view '{raw v.name}' result"
+      let (blocks, loopBounds, interner''', ux, uc, uh, uch, usf, uav, cm) ←
+        lowerBlock v.body params resultTid interner'' tables.stateTable
+          tables.constantTable tables.eventTable tables.errorTable tables.fnTable
+          false true state.usedContextUnixTime state.usedContextCaller
+            state.usedContextBlockHeight state.usedContextChainId
+            state.usedContextSelf state.usedContextAttachedValue state.usedCommit
+      pure { state with
         interner := interner'''
-        -- pureFn must not read Context / Commit (N5).
-        if ux || uc || uh || uch || usf || uav || cm then
-          return ← failUnsupported
-            s!"fn '{raw d.name}' must not use ContextRead or Commit"
-        usedContextUnixTime := usedContextUnixTime || ux
-        usedContextCaller := usedContextCaller || uc
-        usedContextBlockHeight := usedContextBlockHeight || uh
-        usedContextChainId := usedContextChainId || uch
-        usedContextSelf := usedContextSelf || usf
-        usedContextAttachedValue := usedContextAttachedValue || uav
-        usedCommit := usedCommit || cm
-        callables := callables.push (mkCallable
-          (UInt32.ofNat callableId) .pureFn (some (raw d.name)) params
+        callables := state.callables.push (mkCallable
+          (UInt32.ofNat state.callableId) .view (some (raw v.name)) params
           { typeId := resultTid, visibility := VisibilityV1.public_ } blocks loopBounds)
-        callableId := callableId + 1
-    | .invariant d =>
-        -- N-INVARIANT-IR: lower Bool predicate into a zero-arg `.invariant`
-        -- callable + dense InvariantDecl row (source order). Full state table,
-        -- constants table, and pureFn table are visible; ContextRead/Commit
-        -- fail closed. `.proof` remains certification-only (handled below).
-        let (blocks, interner') ←
-          lowerInvariantPredicate d.predicate interner stateTable constantTable fnTable
-        interner := interner'
-        let (interner'', boolTid) := internShape interner .bool
+        callableId := state.callableId + 1
+        usedContextUnixTime := ux
+        usedContextCaller := uc
+        usedContextBlockHeight := uh
+        usedContextChainId := uch
+        usedContextSelf := usf
+        usedContextAttachedValue := uav
+        usedCommit := cm }
+  | .struct _ => pure state
+  | .enum _ => pure state
+  | .const _ => pure state
+  | .event _ => pure state
+  | .error _ => pure state
+  | .fn d =>
+      let (interner', params) ← lowerParams d.params state.interner
+      let (interner'', resultTid) ← internSourceType interner' d.result
+      requireCallableResultTypeId interner''.types resultTid s!"fn '{raw d.name}' result"
+      let emptyStates : StateTableV1 := ⟨#[]⟩
+      let (blocks, loopBounds, interner''', ux, uc, uh, uch, usf, uav, cm) ←
+        lowerBlock d.body params resultTid interner'' emptyStates
+          tables.constantTable tables.eventTable tables.errorTable tables.fnTable
+          false false false false false false false false false
+      if ux || uc || uh || uch || usf || uav || cm then
+        return ← failUnsupported
+          s!"fn '{raw d.name}' must not use ContextRead or Commit"
+      pure { state with
+        interner := interner'''
+        callables := state.callables.push (mkCallable
+          (UInt32.ofNat state.callableId) .pureFn (some (raw d.name)) params
+          { typeId := resultTid, visibility := VisibilityV1.public_ } blocks loopBounds)
+        callableId := state.callableId + 1
+        usedContextUnixTime := state.usedContextUnixTime || ux
+        usedContextCaller := state.usedContextCaller || uc
+        usedContextBlockHeight := state.usedContextBlockHeight || uh
+        usedContextChainId := state.usedContextChainId || uch
+        usedContextSelf := state.usedContextSelf || usf
+        usedContextAttachedValue := state.usedContextAttachedValue || uav
+        usedCommit := state.usedCommit || cm }
+  | .invariant d =>
+      let (blocks, interner') ←
+        lowerInvariantPredicate d.predicate state.interner tables.stateTable
+          tables.constantTable tables.fnTable
+      let (interner'', boolTid) := internShape interner' .bool
+      let cid : CallableIdV1 := UInt32.ofNat state.callableId
+      pure { state with
         interner := interner''
-        let cid : CallableIdV1 := UInt32.ofNat callableId
-        callables := callables.push (mkCallable
+        callables := state.callables.push (mkCallable
           cid CallableKindV1.invariant (some (raw d.name)) #[]
           { typeId := boolTid, visibility := VisibilityV1.public_ }
           blocks #[])
-        invariantRows := invariantRows.push ({
-          id := UInt32.ofNat invariantRows.size
+        invariantRows := state.invariantRows.push ({
+          id := UInt32.ofNat state.invariantRows.size
           name := raw d.name
           callableId := cid
         } : WireV1.InvariantDeclV1)
-        callableId := callableId + 1
-    | .extensionReq declaration =>
-        unless isExactEngineeringExtensionV1 declaration do
-          return ← failUnsupported
-            "S1 normalizer admits only exact closed engineering extension contracts (solana.cpi.accounts@1.0.0, pf.assets@1.1.0|1.2.0)"
-        match wireIdOfExactEngineeringExtensionV1 declaration with
-        | some wid =>
-            if wid == wireExtensionSolanaCpiAccountsIdV1 then
-              usedSolanaCpiExtension := true
-            else if wid == wireExtensionPfAssetsIdV1 then
-              -- At most one pf.assets declaration per program (structure already
-              -- rejects dual same-id rows); capture version for exact mint.
-              match pfAssetsDeclaredVersion? with
-              | some prev =>
-                  return ← failUnsupported
-                    s!"S1 normalizer rejects dual pf.assets declarations ({prev} and {declaration.version})"
-              | none =>
-                  pfAssetsDeclaredVersion? := some declaration.version
-            else
-              return ← failUnsupported
-                s!"S1 normalizer closed extension wire id not wired for mint: {wid}"
-        | none =>
-            return ← failUnsupported
-              "S1 normalizer closed extension table rejected after exact-triple check"
-    | .proof _ =>
-        -- INV-1: proof references are certification metadata only; they never
-        -- enter Semantic IR / business execution (SPEC-TYPE / SPEC-LANG).
-        pure ()
+        callableId := state.callableId + 1 }
+  | .extensionReq declaration =>
+      unless isExactEngineeringExtensionV1 declaration do
+        return ← failUnsupported
+          "S1 normalizer admits only exact closed engineering extension contracts (solana.cpi.accounts@1.0.0, pf.assets@1.1.0|1.2.0)"
+      match wireIdOfExactEngineeringExtensionV1 declaration with
+      | some wid =>
+          if wid == wireExtensionSolanaCpiAccountsIdV1 then
+            pure { state with usedSolanaCpiExtension := true }
+          else if wid == wireExtensionPfAssetsIdV1 then
+            match state.pfAssetsDeclaredVersion? with
+            | some prev =>
+                return ← failUnsupported
+                  s!"S1 normalizer rejects dual pf.assets declarations ({prev} and {declaration.version})"
+            | none =>
+                pure { state with pfAssetsDeclaredVersion? := some declaration.version }
+          else
+            failUnsupported
+              s!"S1 normalizer closed extension wire id not wired for mint: {wid}"
+      | none =>
+          failUnsupported
+            "S1 normalizer closed extension table rejected after exact-triple check"
+  | .proof _ => pure state
 
-  -- Sole Wire exact invariantSteps (roots + pureFn closure members).
-  callables ← assignExactInvariantStepsV1 callables
+/-- Source-list driver used by the production body pass. Structural recursion
+    makes every item equation independently composable by downstream proofs. -/
+def lowerProgramCallableItemsV1
+    (tables : ProgramLoweringTablesV1) :
+    List ProgramItemV1 → ProgramCallableLoweringStateV1 →
+      Except NormalizeErrorV1 ProgramCallableLoweringStateV1
+  | [], state => .ok state
+  | item :: items, state => do
+      let next ← lowerProgramCallableItemV1 tables state item
+      lowerProgramCallableItemsV1 tables items next
 
-  -- Target envelope still requires exactly one anonymous UInt64 TypeId.
-  -- Int-primary programs (Int64 state/results only) never intern UInt64 via
-  -- use; add it once at the end so PilotTypeClosure admission stays stable
-  -- without shifting TypeIds of already-used shapes.
+/-- Forget only the private traversal ordinal after all source items have been
+    lowered. Every semantic and requirement observation remains unchanged. -/
+def ProgramCallableLoweringStateV1.toBodies
+    (state : ProgramCallableLoweringStateV1) : ProgramLoweringBodiesV1 := {
+  interner := state.interner
+  callables := state.callables
+  invariantRows := state.invariantRows
+  usedContextUnixTime := state.usedContextUnixTime
+  usedContextCaller := state.usedContextCaller
+  usedContextBlockHeight := state.usedContextBlockHeight
+  usedContextChainId := state.usedContextChainId
+  usedContextSelf := state.usedContextSelf
+  usedContextAttachedValue := state.usedContextAttachedValue
+  usedCommit := state.usedCommit
+  usedSolanaCpiExtension := state.usedSolanaCpiExtension
+  pfAssetsDeclaredVersion? := state.pfAssetsDeclaredVersion?
+}
+
+/-- Production pass 2c: lower every supported callable body against the exact
+    declaration tables prepared by `prepareProgramLoweringTablesV1`. -/
+def lowerProgramCallableBodiesV1
+    (program : ProgramV1) (tables : ProgramLoweringTablesV1) :
+    Except NormalizeErrorV1 ProgramLoweringBodiesV1 := do
+  let state ← lowerProgramCallableItemsV1 tables program.items.toList
+    (initialProgramCallableLoweringStateV1 tables)
+  pure state.toBodies
+
+/-- Production result of invariant-step assignment and target-envelope type
+    closure. `finishProgramLoweringV1` consumes this exact stage result. -/
+structure ProgramLoweringFinalizationCoreV1 where
+  interner : TypeInternerV1
+  callables : Array CallableV1
+
+/-- Assign the sole exact invariant metadata and ensure the target-envelope
+    UInt64 type before requirements are frozen. -/
+def prepareProgramLoweringFinalizationCoreV1
+    (bodies : ProgramLoweringBodiesV1) :
+    Except NormalizeErrorV1 ProgramLoweringFinalizationCoreV1 := do
+  let mut interner := bodies.interner
+  let callables ← assignExactInvariantStepsV1 bodies.callables
   match findTypeId interner (.uint 64) with
   | some _ => pure ()
   | none =>
       let (interner', _) := internShape interner (.uint 64)
       interner := interner'
+  pure { interner, callables }
 
-  -- S2: freeze exact ProgramRequirementsV1 before encode/hash.
-  let s2Reqs ← match freezeProgramRequirementsV1 program with
-    | .ok r => pure r
-    | .error detail => failUnsupported s!"S2 requirements freeze: {detail}"
-  -- Merge wire-owned ContextRead/Commit/extension exact rows (non-S2 digest
-  -- domains). Each exact extension declaration mints its row even without a
-  -- call. Sort by UTF-8 id so the structure gate order holds.
-  let requirements ← mergeWireOwnedRequirementsV1 s2Reqs usedContextUnixTime
-    usedContextCaller usedContextBlockHeight usedContextChainId usedContextSelf
-    usedContextAttachedValue usedCommit usedSolanaCpiExtension
-    pfAssetsDeclaredVersion?
+/-- Normalize the existing S2 requirement freezer's error into the production
+    normalizer error domain. -/
+def freezeProgramLoweringS2RequirementsV1
+    (program : ProgramV1) : Except NormalizeErrorV1 ProgramRequirementsV1 :=
+  match freezeProgramRequirementsV1 program with
+  | .ok requirements => .ok requirements
+  | .error detail => failUnsupported s!"S2 requirements freeze: {detail}"
+
+/-- Merge wire-owned observations through the sole existing requirement merge
+    after the S2 source analysis has succeeded. -/
+def mergeProgramLoweringRequirementsV1
+    (s2 : ProgramRequirementsV1) (bodies : ProgramLoweringBodiesV1) :
+    Except NormalizeErrorV1 ProgramRequirementsV1 :=
+  mergeWireOwnedRequirementsV1 s2
+    bodies.usedContextUnixTime bodies.usedContextCaller
+    bodies.usedContextBlockHeight bodies.usedContextChainId bodies.usedContextSelf
+    bodies.usedContextAttachedValue bodies.usedCommit
+    bodies.usedSolanaCpiExtension bodies.pfAssetsDeclaredVersion?
+
+/-- Pure record assembly after all effectful finalization stages have returned
+    their production values. -/
+def assembleProgramLoweringDataV1
+    (qualifiedName : QualifiedName) (tables : ProgramLoweringTablesV1)
+    (bodies : ProgramLoweringBodiesV1)
+    (core : ProgramLoweringFinalizationCoreV1)
+    (requirements : ProgramRequirementsV1) : SemanticProgramDataV1 := {
+  qualifiedName
+  types := core.interner.types
+  constants := tables.constantRows
+  logicalState := tables.stateRows
+  events := tables.eventRows
+  errors := tables.errorRows
+  callables := core.callables
+  invariants := bodies.invariantRows
+  requirements
+}
+
+/-- Production finalization stage: assign the sole exact invariant metadata,
+    ensure the target-envelope UInt64 type, freeze requirements, and assemble
+    the canonical SemanticProgram data record. -/
+def finishProgramLoweringV1
+    (qualifiedName : QualifiedName) (program : ProgramV1)
+    (tables : ProgramLoweringTablesV1) (bodies : ProgramLoweringBodiesV1) :
+    Except NormalizeErrorV1 SemanticProgramDataV1 := do
+  let core ← prepareProgramLoweringFinalizationCoreV1 bodies
+  let s2Reqs ← freezeProgramLoweringS2RequirementsV1 program
+  let requirements ← mergeProgramLoweringRequirementsV1 s2Reqs bodies
+  pure (assembleProgramLoweringDataV1
+    qualifiedName tables bodies core requirements)
+
+/-- Core lowering after Typed CheckV1 has succeeded.
+
+  Passes over ProgramV1 items (not NameResolution tables):
+  0. Register source-order named Struct/Enum TypeDecls (contiguous prefix).
+  1. Collect/validate all legal-UInt/Int states (public/private/commitment)
+     into a complete logicalState table (IDs are source-order among state
+     decls, independent of callable position). Visibility is retained via
+     `mapVisibility`; product disclosure is enforced by CheckV1/DisclosureCheck
+     before this lowering (not by the state table gate).
+  2a. Fn signature table (param/result types interned).
+  2b. Complete constants table (dense source-order IDs + type interning +
+     literal valueBytes via sole `evalConstDeclValueV1`) **after** fn
+     signatures and **before** any callable body so forward const references
+     resolve while preserving the older "all fn signature types before const
+     types" interning order. Const types are deterministic; post-declared
+     novel const shapes still cut over relative to earlier body-only shapes
+     (N-CONST-REF engineering identity — not a claim of full hash stability).
+     Const type/value grammar is owned by TypeCheck + `evalConstDeclValueV1`
+     (no second allowlist authority here).
+  2c. Lower init/entry/view/fn/invariant bodies against complete tables.
+     Target note: EVM/Solana/NEAR/Noir fail closed on any nonempty constants
+     table; Aleo/Psy fail closed when an `Op.Constant` appears in a body
+     (unused table rows alone are not a six-target early reject).
+-/
+def lowerProgramDataV1 (source : ValidatedSourceV1) :
+    Except NormalizeErrorV1 SemanticProgramDataV1 := do
+  let qn ← programIdentityToQualifiedNameV1 source.programIdentity
+  let program := source.program
+  let tables ← prepareProgramLoweringTablesV1 program
+  let bodies ← lowerProgramCallableBodiesV1 program tables
+  finishProgramLoweringV1 qn program tables bodies
+
+/-- One successful normalizer stage with its exact production equation. -/
+structure NormalizerStageSuccessV1 {α : Type}
+    (result : Except NormalizeErrorV1 α) where
+  value : α
+  success : result = .ok value
+
+/-- Retain the success equation of an existing production normalizer stage. -/
+def certifyNormalizerStageV1 {α : Type}
+    (result : Except NormalizeErrorV1 α) :
+    Except NormalizeErrorV1 (NormalizerStageSuccessV1 result) :=
+  match result with
+  | .ok value => .ok ⟨value, rfl⟩
+  | .error error => .error error
+
+theorem certifyNormalizerStageV1_eq_ok {α : Type}
+    (result : Except NormalizeErrorV1 α)
+    (certified : NormalizerStageSuccessV1 result) :
+    certifyNormalizerStageV1 result = .ok certified := by
+  rcases certified with ⟨value, success⟩
+  subst result
+  simp [certifyNormalizerStageV1]
+
+/-- Proof-producing decomposition of the sole production program lowerer.
+    Every retained value is accompanied by the equation returned by the exact
+    production stage that `lowerProgramDataV1` itself calls. -/
+structure CertifiedProgramLoweringV1 (source : ValidatedSourceV1) where
+  qualifiedName : QualifiedName
+  qualifiedNameSuccess :
+    programIdentityToQualifiedNameV1 source.programIdentity = .ok qualifiedName
+  tables : ProgramLoweringTablesV1
+  tablesSuccess :
+    prepareProgramLoweringTablesV1 source.program = .ok tables
+  bodies : ProgramLoweringBodiesV1
+  bodiesSuccess :
+    lowerProgramCallableBodiesV1 source.program tables = .ok bodies
+  data : SemanticProgramDataV1
+  finishSuccess :
+    finishProgramLoweringV1 qualifiedName source.program tables bodies = .ok data
+
+/-- Run the same production stages as `lowerProgramDataV1` and retain their
+    exact equations. Unsupported input still fails closed with the original
+    `NormalizeErrorV1`; there is no proof-only lowerer or expected IR input. -/
+def certifyProgramLoweringV1 (source : ValidatedSourceV1) :
+    Except NormalizeErrorV1 (CertifiedProgramLoweringV1 source) := do
+  let qualifiedName ← certifyNormalizerStageV1 <|
+    programIdentityToQualifiedNameV1 source.programIdentity
+  let tables ← certifyNormalizerStageV1 <|
+    prepareProgramLoweringTablesV1 source.program
+  let bodies ← certifyNormalizerStageV1 <|
+    lowerProgramCallableBodiesV1 source.program tables.value
+  let finished ← certifyNormalizerStageV1 <|
+    finishProgramLoweringV1 qualifiedName.value source.program
+      tables.value bodies.value
   pure {
-    qualifiedName := qn
-    types := interner.types
-    constants := constantRows
-    logicalState := stateRows
-    events := eventRows
-    errors := errorRows
-    callables := callables
-    invariants := invariantRows
-    requirements
+    qualifiedName := qualifiedName.value
+    qualifiedNameSuccess := qualifiedName.success
+    tables := tables.value
+    tablesSuccess := tables.success
+    bodies := bodies.value
+    bodiesSuccess := bodies.success
+    data := finished.value
+    finishSuccess := finished.success
   }
+
+/-- Compose a staged production certificate into the exact whole-program
+    lowering equation without re-evaluating or mirroring any pass. -/
+theorem CertifiedProgramLoweringV1.lowerProgramData_success
+    (certified : CertifiedProgramLoweringV1 source) :
+    lowerProgramDataV1 source = .ok certified.data := by
+  unfold lowerProgramDataV1
+  rw [certified.qualifiedNameSuccess]
+  dsimp only [Bind.bind, Except.bind]
+  rw [certified.tablesSuccess]
+  dsimp only [Bind.bind, Except.bind]
+  rw [certified.bodiesSuccess]
+  dsimp only [Bind.bind, Except.bind]
+  exact certified.finishSuccess
+
+/-- Retained stage equations also replay through the production certificate
+    resolver itself. -/
+theorem certifyProgramLoweringV1_eq_ok
+    (certified : CertifiedProgramLoweringV1 source) :
+    certifyProgramLoweringV1 source = .ok certified := by
+  rcases certified with
+    ⟨qualifiedName, qualifiedNameSuccess, tables, tablesSuccess,
+      bodies, bodiesSuccess, data, finishSuccess⟩
+  unfold certifyProgramLoweringV1
+  rw [certifyNormalizerStageV1_eq_ok _
+    (⟨qualifiedName, qualifiedNameSuccess⟩ : NormalizerStageSuccessV1 _)]
+  dsimp only [Bind.bind, Except.bind]
+  rw [certifyNormalizerStageV1_eq_ok _
+    (⟨tables, tablesSuccess⟩ : NormalizerStageSuccessV1 _)]
+  dsimp only [Bind.bind, Except.bind]
+  rw [certifyNormalizerStageV1_eq_ok _
+    (⟨bodies, bodiesSuccess⟩ : NormalizerStageSuccessV1 _)]
+  dsimp only [Bind.bind, Except.bind]
+  rw [certifyNormalizerStageV1_eq_ok _
+    (⟨data, finishSuccess⟩ : NormalizerStageSuccessV1 _)]
+  rfl
 
 /-- Structure-gated encode is the sole path to a SemanticProgramV1 carrier. -/
 def encodeCarrierV1 (data : SemanticProgramDataV1) :

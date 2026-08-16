@@ -283,15 +283,28 @@ second codegen.
     independently in the kernel; no copied AST/IR or proof-only normalizer was
     added. This closes the reachable normalizer implementation blocker, not the
     still-unassembled exact whole-program normalization equation.
+26. **SOL-0048-D5-STATECELL-NORMALIZER-CERTIFICATE** — **done 2026-08-16**:
+    refactored the sole production normalizer itself into source-list callable
+    steps and explicit finalization stages; `lowerProgramDataV1` directly calls
+    those stages, so no proof-side implementation exists. The real exported
+    StateCell source now has separate kernel equations for declaration tables,
+    `initialize`, `increment`, `get`, invariant/type finalization, S2 freeze and
+    wire-owned requirement merge. Those equations construct an unconditional
+    `CertifiedProgramLoweringV1`, whose generic theorem replays the exact whole
+    `lowerProgramDataV1 = .ok data` result. No expected Semantic AST, runtime
+    Boolean, contract-name branch or copied IR is accepted. This closes
+    ProgramV1→SemanticProgramDataV1 ownership; CheckV1 acceptance, carrier
+    encoding and compiler identity mint remain the next production compiler
+    boundary.
 
 D4's four pinned sparse certificates and all four concrete D5 compositions are
 complete, and the generic seam now has a second real contract/HandlerIR shape
 consumer plus its first multiword typed return. The generic bytes→SHA→artifact
 identity proof boundary and a kernel-reducible production emitter core are now
-present. Source binding and the StateCell-reachable normalizer implementation
-are now kernel-reducible, but the exact whole-program normalization result still
-must be assembled from its production stage equations rather than accepted from
-a monolithic runtime Boolean. The remaining D5 blocker then continues through
+present. Source binding and exact ProgramV1→SemanticProgramDataV1 normalization
+are now kernel-certified from the real StateCell declaration. The remaining
+compiler boundary is CheckV1 acceptance → canonical SemanticProgramV1 encoding
+→ `CompiledSemanticV1` identity mint; target ownership then continues through
 the reachable `LowerSemanticV1`/`EmitIRV1` path and `validateIR = .ok ()`.
 Until compiler/IR ownership closes, the post-validation emission equation cannot
 be owner-bound to the real source pipeline, so a SHA trace alone still cannot
@@ -303,12 +316,12 @@ Next formalization slices, in order:
 1. **SOL-0048-D5-GET-EMITTER-CERTIFICATE**: make the real production emission
    stage fully proof-producing/kernel-replayable for its exact result. The
    emitter core, certificate boundary, real StateCell source binding and
-   reachable normalizer implementation are done; next compose the exact
-   whole-program normalization equation from the same production stages, then
-   totalize/replay `LowerSemanticV1`, `EmitIRV1` and `validateIR`, and discharge
-   the StateCell exact post-validation emission equation. Keep traversal
-   contract-independent and do not add a proof-only compiler, emitter or copied
-   assembly.
+   exact whole-program data normalization certificate are done; next discharge
+   the existing CheckV1 gate, canonical carrier encode and compiler identity
+   mint from those same production values, then totalize/replay
+   `LowerSemanticV1`, `EmitIRV1` and `validateIR`, and discharge the StateCell
+   exact post-validation emission equation. Keep traversal contract-independent
+   and do not add a proof-only compiler, emitter or copied assembly.
 2. **SOL-0048-D5-GET-UNCONDITIONAL**: build the 103-block SHA trace directly
    over that exact emitter result, replay it through `resolveBoundSbpfArtifactV1`
    and preparation replay, then discharge the existing StateCell `get` gate.

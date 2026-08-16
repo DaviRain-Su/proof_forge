@@ -16531,3 +16531,25 @@ normative: false
   用runtime `true`冒充该定理。尚未闭合compiled Semantic IR、Solana lowering/`validateIR`、6580-byte
   emitter equation、103-block SHA identity或unconditional `get` gate；也未使用`native_decide`、axiom、
   `Lean.ofReduceBool`、`run_tac`、`sorry`或`unsafe theorem`。
+
+## 2026-08-16 — exact StateCell production normalizer certificate
+
+- 唯一production `lowerProgramDataV1`现直接组合公开的declaration-table、source-list callable-body与
+  finalization stages；callable pass使用通用accumulator和单个`ProgramItemV1` step，finalization把
+  invariant/type closure、S2 freeze、wire-owned requirement merge及纯record assembly分开。它们不是
+  proof-only wrapper：产品lowerer自身调用这些函数，错误仍保持原`NormalizeErrorV1` fail-closed边界。
+- 真实`program StateCell`导出的四个source item按source order分别闭合state declaration、`initialize`、
+  `increment`、`get` kernel equation，再组合出whole callable-body equation。随后分别闭合finalization
+  core、S2 requirements与wire-owned merge，并构造`CertifiedProgramLoweringV1`；通用
+  `lowerProgramData_success` theorem因此把该certificate重放为同一个production
+  `lowerProgramDataV1 = .ok data`，没有提供expected Semantic AST、复制IR、按合约名dispatch或第二套
+  normalizer。
+- `stateCellProgramLoweringCertificateV1`同时绑定既有macro-export canonical source equation与上述
+  exact lower certificate；不是runtime Bool soundness premise。禁止项扫描保持无`native_decide`、
+  `Lean.ofReduceBool`、`run_tac`、`sorry`、用户axiom或`unsafe theorem`。
+- Verification：`lake build ProofForgeV2.Semantic.NormalizeV1`及
+  `lake build ProofForgeV2.Targets.Solana.SbpfStateCellProductionV1`通过；后者实际kernel编译新证书。
+  准确边界提升为真实Source AST→`SemanticProgramDataV1` production ownership。尚未闭合
+  `checkProgramTypedResultV1` acceptance、`encodeCarrierV1`、`CompiledSemanticV1` identity mint、Solana
+  Plan/IR lowering、6580-byte emitter equation、103-block SHA或unconditional `get`；下一刀继续
+  `SOL-0048-D5-GET-EMITTER-CERTIFICATE`的compiler gate，而不是生成proof-only compiler/hash。

@@ -31,6 +31,7 @@ namespace ProofForgeV2.Targets.Solana
 open ProofForgeV2.Compiler
 open ProofForgeV2.Examples
 open ProofForgeV2.Semantic.InvariantABI
+open ProofForgeV2.Semantic.NormalizeV1
 open ProofForgeV2.Semantic.ReferenceV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Source.ValidatedSourceV1
@@ -58,6 +59,275 @@ theorem stateCellCanonicalSourceBindingV1 :
       rw [hbinding] at checked
       contradiction
   | ok binding => exact ⟨binding, rfl⟩
+
+private theorem exceptToOptionGetSuccessV1 {ε α : Type}
+    (result : Except ε α) (success : result.toOption.isSome = true) :
+    result = .ok (result.toOption.get success) := by
+  cases result with
+  | error _ => simp [Except.toOption] at success
+  | ok _ => rfl
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellProgramLoweringTablesSomeV1 :
+    (prepareProgramLoweringTablesV1
+      StateCell.Source.subjectV1.program).toOption.isSome = true := by
+  decide
+
+private def stateCellProgramLoweringTablesV1 : ProgramLoweringTablesV1 :=
+  (prepareProgramLoweringTablesV1
+    StateCell.Source.subjectV1.program).toOption.get
+      stateCellProgramLoweringTablesSomeV1
+
+private theorem stateCellProgramLoweringTablesSuccessV1 :
+    prepareProgramLoweringTablesV1 StateCell.Source.subjectV1.program =
+      .ok stateCellProgramLoweringTablesV1 :=
+  exceptToOptionGetSuccessV1 _ stateCellProgramLoweringTablesSomeV1
+
+private def stateCellCallableLoweringState0V1 :=
+  initialProgramCallableLoweringStateV1 stateCellProgramLoweringTablesV1
+
+private def stateCellStateItemV1 :=
+  StateCell.Source.subjectV1.program.items[0]'(by decide)
+
+private def stateCellInitializeItemV1 :=
+  StateCell.Source.subjectV1.program.items[1]'(by decide)
+
+private def stateCellIncrementItemV1 :=
+  StateCell.Source.subjectV1.program.items[2]'(by decide)
+
+private def stateCellGetItemV1 :=
+  StateCell.Source.subjectV1.program.items[3]'(by decide)
+
+private theorem stateCellProgramItemsV1 :
+    StateCell.Source.subjectV1.program.items.toList =
+      [stateCellStateItemV1, stateCellInitializeItemV1,
+        stateCellIncrementItemV1, stateCellGetItemV1] := by
+  decide
+
+private theorem stateCellStateItemLoweringSuccessV1 :
+    lowerProgramCallableItemV1 stateCellProgramLoweringTablesV1
+      stateCellCallableLoweringState0V1 stateCellStateItemV1 =
+        .ok stateCellCallableLoweringState0V1 := by
+  rfl
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellInitializeLoweringSomeV1 :
+    (lowerProgramCallableItemV1 stateCellProgramLoweringTablesV1
+      stateCellCallableLoweringState0V1
+      stateCellInitializeItemV1).toOption.isSome = true := by
+  decide
+
+private def stateCellCallableLoweringState1V1 :
+    ProgramCallableLoweringStateV1 :=
+  (lowerProgramCallableItemV1 stateCellProgramLoweringTablesV1
+    stateCellCallableLoweringState0V1
+    stateCellInitializeItemV1).toOption.get stateCellInitializeLoweringSomeV1
+
+private theorem stateCellInitializeLoweringSuccessV1 :
+    lowerProgramCallableItemV1 stateCellProgramLoweringTablesV1
+      stateCellCallableLoweringState0V1 stateCellInitializeItemV1 =
+        .ok stateCellCallableLoweringState1V1 :=
+  exceptToOptionGetSuccessV1 _ stateCellInitializeLoweringSomeV1
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellIncrementLoweringSomeV1 :
+    (lowerProgramCallableItemV1 stateCellProgramLoweringTablesV1
+      stateCellCallableLoweringState1V1
+      stateCellIncrementItemV1).toOption.isSome = true := by
+  decide
+
+private def stateCellCallableLoweringState2V1 :
+    ProgramCallableLoweringStateV1 :=
+  (lowerProgramCallableItemV1 stateCellProgramLoweringTablesV1
+    stateCellCallableLoweringState1V1
+    stateCellIncrementItemV1).toOption.get stateCellIncrementLoweringSomeV1
+
+private theorem stateCellIncrementLoweringSuccessV1 :
+    lowerProgramCallableItemV1 stateCellProgramLoweringTablesV1
+      stateCellCallableLoweringState1V1 stateCellIncrementItemV1 =
+        .ok stateCellCallableLoweringState2V1 :=
+  exceptToOptionGetSuccessV1 _ stateCellIncrementLoweringSomeV1
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellGetLoweringSomeV1 :
+    (lowerProgramCallableItemV1 stateCellProgramLoweringTablesV1
+      stateCellCallableLoweringState2V1
+      stateCellGetItemV1).toOption.isSome = true := by
+  decide
+
+private def stateCellCallableLoweringState3V1 :
+    ProgramCallableLoweringStateV1 :=
+  (lowerProgramCallableItemV1 stateCellProgramLoweringTablesV1
+    stateCellCallableLoweringState2V1
+    stateCellGetItemV1).toOption.get stateCellGetLoweringSomeV1
+
+private theorem stateCellGetLoweringSuccessV1 :
+    lowerProgramCallableItemV1 stateCellProgramLoweringTablesV1
+      stateCellCallableLoweringState2V1 stateCellGetItemV1 =
+        .ok stateCellCallableLoweringState3V1 :=
+  exceptToOptionGetSuccessV1 _ stateCellGetLoweringSomeV1
+
+private theorem stateCellProgramCallableBodiesSuccessV1 :
+    lowerProgramCallableBodiesV1 StateCell.Source.subjectV1.program
+      stateCellProgramLoweringTablesV1 =
+        .ok stateCellCallableLoweringState3V1.toBodies := by
+  unfold lowerProgramCallableBodiesV1
+  rw [stateCellProgramItemsV1]
+  simp only [lowerProgramCallableItemsV1]
+  rw [show lowerProgramCallableItemV1 stateCellProgramLoweringTablesV1
+      (initialProgramCallableLoweringStateV1 stateCellProgramLoweringTablesV1)
+      stateCellStateItemV1 = .ok stateCellCallableLoweringState0V1 by
+    simpa [stateCellCallableLoweringState0V1] using
+      stateCellStateItemLoweringSuccessV1]
+  simp only [Bind.bind, Except.bind]
+  rw [stateCellInitializeLoweringSuccessV1]
+  dsimp only [Bind.bind, Except.bind]
+  rw [stateCellIncrementLoweringSuccessV1]
+  dsimp only [Bind.bind, Except.bind]
+  rw [stateCellGetLoweringSuccessV1]
+  rfl
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellProgramFinalizationCoreSomeV1 :
+    (prepareProgramLoweringFinalizationCoreV1
+      stateCellCallableLoweringState3V1.toBodies).toOption.isSome = true := by
+  decide
+
+private def stateCellProgramFinalizationCoreV1 :
+    ProgramLoweringFinalizationCoreV1 :=
+  (prepareProgramLoweringFinalizationCoreV1
+    stateCellCallableLoweringState3V1.toBodies).toOption.get
+      stateCellProgramFinalizationCoreSomeV1
+
+private theorem stateCellProgramFinalizationCoreSuccessV1 :
+    prepareProgramLoweringFinalizationCoreV1
+      stateCellCallableLoweringState3V1.toBodies =
+        .ok stateCellProgramFinalizationCoreV1 :=
+  exceptToOptionGetSuccessV1 _ stateCellProgramFinalizationCoreSomeV1
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellProgramS2RequirementsSomeV1 :
+    (freezeProgramLoweringS2RequirementsV1
+      StateCell.Source.subjectV1.program).toOption.isSome = true := by
+  decide
+
+private def stateCellProgramS2RequirementsV1 : ProgramRequirementsV1 :=
+  (freezeProgramLoweringS2RequirementsV1
+    StateCell.Source.subjectV1.program).toOption.get
+      stateCellProgramS2RequirementsSomeV1
+
+private theorem stateCellProgramS2RequirementsSuccessV1 :
+    freezeProgramLoweringS2RequirementsV1 StateCell.Source.subjectV1.program =
+      .ok stateCellProgramS2RequirementsV1 :=
+  exceptToOptionGetSuccessV1 _ stateCellProgramS2RequirementsSomeV1
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellProgramRequirementsSomeV1 :
+    (mergeProgramLoweringRequirementsV1 stateCellProgramS2RequirementsV1
+      stateCellCallableLoweringState3V1.toBodies).toOption.isSome = true := by
+  decide
+
+private def stateCellProgramRequirementsV1 : ProgramRequirementsV1 :=
+  (mergeProgramLoweringRequirementsV1 stateCellProgramS2RequirementsV1
+    stateCellCallableLoweringState3V1.toBodies).toOption.get
+      stateCellProgramRequirementsSomeV1
+
+private theorem stateCellProgramRequirementsSuccessV1 :
+    mergeProgramLoweringRequirementsV1 stateCellProgramS2RequirementsV1
+      stateCellCallableLoweringState3V1.toBodies =
+        .ok stateCellProgramRequirementsV1 :=
+  exceptToOptionGetSuccessV1 _ stateCellProgramRequirementsSomeV1
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellQualifiedNameSomeV1 :
+    (programIdentityToQualifiedNameV1
+      StateCell.Source.subjectV1.programIdentity).toOption.isSome = true := by
+  decide
+
+private def stateCellQualifiedNameV1 :=
+  (programIdentityToQualifiedNameV1
+    StateCell.Source.subjectV1.programIdentity).toOption.get
+      stateCellQualifiedNameSomeV1
+
+private theorem stateCellQualifiedNameSuccessV1 :
+    programIdentityToQualifiedNameV1
+      StateCell.Source.subjectV1.programIdentity = .ok stateCellQualifiedNameV1 :=
+  exceptToOptionGetSuccessV1 _ stateCellQualifiedNameSomeV1
+
+private def stateCellSemanticProgramDataV1 : SemanticProgramDataV1 :=
+  assembleProgramLoweringDataV1 stateCellQualifiedNameV1
+    stateCellProgramLoweringTablesV1
+    stateCellCallableLoweringState3V1.toBodies
+    stateCellProgramFinalizationCoreV1 stateCellProgramRequirementsV1
+
+private theorem stateCellProgramFinalizationSuccessV1 :
+    finishProgramLoweringV1 stateCellQualifiedNameV1
+      StateCell.Source.subjectV1.program stateCellProgramLoweringTablesV1
+      stateCellCallableLoweringState3V1.toBodies =
+        .ok stateCellSemanticProgramDataV1 := by
+  unfold finishProgramLoweringV1
+  rw [stateCellProgramFinalizationCoreSuccessV1]
+  dsimp only [Bind.bind, Except.bind]
+  rw [stateCellProgramS2RequirementsSuccessV1]
+  dsimp only [Bind.bind, Except.bind]
+  rw [stateCellProgramRequirementsSuccessV1]
+  rfl
+
+/-- Unconditional kernel certificate for the concrete production StateCell
+    source lowering. The witness is assembled from source-order equations for
+    the real declaration, `initialize`, `increment`, and `get` items; no
+    expected Semantic AST or alternate lowerer is supplied. -/
+theorem stateCellProgramLoweringCertificateV1 :
+    ∃ (binding : CanonicalSourceBindingV1
+          StateCell.Source.subjectV1 StateCell.bytes)
+      (certified : CertifiedProgramLoweringV1 binding.validated),
+      bindElaboratedSourceToCanonicalBytesV1
+          StateCell.Source.subjectV1 StateCell.bytes = .ok binding ∧
+        certifyProgramLoweringV1 binding.validated = .ok certified := by
+  rcases stateCellCanonicalSourceBindingV1 with ⟨binding, bindingSuccess⟩
+  have qualifiedNameSuccess :
+      programIdentityToQualifiedNameV1 binding.validated.programIdentity =
+        .ok stateCellQualifiedNameV1 := by
+    rw [binding.programIdentity_eq]
+    exact stateCellQualifiedNameSuccessV1
+  have tablesSuccess :
+      prepareProgramLoweringTablesV1 binding.validated.program =
+        .ok stateCellProgramLoweringTablesV1 := by
+    rw [binding.program_eq]
+    exact stateCellProgramLoweringTablesSuccessV1
+  have bodiesSuccess :
+      lowerProgramCallableBodiesV1 binding.validated.program
+        stateCellProgramLoweringTablesV1 =
+          .ok stateCellCallableLoweringState3V1.toBodies := by
+    rw [binding.program_eq]
+    exact stateCellProgramCallableBodiesSuccessV1
+  have finishSuccess :
+      finishProgramLoweringV1 stateCellQualifiedNameV1 binding.validated.program
+        stateCellProgramLoweringTablesV1
+        stateCellCallableLoweringState3V1.toBodies =
+          .ok stateCellSemanticProgramDataV1 := by
+    rw [binding.program_eq]
+    exact stateCellProgramFinalizationSuccessV1
+  let certified : CertifiedProgramLoweringV1 binding.validated := {
+    qualifiedName := stateCellQualifiedNameV1
+    qualifiedNameSuccess
+    tables := stateCellProgramLoweringTablesV1
+    tablesSuccess
+    bodies := stateCellCallableLoweringState3V1.toBodies
+    bodiesSuccess
+    data := stateCellSemanticProgramDataV1
+    finishSuccess
+  }
+  exact ⟨binding, certified, bindingSuccess,
+    certifyProgramLoweringV1_eq_ok certified⟩
 
 /-- The concrete values consumed by the existing certified StateCell `get`
     HandlerIR/provider join. The private constructor prevents callers from
