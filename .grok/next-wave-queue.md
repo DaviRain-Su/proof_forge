@@ -49,9 +49,9 @@ Goal: lift envelope-4 toward mid-tier (CW/TON/Aleo/Psy), then mid-tier toward th
 | ALEO-INT64-CONTAINERS | main | Aleo flatten triples isInt; cap-2 / 6 leaves stays | **committed** `9ad083de6` |
 | PSY-INT64-CONTAINERS | main | Psy TypeId-driven LoweredVal.isInt; names-only storage | **committed** `9ad083de6` |
 | EVM-INT64-CONTAINERS | main | EVM Array/Option Int64 + hashed Map value signedness (not 24-leaf) | **committed** `9ad083de6` |
-| T3-CONST | main | Scalar `Op.Constant` inline via existing `Op.Literal` on EVM/Solana(product)/Noir/TON/Quint/Soroban/OpenVM/ICP. String/aggregate/Principal const + Solana `Cpi*IR` empty-table stay FC | implemented; hash left for Commit |
-| T3-ALEO-PRIN | main | Aleo 9-leaf Principal wire identity (`owner_len`+`w0..w7`, ≠address/Field). Return / caller→address stay FC | implemented; hash left for Commit |
-| T3-ENV4-BYTES | main | Quint/Soroban/OpenVM/ICP Bytes N as N UInt64 low-8 leaves. No Candid `vec nat8`. Bytes return stay FC | implemented; hash left for Commit |
+| T3-CONST | main | Scalar `Op.Constant` inline via existing `Op.Literal` on EVM/Solana(product)/Noir/TON/Quint/Soroban/OpenVM/ICP. String/aggregate/Principal const + Solana `Cpi*IR` empty-table stay FC | **committed** `9454bcec9` |
+| T3-ALEO-PRIN | main | Aleo 9-leaf Principal wire identity (`owner_len`+`w0..w7`, ≠address/Field). Return / caller→address stay FC | **committed** `9454bcec9` |
+| T3-ENV4-BYTES | main | Quint/Soroban/OpenVM/ICP Bytes N as N UInt64 low-8 leaves. No Candid `vec nat8`. Bytes return stay FC | **committed** `9454bcec9` |
 
 **File lock:** workers must not edit `Tests/Materialization/Targets.lean` or another target's tree. `FieldComparison*` is a main-agent serial slice (`FC-PRESERVE`), not a parallel leaf. Main agent integrates WideInt64 / OptInt / ArrInt / MapInt needles after each leaf lands.
 
