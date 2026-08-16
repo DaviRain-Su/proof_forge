@@ -508,11 +508,15 @@ def isNearAbiUintWidth (w : Nat) : Bool :=
 def isNoirAbiUintWidth (w : Nat) : Bool :=
   w == 8 || w == 16 || w == 32 || w == 64 || w == 128 || w == 256
 
-/-- CosmWasm **ABI** UInt widths: `{8,16,32,64,128}`. UInt128 is two
-    8-byte KV Regions + two JSON decimal limbs. UInt256 stays body-only
-    (`isAbiUintWidth` is unchanged so TON/others keep fail-closed). -/
+/-- CosmWasm **ABI** UInt widths: `{8,16,32,64,128,256}`. UInt128 is two
+    consecutive 8-byte KV Regions + two JSON decimal limbs. UInt256 is
+    four consecutive 8-byte Regions + four JSON decimal limbs (limb 0 =
+    least-significant 64 bits). Physical KV stays an 8-byte Region; this
+    is not a 32-byte KV slot and not a TON one-cell `uint256`.
+    `isAbiUintWidth` stays `{8,16,32,64}` so TON/others do not silently
+    open a one-cell or generic 32-byte slot. -/
 def isCosmWasmAbiUintWidth (w : Nat) : Bool :=
-  w == 8 || w == 16 || w == 32 || w == 64 || w == 128
+  w == 8 || w == 16 || w == 32 || w == 64 || w == 128 || w == 256
 
 /-- Bit width ↔ byte width for admitted ABI UInt widths. -/
 def bitWidthOfByteWidth (byteWidth : Nat) : Nat := byteWidth * 8
@@ -600,7 +604,8 @@ def PilotTypeClosureV1.isNearUintAbiOrInt64
     | some w => isAbiIntWidth w
     | none => false
 
-/-- CosmWasm ABI UInt{8,16,32,64,128} or Int{8,16,32,64} (UInt128 = 2-limb). -/
+/-- CosmWasm ABI UInt{8,16,32,64,128,256} or Int{8,16,32,64}
+    (UInt128 = 2-limb; UInt256 = 4-limb). -/
 def PilotTypeClosureV1.isCosmWasmUintAbiOrInt64
     (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   match c.uintWidthOf typeId with
@@ -1100,7 +1105,7 @@ def requirePublicNearUintAbiOrInt64Param
     | none =>
         throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
 
-/-- Fail unless `state` is CosmWasm-admitted UInt{8,16,32,64,128} or Int64. -/
+/-- Fail unless `state` is CosmWasm-admitted UInt{8,16,32,64,128,256} or Int64. -/
 def requirePublicCosmWasmUintAbiOrInt64State
     (mkErr : String → CompileError)
     (types : PilotTypeClosureV1)
@@ -1114,7 +1119,7 @@ def requirePublicCosmWasmUintAbiOrInt64State
     | some m => throw <| mkErr m
     | none => throw <| mkErr s!"state '{state.name}' is not public UInt64"
 
-/-- Fail unless `param` is CosmWasm-admitted UInt{8,16,32,64,128} or Int64. -/
+/-- Fail unless `param` is CosmWasm-admitted UInt{8,16,32,64,128,256} or Int64. -/
 def requirePublicCosmWasmUintAbiOrInt64Param
     (mkErr : String → CompileError)
     (types : PilotTypeClosureV1)

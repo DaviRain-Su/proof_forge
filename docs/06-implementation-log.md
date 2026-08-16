@@ -16617,3 +16617,15 @@ normative: false
   Int128/256 仍 FC。WideUInt256 六 target files-nonempty admit
   （evm/solana/near/noir/psy/ton）。**不**声称 formal / runtime / sandbox
   parity，也**不**关闭 TASK/TST。
+
+## 2026-08-16 — CW-U256 4-limb CosmWasm ABI（engineering）
+
+- CosmWasm 将公共 UInt256 作为四个连续 8-byte KV Region + 四个 JSON
+  decimal limb 接入（`{name}_l0`..`_l3`，limb 0 = LE 最低 64 bit；
+  `resultKind=.uint256`；返回 `setReturnDataMulti` 四 temp）。物理 KV
+  仍是 `pf_db_load_u64` / `pf_db_store_u64`。不是 32-byte Region，也
+  不是 TON 单 cell `uint256`。
+- WideUInt256 七 target files-nonempty admit
+  （evm/solana/near/noir/psy/ton/cosmwasm）。Arr/Map/Opt-U256 与
+  Int128/256 仍 FC。**不**声称 wasmd / formal / runtime / sandbox
+  parity，也**不**关闭 TASK/TST。

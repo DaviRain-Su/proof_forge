@@ -792,6 +792,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-16 | **FC-SUBJECT**：`FieldComparisonSubjectV1` 补齐 sibling `bodyEncodeOkV1` + `referenceAdmissionV1`。不提交过期 `FieldComparisonPreservationV1` 草稿（HEAD PreservationABI 编不过；ordinal 2 在全零初态不成立，禁止 sorry）。**不**关闭 formal TASK-D2-07 / TST-SEM-002/003 / target refinement |
 | 2026-08-16 | **FC-PRESERVE**：`FieldComparisonPreservationV1` 按现用 PreservationABI 包装 ordinal 0/1（literal-true / 两态 `.eq`）；ordinal 2 在全零初态仍不成立、未包装，并由 `InlineProofAuthoringV1` kernel 负例钉住。新增 literal-return stutter，无 sorry。**不**关闭 formal TASK-D2-07 / TST-SEM-002/003 / target refinement |
 | 2026-08-16 | **TON-U256**：TON 公共 UInt256 作为单个 `uint256` cell + `loadUint(256)` + 非负 int257 守卫（已蕴含 `0≤t<2^256`；不得发射 `(1 << 256)`；不是 CosmWasm 4-limb / 2/4 Region words）。WideUInt256 六 target admit（evm/solana/near/noir/psy/ton）。Arr/Map/Opt-U256 与 U256 shift/bitwise 仍 FC；Int128/256 仍 FC。**不**声称 formal / runtime / sandbox parity |
+| 2026-08-16 | **CW-U256**：CosmWasm 公共 UInt256 作为四个连续 8-byte KV Region + 四个 JSON decimal limb + 4-limb `setReturnDataMulti`（`_l0`..`_l3`；物理仍 `pf_db_load_u64`/`pf_db_store_u64`）。不是 32-byte Region，也不是 TON 单 cell。WideUInt256 七 target admit（evm/solana/near/noir/psy/ton/cosmwasm）。Arr/Map/Opt-U256 与 Int128/256 仍 FC。**不**声称 wasmd / formal / runtime parity |
 
 ---
 

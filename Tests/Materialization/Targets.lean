@@ -3771,10 +3771,10 @@ unsafe def runWideIntegerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "WideUInt" target kind wideCompiled
       "only anonymous UInt64/Int64 widths are supported"
 
-  -- WideUInt256: UInt256 state/return. Six-target files-nonempty admit
-  -- (evm/solana/near/noir/psy/ton). Aleo stays width FC (native u128, not
-  -- u256). Quint/Soroban/OpenVM/ICP/CW stay named FC. Not opening signed
-  -- 128/256. TON is one uint256 cell / loadUint(256), not CW 4-limb.
+  -- WideUInt256: UInt256 state/return. Seven-target files-nonempty admit
+  -- (evm/solana/near/noir/psy/ton/cosmwasm). Aleo stays width FC (native u128,
+  -- not u256). Quint/Soroban/OpenVM/ICP stay named FC. Not opening signed
+  -- 128/256. TON is one uint256 cell / loadUint(256); CW is 4×8-byte Regions.
   let wideUInt256Source :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -3795,7 +3795,7 @@ unsafe def runWideIntegerNeedles : IO Unit := do
     | .error e => throw <| IO.userError s!"WideUInt256 select: {e.render}"
   let wide256Compiled ← liftResult <| Compiler.compileValidatedSourceV1 wide256V1
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
-      TargetId.psy, TargetId.ton] do
+      TargetId.psy, TargetId.ton, TargetId.cosmwasm] do
     let out ← liftResult <| materializeSelected target wide256Compiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"WideUInt256: {target} must materialize UInt256"
@@ -3808,8 +3808,6 @@ unsafe def runWideIntegerNeedles : IO Unit := do
       (TargetId.icp, TargetKind.icp)] do
     expectMaterializePlanInvariantV1 "WideUInt256" target kind wide256Compiled
       "only anonymous UInt64/Int64 widths are supported"
-  expectMaterializePlanInvariantV1 "WideUInt256" TargetId.cosmwasm TargetKind.cosmwasm
-    wide256Compiled "state 'n' is not public UInt64"
 
   -- WideInt128: Int128 state/return. All twelve targets stay named width
   -- FC. Not opening Int128 or Int256. WideUInt / WideUInt256 pins stay.
@@ -3845,7 +3843,7 @@ unsafe def runWideIntegerNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "WideInt128" TargetId.psy TargetKind.psy
     wideI128Compiled "UInt64/UInt32/UInt16/UInt8 and Int8/Int16/Int32/Int64"
   expectMaterializePlanInvariantV1 "WideInt128" TargetId.cosmwasm TargetKind.cosmwasm
-    wideI128Compiled "Int128/256 fail closed; UInt256 is body-only"
+    wideI128Compiled "Int128/256 fail closed"
   expectMaterializePlanInvariantV1 "WideInt128" TargetId.ton TargetKind.ton
     wideI128Compiled "Int128/256 fail closed"
   for (target, kind) in #[
@@ -3891,7 +3889,7 @@ unsafe def runWideIntegerNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "WideInt256" TargetId.psy TargetKind.psy
     wideI256Compiled "UInt64/UInt32/UInt16/UInt8 and Int8/Int16/Int32/Int64"
   expectMaterializePlanInvariantV1 "WideInt256" TargetId.cosmwasm TargetKind.cosmwasm
-    wideI256Compiled "Int128/256 fail closed; UInt256 is body-only"
+    wideI256Compiled "Int128/256 fail closed"
   expectMaterializePlanInvariantV1 "WideInt256" TargetId.ton TargetKind.ton
     wideI256Compiled "Int128/256 fail closed"
   for (target, kind) in #[
@@ -5007,7 +5005,7 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
 
   -- ArrU256: Array UInt256 2 state. Same EVM-only admit / eleven-decline
   -- set as ArrU128, but UInt256 ≠ UInt128 so it is its own pin.
-  -- WideUInt256 admits bare UInt256 on six targets; Array-of-UInt256
+  -- WideUInt256 admits bare UInt256 on seven targets; Array-of-UInt256
   -- admits only EVM. Not opening Array-of-UInt256 on the eleven.
   -- ArrU128 / ArrInt / ArrBool / WideUInt256 stay.
   let arrU256Source :=

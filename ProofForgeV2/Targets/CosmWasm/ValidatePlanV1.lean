@@ -58,7 +58,11 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
         if params.any (·.inputOffset == inputOffset) then some 1 else none
     | .narrowParam bitWidth inputOffset | .narrowSignedParam bitWidth inputOffset =>
         if params.any (·.inputOffset == inputOffset) then
-          if bitWidth == 128 then
+          if bitWidth == 256 then
+            if params.any (·.inputOffset == inputOffset + 8) &&
+                params.any (·.inputOffset == inputOffset + 16) &&
+                params.any (·.inputOffset == inputOffset + 24) then some 1 else none
+          else if bitWidth == 128 then
             if params.any (·.inputOffset == inputOffset + 8) then some 1 else none
           else some 1
         else none
@@ -66,7 +70,9 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
         if fieldIndex < layout.fields.size then some 1 else none
     | .narrowStateLoad bitWidth fieldIndex | .narrowSignedStateLoad bitWidth fieldIndex =>
         if fieldIndex < layout.fields.size then
-          if bitWidth == 128 then
+          if bitWidth == 256 then
+            if fieldIndex + 3 < layout.fields.size then some 1 else none
+          else if bitWidth == 128 then
             if fieldIndex + 1 < layout.fields.size then some 1 else none
           else some 1
         else none
@@ -275,9 +281,14 @@ private partial def checkMethodStatementsV1
           throw <| .planInvariant .cosmwasm s!"method stores to an unknown KV field"
         let field := layout.fields[store.fieldIndex]!
         let wideOk :=
-          store.byteWidth == 16 && field.byteWidth == 8 &&
+          (store.byteWidth == 16 && field.byteWidth == 8 &&
             store.fieldIndex + 1 < layout.fields.size &&
-            layout.fields[store.fieldIndex + 1]!.byteWidth == 8
+            layout.fields[store.fieldIndex + 1]!.byteWidth == 8) ||
+          (store.byteWidth == 32 && field.byteWidth == 8 &&
+            store.fieldIndex + 3 < layout.fields.size &&
+            layout.fields[store.fieldIndex + 1]!.byteWidth == 8 &&
+            layout.fields[store.fieldIndex + 2]!.byteWidth == 8 &&
+            layout.fields[store.fieldIndex + 3]!.byteWidth == 8)
         unless store.byteWidth == field.byteWidth || wideOk do
           throw <| .planInvariant .cosmwasm
             "method store byteWidth does not match state field layout"

@@ -324,7 +324,17 @@ private partial def lowerExprUncached (keys : Array KeyRegion) (next : Nat)
       else
         { operations := #[.loadParam next inputOffset], value := next, next := next + 1, cache }
   | .narrowParam bitWidth inputOffset =>
-      if bitWidth == 128 then
+      if bitWidth == 256 then
+        if paramAsTemp then
+          { operations := #[], value := inputOffset / 8, next := next, cache }
+        else
+          { operations := #[
+              .loadParam next inputOffset,
+              .loadParam (next + 1) (inputOffset + 8),
+              .loadParam (next + 2) (inputOffset + 16),
+              .loadParam (next + 3) (inputOffset + 24)]
+            value := next, next := next + 4, cache }
+      else if bitWidth == 128 then
         if paramAsTemp then
           { operations := #[], value := inputOffset / 8, next := next, cache }
         else
@@ -357,7 +367,18 @@ private partial def lowerExprUncached (keys : Array KeyRegion) (next : Nat)
         cache
       }
   | .narrowStateLoad bitWidth fieldIndex =>
-      if bitWidth == 128 then
+      if bitWidth == 256 then
+        {
+          operations := #[
+            .loadState next (fieldRegion keys fieldIndex),
+            .loadState (next + 1) (fieldRegion keys (fieldIndex + 1)),
+            .loadState (next + 2) (fieldRegion keys (fieldIndex + 2)),
+            .loadState (next + 3) (fieldRegion keys (fieldIndex + 3))]
+          value := next
+          next := next + 4
+          cache
+        }
+      else if bitWidth == 128 then
         {
           operations := #[
             .loadState next (fieldRegion keys fieldIndex),
@@ -942,7 +963,17 @@ private partial def lowerBodyOpsFull (keys : Array KeyRegion) (next : Nat)
         | other =>
             let value := lowerExpr keys next fnMode localEnv cache other
             operations := operations ++ value.operations
-            if op.byteWidth == 16 then
+            if op.byteWidth == 32 then
+              operations := operations.push
+                (.storeState (fieldRegion keys op.fieldIndex) value.value)
+              operations := operations.push
+                (.storeState (fieldRegion keys (op.fieldIndex + 1)) (value.value + 1))
+              operations := operations.push
+                (.storeState (fieldRegion keys (op.fieldIndex + 2)) (value.value + 2))
+              operations := operations.push
+                (.storeState (fieldRegion keys (op.fieldIndex + 3)) (value.value + 3))
+              next := value.next
+            else if op.byteWidth == 16 then
               operations := operations.push
                 (.storeState (fieldRegion keys op.fieldIndex) value.value)
               operations := operations.push
@@ -965,7 +996,12 @@ private partial def lowerBodyOpsFull (keys : Array KeyRegion) (next : Nat)
         -- Drop CSE for the written field, then seed the new temp so a later
         -- load of the same field (Token `return supply`) reuses it.
         cache := invalidateStateFieldCacheV1 cache op.fieldIndex
-        if op.byteWidth == 16 then
+        if op.byteWidth == 32 then
+          cache := invalidateStateFieldCacheV1 cache (op.fieldIndex + 1)
+          cache := invalidateStateFieldCacheV1 cache (op.fieldIndex + 2)
+          cache := invalidateStateFieldCacheV1 cache (op.fieldIndex + 3)
+          cache := cache.push (.narrowStateLoad 256 op.fieldIndex, storedTemp)
+        else if op.byteWidth == 16 then
           cache := invalidateStateFieldCacheV1 cache (op.fieldIndex + 1)
           cache := cache.push (.narrowStateLoad 128 op.fieldIndex, storedTemp)
         else if op.isInt && op.byteWidth < 8 then
@@ -1008,6 +1044,10 @@ private partial def lowerBodyOpsFull (keys : Array KeyRegion) (next : Nat)
         operations := operations ++ value.operations
         if fnMode then
           operations := operations.push (.returnValue value.value)
+        else if _returnByteLen == 32 then
+          operations := operations.push
+            (.setReturnDataMulti #[value.value, value.value + 1,
+              value.value + 2, value.value + 3])
         else if _returnByteLen == 16 then
           operations := operations.push
             (.setReturnDataMulti #[value.value, value.value + 1])
@@ -1198,6 +1238,7 @@ private partial def lowerBodyOps (keys : Array KeyRegion) (next : Nat)
   (ops, next')
 
 private def methodResultByteLen : MethodResultKind → Nat
+  | .uint256 => 32
   | .uint128 => 16
   | _ => 8
 
@@ -4182,6 +4223,7 @@ private def renderMethodJson (method : Method) : String :=
     | .uint16 => "\"u16\""
     | .uint32 => "\"u32\""
     | .uint128 => "\"u128\""
+    | .uint256 => "\"u256\""
     | .bool => "\"bool\""
     | .int64 => "\"i64\""
     | .int8 => "\"i8\""
@@ -4193,7 +4235,6 @@ private def renderMethodJson (method : Method) : String :=
         let parts := leaves.toList.map fun (leaf : LeafAbiType) =>
           if leaf.isInt then "\"i64\"" else "\"u64\""
         "[" ++ String.intercalate "," parts ++ "]"
-    | _ => "\"u64\""
   "{" ++
     s!"\"name\":\"{Targets.escapeJson method.name}\"," ++
     s!"\"export\":\"{renderMode method.mode}\"," ++

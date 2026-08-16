@@ -12,8 +12,9 @@
   Option UInt64 state (OptionState tag+payload / storeAtomic / none zeroing +
   non-UInt64/nested/param FC), sync call still fail closed, multi-width
   UInt8/16/32 pins (body guards / param range / 8-byte narrow state slots),
-  UInt128 2-limb ABI (state/param/result), and other FC boundaries
-  (UInt256 ABI, Int8, invariants).
+  UInt128 2-limb ABI and UInt256 4-limb ABI (state/param/result; 8-byte
+  Regions only), and other FC boundaries (Int128, Arr/Map/Opt-U256,
+  invariants).
 
   Schedule positive coverage uses product capability resolve (async admitted)
   plus engineering Plan/IR entry points. Not wasmd chain (A2). Not formal D4.
@@ -309,8 +310,9 @@ private unsafe def testCryptoSha256StayFailClosed
     | .ok _ =>
         throw <| IO.userError
           s!"{programName} must Plan fail closed (no CosmWasm crypto host)"
-  -- UInt256 is body-only on CosmWasm; keep ABI on UInt64 and hash a
-  -- body-local word so the fail-closed needle is the crypto QN.
+  -- Keep UInt64 state/result on purpose so the fail-closed needle stays
+  -- the crypto QN. Public UInt256 ABI is admitted as four 8-byte limbs
+  -- in `testUint256Abi`; this fixture only uses a body-local UInt256.
   expectPlanFc "Sha256Cw" "<cw-sha256>" "Examples.Sha256Cw"
     ("  state pad : UInt64\n\n" ++
       "  init() do\n" ++
@@ -335,7 +337,7 @@ private unsafe def testCryptoSha256StayFailClosed
       "    return pad\n")
     "has no CosmWasm host binding"
   -- SYS-S5-ECDSA-FC: EVM-admit arity stays Plan FC (no CosmWasm ecdsa host).
-  -- UInt256 remains body-local; ABI stays UInt64.
+  -- Same UInt64 ABI + body-local UInt256 as the sha256 fixture above.
   expectPlanFc "EcdsaRecoverCw" "<cw-ecdsa-recover>"
     "Examples.EcdsaRecoverCw"
     ("  state pad : UInt64\n\n" ++
@@ -645,8 +647,7 @@ private unsafe def testMultiWidthUInt16UInt32
   IO.println "  ✓ multi-width UInt16/UInt32 Plan/WAT pins"
 
 /-- UInt128 ABI: two 8-byte KV limbs + two JSON decimal params + 2-limb return.
-    Int8 and UInt256 ABI stay fail closed. Body-internal UInt128 remains
-    covered by testMultiwordDivMod. -/
+    UInt256 ABI is pinned in `testUint256Abi`. Int128 stays fail closed. -/
 private unsafe def testMultiWidthFc
     (session : Language.Loader.ParserSession) : IO Unit := do
   let u128 := wrapProgram "Wide128" <|
@@ -683,25 +684,6 @@ private unsafe def testMultiWidthFc
   expect (abi.contains "\"u128\"") "ABI JSON advertises u128 result"
   expect (abi.contains "s_lo") "ABI JSON names lo limb"
   expect (abi.contains "s_hi") "ABI JSON names hi limb"
-  let u256 := wrapProgram "Wide256" <|
-    "  state s : UInt256\n\n" ++
-    "  init(x : UInt256) do\n" ++
-    "    s := x\n\n" ++
-    "  entry bump(d : UInt256) : UInt256 do\n" ++
-    "    s := s + d\n" ++
-    "    return s\n\n" ++
-    "  view get() : UInt256 do\n" ++
-    "    return s\n"
-  match ← session.selectProgramV1 u256 "<cw-u256-fc>" "Examples.Wide256" none with
-  | .error _ => pure ()
-  | .ok validated =>
-      match Compiler.compileValidatedSourceV1 validated with
-      | .error _ => pure ()
-      | .ok compiled256 =>
-          match cosmwasmCapability compiled256 with
-          | .error _ => pure ()
-          | .ok capability =>
-              expectPlanError "UInt256 state" (planFromCapability capability)
   let i128src := wrapProgram "NarrowI128" <|
     "  state s : Int128\n\n" ++
     "  init(x : Int128) do\n" ++
@@ -721,7 +703,91 @@ private unsafe def testMultiWidthFc
           | .error _ => pure ()
           | .ok capability =>
               expectPlanError "Int128 state" (planFromCapability capability)
-  IO.println "  ✓ multi-width UInt128 ABI admit / UInt256+Int128 fail closed"
+  IO.println "  ✓ multi-width UInt128 ABI admit / Int128 fail closed"
+
+/-- UInt256 ABI: four consecutive 8-byte KV limbs + four JSON decimals +
+    4-limb return. Physical stores stay `pf_db_*_u64`. Not a 32-byte Region. -/
+private unsafe def testUint256Abi
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let u256 := wrapProgram "Wide256" <|
+    "  state s : UInt256\n\n" ++
+    "  init(x : UInt256) do\n" ++
+    "    s := x\n\n" ++
+    "  entry bump(d : UInt256) : UInt256 do\n" ++
+    "    s := s + d\n" ++
+    "    return s\n\n" ++
+    "  view get() : UInt256 do\n" ++
+    "    return s\n"
+  let compiled ← compileSource session u256 "Examples.Wide256" "<cw-u256-abi>"
+  let plan ← liftResult <| planCw compiled
+  expect (plan.storage.fields.size == 4) "UInt256 state is four KV limbs"
+  expect (plan.storage.fields[0]!.name == "s_l0") "UInt256 l0 limb name"
+  expect (plan.storage.fields[1]!.name == "s_l1") "UInt256 l1 limb name"
+  expect (plan.storage.fields[2]!.name == "s_l2") "UInt256 l2 limb name"
+  expect (plan.storage.fields[3]!.name == "s_l3") "UInt256 l3 limb name"
+  expect (plan.storage.fields[0]!.byteWidth == 8) "UInt256 l0 limb width"
+  expect (plan.storage.fields[1]!.byteWidth == 8) "UInt256 l1 limb width"
+  expect (plan.storage.fields[2]!.byteWidth == 8) "UInt256 l2 limb width"
+  expect (plan.storage.fields[3]!.byteWidth == 8) "UInt256 l3 limb width"
+  expect (plan.initializer.params.size == 4) "UInt256 init is four JSON limbs"
+  expect (plan.initializer.params[0]!.name == "x_l0") "UInt256 init l0 name"
+  expect (plan.initializer.params[1]!.name == "x_l1") "UInt256 init l1 name"
+  expect (plan.initializer.params[2]!.name == "x_l2") "UInt256 init l2 name"
+  expect (plan.initializer.params[3]!.name == "x_l3") "UInt256 init l3 name"
+  expect (plan.initializer.params[0]!.byteWidth == 8) "UInt256 init l0 width"
+  let some bump := plan.entries.find? (·.name == "bump") |
+    throw <| IO.userError "Wide256 missing bump"
+  expect (bump.resultKind == MethodResultKind.uint256) "entry result is uint256"
+  expect (bump.params.size == 4) "UInt256 bump is four JSON limbs"
+  let some get := plan.entries.find? (·.name == "get") |
+    throw <| IO.userError "Wide256 missing get"
+  expect (get.resultKind == MethodResultKind.uint256) "view result is uint256"
+  let files ← liftResult <| filesCw compiled
+  let wat ← findFile files "Wide256.wat"
+  let abi ← findFile files "Wide256.cosmwasm-abi.json"
+  expect (wat.contains "pf_db_load_u64") "UInt256 WAT loads 8-byte KV limbs"
+  expect (wat.contains "pf_db_store_u64") "UInt256 WAT stores 8-byte KV limbs"
+  expect (wat.contains "ret_count (i32.const 4)")
+    "UInt256 return uses 4-limb aggregate wire"
+  expect (abi.contains "\"u256\"") "ABI JSON advertises u256 result"
+  expect (abi.contains "s_l0") "ABI JSON names l0 limb"
+  expect (abi.contains "s_l1") "ABI JSON names l1 limb"
+  expect (abi.contains "s_l2") "ABI JSON names l2 limb"
+  expect (abi.contains "s_l3") "ABI JSON names l3 limb"
+  IO.println "  ✓ UInt256 4-limb ABI admit (8-byte Regions)"
+
+/-- Arr/Map/Opt of UInt256 stay fail closed (UInt64-element/payload needles). -/
+private unsafe def testU256ContainerFc
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let arr := wrapProgram "ArrU256" <|
+    "  state slots : Array UInt256 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    slots[0] := 0\n" ++
+    "    return v\n"
+  let arrCompiled ← compileSource session arr "Examples.ArrU256" "<cw-arr-u256>"
+  expectPlanErrorContaining "ArrU256" "Array state element must be UInt64"
+    (planCw arrCompiled)
+  let mapSrc := wrapProgram "MapU256" <|
+    "  state m : Map UInt64 UInt256\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    return v\n"
+  let mapCompiled ← compileSource session mapSrc "Examples.MapU256" "<cw-map-u256>"
+  expectPlanErrorContaining "MapU256" "Map state admits only Map UInt64 UInt64"
+    (planCw mapCompiled)
+  let opt := wrapProgram "OptU256" <|
+    "  state o : Option UInt256\n\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return 0\n"
+  let optCompiled ← compileSource session opt "Examples.OptU256" "<cw-opt-u256>"
+  expectPlanErrorContaining "OptU256" "UInt64 payload" (planCw optCompiled)
+  IO.println "  ✓ Arr/Map/Opt-U256 stay fail closed"
 
 /-- Int8 ABI: one 8-byte Region, low-byte two's complement, sign-extended
     temps, checked add at width 8. Int16/32 share the same lowering. -/
@@ -1862,6 +1928,8 @@ unsafe def run : IO Unit := do
   testMultiWidthUInt8 session
   testMultiWidthUInt16UInt32 session
   testMultiWidthFc session
+  testUint256Abi session
+  testU256ContainerFc session
   testNarrowIntAbi session
   testMultiwordDivMod session
   testNamedStructReturn session
