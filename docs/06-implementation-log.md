@@ -16746,3 +16746,21 @@ normative: false
   Int64 return 仍 `anonymous Map return is outside the Ton B-RET ABI`。
   Targets MapInt CosmWasm+TON files-nonempty。Int64-key / Map UInt128 /
   CW/Aleo 未改。**不**声称 sandbox / formal / runtime / hermetic / release。
+
+## 2026-08-16 — ALEO-AGG-VIEWS Aleo aggregate views as query descriptors（engineering）
+
+- Aleo computed views 现接纳 named Struct/Enum、`Array UInt64 N`（1..8）
+  与 `Option UInt64` 作为 off-chain query descriptor：`PlanView` 携带
+  `resultAggregateLeaves`（每叶 `isInt` + `byteWidth=8`），query JSON
+  `kind=computed` 且 `result` 为 `u64`/`i64` 数组（不是标量字符串）。
+  Instructions 仍省略 `function <view>`；Final 仍 evaluate-and-drop，
+  不发射 typed outputs。`viewHasForbiddenStmts` 仍拒绝 store/emit/
+  revert/for；`returnAggregate` 不再被当成 forbidden。
+- `AleoInstructionsV1` 钉 PairRet 产品路径（files nonempty、leaf 数组、
+  无 view function / 无 Final 业务 output）。`AleoInstructionsV1` 另钉
+  MaybeViewRet / ArrViewRet / OptViewRet query JSON leaf 数组、view
+  store/emit/revert/for（`views cannot store, emit, revert, or loop`）、
+  Map view return（B-RET ABI）与 `Array UInt64 9`（cap of 8）。Targets
+  MaybeViewRet / ArrViewRet / OptViewRet / PairRet / AnonymousResultBoundary
+  的 Aleo 针切到 files-nonempty。Map/Bytes view return、>8 leaves、pureFn
+  aggregate 仍 FC。**不**声称 Leo / VM / proof / deploy / formal。

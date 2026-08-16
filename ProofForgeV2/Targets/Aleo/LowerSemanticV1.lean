@@ -46,7 +46,8 @@ FAIL-CLOSED (explicit pins, not catch-all GAP):
     Enum-shaped 2-leaf layout (`name_tag` + `name_p0`; none=(0,0), some=(1,v);
     none-assign zeroes the payload via the shared construct path). Read via
     existing VariantTag/VariantPayload match (entries and computed query
-    views; aggregate view-over-state stays fail-closed). Option of non-UInt64,
+    views, including aggregate Option view returns as query descriptors).
+    Option of non-UInt64,
     nested Option, and Option params stay fail-closed. String/Principal state,
     UInt256 and Int128/256 stay fail-closed. Native `u128` Instructions
     admit UInt128 state/params/results (literals that do not fit a UInt64
@@ -56,9 +57,11 @@ FAIL-CLOSED (explicit pins, not catch-all GAP):
     the shared `lowerLiteral` boundary.
   * **Computed state-reading views** — query-only off-chain recipes in the
     network-state query descriptor (`kind=computed`). Not Final, not an
-    on-chain return (Final drops outputs). Aggregate view returns stay
-    fail closed; use entries for tuple/array returns, or Final entries that
-    drop the aggregate.
+    on-chain return (Final drops outputs). Named Struct/Enum, `Array UInt64 N`
+    (1..8), and `Option UInt64` view returns are the same query-descriptor
+    surface: `result` is a `u64`/`i64` leaf array. Instructions still omit
+    `function <view>`. Map/Bytes view returns, >8 leaves, and view store/emit/
+    revert/for stay fail closed. Entries keep the existing tuple/drop path.
   * **B-RET-ABI named Struct/Enum entry returns** — admitted: preorder flatten
     to 1..8 UInt64/Int64 leaves; non-Final Instructions expose the leaves as
     typed outputs. Final (state-touching) still drops the value after
@@ -334,8 +337,10 @@ def PlanFunction.resultKind (fn : PlanFunction) : ResultKind :=
 /-- Off-chain mapping query (never a Final / never an on-chain return).
     Bare `return stateLoad` keeps `isComputed = false` and a single field
     index. Computed views carry a query-only statement body (return / if /
-    switch / assert). Aleo Final drops outputs, so this descriptor is the
-    honest view surface. -/
+    switch / assert, including `returnAggregate`). Aggregate views bind
+    `resultAggregateLeaves` (1..8 UInt64/Int64); scalar `resultIs*` stay
+    false. Aleo Final drops outputs, so this descriptor is the honest
+    view surface — never a typed Final function. -/
 structure PlanView where
   name : String
   stateFieldIndex : Nat
@@ -346,6 +351,10 @@ structure PlanView where
   resultUintWidth : Nat := 0
   resultIsField : Bool := false
   body : Array Statement := #[]
+  /-- Query-descriptor leaf ABI when the view returns a named Struct/Enum
+      or admitted anonymous Array/Option. `none` for scalar computed views
+      and bare mapping reads. Default keeps hand-built Counter Plans compiling. -/
+  resultAggregateLeaves : Option (Array LeafAbiType) := none
   deriving BEq, Inhabited, Repr
 
 /-- Target-owned Aleo Plan. Retains no SemanticProgram; carries the canonical
@@ -2145,19 +2154,19 @@ private partial def lowerRegion
         | some vid =>
             match envLookup env vid with
             | some v =>
-                if v.isAggregate then
-                  -- B-RET-ABI named Struct/Enum + N-ANON-RESULT Array/Option.
-                  -- Map/Bytes/nested/non-UInt64 fail closed at resultShape;
-                  -- here accept any multi-leaf value whose result type is an
-                  -- admitted aggregate candidate (precise FC at resultShape).
-                  let admitted :=
-                    layout.types.isNamedAggregate callable.result.typeId ||
-                    (match layout.typeDecls[callable.result.typeId.toNat]? with
-                      | some { shape := .array .., name := none, .. }
-                      | some { shape := .option .., name := none, .. }
-                      | some { shape := .map .., name := none, .. }
-                      | some { shape := .bytes .., name := none, .. } => true
-                      | _ => false)
+                -- B-RET-ABI named Struct/Enum + N-ANON-RESULT Array/Option,
+                -- including a 1-leaf named struct (`!v.isAggregate` because
+                -- stateLoad of one mapping leaf stays scalar). Map/Bytes
+                -- still fail closed at `anonymousReturnLeafAbiV1`.
+                let admitted :=
+                  layout.types.isNamedAggregate callable.result.typeId ||
+                  (match layout.typeDecls[callable.result.typeId.toNat]? with
+                    | some { shape := .array .., name := none, .. }
+                    | some { shape := .option .., name := none, .. }
+                    | some { shape := .map .., name := none, .. }
+                    | some { shape := .bytes .., name := none, .. } => true
+                    | _ => false)
+                if v.isAggregate || admitted then
                   unless admitted do
                     planError
                       "Aleo return of multi-leaf value requires named Struct/Enum or admitted anonymous Array/Option result"
@@ -2438,12 +2447,13 @@ private partial def touchesStateStmts (stmts : Array Statement) : Bool :=
     | .forLoop _ _ _ b => touchesStateStmts b
     | _ => false
 
-/-- Views may not store, emit, revert, loop, or return aggregates. -/
+/-- Views may not store, emit, revert, or loop. `returnAggregate` is a
+    query-descriptor leaf pack, not a Final output. -/
 private partial def viewHasForbiddenStmts (stmts : Array Statement) : Bool :=
   stmts.any fun stmt =>
     match stmt with
     | .store .. | .storeAggregate .. | .emitEvent .. | .revertError ..
-    | .forLoop .. | .returnAggregate .. => true
+    | .forLoop .. => true
     | .ifThenElse _ t e => viewHasForbiddenStmts t || viewHasForbiddenStmts e
     | .switchOn _ cases d =>
         cases.any (fun (_, b) => viewHasForbiddenStmts b) ||
@@ -2560,20 +2570,31 @@ private partial def lowerCallable
   if callable.kind == .pureFn && resultAggregateLeaves.isSome then
     planError s!"{owner} cannot return an aggregate (B-RET-ABI pureFn stay scalar)"
   -- Views are off-chain query descriptors, never Final functions.
-  -- Bare `return stateLoad` stays a single-mapping query; everything else
-  -- that is query-legal (return/if/switch/assert, no store) is computed.
+  -- Bare scalar `return stateLoad` stays a single-mapping query. Aggregate
+  -- results (including a 1-leaf named struct) always mint a computed view.
+  -- Query-legal bodies: return / returnAggregate / if / switch / assert.
   if callable.kind == .view then
     let n ← match callable.name with
       | some n => pure n
       | none => planError "unsupported Aleo semantic shape: named view is missing its name"
     if viewHasForbiddenStmts body then
       planError
-        "unsupported Aleo semantic shape: views cannot store, emit, revert, loop, or return aggregates"
-    if resultAggregateLeaves.isSome then
-      planError
-        "unsupported Aleo semantic shape: Aleo computed views return scalar only (aggregate view query deferred)"
+        "unsupported Aleo semantic shape: views cannot store, emit, revert, or loop"
     if resultIsUnit then
       planError "unsupported Aleo semantic shape: view cannot return Unit"
+    if resultAggregateLeaves.isSome then
+      return (.asView {
+        name := n
+        stateFieldIndex := 0
+        isComputed := true
+        params
+        resultIsBool := false
+        resultIsInt := false
+        resultUintWidth := 0
+        resultIsField := false
+        body
+        resultAggregateLeaves
+      })
     match body.toList with
     | [.returnValue (.stateLoad f)] =>
         return (.asView { name := n, stateFieldIndex := f })

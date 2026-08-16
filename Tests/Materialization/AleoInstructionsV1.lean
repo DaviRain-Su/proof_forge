@@ -2171,6 +2171,362 @@ unsafe def testAdmitFixturesFullExamplesPlanFcHonesty : IO Unit := do
     s!"full MapMini must admit {fullExampleComputedViewMapMini}"
   pure ()
 
+/-- Honest view-body gate after `returnAggregate` was removed from the
+    forbidden set. -/
+private def viewForbiddenNeedleV1 : String :=
+  "views cannot store, emit, revert, or loop"
+
+/-- Plan-level pin: `returnAggregate` is legal on a computed view; store /
+    revert / for still fail closed with the honest string. Emit is rejected
+    earlier by the Instructions event-log gate (`validateStatements`). -/
+private def testComputedViewForbiddenStmtsValidatePlan : IO Unit := do
+  let oneU64 : Array LeafAbiType := #[{ isInt := false, byteWidth := 8 }]
+  let mk (body : Array Statement) : Plan :=
+    { handBuiltCounterPlan with
+      views := #[{
+        name := "peek"
+        stateFieldIndex := 0
+        isComputed := true
+        resultAggregateLeaves := some oneU64
+        body
+      }] }
+  let retAgg : Statement :=
+    .returnAggregate #[.stateLoad 0] #[false]
+  match validatePlan (mk #[.store 0 (.literal 1), retAgg]) with
+  | .ok _ =>
+      throw <| IO.userError
+        "computed view store must fail closed even with returnAggregate"
+  | .error e =>
+      expect (e.render.contains viewForbiddenNeedleV1)
+        s!"store+returnAggregate must cite view-forbidden, got: {e.render}"
+  match validatePlan (mk #[.revertError 0 #[], retAgg]) with
+  | .ok _ =>
+      throw <| IO.userError
+        "computed view revert must fail closed even with returnAggregate"
+  | .error e =>
+      expect (e.render.contains viewForbiddenNeedleV1)
+        s!"revert+returnAggregate must cite view-forbidden, got: {e.render}"
+  match validatePlan
+      (mk #[.forLoop (.literal 0) (.literal 1) 1
+          #[.assert (.boolLiteral true)], retAgg]) with
+  | .ok _ =>
+      throw <| IO.userError
+        "computed view for must fail closed even with returnAggregate"
+  | .error e =>
+      expect (e.render.contains viewForbiddenNeedleV1)
+        s!"for+returnAggregate must cite view-forbidden, got: {e.render}"
+  match validatePlan (mk #[.emitEvent 0 #[], retAgg]) with
+  | .ok _ =>
+      throw <| IO.userError "computed view emit must fail closed"
+  | .error e =>
+      expect (e.render.contains "event-log" ||
+          e.render.contains "does not support emit" ||
+          e.render.contains viewForbiddenNeedleV1)
+        s!"emit must stay fail closed, got: {e.render}"
+  -- Legal computed aggregate view still validates.
+  match validatePlan (mk #[retAgg]) with
+  | .ok _ => pure ()
+  | .error e =>
+      throw <| IO.userError
+        s!"returnAggregate-only computed view must validate, got: {e.render}"
+
+/-- Product compile → resolve → plan must fail with `needle`. -/
+unsafe def expectAleoProductPlanNeedle
+    (session : Language.Loader.ParserSession)
+    (label source moduleName needle : String) : IO Unit := do
+  let parsed ← liftResult (← session.selectProgramV1
+    source s!"<aleo-agg-views-{label}>" moduleName none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  match planFromCapability cap with
+  | .ok _ =>
+      throw <| IO.userError s!"{label}: must planInvariant, got a Plan"
+  | .error e =>
+      expect (e.render.contains needle)
+        s!"{label}: expected `{needle}`, got: {e.render}"
+
+/-- Named Enum / Array / Option view return is a query descriptor, not Final. -/
+unsafe def expectComputedAggregateViewProduct
+    (session : Language.Loader.ParserSession)
+    (label source moduleName viewName resultJson : String) : IO Unit := do
+  let parsed ← liftResult (← session.selectProgramV1
+    source s!"<aleo-agg-views-{label}>" moduleName none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| planFromCapability cap
+  let some aggView := plan.views.find? (·.name == viewName) |
+    throw <| IO.userError s!"{label} must emit PlanView {viewName}"
+  expect aggView.isComputed s!"{label} {viewName} must be a computed query view"
+  expect (!plan.functions.any (·.name == viewName))
+    s!"computed {viewName} must not be a Final function"
+  match aggView.resultAggregateLeaves with
+  | none =>
+      throw <| IO.userError
+        s!"{label} {viewName} must bind resultAggregateLeaves"
+  | some leaves =>
+      expect (leaves.size ≥ 1 && leaves.size ≤ 8)
+        s!"{label} leaf count must be in 1..8, got {leaves.size}"
+      expect (leaves.all (fun l => l.byteWidth == 8))
+        s!"{label} leaves must be 8-byte UInt64/Int64"
+  expect (!aggView.resultIsBool && !aggView.resultIsInt &&
+      !aggView.resultIsField && aggView.resultUintWidth == 0)
+    s!"{label} aggregate view must leave scalar result flags false"
+  let files ← liftResult <| Targets.Aleo.buildFromCapability cap
+  expect (!files.isEmpty) s!"{label} product files must be nonempty"
+  let some q := files.find? (·.path.endsWith ".aleo-query-contract.json") |
+    throw <| IO.userError s!"{label} missing query contract"
+  expect (q.contents.contains "\"kind\":\"computed\"")
+    s!"{label} query must advertise kind=computed"
+  expect (q.contents.contains s!"\"name\":\"{viewName}\"")
+    s!"{label} query must name {viewName}"
+  expect (q.contents.contains s!"\"result\":{resultJson}")
+    s!"{label} query result must be {resultJson}, got: {q.contents}"
+  expect (!q.contents.contains "\"result\":\"u64\"")
+    s!"{label} query result must not be a scalar string"
+  let some aleo := files.find? (fun f => f.path.endsWith ".aleo" &&
+      !f.path.endsWith ".aleo-query-contract.json") |
+    throw <| IO.userError s!"{label} missing Instructions"
+  expect (!aleo.contents.contains s!"function {viewName}")
+    s!"Instructions must omit view function {viewName}"
+  expect (!aleo.contents.contains s!"finalize {viewName}")
+    s!"Instructions must omit view Final {viewName}"
+
+/-- ALEO-AGG-VIEWS: named Struct view return is a query descriptor, not Final. -/
+unsafe def testAggregateViewQueryDescriptorPairRet : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program PairRet where\n" ++
+    "  struct Pair where\n" ++
+    "    a : UInt64\n" ++
+    "    b : UInt64\n\n" ++
+    "  state p : Pair\n\n" ++
+    "  init(x : UInt64, y : UInt64) do\n" ++
+    "    p := Pair.new(x, y)\n\n" ++
+    "  view getPair() : Pair do\n" ++
+    "    return p\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-agg-views-pair>" "Examples.PairRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| planFromCapability cap
+  let some pairView := plan.views.find? (·.name == "getPair") |
+    throw <| IO.userError "PairRet must emit PlanView getPair"
+  expect pairView.isComputed "PairRet getPair must be a computed query view"
+  expect (!plan.functions.any (·.name == "getPair"))
+    "computed getPair must not be a Final function"
+  match pairView.resultAggregateLeaves with
+  | none =>
+      throw <| IO.userError "PairRet getPair must bind resultAggregateLeaves"
+  | some leaves => do
+      expect (leaves.size == 2)
+        s!"PairRet getPair must flatten to 2 leaves, got {leaves.size}"
+      expect (leaves.all (fun l => !l.isInt && l.byteWidth == 8))
+        "PairRet leaves must be u64 (8-byte, not Int)"
+  expect (!pairView.resultIsBool && !pairView.resultIsInt &&
+      !pairView.resultIsField && pairView.resultUintWidth == 0)
+    "PairRet aggregate view must leave scalar result flags false"
+  let files ← liftResult <| Targets.Aleo.buildFromCapability cap
+  expect (!files.isEmpty) "PairRet product files must be nonempty"
+  let some q := files.find? (·.path.endsWith ".aleo-query-contract.json") |
+    throw <| IO.userError "PairRet missing query contract"
+  expect (q.contents.contains "\"kind\":\"computed\"")
+    "PairRet query must advertise kind=computed"
+  expect (q.contents.contains "\"name\":\"getPair\"")
+    "PairRet query must name getPair"
+  expect (q.contents.contains "\"result\":[\"u64\",\"u64\"]")
+    s!"PairRet query result must be a u64 leaf array, got: {q.contents}"
+  expect (!q.contents.contains "\"result\":\"u64\"")
+    "PairRet query result must not be a scalar string"
+  let some aleo := files.find? (·.path == "pairret.aleo") |
+    throw <| IO.userError "PairRet missing Instructions"
+  expect (aleo.contents.contains "program pairret.aleo;")
+    "PairRet Instructions header"
+  expect (aleo.contents.contains "mapping pf_state_0")
+    "PairRet must keep mapping leaves"
+  expect (aleo.contents.contains "mapping pf_state_1")
+    "PairRet second Pair leaf mapping"
+  expect (aleo.contents.contains "function initialize")
+    "PairRet must keep initialize"
+  expect (aleo.contents.contains "finalize initialize")
+    "PairRet must keep initialize Final"
+  expect (aleo.contents.contains "constructor:")
+    "PairRet must keep constructor"
+  expect (!aleo.contents.contains "function getPair")
+    "Instructions must omit view function getPair"
+  expect (!aleo.contents.contains "finalize getPair")
+    "Instructions must omit view Final getPair"
+  -- Transition wrappers emit `output rN as <program>.initialize.future`.
+  -- That is not a view/Final business result.
+  expect (!aleo.contents.contains "output r0 as pairret.getPair")
+    "no view-named business output"
+  expect (aleo.contents.contains "output r2 as pairret.aleo/initialize.future" ||
+      aleo.contents.contains "output r1 as pairret.aleo/initialize.future")
+    "initialize transition future output is not a view/Final value"
+  pure ()
+
+/-- ALEO-AGG-VIEWS: Maybe/Arr/Opt query descriptors + remaining fail-closed pins. -/
+unsafe def testAggregateViewQueryDescriptorFamilyAndFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  expectComputedAggregateViewProduct session "MaybeViewRet"
+    ("import ProofForgeV2\n\n" ++
+     "namespace ProofForgeV2.Examples\n\n" ++
+     "open ProofForgeV2.Language\n\n" ++
+     "program MaybeViewRet where\n" ++
+     "  enum Maybe where\n" ++
+     "    | None\n" ++
+     "    | Some(UInt64)\n" ++
+     "  state m : Maybe\n\n" ++
+     "  init() do\n" ++
+     "    m := Maybe.None()\n\n" ++
+     "  view peek() : Maybe do\n" ++
+     "    return m\n\n" ++
+     "end ProofForgeV2.Examples\n")
+    "Examples.MaybeViewRet" "peek" "[\"u64\",\"u64\"]"
+  expectComputedAggregateViewProduct session "ArrViewRet"
+    ("import ProofForgeV2\n\n" ++
+     "namespace ProofForgeV2.Examples\n\n" ++
+     "open ProofForgeV2.Language\n\n" ++
+     "program ArrViewRet where\n" ++
+     "  state slots : Array UInt64 2\n\n" ++
+     "  init() do\n" ++
+     "    slots[0] := 0\n" ++
+     "    slots[1] := 0\n\n" ++
+     "  view peek() : Array UInt64 2 do\n" ++
+     "    return slots\n\n" ++
+     "end ProofForgeV2.Examples\n")
+    "Examples.ArrViewRet" "peek" "[\"u64\",\"u64\"]"
+  expectComputedAggregateViewProduct session "OptViewRet"
+    ("import ProofForgeV2\n\n" ++
+     "namespace ProofForgeV2.Examples\n\n" ++
+     "open ProofForgeV2.Language\n\n" ++
+     "program OptViewRet where\n" ++
+     "  state o : Option UInt64\n\n" ++
+     "  init() do\n" ++
+     "    o := Option.none()\n\n" ++
+     "  view peek() : Option UInt64 do\n" ++
+     "    return o\n\n" ++
+     "end ProofForgeV2.Examples\n")
+    "Examples.OptViewRet" "peek" "[\"u64\",\"u64\"]"
+
+  -- Product revert / for reach the Aleo view-body gate.
+  expectAleoProductPlanNeedle session "view-revert"
+    ("import ProofForgeV2\n" ++
+     "open ProofForgeV2.Language\n" ++
+     "program ViewRevert where\n" ++
+     "  error Boom()\n" ++
+     "  state count : UInt64\n" ++
+     "  init() do\n" ++
+     "    count := 0\n" ++
+     "  view peek() : UInt64 do\n" ++
+     "    revert Boom()\n")
+    "Tests.AleoAggViewRevert" viewForbiddenNeedleV1
+  expectAleoProductPlanNeedle session "view-for"
+    ("import ProofForgeV2\n" ++
+     "open ProofForgeV2.Language\n" ++
+     "program ViewFor where\n" ++
+     "  state count : UInt64\n" ++
+     "  init() do\n" ++
+     "    count := 0\n" ++
+     "  view peek() : UInt64 do\n" ++
+     "    for i in 0 ..< 1 bounded 1 do\n" ++
+     "      assert true\n" ++
+     "    return count\n")
+    "Tests.AleoAggViewFor" viewForbiddenNeedleV1
+
+  -- Store / emit are CheckV1-first (view allowlist). If they ever leak to
+  -- Plan, the same honest string (or the emit event-log gate) must fire.
+  let expectViewSideEffectFc (label source moduleName : String) : IO Unit := do
+    let parsed ← liftResult (← session.selectProgramV1
+      source s!"<aleo-agg-views-{label}>" moduleName none)
+    match Compiler.compileValidatedSourceV1 parsed with
+    | .error e =>
+        expect (e.render.contains "PF-EFFECT-001" ||
+            e.render.contains "does not allow effect" ||
+            e.render.contains viewForbiddenNeedleV1)
+          s!"{label}: compile FC must cite effect or view-forbidden, got: {e.render}"
+    | .ok compiled =>
+        let selection ← liftResult <|
+          BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+        match resolveEngineeringRequirementsV1 selection compiled with
+        | .error e =>
+            expect (e.render.contains viewForbiddenNeedleV1 ||
+                e.render.contains "unsupported" ||
+                e.render.contains "PF-REQ")
+              s!"{label}: resolve FC, got: {e.render}"
+        | .ok cap =>
+            match planFromCapability cap with
+            | .ok _ =>
+                throw <| IO.userError
+                  s!"{label}: view store/emit must fail closed"
+            | .error e =>
+                expect (e.render.contains viewForbiddenNeedleV1 ||
+                    e.render.contains "does not support emit" ||
+                    e.render.contains "event-log")
+                  s!"{label}: plan FC must cite view-forbidden or emit, got: {e.render}"
+  expectViewSideEffectFc "view-store"
+    ("import ProofForgeV2\n" ++
+     "open ProofForgeV2.Language\n" ++
+     "program ViewStore where\n" ++
+     "  state count : UInt64\n" ++
+     "  init() do\n" ++
+     "    count := 0\n" ++
+     "  view peek() : UInt64 do\n" ++
+     "    count := 1\n" ++
+     "    return count\n")
+    "Tests.AleoAggViewStore"
+  expectViewSideEffectFc "view-emit"
+    ("import ProofForgeV2\n" ++
+     "open ProofForgeV2.Language\n" ++
+     "program ViewEmit where\n" ++
+     "  event Ev()\n" ++
+     "  state count : UInt64\n" ++
+     "  init() do\n" ++
+     "    count := 0\n" ++
+     "  view peek() : UInt64 do\n" ++
+     "    emit Ev()\n" ++
+     "    return count\n")
+    "Tests.AleoAggViewEmit"
+
+  expectAleoProductPlanNeedle session "map-view-return"
+    ("import ProofForgeV2\n" ++
+     "open ProofForgeV2.Language\n" ++
+     "program MapViewDump where\n" ++
+     "  state m : Map UInt64 UInt64\n" ++
+     "  init() do\n" ++
+     "    m := Map.empty()\n" ++
+     "  view dump() : Map UInt64 UInt64 do\n" ++
+     "    return m\n")
+    "Tests.AleoAggMapView"
+    "anonymous Map return is outside the Aleo B-RET ABI"
+  expectAleoProductPlanNeedle session "array-9-view-return"
+    ("import ProofForgeV2\n" ++
+     "open ProofForgeV2.Language\n" ++
+     "program Arr9View where\n" ++
+     "  state slots : Array UInt64 9\n" ++
+     "  init() do\n" ++
+     "    slots[0] := 0\n" ++
+     "    slots[1] := 0\n" ++
+     "    slots[2] := 0\n" ++
+     "    slots[3] := 0\n" ++
+     "    slots[4] := 0\n" ++
+     "    slots[5] := 0\n" ++
+     "    slots[6] := 0\n" ++
+     "    slots[7] := 0\n" ++
+     "    slots[8] := 0\n" ++
+     "  view peek() : Array UInt64 9 do\n" ++
+     "    return slots\n")
+    "Tests.AleoAggArr9View"
+    "B-RET-ABI cap of 8"
 
 /-- Direct Instructions oracle inventory. -/
 def testResidualHonestyNotes : IO Unit := do
@@ -2226,6 +2582,9 @@ unsafe def run : IO Unit := do
   testAdmitFixturesDurableSourceAuthority
   testAdmitFixturesProductLowerAll
   testAdmitFixturesFullExamplesPlanFcHonesty
+  testComputedViewForbiddenStmtsValidatePlan
+  testAggregateViewQueryDescriptorPairRet
+  testAggregateViewQueryDescriptorFamilyAndFailClosed
   testResidualHonestyNotes
   IO.println "Tests.Materialization.AleoInstructionsV1: ok"
 

@@ -185,6 +185,19 @@ private partial def checkReturnFormsV1
         checkReturnFormsV1 fnName aggregateLeaves body
     | _ => pure ()
 
+/-- Computed views may not store, emit, revert, or loop. `returnAggregate`
+    is the query-descriptor leaf pack and is not forbidden here. -/
+private partial def viewHasForbiddenStmts (stmts : Array Statement) : Bool :=
+  stmts.any fun stmt =>
+    match stmt with
+    | .store .. | .storeAggregate .. | .emitEvent .. | .revertError ..
+    | .forLoop .. => true
+    | .ifThenElse _ t e => viewHasForbiddenStmts t || viewHasForbiddenStmts e
+    | .switchOn _ cases d =>
+        cases.any (fun (_, b) => viewHasForbiddenStmts b) ||
+          viewHasForbiddenStmts d
+    | _ => false
+
 
 def validatePlan (plan : Plan) : CompileResult Unit := do
   if plan.functions.size > maxFunctions then
@@ -245,6 +258,25 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     if view.isComputed then
       if view.stateFieldIndex != 0 then
         planError "Aleo computed view must leave stateFieldIndex = 0"
+      validateStatements view.body plan.stateFieldNames.size
+      if viewHasForbiddenStmts view.body then
+        planError
+          "unsupported Aleo semantic shape: views cannot store, emit, revert, or loop"
+      match view.resultAggregateLeaves with
+      | some leaves =>
+          unless leaves.size > 0 && leaves.size ≤ 8 do
+            planError
+              s!"view '{view.name}' aggregate result leaf count must be in 1..8"
+          unless leaves.all (fun l => l.byteWidth == 8) do
+            planError
+              s!"view '{view.name}' aggregate result leaves must be 8-byte UInt64/Int64"
+          if view.resultIsBool || view.resultIsInt || view.resultIsField ||
+              isNarrowUintWidth view.resultUintWidth then
+            planError
+              s!"view '{view.name}' aggregate result cannot also set scalar result flags"
+          checkReturnFormsV1 view.name (some leaves) view.body
+      | none =>
+          checkReturnFormsV1 view.name none view.body
     else if view.stateFieldIndex >= plan.stateFieldNames.size then
       planError "Aleo view references a missing state field"
   pure ()

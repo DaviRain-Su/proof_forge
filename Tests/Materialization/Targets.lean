@@ -549,17 +549,15 @@ private unsafe def testAnonymousResultMaterializationFailClosed : IO Unit := do
   | .error e =>
       throw <| IO.userError
         s!"anonymous-result: ton must admit Array UInt64 2 view return, got {e.render}"
-  -- Aleo: view-over-state anonymous aggregate return stays fail closed via
-  -- the computed-view gate (only bare public-state reads enter the query descriptor).
+  -- Aleo: view-over-state anonymous Array return is a query descriptor
+  -- (`kind=computed`, result leaf array). Same class as ArrViewRet.
   match materializeSelected TargetId.aleo compiled with
-  | .ok _ =>
-      throw <| IO.userError
-        "anonymous-result: aleo must decline view-over-state aggregate return"
+  | .ok out =>
+      expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+        "anonymous-result: aleo must materialize Array UInt64 2 view return"
   | .error e =>
-      expect ((e.render).contains "query descriptor" ||
-          (e.render).contains "fail closed" ||
-          (e.render).contains "aggregate")
-        s!"anonymous-result aleo message must cite the computed-view/aggregate boundary, got {e.render}"
+      throw <| IO.userError
+        s!"anonymous-result: aleo must admit view-over-state Array return as query descriptor, got {e.render}"
   -- Aleo admits state-touching ENTRY anonymous Array returns via the Final
   -- evaluate-leaves-and-drop path (BL-24).
   let aleoArrEntrySource :=
@@ -590,8 +588,8 @@ private unsafe def testAnonymousResultMaterializationFailClosed : IO Unit := do
   | .error e =>
       throw <| IO.userError
         s!"anonymous-result: cosmwasm must admit Array UInt64 2 view return, got {e.render}"
-  -- Extra four from probe; Aleo view-over-state stays FC (dedicated pin above).
-  -- Quint/Soroban/ICP/OpenVM stay envelope FC. Not opening Array view-return.
+  -- Extra four from probe; Aleo query-descriptor pin is above.
+  -- Quint/Soroban/ICP/OpenVM stay envelope FC.
   for target in [TargetId.quint, TargetId.soroban, TargetId.icp, TargetId.openvm] do
     match materializeSelected target compiled with
     | .ok _ =>
@@ -4372,9 +4370,9 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
       "named types are outside the current UInt64 pilot"
 
   -- MaybeViewRet: named Enum *view* return. Distinct from MaybeRetBox
-  -- entry: TON view-only B-RET admits; Aleo computed-view FC.
-  -- Quint/Soroban/OpenVM/ICP stay named-types UInt64-pilot FC. Not
-  -- opening Aleo computed view. MaybeMark / MaybeRetBox stay.
+  -- entry: TON view-only B-RET admits; Aleo query-descriptor admit
+  -- (`kind=computed`, not Final). Quint/Soroban/OpenVM/ICP stay
+  -- named-types UInt64-pilot FC. MaybeMark / MaybeRetBox stay.
   let enumViewRetSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -4395,12 +4393,10 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     | .error e => throw <| IO.userError s!"MaybeViewRet select: {e.render}"
   let enumViewRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 enumViewRetV1
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
-      TargetId.psy, TargetId.cosmwasm, TargetId.ton] do
+      TargetId.aleo, TargetId.psy, TargetId.cosmwasm, TargetId.ton] do
     let out ← liftResult <| materializeSelected target enumViewRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"MaybeViewRet: {target} must materialize named Enum view return"
-  expectMaterializePlanInvariantV1 "MaybeViewRet" TargetId.aleo TargetKind.aleo
-    enumViewRetCompiled "aggregate view query deferred"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -4523,9 +4519,9 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     arrRetCompiled "Array return is outside O0"
 
   -- ArrViewRet: Array UInt64 2 *view* return. Distinct from ArrRetBox
-  -- entry: TON view-only B-RET admits; Aleo computed-view FC.
-  -- Quint/Soroban/OpenVM/ICP stay Array-pilot FC. Not opening Aleo
-  -- computed view. ArrRetBox / ArrRetEntry stay.
+  -- entry: TON view-only B-RET admits; Aleo query-descriptor admit
+  -- (`kind=computed`, not Final). Quint/Soroban/OpenVM/ICP stay
+  -- Array-pilot FC. ArrRetBox / ArrRetEntry stay.
   let arrViewRetSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -4544,12 +4540,10 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     | .error e => throw <| IO.userError s!"ArrViewRet select: {e.render}"
   let arrViewRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 arrViewRetV1
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
-      TargetId.psy, TargetId.cosmwasm, TargetId.ton] do
+      TargetId.aleo, TargetId.psy, TargetId.cosmwasm, TargetId.ton] do
     let out ← liftResult <| materializeSelected target arrViewRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"ArrViewRet: {target} must materialize Array UInt64 2 view return"
-  expectMaterializePlanInvariantV1 "ArrViewRet" TargetId.aleo TargetKind.aleo
-    arrViewRetCompiled "aggregate view query deferred"
   expectMaterializePlanInvariantV1 "ArrViewRet" TargetId.quint TargetKind.quint
     arrViewRetCompiled "Array return is outside Q0"
   expectMaterializePlanInvariantV1 "ArrViewRet" TargetId.icp TargetKind.icp
@@ -6600,9 +6594,9 @@ unsafe def runRemainingNeedles : IO Unit := do
     optRetCompiled "anonymous Option is outside the current container-state pilot"
 
   -- OptViewRet: Option UInt64 *view* return. Distinct from OptRetBox
-  -- entry: TON view-only B-RET admits; Aleo computed-view FC.
-  -- Quint/Soroban/OpenVM name Q0/S0/O0 return. ICP stays Option-pilot.
-  -- Not opening Aleo computed view. OptBox / OptRetBox / NestOpt stay.
+  -- entry: TON view-only B-RET admits; Aleo query-descriptor admit
+  -- (`kind=computed`, not Final). Quint/Soroban/OpenVM name Q0/S0/O0
+  -- return. ICP stays Option-pilot. OptBox / OptRetBox / NestOpt stay.
   let optViewRetSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -6620,12 +6614,10 @@ unsafe def runRemainingNeedles : IO Unit := do
     | .error e => throw <| IO.userError s!"OptViewRet select: {e.render}"
   let optViewRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 optViewRetV1
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
-      TargetId.psy, TargetId.cosmwasm, TargetId.ton] do
+      TargetId.aleo, TargetId.psy, TargetId.cosmwasm, TargetId.ton] do
     let out ← liftResult <| materializeSelected target optViewRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"OptViewRet: {target} must materialize Option UInt64 view return"
-  expectMaterializePlanInvariantV1 "OptViewRet" TargetId.aleo TargetKind.aleo
-    optViewRetCompiled "aggregate view query deferred"
   expectMaterializePlanInvariantV1 "OptViewRet" TargetId.quint TargetKind.quint
     optViewRetCompiled "Option return is outside Q0"
   expectMaterializePlanInvariantV1 "OptViewRet" TargetId.soroban TargetKind.soroban
@@ -7719,8 +7711,8 @@ unsafe def runRemainingNeedles : IO Unit := do
   -- B-RET-ABI: named Struct view return. EVM + Noir + Solana + NEAR + Psy +
   -- CosmWasm + TON admit (multi-leaf ABI: EVM tuple / Noir leaves /
   -- N×8 LE / [Felt; N] / JSON decimals / get-method stack); Aleo admits
-  -- non-state entry aggregate returns as native multi-output Instructions while
-  -- view-over-state stays fail closed.
+  -- view-over-state as a query descriptor (`kind=computed`, leaf array).
+  -- PairRetEntry keeps the non-state entry multi-output Instructions pin.
   let pairRetSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -7748,16 +7740,10 @@ unsafe def runRemainingNeedles : IO Unit := do
   let _solanaPair ← liftResult <| planSolana pairCompiled
   -- NEAR admits: plan has .aggregate resultKind (B-RET-ABI).
   let _nearPair ← liftResult <| planNear pairCompiled
-  -- Aleo: view-over-state aggregate return is fail closed via the
-  -- computed-view gate (only bare public-state reads enter the query descriptor).
-  match materializeSelected TargetId.aleo pairCompiled with
-  | .ok _ =>
-      throw <| IO.userError "B-RET-ABI: aleo must decline view-over-state aggregate return"
-  | .error e =>
-      expect ((e.render).contains "query descriptor" ||
-          (e.render).contains "fail closed" ||
-          (e.render).contains "aggregate")
-        s!"B-RET-ABI aleo message must cite the computed-view/aggregate boundary, got {e.render}"
+  -- Aleo: view-over-state aggregate return is a query descriptor only.
+  let aleoPairOut ← liftResult <| materializeSelected TargetId.aleo pairCompiled
+  expect (!(MaterializedArtifactsV1.filesOf aleoPairOut).isEmpty)
+    "B-RET-ABI: aleo must materialize view aggregate return as query descriptor"
   -- Aleo admits non-state entry aggregate returns as native multi-output Instructions.
   let aleoPairEntrySource :=
     "import ProofForgeV2\n\n" ++
@@ -7791,8 +7777,8 @@ unsafe def runRemainingNeedles : IO Unit := do
       throw <| IO.userError
         s!"B-RET-ABI: ton must admit view aggregate return, got {e.render}"
   -- Extra from probe: plan-admit targets also materialize (files nonempty).
-  -- Quint/Soroban/ICP/OpenVM stay envelope FC. Aleo view-over-state stays FC
-  -- (dedicated pin above). Not opening aggregate view-return.
+  -- Quint/Soroban/ICP/OpenVM stay envelope FC. Aleo query-descriptor pin
+  -- is above. Envelope-4 stay FC.
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
       TargetId.psy] do
     let out ← liftResult <| materializeSelected target pairCompiled

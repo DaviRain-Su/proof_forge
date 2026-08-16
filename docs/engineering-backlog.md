@@ -800,6 +800,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-16 | **TON-OPT-INT**：TON 匿名 `Option Int64` state 作为既有 2-leaf Option 布局（`name_tag` 无符号 uint64 cell + `name_p0` 有符号 int64 cell / `loadInt`）。复用 Option UInt64 tag/payload/storeAtomic/match。不是 UInt64 别名，也不是 CosmWasm Regions。Option Int8/16/32、Option UInt128、Option Int64 return、Map of Int 仍 FC。**不**声称 sandbox / formal / runtime parity |
 | 2026-08-16 | **CW-MAP-INT**：CosmWasm dense `Map UInt64 Int64` state 作为既有 cap-8 24-leaf occ/key/val flatten + loop IR。occ/key 保持无符号 u64-le；仅 val 叶 `isInt` / ABI `i64-le`。不是 UInt64-value 别名。Map Int8、Map UInt128、Map Int64 return、Int64-key 仍 FC。**不**声称 wasmd / formal / runtime parity |
 | 2026-08-16 | **TON-MAP-INT**：TON dense `Map UInt64 Int64` state 作为既有 cap-8 24-leaf occ/key/val flatten。occ/key 保持无符号 uint64 c4 cell；仅 val 叶 `isInt` / Tolk `int64` / `loadInt`，put/get val 槽用 `signedChecked*`（负 `loadInt` 不走 uint64 range）。不是 UInt64-value 别名，也不是 CosmWasm Regions。Map Int8、Map UInt128、Map Int64 return、Int64-key 仍 FC。**不**声称 sandbox / formal / runtime parity |
+| 2026-08-16 | **ALEO-AGG-VIEWS**：Aleo named Struct/Enum、`Array UInt64 N`、`Option UInt64` **view** return 作为 off-chain query descriptor（`kind=computed`，`result` 为 1..8 个 `u64`/`i64` 叶数组）。不是 Final function，不是链上 output（Final 仍 drop outputs）。Map/Bytes view return、>8 leaves、pureFn aggregate、view store/emit/revert/for 仍 FC。**不**声称 Leo / VM / proof / deploy / formal |
 
 ---
 

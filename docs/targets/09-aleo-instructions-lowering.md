@@ -3,7 +3,7 @@ id: TARGET-ALEO-INSTRUCTIONS
 title: Aleo Instructions lowering contract
 status: draft
 owner: engineering
-updated: 2026-08-15
+updated: 2026-08-16
 normative: false
 ---
 
@@ -91,7 +91,7 @@ deterministic and source-order stable.
 | let/assign/assert/if/match/bounded-for/bare revert | lowered |
 | effect-free pureFn/localCall | bounded inline |
 | computed scalar state view | query descriptor (`kind=computed`; not Final) |
-| multi-leaf / aggregate state view | fail closed |
+| multi-leaf / aggregate state view | query descriptor only (`kind=computed`; `result` is a `u64`/`i64` array; not Final / not on-chain output) |
 | event、external call、schedule、ContextRead | fail closed |
 | payload error、nonempty invariant | fail closed |
 | Principal、String、UInt256、Int128/256、nested Option/Map | fail closed |
@@ -109,6 +109,9 @@ allowlist is empty.
 - public mapping names/types；
 - bare views；
 - computed scalar views (`kind=computed` query recipe; never a Final return)；
+- computed aggregate views (`kind=computed`; `result` is a `u64`/`i64` leaf
+  array for named Struct/Enum, `Array UInt64 N`, `Option UInt64`; never a
+  Final function or typed Final output)；
 - dropped-result observations。
 
 The descriptor is not executable query output and is not a compiler or VM input.

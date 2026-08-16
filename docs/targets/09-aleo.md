@@ -92,7 +92,10 @@ materialize 有序输出两个 `materialized-base`：
 
 query descriptor 描述 public mapping、bare view、**computed query view**（`kind=computed`，
 off-chain recipe；不是 Final、不是链上返回值——Aleo Final 会丢掉 output）与
-dropped-result observation；它不执行查询，也不是编译器输入。
+dropped-result observation。**computed aggregate view**（named Struct/Enum、
+`Array UInt64 N`、`Option UInt64`）同样只是 query descriptor：`result` 是
+`u64`/`i64` 叶数组，不是标量字符串；Instructions 不发射 `function <view>`，
+Final 也不带业务 output。它不执行查询，也不是编译器输入。
 `ArtifactEncoding.aleoInstructions` 是唯一 Aleo artifact encoding。
 
 ## 5. Finalization 与工具边界

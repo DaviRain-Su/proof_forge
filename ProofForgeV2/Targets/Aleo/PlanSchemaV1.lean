@@ -305,6 +305,12 @@ private def encodePlanView (v : PlanView) : Except String ByteArray := do
     out := out.append (encodeBool v.resultIsField)
     out := out.append (← encodeNatAsU32le v.body.size)
     for s in v.body do out := out.append (← encodeStatement s)
+    match v.resultAggregateLeaves with
+    | none => out := out.append (encodeU8 0)
+    | some leaves =>
+        out := out.append (encodeU8 1)
+        out := out.append (← encodeNatAsU32le leaves.size)
+        for leaf in leaves do out := out.append (← encodeLeafAbiType leaf)
     pure out
 
 /-- Canonical encode of Aleo Plan for engineering planDigest (ALEO-I1).

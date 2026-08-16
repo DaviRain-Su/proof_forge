@@ -188,7 +188,12 @@ private partial def renderStmtJson (s : Statement) : String :=
         s!"\{\"tag\":\"{k}\",\"body\":[{bs}]}").toList
       let ds := String.intercalate "," (d.map renderStmtJson).toList
       s!"\{\"op\":\"switch\",\"scrutinee\":{renderExprJson scrut},\"cases\":[{cs}],\"default\":[{ds}]}"
-  | .store .. | .storeAggregate .. | .returnAggregate .. | .forLoop ..
+  | .returnAggregate leaves leafIsInt =>
+      let leafJson := String.intercalate "," (leaves.map renderExprJson).toList
+      let intJson := String.intercalate ","
+        (leafIsInt.map (fun b => if b then "true" else "false")).toList
+      s!"\{\"op\":\"returnAggregate\",\"leaves\":[{leafJson}],\"leafIsInt\":[{intJson}]}"
+  | .store .. | .storeAggregate .. | .forLoop ..
   | .emitEvent .. | .revertError .. =>
       "{\"op\":\"forbidden\"}"
 
@@ -205,13 +210,21 @@ private def renderViewJson (view : PlanView) (plan : Plan) : String :=
         else leafTypeString p.isInt p.isField p.uintWidth
       s!"\{\"name\":\"{Targets.escapeJson p.name}\",\"type\":\"{pty}\"}")
     let body := String.intercalate "," (view.body.map renderStmtJson).toList
-    let rty := renderViewResultType view.resultIsBool view.resultIsInt
-      view.resultIsField view.resultUintWidth
+    let resultJson :=
+      match view.resultAggregateLeaves with
+      | some leaves =>
+          let parts := leaves.map fun (l : LeafAbiType) =>
+            if l.isInt then "\"i64\"" else "\"u64\""
+          s!"[{String.intercalate "," parts.toList}]"
+      | none =>
+          let rty := renderViewResultType view.resultIsBool view.resultIsInt
+            view.resultIsField view.resultUintWidth
+          s!"\"{rty}\""
     "{" ++
       s!"\"name\":\"{Targets.escapeJson view.name}\"," ++
       "\"kind\":\"computed\"," ++
       s!"\"params\":[{params}]," ++
-      s!"\"result\":\"{rty}\"," ++
+      s!"\"result\":{resultJson}," ++
       s!"\"body\":[{body}]" ++
       "}"
   else
