@@ -16587,3 +16587,19 @@ normative: false
   重写 ordinal 0/1。
 - `lake build ProofForgeV2.Semantic.FieldComparisonSubjectV1` 通过。**不**声称 formal
   TASK-D2-07 / TST-SEM-002/003 / target refinement。
+
+## 2026-08-16 — FieldComparison Preservation ABI packaging（engineering）
+
+- 新增 `FieldComparisonPreservationV1`：按当前 `PreservationTheoremV1` 包装
+  `FieldComparisonSubjectV1` 的 invariant ordinal 0（literal-true）与 ordinal 1
+  （两态 `.eq`）。产品全零初态使 ordinal 2（`.ne`）为假，故不导出该定理。
+- 共享 stutter：`ReferenceMachineV1` 增加 nullary Bool `literal; return` 机器引理，
+  `PreservationShapeV1` 增加 `postEqPre_of_readyLiteralReturnV1`。不复用
+  `viewLoad` stutter。sole L1 仍是 `admitReferenceProgramSliceV1` +
+  `stepReferenceSliceV1`。
+- `lake build ProofForgeV2.Semantic.FieldComparisonPreservationV1` 与
+  `lake build Tests.Language.InlineProofAuthoringV1` 通过。`InlineProofAuthoringV1`
+  另以 kernel 负例钉住 ordinal 2：全零初态 `eval ≠ .returnedTrue`，因此
+  `¬ PreservationBaseNoInitializerV1` / `¬ PreservationTheoremV1`，且
+  `preservationTheorem_of_subjectBodyV1_ord2` 不存在。**不**声称 formal
+  TASK-D2-07 / TST-SEM-002/003 / target refinement。

@@ -1,4 +1,5 @@
 import ProofForgeV2.Language.ProgramElaborationV1
+import ProofForgeV2.Semantic.FieldComparisonPreservationV1
 import ProofForgeV2.Semantic.FieldComparisonSubjectV1
 import ProofForgeV2.Semantic.SimpleClosureTraceV1
 
@@ -555,6 +556,81 @@ theorem typedInvariantFieldEqualitySubject_structureV1 :
     hliteralNe := by decide
     heqNe := by decide
   }
+
+theorem typedInvariantFieldEqualitySubject_preservation_ordinal0 :
+    PreservationTheoremV1
+      TypedInvariantFieldEqualitySurface.Proof.subjectProgramV1 0 :=
+  ProofForgeV2.Semantic.FieldComparisonPreservationV1.preservationTheorem_of_subjectBodyV1
+    TypedInvariantFieldEqualitySurface.Proof.subjectDataV1.qualifiedName
+    "nonce" "reserves" "shares" "alive" "primary" "solvent" "nonsolvent"
+    TypedInvariantFieldEqualitySurface.Proof.subjectDataV1
+    TypedInvariantFieldEqualitySurface.Proof.subjectBytesV1
+    (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl)
+    (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
+    (by decide) (by decide) (by decide) (by rfl)
+    TypedInvariantFieldEqualitySurface.Proof.subjectBodyEncodeOkV1
+
+theorem typedInvariantFieldEqualitySubject_preservation_ordinal1 :
+    PreservationTheoremV1
+      TypedInvariantFieldEqualitySurface.Proof.subjectProgramV1 1 :=
+  ProofForgeV2.Semantic.FieldComparisonPreservationV1.preservationTheorem_of_subjectBodyV1_ord1
+    TypedInvariantFieldEqualitySurface.Proof.subjectDataV1.qualifiedName
+    "nonce" "reserves" "shares" "alive" "primary" "solvent" "nonsolvent"
+    TypedInvariantFieldEqualitySurface.Proof.subjectDataV1
+    TypedInvariantFieldEqualitySurface.Proof.subjectBytesV1
+    (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl)
+    (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
+    (by decide) (by decide) (by decide) (by rfl)
+    TypedInvariantFieldEqualitySurface.Proof.subjectBodyEncodeOkV1
+
+/-- Product all-zero init makes ordinal 2 (two-state Ne) false. -/
+theorem typedInvariantFieldEqualitySubject_eval_ordinal2_not_returnedTrue :
+    evalInvariantV1
+        TypedInvariantFieldEqualitySurface.Proof.subjectProgramV1 2
+        ProofForgeV2.Semantic.FieldComparisonPreservationV1.productAllZeroInitialV1 ≠
+      .returnedTrue :=
+  ProofForgeV2.Semantic.FieldComparisonPreservationV1.evalInvariantV1_ord2_not_returnedTrue_of_subjectBodyV1
+    TypedInvariantFieldEqualitySurface.Proof.subjectDataV1.qualifiedName
+    "nonce" "reserves" "shares" "alive" "primary" "solvent" "nonsolvent"
+    TypedInvariantFieldEqualitySurface.Proof.subjectDataV1
+    TypedInvariantFieldEqualitySurface.Proof.subjectBytesV1
+    (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl)
+    (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
+    (by decide) (by decide) (by decide) (by rfl)
+    TypedInvariantFieldEqualitySurface.Proof.subjectBodyEncodeOkV1
+
+theorem typedInvariantFieldEqualitySubject_not_base_ordinal2 :
+    ¬ PreservationBaseNoInitializerV1
+        TypedInvariantFieldEqualitySurface.Proof.subjectProgramV1 2 :=
+  ProofForgeV2.Semantic.FieldComparisonPreservationV1.not_preservationBaseNoInitializerV1_ord2_of_subjectBodyV1
+    TypedInvariantFieldEqualitySurface.Proof.subjectDataV1.qualifiedName
+    "nonce" "reserves" "shares" "alive" "primary" "solvent" "nonsolvent"
+    TypedInvariantFieldEqualitySurface.Proof.subjectDataV1
+    TypedInvariantFieldEqualitySurface.Proof.subjectBytesV1
+    (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl)
+    (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
+    (by decide) (by decide) (by decide) (by rfl)
+    TypedInvariantFieldEqualitySurface.Proof.subjectBodyEncodeOkV1
+
+theorem typedInvariantFieldEqualitySubject_not_preservation_ordinal2 :
+    ¬ PreservationTheoremV1
+        TypedInvariantFieldEqualitySurface.Proof.subjectProgramV1 2 :=
+  ProofForgeV2.Semantic.FieldComparisonPreservationV1.not_preservationTheoremV1_ord2_of_subjectBodyV1
+    TypedInvariantFieldEqualitySurface.Proof.subjectDataV1.qualifiedName
+    "nonce" "reserves" "shares" "alive" "primary" "solvent" "nonsolvent"
+    TypedInvariantFieldEqualitySurface.Proof.subjectDataV1
+    TypedInvariantFieldEqualitySurface.Proof.subjectBytesV1
+    (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl)
+    (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
+    (by decide) (by decide) (by decide) (by rfl)
+    TypedInvariantFieldEqualitySurface.Proof.subjectBodyEncodeOkV1
+
+run_cmd do
+  let env ← getEnv
+  let packagedOrd2 :=
+    `ProofForgeV2.Semantic.FieldComparisonPreservationV1.preservationTheorem_of_subjectBodyV1_ord2
+  if env.contains packagedOrd2 then
+    throwError "FieldComparisonPreservationV1 must not package ordinal 2"
 
 /-- Ordinary field mathematics now consumes the premise-free generated
     production validation certificate, matching the intended same-file style. -/
@@ -1952,6 +2028,17 @@ def run : IO Unit := do
       match evalInvariantV1 subject 1 st with
       | .trapped => pure ()
       | other => throw <| IO.userError s!"OOR ordinal must trap: {repr other}"
+  -- Field-comparison product initial: ordinal 2 (.ne) is false at all-zero.
+  let fe := TypedInvariantFieldEqualitySurface.Proof.subjectProgramV1
+  match initialLogicalStateV1 fe with
+  | .error e =>
+      throw <| IO.userError s!"field-comparison initial state: {repr e}"
+  | .ok st =>
+      match evalInvariantV1 fe 2 st with
+      | .returnedTrue =>
+          throw <| IO.userError
+            "field-comparison ordinal 2 must not hold on all-zero init"
+      | _ => pure ()
   IO.println "Tests.Language.InlineProofAuthoringV1: ok"
 
 end Tests.Language.InlineProofAuthoringV1

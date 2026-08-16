@@ -595,6 +595,43 @@ theorem postEqPre_of_readyViewLoadV1
       callableId viewName context responses vault value effects hadmittedData
       htypeU hstate hloaded hgate hstep
 
+/-- A returned nullary Bool literal-return view is a state stutter for a
+    production ready overlay of any arity. -/
+theorem postEqPre_of_readyLiteralReturnV1
+    (admitted : AdmittedReferenceSliceV1)
+    (pre post : LogicalStateV1)
+    (invocation : InvocationV1)
+    (data : SemanticProgramDataV1)
+    (overlay : Array ByteArray)
+    (typeId : TypeIdV1)
+    (valueBytes : ByteArray)
+    (callableId : CallableIdV1)
+    (viewName : Option String)
+    (context : Array ContextInputV1)
+    (responses : ExternalResponsesV1)
+    (vault : ReferenceVaultSeedV1)
+    (value : Option ReferenceValueV1)
+    (effects : Array OrderedEffectV1)
+    (hadmittedData : admitted.data = data)
+    (htypeB : data.types[typeId.toNat]? = some {
+      id := typeId, name := none, shape := .bool })
+    (hcan : validateValueBytesV1 data.types typeId valueBytes = .ok ())
+    (hgate :
+      gateInvocation admitted pre invocation =
+        .ready
+          (literalReturnCallableV1 callableId .view viewName typeId valueBytes
+            .public_ none)
+          overlay context false)
+    (hstep :
+      stepReferenceSliceV1 admitted pre invocation responses vault =
+        .returned post value effects) :
+    post = pre := by
+  simpa [literalReturnCallableV1] using
+    stepReferenceSliceV1_ready_literalReturn_returned_post_eq_pre admitted pre
+      post invocation data overlay typeId valueBytes callableId viewName
+      context responses vault value effects hadmittedData htypeB hcan hgate
+      hstep
+
 /-- A ready nullary UInt64 view-load over an overlay of any arity has the exact
     successful Reference outcome when external responses are empty. -/
 theorem stepReturned_of_readyViewLoadOverlayV1

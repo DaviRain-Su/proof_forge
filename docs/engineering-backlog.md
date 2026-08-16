@@ -790,6 +790,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-15 | **CAP-LAYER-0**：同一能力层 = catalog 行上的 named admit/FC，不是 opcode 对齐、不是第 13 个 TargetId。设计 [`plan/capability-layer-parity.md`](plan/capability-layer-parity.md)；任务 [`plan/capability-layer-tasks.md`](plan/capability-layer-tasks.md)。默认可编码 = CAP-1a ICP `unixTimeSeconds`。不关 formal / SOR-1 / Merkle。 |
 | 2026-08-15 | **RPT-028 全仓诚实对账 + 活指针**：Goal-auto drain 标空；AGENTS Next 不再写成「闭合 D2-07」；SBOM 313；Solana sole CPI；ICP 与 zero-tool 拆开；击杀序删已做完的 CALL wide；RPT-014 加 superseded 横幅。**不**关闭 formal 0/27 |
 | 2026-08-16 | **FC-SUBJECT**：`FieldComparisonSubjectV1` 补齐 sibling `bodyEncodeOkV1` + `referenceAdmissionV1`。不提交过期 `FieldComparisonPreservationV1` 草稿（HEAD PreservationABI 编不过；ordinal 2 在全零初态不成立，禁止 sorry）。**不**关闭 formal TASK-D2-07 / TST-SEM-002/003 / target refinement |
+| 2026-08-16 | **FC-PRESERVE**：`FieldComparisonPreservationV1` 按现用 PreservationABI 包装 ordinal 0/1（literal-true / 两态 `.eq`）；ordinal 2 在全零初态仍不成立、未包装，并由 `InlineProofAuthoringV1` kernel 负例钉住。新增 literal-return stutter，无 sorry。**不**关闭 formal TASK-D2-07 / TST-SEM-002/003 / target refinement |
 
 ---
 
