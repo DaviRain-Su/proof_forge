@@ -39,7 +39,8 @@ Goal: lift envelope-4 toward mid-tier (CW/TON/Aleo/Psy), then mid-tier toward th
 | TON-OPT-INT | main | TON anonymous Option Int64 state as existing 2-leaf Option layout (`name_tag` unsigned uint64 cell + `name_p0` signed int64 cell / loadInt). Reuse Option UInt64 tag/payload/storeAtomic/match. Not Option-of-Int8/16/32, not Option-of-UInt128, not Option Int64 return, not CW/Aleo | **committed** `39aa1e790` |
 | CW-MAP-INT | main | CosmWasm dense Map UInt64 Int64 (cap-8) state. Reuse Map UInt64 UInt64 24-leaf occ/key/val flatten + loop IR. occ/key unsigned UInt64; only each val leaf isInt=true / i64-le. Not Map-of-Int8, not Int64-key, not Map UInt128, not TON/Aleo | **committed** `53acb778c` |
 | TON-MAP-INT | main | TON dense Map UInt64 Int64 (cap-8) state. Reuse Map UInt64 UInt64 24-leaf occ/key/val flatten. occ/key unsigned uint64 cells; only each val leaf isInt=true / int64 / loadInt. Not Map-of-Int8, not Int64-key, not Map UInt128, not CW/Aleo | **committed** `b7c8339ee` |
-| ALEO-AGG-VIEWS | main | Aleo named Struct/Enum, Array UInt64 N, Option UInt64 view returns as query descriptors (`kind=computed`, result leaf array). Never Final functions / never on-chain outputs | hash left for Commit |
+| ALEO-AGG-VIEWS | main | Aleo named Struct/Enum, Array UInt64 N, Option UInt64 view returns as query descriptors (`kind=computed`, result leaf array). Never Final functions / never on-chain outputs | **committed** `c4111f279` |
+| TON-ARR-U128 | main | TON Array UInt128 N as N consecutive 16-byte unsigned c4 cells (`uint128` / `loadUint(128)` / int257 `0≤t<2^128`; same flatten as Array UInt64/Int64; not CosmWasm 2-limb). N=8 cell-budget FC | hash left for Commit |
 
 **File lock:** workers must not edit `Tests/Materialization/Targets.lean` or another target's tree. `FieldComparison*` is a main-agent serial slice (`FC-PRESERVE`), not a parallel leaf. Main agent integrates WideInt64 / OptInt / ArrInt / MapInt needles after each leaf lands.
 

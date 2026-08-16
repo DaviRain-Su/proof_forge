@@ -801,6 +801,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-16 | **CW-MAP-INT**：CosmWasm dense `Map UInt64 Int64` state 作为既有 cap-8 24-leaf occ/key/val flatten + loop IR。occ/key 保持无符号 u64-le；仅 val 叶 `isInt` / ABI `i64-le`。不是 UInt64-value 别名。Map Int8、Map UInt128、Map Int64 return、Int64-key 仍 FC。**不**声称 wasmd / formal / runtime parity |
 | 2026-08-16 | **TON-MAP-INT**：TON dense `Map UInt64 Int64` state 作为既有 cap-8 24-leaf occ/key/val flatten。occ/key 保持无符号 uint64 c4 cell；仅 val 叶 `isInt` / Tolk `int64` / `loadInt`，put/get val 槽用 `signedChecked*`（负 `loadInt` 不走 uint64 range）。不是 UInt64-value 别名，也不是 CosmWasm Regions。Map Int8、Map UInt128、Map Int64 return、Int64-key 仍 FC。**不**声称 sandbox / formal / runtime parity |
 | 2026-08-16 | **ALEO-AGG-VIEWS**：Aleo named Struct/Enum、`Array UInt64 N`、`Option UInt64` **view** return 作为 off-chain query descriptor（`kind=computed`，`result` 为 1..8 个 `u64`/`i64` 叶数组）。不是 Final function，不是链上 output（Final 仍 drop outputs）。Map/Bytes view return、>8 leaves、pureFn aggregate、view store/emit/revert/for 仍 FC。**不**声称 Leo / VM / proof / deploy / formal |
+| 2026-08-16 | **TON-ARR-U128**：TON `Array UInt128 N` 作为 N 个连续 16-byte unsigned c4 cell（`uint128` / `loadUint(128)` / int257 `0≤t<2^128`；flatten 同 Array UInt64/Int64，`leafByteWidth=16`）。不是 CosmWasm 2-limb Regions，也不是两个 UInt64 叶。Cell budget `64+Σ(field.byteWidth*8)≤1023` 当存在 uint128 叶（N=8 FC；N=7+sibling UInt64 FC）。Array UInt256、Map/Opt-of-UInt128、Array UInt128 return 仍 FC。**不**声称 sandbox / formal / runtime parity |
 
 ---
 

@@ -802,12 +802,18 @@ private def nearMapPilotLeafCountV1 : Nat :=
     `(leafCount, leafByteWidth, leafIsInt)`.
     Array: fixed `Array UInt64 N` or `Array Int64 N` → N×8-byte cells
     (`leafIsInt` only for Int64; not a packed array, not a UInt64 alias,
-    and not CosmWasm Regions). Map: dense capacity-8 occ/key/val →
-    24×8-byte cells. Third Bool is **value-is-Int64** for
-    `Map UInt64 Int64` (occ/key stay unsigned uint64 cells; not a
-    UInt64-value alias); `Map UInt64 UInt64` keeps it false. Bytes:
-    fixed `Bytes N` → N×1-byte UInt8 leaves (byte-exact KV identity;
-    element-wise IndexGet/IndexSet). -/
+    and not CosmWasm Regions). `Array UInt128 N` → N consecutive 16-byte
+    unsigned `uint128` cells (same flatten; `leafIsInt=false`; not
+    CosmWasm 2-limb Regions and not two UInt64 leaves). Shared-cell
+    budget `64+N*128 ≤ 1023` (`__layout` uint64 + N×uint128; N=8 FC).
+    `makeStorageLayoutV1` then re-checks `64+Σ(field.byteWidth*8)`
+    whenever any 16-byte leaf is present, so N=7 plus a sibling
+    uint64 cannot overflow the same cell.
+    Map: dense capacity-8 occ/key/val → 24×8-byte cells. Third Bool is
+    **value-is-Int64** for `Map UInt64 Int64` (occ/key stay unsigned
+    uint64 cells; not a UInt64-value alias); `Map UInt64 UInt64` keeps
+    it false. Bytes: fixed `Bytes N` → N×1-byte UInt8 leaves (byte-exact
+    KV identity; element-wise IndexGet/IndexSet). -/
 private def containerLeafLayoutV1
     (typeDecls : Array TypeDeclV1) (types : TonTypeClosureV1)
     (typeId : TypeIdV1) : CompileResult (Option (Nat × Nat × Bool)) := do
@@ -816,16 +822,25 @@ private def containerLeafLayoutV1
   match typeDecls[typeId.toNat]? with
   | some { shape := .array elTid len, .. } =>
       -- Keep the historical "must be UInt64" needle as a contains-match so
-      -- ArrI8 / ArrU128 / ArrU256 stay fail closed without a new string.
-      unless elTid == types.uint64TypeId || types.int64TypeId == some elTid do
+      -- ArrI8 / ArrU256 stay fail closed without a new string.
+      let n := len.toNat
+      let leaf :=
+        if elTid == types.uint64TypeId then some (8, false)
+        else if types.int64TypeId == some elTid then some (8, true)
+        else if types.uintTypeIdAt 128 == some elTid then some (16, false)
+        else none
+      let some (leafByteWidth, leafIsInt) := leaf |
         throw <| .planInvariant .ton
           "unsupported Ton semantic shape: Array state element must be UInt64 or Int64"
-      let n := len.toNat
       unless n ≥ 1 do
         throw <| .planInvariant .ton
           "unsupported Ton semantic shape: Array state length must be ≥ 1"
-      let leafIsInt := types.int64TypeId == some elTid
-      pure (some (n, 8, leafIsInt))
+      -- Honest N≤7 when the layout word shares the c4 cell. Do not flatten
+      -- as 2×UInt64 limbs to fake N=8.
+      if leafByteWidth == 16 && 64 + n * 128 > 1023 then
+        throw <| .planInvariant .ton
+          "unsupported Ton semantic shape: Array UInt128 exceeds the 1023-bit c4 cell budget"
+      pure (some (n, leafByteWidth, leafIsInt))
   | some { shape := .map keyTid valTid, .. } =>
       -- Historical needle stays a contains-match so MapInt8 / MapU128 /
       -- Int64-key / other value shapes stay fail closed. Third Bool is
@@ -1237,14 +1252,17 @@ private def makeStorageLayoutV1
     match ← containerLeafLayoutV1 typeDecls types state.typeId with
     | some (n, leafByteWidth, leafIsInt) =>
         -- Array: N consecutive 8-byte UInt64 or Int64 c4 cells (`isInt`
-        -- selects Tolk `int64` / `loadInt`, not a UInt64 alias). Map
-        -- cap-8: 24×8-byte occ/key/val; `leafIsInt` is value-is-Int64 so
-        -- only val slots (`i % 3 == 2`) are int64/loadInt — occ/key stay
-        -- unsigned (not a UInt64-value alias). Bytes: N consecutive
-        -- 1-byte UInt8 cells. Physical names `name_0`..`name_{n-1}` keep
-        -- layout markers deterministic. Visibility: same N1 allowNonPublic
-        -- as scalar state. Signedness follows TypeDecl shape, never leaf
-        -- count: Array Int64 24 stays 24 uniform int64 cells.
+        -- selects Tolk `int64` / `loadInt`, not a UInt64 alias), or N
+        -- consecutive 16-byte unsigned uint128 cells for Array UInt128
+        -- (`leafByteWidth=16`, not CosmWasm 2-limb / not two UInt64
+        -- leaves). Map cap-8: 24×8-byte occ/key/val; `leafIsInt` is
+        -- value-is-Int64 so only val slots (`i % 3 == 2`) are
+        -- int64/loadInt — occ/key stay unsigned (not a UInt64-value
+        -- alias). Bytes: N consecutive 1-byte UInt8 cells. Physical
+        -- names `name_0`..`name_{n-1}` keep layout markers deterministic.
+        -- Visibility: same N1 allowNonPublic as scalar state. Signedness
+        -- follows TypeDecl shape, never leaf count: Array Int64 24 stays
+        -- 24 uniform int64 cells.
         if fields.size + n > maxStateFields then
           throw <| .planInvariant .ton "state count is outside the profile limits"
         let isMapState :=
@@ -1372,6 +1390,15 @@ private def makeStorageLayoutV1
             isInt
           }
           stateLeaves := stateLeaves.push #[fi]
+  -- Shared c4 cell: `__layout` uint64 + every field. Only enforce when a
+  -- 16-byte (uint128) leaf is present — do not apply this to the
+  -- historical Map 24×uint64 flatten, which already exceeds one cell.
+  if fields.any (fun f => f.byteWidth == 16) then
+    let payloadBits : Nat :=
+      fields.foldl (fun (acc : Nat) f => acc + f.byteWidth * 8) 0
+    if 64 + payloadBits > 1023 then
+      throw <| .planInvariant .ton
+        "unsupported Ton semantic shape: Array UInt128 exceeds the 1023-bit c4 cell budget"
   let marker := layoutMarker fields
   if marker == 0 then
     throw <| .planInvariant .ton
@@ -1397,8 +1424,8 @@ private structure LoweredValueV1 where
       `expr` mirrors `leaves[0]!` (or literal 0). Scalar values keep `none`. -/
   aggregateLeaves : Option (Array Expr) := none
   /-- Physical byte width of each leaf KV value: 8 for UInt64 leaves
-      (Array/Map/Principal/named Struct/Enum), 1 for Bytes leaves (UInt8).
-      Scalar values keep 8. -/
+      (Array/Map/Principal/named Struct/Enum), 16 for Array UInt128
+      unsigned cells, 1 for Bytes leaves (UInt8). Scalar values keep 8. -/
   leafByteWidth : Nat := 8
   deriving Inhabited
 
@@ -2163,9 +2190,13 @@ private def lowerBlockInstructionsV1
           for fi in leafIdxs do
             -- Array/Map 8-byte leaves stay historical `stateLoad` (Int64
             -- signedness is on the layout/ABI `isInt` bit, not a second load
-            -- opcode). Bytes leaves are 1-byte UInt8 loads (zero-extended).
+            -- opcode). Bytes leaves are 1-byte UInt8 loads (zero-extended
+            -- `narrowStateLoad 8`). Array UInt128 leaves are one 16-byte
+            -- cell each (`narrowStateLoad 128`), not the Bytes 8-bit path
+            -- and not two UInt64 limbs.
             leafExprs := leafExprs.push
-              (if leafByteWidth == 8 then .stateLoad fi else .narrowStateLoad 8 fi)
+              (if leafByteWidth == 8 then .stateLoad fi
+                else .narrowStateLoad (leafByteWidth * 8) fi)
           let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
             (leafByteWidth := leafByteWidth)
           values := ← appendResultValueV1 result.typeId values result value
@@ -2780,7 +2811,9 @@ private def lowerBlockInstructionsV1
             "unsupported Ton semantic shape: construct result typeId must match op typeId"
         match ← containerLeafLayoutV1 typeDecls types typeId with
         | some (n, leafByteWidth, leafIsInt) => do
-            unless leafByteWidth == 8 do
+            -- Bytes (leafByteWidth=1) stay FC. Allow 8 (UInt64/Int64/Map)
+            -- and 16 (Array UInt128 only).
+            unless leafByteWidth == 8 || leafByteWidth == 16 do
               throw <| .planInvariant .ton
                 "unsupported Ton semantic shape: Bytes construct is outside the Ton pilot (Bytes values enter via state/params only)"
             unless ctorIdx == 0 do
@@ -2808,17 +2841,26 @@ private def lowerBlockInstructionsV1
               let mut deps : Array ValueIdV1 := #[]
               let mut depth : Nat := 1
               let mut nodes : Nat := 0
+              let wantKind :=
+                if leafByteWidth == 16 then TonValueKindV1.uint128
+                else if leafIsInt then TonValueKindV1.int64
+                else .uint64
+              let wantKindName :=
+                match wantKind with
+                | .uint128 => "UInt128"
+                | .int64 => "Int64"
+                | _ => "UInt64"
               for argId in argIds do
                 let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
-                let wantKind := if leafIsInt then TonValueKindV1.int64 else .uint64
                 unless !arg.isAggregate && arg.kind == wantKind do
                   throw <| .planInvariant .ton
-                    "unsupported Ton semantic shape: Array construct args must be scalar UInt64 or Int64 matching the array element"
+                    s!"unsupported Ton semantic shape: Array construct args must be scalar {wantKindName} matching the array element"
                 leafExprs := leafExprs.push arg.expr
                 deps := deps.push argId
                 depth := Nat.max depth (arg.depth + 1)
                 nodes := nodes + arg.expandedNodes
               let value := mkAggregateValueV1 leafExprs deps depth (nodes + n)
+                (leafByteWidth := leafByteWidth)
               values := ← appendResultValueV1 result.typeId values result value
         | none => do
             -- Option UInt64/Int64 construct (none/some) for B-OPT-STATE storage
@@ -2978,6 +3020,22 @@ private def lowerBlockInstructionsV1
               expandedNodes := base.expandedNodes + 1
               dependencies := #[baseId, idxId]
             }
+          else if base.leafByteWidth == 16 then
+            -- Array UInt128: one 16-byte unsigned cell per element.
+            let u128Tid ← match types.uintTypeIdAt 128 with
+              | some t => pure t
+              | none => throw (.planInvariant .ton
+                  "unsupported Ton semantic shape: UInt128 type is missing for Array UInt128 IndexGet")
+            unless result.typeId == u128Tid do
+              throw <| .planInvariant .ton
+                "unsupported Ton semantic shape: Array IndexGet result must be UInt128"
+            values := ← appendResultValueV1 result.typeId values result {
+              expr := leaf
+              kind := .uint128
+              depth := base.depth + 1
+              expandedNodes := base.expandedNodes + 1
+              dependencies := #[baseId, idxId]
+            }
           else
             -- Array 8-byte leaf: UInt64 or Int64. Reject mixed signedness
             -- (Int64 result from a UInt64 array or the reverse).
@@ -3004,7 +3062,7 @@ private def lowerBlockInstructionsV1
         let val ← currentValueWithArmsV1 values blockEntry segmentStart armReadables valueId
         unless !val.isAggregate do
           throw <| .planInvariant .ton
-            "unsupported Ton semantic shape: IndexSet value must be a scalar UInt8/UInt64/Int64"
+            "unsupported Ton semantic shape: IndexSet value must be a scalar UInt8/UInt64/UInt128/Int64"
         if base.leafExprs.size == nearMapPilotLeafCountV1 then
           -- Map UInt64 UInt64 keeps unsigned val mux; Map UInt64 Int64
           -- accepts Int64 and muxes only the val slot with signedChecked*
@@ -3060,9 +3118,28 @@ private def lowerBlockInstructionsV1
               (base.expandedNodes + val.expandedNodes + 1)
               (leafByteWidth := 1)
             values := ← appendResultValueV1 result.typeId values result value
+          else if base.leafByteWidth == 16 then
+            -- Array UInt128: one 16-byte unsigned cell per element.
+            unless val.kind == .uint128 do
+              throw <| .planInvariant .ton
+                "unsupported Ton semantic shape: Array IndexSet value must be scalar UInt128 matching the array element"
+            let mut outLeaves : Array Expr := #[]
+            for j in [0:leaves.size] do
+              if j == i then
+                outLeaves := outLeaves.push val.expr
+              else
+                let some e := leaves[j]? |
+                  throw <| .planInvariant .ton "Array IndexSet leaf missing"
+                outLeaves := outLeaves.push e
+            let value := mkAggregateValueV1 outLeaves #[baseId, idxId, valueId]
+              (Nat.max base.depth val.depth + 1)
+              (base.expandedNodes + val.expandedNodes + 1)
+              (leafByteWidth := 16)
+            values := ← appendResultValueV1 result.typeId values result value
           else
             -- Array 8-byte: value kind must match the result Array element.
             -- Do not accept `.uint64` into an Int64 array (or the reverse).
+            -- Signedness follows TypeDecl `.array` elTid, never n==24.
             let wantInt :=
               match typeDecls[result.typeId.toNat]? with
               | some { shape := .array elTid _, .. } =>

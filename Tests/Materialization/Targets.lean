@@ -4950,10 +4950,11 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "ArrInt" TargetId.openvm TargetKind.openvm
     arrIntCompiled "Array element must be UInt64"
 
-  -- ArrU128: Array UInt128 2 state. EVM-only files-nonempty admit.
+  -- ArrU128: Array UInt128 2 state. EVM+TON files-nonempty admit
+  -- (TON = N consecutive uint128 c4 cells, not CosmWasm 2-limb).
   -- WideUInt admits bare UInt128 on eight targets (incl. Aleo/TON);
-  -- Array-of-UInt128 admits only EVM. Aleo/TON stay on Array-U64-element,
-  -- not a width envelope. ArrInt / ArrBool / WideUInt / WideInt8 stay.
+  -- Array-of-UInt128 admits EVM + TON only. Other ten stay named FC.
+  -- ArrInt / ArrBool / WideUInt / WideInt8 stay.
   let arrU128Source :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -4975,6 +4976,9 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
   let arrU128Out ← liftResult <| materializeSelected TargetId.evm arrU128Compiled
   expect (!(MaterializedArtifactsV1.filesOf arrU128Out).isEmpty)
     "ArrU128: evm must materialize Array UInt128 2"
+  let arrU128TonOut ← liftResult <| materializeSelected TargetId.ton arrU128Compiled
+  expect (!(MaterializedArtifactsV1.filesOf arrU128TonOut).isEmpty)
+    "ArrU128: ton must materialize Array UInt128 2"
   for (target, kind) in #[
       (TargetId.solana, TargetKind.solana),
       (TargetId.near, TargetKind.near),
@@ -4984,8 +4988,6 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
       (TargetId.aleo, TargetKind.aleo)] do
     expectMaterializePlanInvariantV1 "ArrU128" target kind arrU128Compiled
       "Array state element must be UInt64"
-  expectMaterializePlanInvariantV1 "ArrU128" TargetId.ton TargetKind.ton
-    arrU128Compiled "Array state element must be UInt64"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -4994,10 +4996,11 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "ArrU128" target kind arrU128Compiled
       "only anonymous UInt64/Int64 widths are supported"
 
-  -- ArrU256: Array UInt256 2 state. Same EVM-only admit / eleven-decline
-  -- set as ArrU128, but UInt256 ≠ UInt128 so it is its own pin.
-  -- WideUInt256 admits bare UInt256 on seven targets; Array-of-UInt256
-  -- admits only EVM. Not opening Array-of-UInt256 on the eleven.
+  -- ArrU256: Array UInt256 2 state. EVM-only files-nonempty admit.
+  -- ArrU128 is EVM+TON; TON still fail-closes Array UInt256 on the
+  -- Array-U64-element needle (contains-match). UInt256 ≠ UInt128 so
+  -- this stays its own pin. WideUInt256 admits bare UInt256 on seven
+  -- targets. Not opening Array-of-UInt256 on the eleven.
   -- ArrU128 / ArrInt / ArrBool / WideUInt256 stay.
   let arrU256Source :=
     "import ProofForgeV2\n\n" ++

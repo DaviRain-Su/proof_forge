@@ -20,13 +20,18 @@
   B-CTX-OPEN context.unixTimeSeconds → Plan blockUnixTimeSeconds / Tolk
   blockchain.now() (entry+view; caller/unknown FC), Array Int64 N as N
   consecutive int64 c4 cells (isInt / loadInt; not a UInt64 alias and not
-  CosmWasm Regions; Array Int64 24 stays uniformly isInt), dense Map
+  CosmWasm Regions; Array Int64 24 stays uniformly isInt), Array UInt128 N
+  as N consecutive uint128 c4 cells (leafByteWidth=16 / loadUint(128) /
+  int257 0≤t<2^128; not CosmWasm 2-limb Regions and not two UInt64 leaves;
+  cell budget 64+Σ(field bits)≤1023 when any uint128 leaf is present,
+  so N=8 and N=7+sibling UInt64 FC), dense Map
   UInt64 Int64 cap-8 as 24-leaf occ/key unsigned uint64 cells + val signed
   int64/loadInt with signedChecked* val mux (not a UInt64-value alias;
   Map Int8 / Map UInt128 / Map Int64 return stay FC), and explicit
   fail-closed boundaries (sync call,
-  Int128/256, Array Int64 return, Array/Map/Option of Int8/16/32 and
-  UInt128/256, UInt128/256 shifts/bitwise, Map/Bytes returns, N>8,
+  Int128/256, Array Int64 return, Array UInt256, Array UInt128 return,
+  Array/Map/Option of Int8/16/32 and Map/Opt of UInt128/256,
+  UInt128/256 shifts/bitwise, Map/Bytes returns, N>8,
   nested/narrow-element containers, Option params, invariants,
   Field/Principal).
 
@@ -768,10 +773,10 @@ private unsafe def testArrayInt64x24Layout
   | .error e => throw <| IO.userError s!"ArrInt64x24 plan must validate: {e.render}"
   IO.println "  ✓ Array Int64 24 stays 24 uniform signed cells"
 
-/-- Array Int8 / Array UInt128 stay fail closed on the historical element
-    needle (`Array state element must be UInt64` is a contains-match).
+/-- Array Int8 stays fail closed on the historical element needle
+    (`Array state element must be UInt64` is a contains-match).
     Anonymous `Array Int64 2` return stays fail closed on the existing
-    UInt64-element return needle. -/
+    UInt64-element return needle. Array UInt128 2 is admitted separately. -/
 private unsafe def testArrayInt64ElementFc
     (session : Language.Loader.ParserSession) : IO Unit := do
   let arrI8 := wrapProgram "ArrI8Ton" <|
@@ -785,18 +790,6 @@ private unsafe def testArrayInt64ElementFc
   let arrI8Compiled ← compileSource session arrI8 "Examples.ArrI8Ton" "<ton-arr-i8-el>"
   expectPlanErrorContaining "ArrI8" "Array state element must be UInt64"
     (planTon arrI8Compiled)
-  let arrU128 := wrapProgram "ArrU128Ton" <|
-    "  state slots : Array UInt128 2\n\n" ++
-    "  init() do\n" ++
-    "    slots[0] := 0\n" ++
-    "    slots[1] := 0\n\n" ++
-    "  entry set0(v : UInt64) : UInt64 do\n" ++
-    "    slots[0] := 0\n" ++
-    "    return v\n"
-  let arrU128Compiled ← compileSource session arrU128 "Examples.ArrU128Ton"
-    "<ton-arr-u128>"
-  expectPlanErrorContaining "ArrU128" "Array state element must be UInt64"
-    (planTon arrU128Compiled)
   -- State Array Int64 2 is admitted; anonymous Array Int64 return must still
   -- fail on the existing UInt64-element return needle (not reuse
   -- `containerLeafLayoutV1`, which now admits Int64 leaves).
@@ -812,7 +805,151 @@ private unsafe def testArrayInt64ElementFc
   expectPlanErrorContaining "ArrInt64Ret"
     "anonymous Array return requires UInt64 elements"
     (planTon arrInt64RetCompiled)
-  IO.println "  ✓ Array Int8 / Array UInt128 / Array Int64 return stay fail closed"
+  IO.println "  ✓ Array Int8 / Array Int64 return stay fail closed"
+
+/-- Array UInt128 N = N consecutive 16-byte unsigned c4 cells (`uint128` /
+    `loadUint(128)` / int257 `0≤t<2^128`). Same flatten as Array
+    UInt64/Int64, `leafByteWidth=16`, `isInt=false`. Not CosmWasm 2-limb
+    Regions and not two UInt64 leaves. -/
+private unsafe def testArrayUInt128State
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "ArrU128" <|
+    "  state slots : Array UInt128 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  entry set0(v : UInt128) : UInt128 do\n" ++
+    "    slots[0] := v\n" ++
+    "    return slots[0]\n\n" ++
+    "  view get() : UInt128 do\n" ++
+    "    return slots[1]\n"
+  let compiled ← compileSource session src "Examples.ArrU128" "<ton-arr-u128>"
+  let plan ← liftResult <| planTon compiled
+  expect (plan.storage.fields.size == 2) "ArrU128 fields.size==2"
+  expect (plan.storage.fields[0]!.name == "slots_0") "ArrU128 slots_0"
+  expect (plan.storage.fields[1]!.name == "slots_1") "ArrU128 slots_1"
+  expect (plan.storage.fields[0]!.byteWidth == 16) "ArrU128 slots_0 byteWidth=16"
+  expect (plan.storage.fields[1]!.byteWidth == 16) "ArrU128 slots_1 byteWidth=16"
+  expect (!plan.storage.fields[0]!.isInt) "ArrU128 slots_0 unsigned"
+  expect (!plan.storage.fields[1]!.isInt) "ArrU128 slots_1 unsigned"
+  expect (layoutFieldTypeSuffix 16 false == "u128-le")
+    "ArrU128 layout suffix is u128-le (not u64-le / not 2-limb)"
+  expect (layoutFieldTypeSuffix
+      plan.storage.fields[0]!.byteWidth plan.storage.fields[0]!.isInt == "u128-le")
+    "ArrU128 field ABI suffix is u128-le"
+  let initAtomic := plan.initializer.body.any fun s =>
+    match s with
+    | .storeAtomic leaves =>
+        leaves.size == 2 && leaves.all (fun st => st.byteWidth == 16)
+    | _ => false
+  expect initAtomic "ArrU128 init storeAtomic 2 unsigned 16-byte leaves"
+  let some set0 := plan.entries.find? (·.name == "set0") |
+    throw <| IO.userError "ArrU128 missing set0"
+  expect (set0.resultKind == MethodResultKind.uint128) "ArrU128 entry result UInt128"
+  let setAtomic := set0.body.any fun s =>
+    match s with
+    | .storeAtomic leaves =>
+        leaves.size == 2 && leaves.all (fun st => st.byteWidth == 16)
+    | _ => false
+  expect setAtomic "ArrU128 entry storeAtomic 2 unsigned 16-byte leaves"
+  let hasUInt128Return := set0.body.any fun s =>
+    match s with
+    | .returnValue _ => true
+    | _ => false
+  expect hasUInt128Return "ArrU128 entry returnValue UInt128 IndexGet"
+  let some get := plan.entries.find? (·.name == "get") |
+    throw <| IO.userError "ArrU128 missing get"
+  expect (get.mode == .view && get.resultKind == MethodResultKind.uint128)
+    "ArrU128 view result UInt128"
+  match get.body[get.body.size - 1]! with
+  | .returnValue _ => pure ()
+  | _ => throw <| IO.userError "ArrU128 view must returnValue UInt128 IndexGet"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"ArrU128 plan must validate: {e.render}"
+  let files ← liftResult <| filesTon compiled
+  let tolk ← findFile files "ArrU128.tolk"
+  let abi ← findFile files "ArrU128.ton-abi.json"
+  expect (tolk.contains "slots_0: uint128") "ArrU128 Tolk slots_0: uint128"
+  expect (tolk.contains "slots_1: uint128") "ArrU128 Tolk slots_1: uint128"
+  expect (!tolk.contains "slots_0: uint64")
+    "ArrU128 Tolk must not alias slots_0 as uint64"
+  expect (!tolk.contains "slots_0_lo" && !tolk.contains "slots_0_hi" &&
+      !tolk.contains "slots_0_l0" && !tolk.contains "slots_0_l1")
+    "ArrU128 Tolk must not emit CosmWasm 2-limb names"
+  expect (tolk.contains "body.loadUint(128)") "ArrU128 param loadUint(128)"
+  expect (tolk.contains "(1 << 128)") "ArrU128 UInt128 range guard"
+  expect (abi.contains "\"type\":\"uint128\"") "ArrU128 ABI JSON type uint128"
+  expect (abi.contains "\"returns\":\"uint128\"") "ArrU128 ABI returns uint128"
+  IO.println "  ✓ Array UInt128 2 as N×uint128 c4 cells"
+
+/-- Array UInt128 8 is 64+8*128=1088 bits and exceeds the honest 1023-bit
+    c4 cell (shared `__layout` uint64). Fail closed on the budget needle,
+    not the historical element needle, and do not pack 2×UInt64 limbs. -/
+private unsafe def testArrayUInt128CellBudget
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "ArrU128N8" <|
+    "  state slots : Array UInt128 8\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n\n" ++
+    "  entry set0(v : UInt128) : UInt128 do\n" ++
+    "    slots[0] := v\n" ++
+    "    return slots[0]\n\n" ++
+    "  view get() : UInt128 do\n" ++
+    "    return slots[0]\n"
+  let compiled ← compileSource session src "Examples.ArrU128N8" "<ton-arr-u128-n8>"
+  match planTon compiled with
+  | .error (.planInvariant .ton msg) =>
+      expect (msg.contains "Array UInt128 exceeds the 1023-bit c4 cell budget")
+        s!"ArrU128 N=8 must cite cell budget, got: {msg}"
+      expect (!msg.contains "Array state element must be UInt64")
+        s!"ArrU128 N=8 must not reuse the element needle, got: {msg}"
+  | .error e => throw <| IO.userError s!"ArrU128 N=8: unexpected {e.render}"
+  | .ok _ => throw <| IO.userError "ArrU128 N=8: expected FC, got ok"
+  IO.println "  ✓ Array UInt128 8 exceeds 1023-bit c4 cell budget"
+
+/-- Array UInt128 7 + sibling UInt64 is 64+7*128+64=1024 bits and exceeds
+    the shared c4 cell. Fail closed on the same budget needle. -/
+private unsafe def testArrayUInt128SiblingCellBudget
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "ArrU128N7Pad" <|
+    "  state slots : Array UInt128 7\n" ++
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry set0(v : UInt128) : UInt128 do\n" ++
+    "    slots[0] := v\n" ++
+    "    return slots[0]\n\n" ++
+    "  view get() : UInt128 do\n" ++
+    "    return slots[0]\n"
+  let compiled ← compileSource session src "Examples.ArrU128N7Pad"
+    "<ton-arr-u128-n7-pad>"
+  match planTon compiled with
+  | .error (.planInvariant .ton msg) =>
+      expect (msg.contains "Array UInt128 exceeds the 1023-bit c4 cell budget")
+        s!"ArrU128 N=7+pad must cite cell budget, got: {msg}"
+      expect (!msg.contains "Array state element must be UInt64")
+        s!"ArrU128 N=7+pad must not reuse the element needle, got: {msg}"
+  | .error e => throw <| IO.userError s!"ArrU128 N=7+pad: unexpected {e.render}"
+  | .ok _ => throw <| IO.userError "ArrU128 N=7+pad: expected FC, got ok"
+  IO.println "  ✓ Array UInt128 7 + UInt64 exceeds 1023-bit c4 cell budget"
+
+/-- Anonymous Array UInt128 view return stays UInt64-only after container
+    layout started admitting UInt128 elements. -/
+private unsafe def testArrayUInt128ReturnFc
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "ArrU128Ret" <|
+    "  state slots : Array UInt128 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  view peek() : Array UInt128 2 do\n" ++
+    "    return slots\n"
+  let compiled ← compileSource session src "Examples.ArrU128Ret" "<ton-arr-u128-ret>"
+  expectPlanErrorContaining "ArrU128Ret"
+    "anonymous Array return requires UInt64 elements"
+    (planTon compiled)
+  IO.println "  ✓ Array UInt128 return stays fail closed"
 
 /-- 0/1 word select that preserves a signed Int64 payload (no uint64
     range). Matches mapSelectLeafV1 `signed := true`. -/
@@ -2676,6 +2813,10 @@ unsafe def run : IO Unit := do
   testArrayInt64State session
   testArrayInt64x24Layout session
   testArrayInt64ElementFc session
+  testArrayUInt128State session
+  testArrayUInt128CellBudget session
+  testArrayUInt128SiblingCellBudget session
+  testArrayUInt128ReturnFc session
   testMapInt64State session
   testMapInt64ElementFc session
   testUint128Abi session

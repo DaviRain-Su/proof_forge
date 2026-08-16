@@ -16764,3 +16764,22 @@ normative: false
   MaybeViewRet / ArrViewRet / OptViewRet / PairRet / AnonymousResultBoundary
   的 Aleo 针切到 files-nonempty。Map/Bytes view return、>8 leaves、pureFn
   aggregate 仍 FC。**不**声称 Leo / VM / proof / deploy / formal。
+
+## 2026-08-16 — TON-ARR-U128 TON Array UInt128 N×uint128 c4 cells（engineering）
+
+- TON `containerLeafLayoutV1` 现接纳 `Array UInt128 N` 为 N 个连续
+  16-byte unsigned c4 cell（`uint128` / `loadUint(128)` / int257
+  `0≤t<2^128`；flatten 同 Array UInt64/Int64；`leafByteWidth=16`、
+  `isInt=false`）。不是 CosmWasm 2-limb Regions，也不是两个 UInt64 叶。
+  State load 对 16-byte 叶走 `narrowStateLoad 128`（Bytes 仍是
+  `narrowStateLoad 8`）。IndexGet/IndexSet/construct 接纳 uint128 叶。
+  Cell budget：单数组 `64+N*128≤1023`（N=8 fail closed）；含任何
+  16-byte 叶时 `makeStorageLayoutV1` 再查 `64+Σ(field.byteWidth*8)≤1023`
+  （N=7 + sibling UInt64 fail closed；不套用到既有 Map 24×uint64）。
+- `TonPlanV1` 钉 `ArrU128` 两叶 `byteWidth=16` / `u128-le` /
+  `slots_i: uint128` / `loadUint(128)` / `(1 << 128)` + Focus；N=8 与
+  N=7+UInt64 sibling 走 `Array UInt128 exceeds the 1023-bit c4 cell budget`。
+  Array UInt128 return 走 `anonymous Array return requires UInt64 elements`。
+  ArrI8 / ArrU256 仍走 `Array state element must be UInt64` contains-match。
+  Targets ArrU128 EVM+TON files-nonempty。Map/Opt-of-UInt128 与 Array UInt256
+  未开。**不**声称 sandbox / formal / runtime / hermetic / release。
