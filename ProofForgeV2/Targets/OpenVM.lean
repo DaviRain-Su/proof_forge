@@ -20,19 +20,22 @@ IR + `.rs`/`.toml`/`.json` emission in `EmitIRV1`; zero-tool finalization in
 
 O0 envelope: anonymous UInt64/Int64/Bool/Unit; public homogeneous UInt64
 **or** Int64 state/params (mixing fail closed); public Unit/UInt64/Int64/Bool
-results; anonymous `Array UInt64 N` (N=1..8) **state** flatten to N guest
-`u64` fields `{name}_0`..`{name}_{N-1}` (no `[u64; N]` / Vec); anonymous
-`Option UInt64` **state** flatten to two guest `u64` fields `{name}_tag` +
-`{name}_p0` (tag 0=none / 1=some; none zeros payload; no Rust `Option<u64>`);
-anonymous `Map UInt64 UInt64` **state** flatten to 24 guest `u64` fields
-`{name}_0`..`{name}_{23}` (cap-8 × occ/key/val interleaved; `Map.empty` +
-IndexSet upsert; IndexGet → Option tag+payload via `ite`; no `HashMap` /
-`std::collections` / Vec); single-block callables; pureFn inline (depth ≤ 64);
-checked `+`/`-`/`*`/`/`/`%` (signed uses Rust `i64::checked_*`); bare assert;
-zero-payload declared revert; empty events/constants; no call/schedule/
-ContextRead/Commit/Bytes/nested Array/Array-or-Option-or-Map param-return/
-narrow-Int/invariants/Principal/pf.assets. Array/Option/Map + signedNumeric
-Int64 fail closed.
+results; anonymous `Array UInt64 N` or `Array Int64 N` (N=1..8) **state**
+flatten to N guest `u64`/`i64` fields `{name}_0`..`{name}_{N-1}` (element
+follows signedNumeric; no `[u64; N]` / Vec); anonymous `Option UInt64` or
+`Option Int64` **state** flatten to two guest `u64`/`i64` fields
+`{name}_tag` + `{name}_p0` (tag 0=none / 1=some; none zeros payload;
+payload follows signedNumeric; no Rust `Option`); anonymous
+`Map UInt64 UInt64` or `Map Int64 Int64` **state** flatten to 24 guest
+`u64`/`i64` fields `{name}_0`..`{name}_{23}` (cap-8 × occ/key/val;
+`Map.empty` + IndexSet upsert; IndexGet → Option tag+payload via `ite`;
+no `HashMap` / `std::collections` / Vec); single-block callables; pureFn
+inline (depth ≤ 64); checked `+`/`-`/`*`/`/`/`%` (signed uses Rust
+`i64::checked_*`); bare assert; zero-payload declared revert; empty
+events/constants; no call/schedule/ContextRead/Commit/Bytes/nested
+Array/Array-or-Option-or-Map param-return/narrow-Int/invariants/Principal/
+pf.assets. Mixed UInt64↔Int64 containers, N∉1..8, and container
+return/params stay fail closed.
 Everything else fails closed. Zero-tool finalize — no guest
 build/transpile/keygen/execute/prove/verify.
 -/

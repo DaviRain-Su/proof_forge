@@ -126,7 +126,8 @@ normative: false
 | StateLoad/StateStore、bare assert | **LOWERED** | 所有业务 store 只在 aggregate success 时提交；失败显式 outcome + state stutter |
 | pureCall | **LOWERED** | target 内联；depth≤64、expanded op≤4096、checks≤128、单表达式 fully-expanded rendered node budget≤16384（含 div/mod guard duplication）；state/effect FC，未调用 pureFn 也完整验证 |
 | zero-param public-Bool invariant | **LOWERED** | read-only single-block；发射为不依赖 `pf_last_*` instrumentation 的 `val` |
-| multi-block/if/match/for、Int/Field/Principal/String/aggregates/containers | **FAIL-CLOSED** | Q0 不做语义近似 |
+| Array/Option/Map state（齐次 UInt64 或 Int64） | **LOWERED** | N=1..8 Array flatten；Option tag+payload；Map cap-8 occ/key/val；元素/payload/key/value 跟随程序级 signedNumeric；无原生 List/Option/Map；错域混用 / return / N∉1..8 仍 FC |
+| multi-block/if/match/for、Field/Principal/String/named aggregates | **FAIL-CLOSED** | Q0 不做语义近似 |
 | event/nonzero revert payload/call/schedule/ContextRead/Commit/constants | **FAIL-CLOSED** | zero-payload declared revert 保留 ErrorId（failure code=`256+id`）；resolver 仅 rollback/state/Bool/checked-arithmetic 四键 |
 | 制品 / 验收 | `.qnt` + zero-tool finalize；host-optional exact Quint 0.32 typecheck + TS smoke | 不可部署；非 ITF/MBT/verify/Apalache/formal |
 

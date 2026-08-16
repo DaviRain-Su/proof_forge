@@ -20,8 +20,9 @@ like Quint/Aleo/Psy/Noir. Plan types and Semantic→Plan lowering live in
 
 ICP-2 envelope: public UInt64 **or** public Int64 state (homogeneous
 numeric domain: every integer state/param/result is UInt64, or every
-one is Int64; mixing fails closed); Array UInt64 N∈1..8 state flattens
-to N i64 Wasm globals (no Candid `vec`); `init`/entry(mutate)/view;
+one is Int64; mixing fails closed); Array UInt64 N or Array Int64 N∈1..8
+state flattens to N i64 Wasm globals (element follows signedNumeric; no
+Candid `vec`); Option/Map stay fail closed; `init`/entry(mutate)/view;
 single-block callable bodies; checked `+`/`-`/`*`/`/`/`%` and comparisons
 (literal/param/stateLoad/store/return; Bool results). `Op.ContextRead`
 admits only `context.unixTimeSeconds`.

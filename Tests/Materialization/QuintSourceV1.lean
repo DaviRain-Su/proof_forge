@@ -694,8 +694,8 @@ unsafe def testSignedNumericOptionFc : IO Unit := do
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   match planQuint compiled with
   | .error (.planInvariant .quint msg) =>
-      expect (msg.contains "signedNumeric" && msg.contains "Option")
-        s!"signedNumeric+Option must cite both, got: {msg}"
+      expect (msg.contains "Option" && msg.contains "UInt64")
+        s!"mixed Int64+Option UInt64 must cite Option/UInt64, got: {msg}"
   | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
   | .ok _ => throw <| IO.userError "signedNumeric+Option must fail closed at Quint plan"
 
@@ -807,8 +807,8 @@ unsafe def testSignedNumericMapFc : IO Unit := do
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   match planQuint compiled with
   | .error (.planInvariant .quint msg) =>
-      expect (msg.contains "signedNumeric" && msg.contains "Map")
-        s!"signedNumeric+Map must cite both, got: {msg}"
+      expect (msg.contains "Map" && msg.contains "UInt64")
+        s!"mixed Int64+Map UInt64 must cite Map/UInt64, got: {msg}"
   | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
   | .ok _ => throw <| IO.userError "signedNumeric+Map must fail closed at Quint plan"
 
@@ -1579,6 +1579,128 @@ unsafe def testUnknownProfileFailClosed : IO Unit := do
           throw <| IO.userError
             s!"unknown Quint profile must fail closed, got {sel.codegenProfile}"
 
+unsafe def testArrInt64Flatten : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrInt64 where\n" ++
+    "  state slots : Array Int64 2\n" ++
+    "  init(a : Int64, b : Int64) do\n" ++
+    "    slots[0] := a\n" ++
+    "    slots[1] := b\n" ++
+    "  entry set0(v : Int64) : Int64 do\n" ++
+    "    slots[0] := v\n" ++
+    "    return slots[0]\n" ++
+    "  view get0() : Int64 do\n" ++
+    "    return slots[0]\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-arr-int64>" "Tests.QuintArrInt64" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  expect plan.signedNumeric "ArrInt64 Plan is signed"
+  expect (plan.states.map (·.name) == #["slots_0", "slots_1"])
+    "Array Int64 2 must flatten to slots_0/slots_1"
+  liftResult <| Targets.Quint.validatePlan plan
+  let files ← liftResult <| buildQuint compiled
+  let some qntFile := files.find? (·.path == "ArrInt64.qnt") |
+    throw <| IO.userError "quint: missing ArrInt64.qnt"
+  expect (qntFile.contents.contains "PF_MIN_I64") "signed Array binds PF_MIN_I64"
+  expect (!qntFile.contents.contains "List[") "no native Quint List"
+
+unsafe def testOptInt64Flatten : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptInt64 where\n" ++
+    "  state o : Option Int64\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n" ++
+    "  entry setSome(v : Int64) : Int64 do\n" ++
+    "    o := Option.some(v)\n" ++
+    "    return v\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-opt-int64>" "Tests.QuintOptInt64" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  expect plan.signedNumeric "OptInt64 Plan is signed"
+  expect (plan.states.map (·.name) == #["o_tag", "o_p0"])
+    "Option Int64 flattens to o_tag/o_p0"
+  liftResult <| Targets.Quint.validatePlan plan
+  let files ← liftResult <| buildQuint compiled
+  let some qntFile := files.find? (·.path == "OptInt64.qnt") |
+    throw <| IO.userError "quint: missing OptInt64.qnt"
+  expect (qntFile.contents.contains "PF_MIN_I64") "signed Option binds PF_MIN_I64"
+
+unsafe def testMapInt64Flatten : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapInt64 where\n" ++
+    "  state m : Map Int64 Int64\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n" ++
+    "  entry put(k : Int64, v : Int64) : Int64 do\n" ++
+    "    m[k] := v\n" ++
+    "    return v\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-map-int64>" "Tests.QuintMapInt64" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  expect plan.signedNumeric "MapInt64 Plan is signed"
+  expect (plan.states.size == 24) "Map Int64 flattens to 24 leaves"
+  liftResult <| Targets.Quint.validatePlan plan
+  let files ← liftResult <| buildQuint compiled
+  let some qntFile := files.find? (·.path == "MapInt64.qnt") |
+    throw <| IO.userError "quint: missing MapInt64.qnt"
+  expect (qntFile.contents.contains "PF_MIN_I64") "signed Map binds PF_MIN_I64"
+  expect (!qntFile.contents.contains "Map[") "no native Quint Map"
+
+unsafe def testArrayInt64ReturnFc : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrInt64Ret where\n" ++
+    "  state slots : Array Int64 2\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "  entry peek(v : Int64) : Array Int64 2 do\n" ++
+    "    return slots\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-arr-int64-ret>" "Tests.QuintArrInt64Ret" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planQuint compiled with
+  | .error (.planInvariant .quint msg) =>
+      expect (msg.contains "Array/Map return" || msg.contains "Array return")
+        s!"Array Int64 return, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
+  | .ok _ => throw <| IO.userError "Array Int64 return must fail closed"
+
+unsafe def testArrayInt64N9FailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrInt64Nine where\n" ++
+    "  state slots : Array Int64 9\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "  entry set0(v : Int64) : Int64 do\n" ++
+    "    slots[0] := v\n" ++
+    "    return slots[0]\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-arr-int64-n9>" "Tests.QuintArrInt64Nine" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planQuint compiled with
+  | .error (.planInvariant .quint msg) =>
+      expect (msg.contains "cap" || msg.contains "1..8")
+        s!"Array Int64 9, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
+  | .ok _ => throw <| IO.userError "Array Int64 9 must fail closed"
+
 unsafe def run : IO Unit := do
   testStateCellQuintSource
   testRollbackStutter
@@ -1595,13 +1717,18 @@ unsafe def run : IO Unit := do
   testInt64Cell
   testMixedInt64UInt64Fc
   testArraySlotsFlatten
+  testArrInt64Flatten
   testArrayN9FailClosed
+  testArrayInt64N9FailClosed
+  testArrayInt64ReturnFc
   testOptBoxFlatten
+  testOptInt64Flatten
   testOptionInt64PayloadFc
   testOptionBoolPayloadFc
   testOptionReturnFc
   testSignedNumericOptionFc
   testMapMiniFlatten
+  testMapInt64Flatten
   testMapInt64PayloadFc
   testMapReturnFc
   testSignedNumericMapFc

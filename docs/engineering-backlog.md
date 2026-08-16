@@ -803,6 +803,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-16 | **ALEO-AGG-VIEWS**：Aleo named Struct/Enum、`Array UInt64 N`、`Option UInt64` **view** return 作为 off-chain query descriptor（`kind=computed`，`result` 为 1..8 个 `u64`/`i64` 叶数组）。不是 Final function，不是链上 output（Final 仍 drop outputs）。Map/Bytes view return、>8 leaves、pureFn aggregate、view store/emit/revert/for 仍 FC。**不**声称 Leo / VM / proof / deploy / formal |
 | 2026-08-16 | **TON-ARR-U128**：TON `Array UInt128 N` 作为 N 个连续 16-byte unsigned c4 cell（`uint128` / `loadUint(128)` / int257 `0≤t<2^128`；flatten 同 Array UInt64/Int64，`leafByteWidth=16`）。不是 CosmWasm 2-limb Regions，也不是两个 UInt64 叶。Cell budget `64+Σ(field.byteWidth*8)≤1023` 当存在 uint128 叶（N=8 FC；N=7+sibling UInt64 FC）。Array UInt256、Map/Opt-of-UInt128、Array UInt128 return 仍 FC。**不**声称 sandbox / formal / runtime parity |
 | 2026-08-16 | **TON-OPT-U128**：TON 匿名 `Option UInt128` state 作为既有 2-leaf Option 布局（`name_tag` 无符号 uint64 cell + `name_p0` 一个 unsigned `uint128` cell / `loadUint(128)`）。复用 Option UInt64 tag/storeAtomic/match；payload 不是 CosmWasm 2-limb，也不是两个 UInt64 叶。Cell budget `64+64+128=256≤1023`。Option Int8/16/32、Option UInt256、Option UInt128 return、Map UInt128 仍 FC。**不**声称 sandbox / formal / runtime parity |
+| 2026-08-16 | **ENV4-INT64-CONTAINERS**：Quint/Soroban/OpenVM 齐次 `Array Int64` / `Option Int64` / `Map Int64 Int64` 跟随 signedNumeric flatten；ICP 只开 `Array Int64 N`（Option/Map 仍 FC）。混用 UInt64↔Int64 与 container return 仍 FC。不是 CW/TON `Map UInt64 Int64`。**不**声称 formal / runtime parity |
 
 ---
 

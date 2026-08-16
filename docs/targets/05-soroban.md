@@ -3,7 +3,7 @@ id: TARGET-SOROBAN
 title: Stellar Soroban target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-15
+updated: 2026-08-16
 normative: true
 ---
 
@@ -28,11 +28,11 @@ Soroban 在 Stellar host 中执行受限 Wasm，并以 XDR、host objects、授�
 | Finalize | **zero-tool**；`deployable=false` |
 | Capability | 仅 `failure.atomic-rollback` / `state.persistent` / `value.bool` / `value.checked-arithmetic` |
 | 存储约定 | 单一 **instance** storage；无 TTL 策略选择 |
-| 明确拒 | event / sync call / async / pf.assets / nonempty invariants / Int8/16/32 state·params / mixed UInt64↔Int64 / Bytes / Array·Option·Map return·params / Array-of-non-UInt64 / Option-of-non-UInt64 / Map-of-non-UInt64 / nonempty Map construct / N∉1..8 / signedNumeric+Array / signedNumeric+Option / signedNumeric+Map / `symbol_short!` key >9 bytes（never truncate） |
+| 明确拒 | event / sync call / async / pf.assets / nonempty invariants / Int8/16/32 state·params / mixed UInt64↔Int64 / Bytes / Array·Option·Map return·params / 错域 Array/Option/Map 元素 / nonempty Map construct / N∉1..8 / `symbol_short!` key >9 bytes（never truncate） |
 | 整数域 | 齐次 UInt64 或 Int64（混用 fail closed；未使用的 interned UInt64 类型行不强制 mixed） |
-| Array flatten | 匿名 `Array UInt64 N`（N=1..8）**state** 展平为 N 个 instance `u64` key `{name}_0`..`{name}_{N-1}`（无 Vec）。叶名必须适配 `symbol_short!`（≤9 UTF-8 bytes）。不是 SOR-1 / 不是 formal。 |
-| Option flatten | 匿名 `Option UInt64` **state** 展平为 2 个 instance `u64` key `{name}_tag` + `{name}_p0`（tag 0=none / 1=some；none 清零 payload）。construct none/some。叶名必须适配 `symbol_short!`（`o_tag`/`o_p0` 通过；过长前缀 fail closed，不截断）。**不是** Option return/params/match、不是 SOR-1 / 不是 formal。 |
-| Map flatten | 匿名 `Map UInt64 UInt64` **state** 展平为 24 个 instance `u64` key `{name}_0`..`{name}_23`（cap-8 × occ/key/val 交错；`Map.empty` + IndexSet upsert；IndexGet → Option tag+payload）。叶名必须适配 `symbol_short!`（`m_0`..`m_23` 通过；过长前缀 fail closed，不截断）。**不是** Map return/params、不是 nonempty construct、不是 native HashMap、不是 SOR-1 / 不是 formal。 |
+| Array flatten | 匿名 `Array UInt64 N` 或 `Array Int64 N`（N=1..8）**state** 展平为 N 个 instance key `{name}_0`..`{name}_{N-1}`（无 Vec；叶类型跟随 signedNumeric：`u64`/`i64`）。叶名必须适配 `symbol_short!`（≤9 UTF-8 bytes）。不是 SOR-1 / 不是 formal。 |
+| Option flatten | 匿名 `Option UInt64` 或 `Option Int64` **state** 展平为 2 个 instance key `{name}_tag` + `{name}_p0`（tag 0=none / 1=some；none 清零 payload；payload 跟随 signedNumeric）。construct none/some。叶名必须适配 `symbol_short!`（`o_tag`/`o_p0` 通过；过长前缀 fail closed，不截断）。**不是** Option return/params/match、不是 SOR-1 / 不是 formal。 |
+| Map flatten | 匿名 `Map UInt64 UInt64` 或 `Map Int64 Int64` **state** 展平为 24 个 instance key `{name}_0`..`{name}_23`（cap-8 × occ/key/val 交错；key/value 跟随 signedNumeric；`Map.empty` + IndexSet upsert；IndexGet → Option tag+payload）。叶名必须适配 `symbol_short!`（`m_0`..`m_23` 通过；过长前缀 fail closed，不截断）。**不是** Map UInt64 Int64、不是 Map return/params、不是 nonempty construct、不是 native HashMap、不是 SOR-1 / 不是 formal。 |
 
 制品：`{name}.rs`（`soroban-sdk` 风格 `#[contract]` / instance get/set / `checked_*` panic→rollback）。
 **不**声称可直接 `stellar contract build`、Wasm、auth tree、XDR/spec 或 testnet。

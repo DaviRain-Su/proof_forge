@@ -745,6 +745,65 @@ private unsafe def testUnknownProfileFailClosed : IO Unit := do
             s!"unknown ICP profile must fail closed, got {sel.codegenProfile}"
   IO.println "  ✓ unknown profile fail closed"
 
+private unsafe def testArrInt64Flatten
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "ArrInt64" <|
+    "  state slots : Array Int64 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  entry set0(v : Int64) : Int64 do\n" ++
+    "    slots[0] := v\n" ++
+    "    return slots[0]\n\n" ++
+    "  view get0() : Int64 do\n" ++
+    "    return slots[0]\n"
+  let compiled ← compileSource session src "Examples.ArrInt64" "<icp-arr-int64>"
+  let plan ← liftResult <| planIcp compiled
+  expect plan.signedNumeric "ArrInt64 Plan is signed"
+  expect (plan.states.size == 2) "Array Int64 2 flattens to two fields"
+  expect (plan.states[0]!.name == "slots_0") "leaf slots_0"
+  expect (plan.states[1]!.name == "slots_1") "leaf slots_1"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"ArrInt64 plan must validate: {e.render}"
+  let files ← liftResult <| filesIcp compiled
+  let wat ← findFile files "ArrInt64.wat"
+  let did ← findFile files "ArrInt64.did"
+  expect (wat.contains "(global $g_state_0 (mut i64)") "wat global 0"
+  expect (wat.contains "(global $g_state_1 (mut i64)") "wat global 1"
+  expect (!wat.contains "vec") "no Candid vec in wat"
+  expect (!did.contains "vec") "no Candid vec in did"
+  expect (did.contains "set0 : (int64) -> (int64);") "did set0 is int64"
+  IO.println "  ✓ Array Int64 2 flatten (two i64 globals; Candid int64; no vec)"
+
+private unsafe def testArrayInt64N9FailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "ArrInt64N9" <|
+    "  state slots : Array Int64 9\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n\n" ++
+    "  entry set0(v : Int64) : Int64 do\n" ++
+    "    slots[0] := v\n" ++
+    "    return v\n"
+  let compiled ← compileSource session src "Examples.ArrInt64N9" "<icp-arr-int64-n9>"
+  expectPlanErrorContaining "Array Int64 N=9" "1..8"
+    (planFromCompiledSemanticV1 compiled)
+  IO.println "  ✓ Array Int64 N=9 fail closed"
+
+private unsafe def testArrayInt64ReturnFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "ArrInt64Ret" <|
+    "  state slots : Array Int64 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  entry peek(v : Int64) : Array Int64 2 do\n" ++
+    "    return slots\n"
+  let compiled ← compileSource session src "Examples.ArrInt64Ret" "<icp-arr-int64-ret>"
+  expectPlanErrorContaining "Array Int64 return" "Array return is outside ICP-2"
+    (planFromCompiledSemanticV1 compiled)
+  IO.println "  ✓ Array Int64 return fail closed"
+
 unsafe def run : IO Unit := do
   IO.println "IcpPlanV1"
   let session ← Tests.Language.ParserSession.shared
@@ -766,9 +825,12 @@ unsafe def run : IO Unit := do
   testScheduleFc session
   testAggregateFc session
   testArraySlotsFlatten session
+  testArrInt64Flatten session
   testArrayN9FailClosed session
+  testArrayInt64N9FailClosed session
   testArrayElementFailClosed session
   testArrayReturnFailClosed session
+  testArrayInt64ReturnFailClosed session
   testRegistryDispatch session
   testCapabilityProductPath session
   testUnknownProfileFailClosed

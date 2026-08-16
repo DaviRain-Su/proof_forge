@@ -185,6 +185,11 @@ private def isUInt64Type (types : IcpTypeClosureV1) (typeId : TypeIdV1) : Bool :
 private def isInt64Type (types : IcpTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   types.int64TypeId == some typeId
 
+/-- Program-wide numeric domain: signedNumeric ⇒ Int64, else UInt64. -/
+private def matchesNumericDomain
+    (types : IcpTypeClosureV1) (signedNumeric : Bool) (typeId : TypeIdV1) : Bool :=
+  if signedNumeric then isInt64Type types typeId else isUInt64Type types typeId
+
 private def isUnitType (types : IcpTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   types.unitTypeId == some typeId
 
@@ -198,12 +203,12 @@ private def isUInt32Type (types : IcpTypeClosureV1) (typeId : TypeIdV1) : Bool :
     `none` for scalars. Nested/narrow/Map/Bytes/N=0/N>8 fail closed. -/
 private def arrayUInt64LenV1
     (typeDecls : Array TypeDeclV1) (types : IcpTypeClosureV1)
-    (typeId : TypeIdV1) : CompileResult (Option Nat) := do
+    (typeId : TypeIdV1) (signedNumeric : Bool) : CompileResult (Option Nat) := do
   unless types.isContainer typeId do
     return none
   match typeDecls[typeId.toNat]? with
   | some { shape := .array elTid len, .. } =>
-      unless elTid == types.uint64TypeId do
+      unless matchesNumericDomain types signedNumeric elTid do
         planError
           "unsupported ICP semantic shape: Array element must be UInt64 (nested/narrow/Int arrays fail closed; no Candid vec)"
       let n := len.toNat
@@ -242,11 +247,8 @@ private def makeStateLayoutV1
       planError "unsupported ICP semantic shape: state ids must match declaration order"
     unless isIdentifier st.name do
       planError s!"state name '{st.name}' is not a safe identifier"
-    match ← arrayUInt64LenV1 data.types types st.typeId with
+    match ← arrayUInt64LenV1 data.types types st.typeId signedNumeric with
     | some n =>
-        if signedNumeric then
-          planError
-            "unsupported ICP semantic shape: signedNumeric Int64 programs cannot carry Array state (Array flatten is unsigned UInt64 only)"
         if states.size + n > maxStateFields then
           planError "unsupported ICP semantic shape: state field count exceeds limit"
         let mut leaves : Array Nat := #[]
@@ -463,7 +465,8 @@ private def lowerBinary (op : BinaryOpV1) (lhs rhs : Expr) : CompileResult Expr 
     branching, no async continuations — StateCell shape only). -/
 private partial def lowerInstructions
     (data : SemanticProgramDataV1) (types : IcpTypeClosureV1)
-    (layout : StateLayout) (allowStateWrite : Bool) (callable : CallableV1)
+    (layout : StateLayout) (allowStateWrite : Bool) (signedNumeric : Bool)
+    (callable : CallableV1)
     (acc0 : BodyAccum) :
     CompileResult (BodyAccum × Option Expr) := do
   unless callable.blocks.size == 1 do
@@ -575,7 +578,7 @@ private partial def lowerInstructions
         match instr.result with
         | none => planError "unsupported ICP semantic shape: construct must produce a value"
         | some vd =>
-            let n ← match ← arrayUInt64LenV1 data.types types typeId with
+            let n ← match ← arrayUInt64LenV1 data.types types typeId signedNumeric with
               | some n => pure n
               | none =>
                   planError
@@ -673,6 +676,7 @@ private def seedParamEnv (types : IcpTypeClosureV1) (owner : String)
 private def lowerCallableBody
     (data : SemanticProgramDataV1) (types : IcpTypeClosureV1)
     (layout : StateLayout) (allowStateWrite seedZeroState : Bool)
+    (signedNumeric : Bool)
     (owner : String) (callable : CallableV1) :
     CompileResult (Array String × Array Statement × Option Expr) := do
   let (env0, paramNames) ← seedParamEnv types owner callable
@@ -687,25 +691,23 @@ private def lowerCallableBody
           (mkArrayLeaves (phys.map (fun _ => .literal 0)))
   let acc0 := emptyBodyAccum env0 overlay0
   let (acc, ret?) ←
-    lowerInstructions data types layout allowStateWrite callable acc0
+    lowerInstructions data types layout allowStateWrite signedNumeric callable acc0
   let stores := overlayFinalStores layout acc.overlay
   let ret? := ret?.map (rewriteReturnThroughOverlay layout acc.overlay)
   pure (paramNames, stores, ret?)
 
 private def resultKindOf
-    (data : SemanticProgramDataV1) (types : IcpTypeClosureV1)
+    (_data : SemanticProgramDataV1) (types : IcpTypeClosureV1)
     (typeId : TypeIdV1) (owner : String) :
     CompileResult ResultKind := do
-  match ← arrayUInt64LenV1 data.types types typeId with
-  | some _ =>
-      planError
-        s!"{owner} Array return is outside ICP-2 (only Array UInt64 N state flattens; no Candid vec)"
-  | none =>
-      if isUnitType types typeId then pure .unit
-      else if isBoolType types typeId then pure .bool
-      else if isInt64Type types typeId then pure .int64
-      else if isUInt64Type types typeId then pure .uint64
-      else planError s!"{owner} result must be public Unit, UInt64, Int64, or Bool"
+  if types.isContainer typeId then
+    planError
+      s!"{owner} Array return is outside ICP-2 (only Array UInt64 N state flattens; no Candid vec)"
+  else if isUnitType types typeId then pure .unit
+  else if isBoolType types typeId then pure .bool
+  else if isInt64Type types typeId then pure .int64
+  else if isUInt64Type types typeId then pure .uint64
+  else planError s!"{owner} result must be public Unit, UInt64, Int64, or Bool"
 
 private def makePlanFromSemanticDataV1
     (data : SemanticProgramDataV1) (programName : String)
@@ -723,12 +725,7 @@ private def makePlanFromSemanticDataV1
   let types ← validateIcpTypeClosureV1 data.types
   let mut signed? : Option Bool := none
   for st in data.logicalState do
-    match ← arrayUInt64LenV1 data.types types st.typeId with
-    | some _ =>
-        signed? ←
-          noteIntegerDomain types types.uint64TypeId signed? s!"state '{st.name}'"
-    | none =>
-        signed? ← noteIntegerDomain types st.typeId signed? s!"state '{st.name}'"
+    signed? ← noteIntegerDomain types st.typeId signed? s!"state '{st.name}'"
   for c in data.callables do
     signed? ←
       noteIntegerDomain types c.result.typeId signed? "callable result"
@@ -758,7 +755,7 @@ private def makePlanFromSemanticDataV1
           signed? ← noteIntegerDomain types p.typeId signed? s!"initializer parameter '{p.name}'"
         let (params, stores, ret?) ←
           lowerCallableBody data types layout (allowStateWrite := true)
-            (seedZeroState := true) "initializer" callable
+            (seedZeroState := true) signedNumeric "initializer" callable
         unless ret?.isNone do
           planError "unsupported ICP semantic shape: initializer must return Unit"
         initializer? := some {
@@ -782,7 +779,7 @@ private def makePlanFromSemanticDataV1
             noteIntegerDomain types p.typeId signed? s!"entry '{name}' parameter '{p.name}'"
         let (params, stores, ret?) ←
           lowerCallableBody data types layout (allowStateWrite := true)
-            (seedZeroState := false) s!"entry '{name}'" callable
+            (seedZeroState := false) signedNumeric s!"entry '{name}'" callable
         let body ← match rk, ret? with
           | .unit, none => pure stores
           | .unit, some _ =>
@@ -813,7 +810,7 @@ private def makePlanFromSemanticDataV1
             noteIntegerDomain types p.typeId signed? s!"view '{name}' parameter '{p.name}'"
         let (params, stores, ret?) ←
           lowerCallableBody data types layout (allowStateWrite := false)
-            (seedZeroState := false) s!"view '{name}'" callable
+            (seedZeroState := false) signedNumeric s!"view '{name}'" callable
         unless stores.isEmpty do
           planError s!"view '{name}' cannot write state"
         let e ← match ret? with

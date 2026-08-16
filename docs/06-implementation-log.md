@@ -16799,3 +16799,17 @@ normative: false
   仍走 `requires UInt64 payload` contains-match。Targets OptU128 TON
   files-nonempty。Map-of-UInt128 与 Option UInt256 未开。**不**声称
   sandbox / formal / runtime / hermetic / release。
+
+## 2026-08-16 — ENV4-INT64-CONTAINERS envelope-4 齐次 Int64 容器（engineering）
+
+- Quint / Soroban / OpenVM 的 Array/Option/Map flatten 现跟随程序级
+  `signedNumeric`：unsigned ⇒ `UInt64` 叶，signed ⇒ `Int64` 叶。齐次
+  `Array Int64 N`、`Option Int64`、`Map Int64 Int64` 与既有 UInt64 容器
+  共用同一叶布局。ICP 只开 `Array Int64 N`（无 Candid vec）；Option/Map
+  仍诚实 FC。混用 UInt64↔Int64、Array/Option/Map return、N∉1..8、错域
+  元素仍 FC。不是 CosmWasm/TON 的 `Map UInt64 Int64`（那些是 unsigned
+  key + signed val）。
+- 聚焦套件钉 ArrInt64 / OptInt64 / MapInt64 flatten，以及 mixed-domain
+  与 return / N=9 负例。Targets.lean 的 ArrInt/OptInt 夹具仍是 Int64 容器
+  + UInt64 entry，envelope-4 继续走错域针。**不**声称 formal / hermetic /
+  runtime parity。

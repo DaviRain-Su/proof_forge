@@ -3,7 +3,7 @@ id: TARGET-OPENVM
 title: OpenVM target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-15
+updated: 2026-08-16
 normative: true
 ---
 
@@ -32,18 +32,19 @@ EVM-oriented proof。依据官方 [Overview](https://docs.openvm.dev/book/writin
 ## 3. Portable fragment 与扩展
 
 O0/O1 共享 portable 子集：public 齐次 UInt64 **或** Int64（混用 FC）/Bool/Unit、
-anonymous `Array UInt64 N`（N=1..8）**state** flatten 为 N 个 guest `u64` 标量字段
-`{name}_0`..`{name}_{N-1}`（无 `[u64; N]` / Vec；literal index only）、anonymous
-`Option UInt64` **state** flatten 为两个 guest `u64` 字段 `{name}_tag` +
-`{name}_p0`（tag 0=none / 1=some；none 清零 payload；无 Rust `Option<u64>`）、
-anonymous `Map UInt64 UInt64` **state** flatten 为 24 个 guest `u64` 字段
-`{name}_0`..`{name}_{23}`（cap-8 × occ/key/val 交错；`Map.empty` + IndexSet
-upsert；IndexGet → Option tag+payload，用 `Expr.ite` mux；无
-`HashMap` / `std::collections` / Vec）、single-block、checked `+`/`-`/`*`/`/`/`%`
+anonymous `Array UInt64 N` 或 `Array Int64 N`（N=1..8）**state** flatten 为 N 个 guest
+`u64`/`i64` 标量字段 `{name}_0`..`{name}_{N-1}`（类型跟随程序级 signedNumeric；无
+`[u64; N]` / Vec；literal index only）、anonymous `Option UInt64` 或 `Option Int64`
+**state** flatten 为两个 guest `u64`/`i64` 字段 `{name}_tag` + `{name}_p0`（tag
+0=none / 1=some；none 清零 payload；payload 跟随 signedNumeric；无 Rust
+`Option<u64>`）、anonymous `Map UInt64 UInt64` 或 `Map Int64 Int64` **state**
+flatten 为 24 个 guest `u64`/`i64` 字段 `{name}_0`..`{name}_{23}`（cap-8 ×
+occ/key/val 交错；`Map.empty` + IndexSet upsert；IndexGet → Option tag+payload，
+用 `Expr.ite` mux；key/value 跟随 signedNumeric；无 `HashMap` /
+`std::collections` / Vec）、single-block、checked `+`/`-`/`*`/`/`/`%`
 （unsigned `u64` / signed `i64::checked_*`）、bare assert、zero-payload revert
 （ADR-0045）。Bytes/nested Array、Array 或 Option 或 Map param/return、N∉1..8、
-非 UInt64 元素/payload/key、非字面量 Array 下标、非空 Map construct、
-Array 或 Option 或 Map + signedNumeric Int64 均 fail closed。扩展（commit/reveal 之外的 guest I/O、RV32
+错域元素/payload/key、非字面量 Array 下标、非空 Map construct 均 fail closed。扩展（commit/reveal 之外的 guest I/O、RV32
 extensions、crypto accelerators、continuations/aggregation、EVM proof mode）均未开放；
 每项未来须绑定 OpenVM config hash。O1 只新增 Finalize-time build/transpile，不扩大
 portable 子集或新增 requirement id。不声称 ELF/prove/formal。
@@ -115,7 +116,7 @@ substitution、config commitment、host nondeterminism、unsafe guest code、pro
 
 ## 9. 验证阶梯
 
-- **O0（已完成）**：registry/resolver/Plan/IR/guest-source emit + zero-tool finalize + Counter/StateCell/Int64Cell 正例与 unsupported 负例；工程 `Array UInt64 N`（N=1..8）state flatten 为标量 `u64` 字段；工程 `Option UInt64` state flatten 为 `{name}_tag`/`{name}_p0` 两个 `u64` 字段；工程 dense `Map UInt64 UInt64` cap-8 flatten 为 24 个标量 `u64` 字段（非 HashMap/Vec；Map return/param/非 UInt64 key-value/signedNumeric+Map/elf/prove/formal 仍 FC）。
+- **O0（已完成）**：registry/resolver/Plan/IR/guest-source emit + zero-tool finalize + Counter/StateCell/Int64Cell 正例与 unsupported 负例；工程 `Array UInt64|Int64 N`（N=1..8）state flatten 为标量 `u64`/`i64` 字段；工程 `Option UInt64|Int64` state flatten 为 `{name}_tag`/`{name}_p0`；工程 dense `Map UInt64 UInt64` 或 `Map Int64 Int64` cap-8 flatten 为 24 个标量字段（非 HashMap/Vec；Map return/param/错域 key-value/elf/prove/formal 仍 FC）。不声称 execute/prove。
 - **O1（当前，ADR-0046）**：同一 Plan/IR 上的 opt-in `openvm-guest-elf-v1`；锁定
   `cargo-openvm` 2.0.1 build/transpile guest → RV32IM ELF + `.vmexe` extras；缺失工具
   fail closed（`PF-TOOLCHAIN-MISSING`）；host-optional acceptance（ambient 工具存在时

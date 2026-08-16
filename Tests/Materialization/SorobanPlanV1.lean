@@ -571,8 +571,8 @@ unsafe def testSignedNumericArrayStateFailClosed : IO Unit := do
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   match planSoroban compiled with
   | .error (.planInvariant .soroban msg) =>
-      expect (msg.contains "signedNumeric" || msg.contains "Array state")
-        s!"Int64 + Array state must name signedNumeric/Array, got: {msg}"
+      expect (msg.contains "Array" && msg.contains "UInt64")
+        s!"mixed Int64+Array UInt64 must cite Array/UInt64, got: {msg}"
   | .error e => throw <| IO.userError s!"expected planInvariant .soroban, got {e.render}"
   | .ok _ => throw <| IO.userError "signedNumeric + Array state must fail closed"
 
@@ -716,8 +716,8 @@ unsafe def testSignedNumericOptionStateFailClosed : IO Unit := do
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   match planSoroban compiled with
   | .error (.planInvariant .soroban msg) =>
-      expect (msg.contains "signedNumeric" || msg.contains "Option state")
-        s!"Int64 + Option state must name signedNumeric/Option, got: {msg}"
+      expect (msg.contains "Option" && msg.contains "UInt64")
+        s!"mixed Int64+Option UInt64 must cite Option/UInt64, got: {msg}"
   | .error e => throw <| IO.userError s!"expected planInvariant .soroban, got {e.render}"
   | .ok _ => throw <| IO.userError "signedNumeric + Option state must fail closed"
 
@@ -832,10 +832,133 @@ unsafe def testSignedNumericMapStateFailClosed : IO Unit := do
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   match planSoroban compiled with
   | .error (.planInvariant .soroban msg) =>
-      expect (msg.contains "signedNumeric" && msg.contains "Map")
-        s!"signedNumeric+Map must cite both, got: {msg}"
+      expect (msg.contains "Map" && msg.contains "UInt64")
+        s!"mixed Int64+Map UInt64 must cite Map/UInt64, got: {msg}"
   | .error e => throw <| IO.userError s!"expected planInvariant .soroban, got {e.render}"
   | .ok _ => throw <| IO.userError "signedNumeric+Map must fail closed at Soroban plan"
+
+unsafe def testArrInt64Flatten : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrInt64 where\n" ++
+    "  state slots : Array Int64 2\n" ++
+    "  init(a : Int64, b : Int64) do\n" ++
+    "    slots[0] := a\n" ++
+    "    slots[1] := b\n" ++
+    "  entry set0(v : Int64) : Int64 do\n" ++
+    "    slots[0] := v\n" ++
+    "    return slots[0]\n" ++
+    "  view get0() : Int64 do\n" ++
+    "    return slots[0]\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-arr-int64>" "Tests.SorobanArrInt64" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  expect plan.signedNumeric "ArrInt64 Plan is signed"
+  expect (plan.states.map (·.name) == #["slots_0", "slots_1"])
+    "Array Int64 2 flattens to slots_0/slots_1"
+  liftResult <| Targets.Soroban.validatePlan plan
+  let files ← liftResult <| buildSoroban compiled
+  let some rsFile := files.find? (fun f => f.path == "ArrInt64.rs") |
+    throw <| IO.userError "soroban: missing ArrInt64.rs"
+  expect (rsFile.contents.contains "unwrap_or(0_i64)") "signed Array emits i64"
+  expect (!rsFile.contents.contains "Vec<") "no Rust Vec"
+
+unsafe def testOptInt64Flatten : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptInt64 where\n" ++
+    "  state o : Option Int64\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n" ++
+    "  entry setSome(v : Int64) : Int64 do\n" ++
+    "    o := Option.some(v)\n" ++
+    "    return v\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-opt-int64>" "Tests.SorobanOptInt64" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  expect plan.signedNumeric "OptInt64 Plan is signed"
+  expect (plan.states.map (·.name) == #["o_tag", "o_p0"])
+    "Option Int64 flattens to o_tag/o_p0"
+  liftResult <| Targets.Soroban.validatePlan plan
+  let files ← liftResult <| buildSoroban compiled
+  let some rsFile := files.find? (fun f => f.path == "OptInt64.rs") |
+    throw <| IO.userError "soroban: missing OptInt64.rs"
+  expect (rsFile.contents.contains "unwrap_or(0_i64)") "signed Option emits i64"
+  expect (!rsFile.contents.contains "Option<") "no Rust Option"
+
+unsafe def testMapInt64Flatten : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapInt64 where\n" ++
+    "  state m : Map Int64 Int64\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n" ++
+    "  entry put(k : Int64, v : Int64) : Int64 do\n" ++
+    "    m[k] := v\n" ++
+    "    return v\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-map-int64>" "Tests.SorobanMapInt64" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  expect plan.signedNumeric "MapInt64 Plan is signed"
+  expect (plan.states.size == 24) "Map Int64 flattens to 24 leaves"
+  liftResult <| Targets.Soroban.validatePlan plan
+  let files ← liftResult <| buildSoroban compiled
+  let some rsFile := files.find? (fun f => f.path == "MapInt64.rs") |
+    throw <| IO.userError "soroban: missing MapInt64.rs"
+  expect (rsFile.contents.contains "unwrap_or(0_i64)") "signed Map emits i64"
+  expect (!rsFile.contents.contains "HashMap") "no HashMap"
+
+unsafe def testArrayInt64ReturnFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrInt64Ret where\n" ++
+    "  state slots : Array Int64 2\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "  entry peek(v : Int64) : Array Int64 2 do\n" ++
+    "    return slots\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-arr-int64-ret>" "Tests.SorobanArrInt64Ret" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planSoroban compiled with
+  | .error (.planInvariant .soroban msg) =>
+      expect (msg.contains "Array/Map return" || msg.contains "Array return")
+        s!"Array Int64 return, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .soroban, got {e.render}"
+  | .ok _ => throw <| IO.userError "Array Int64 return must fail closed"
+
+unsafe def testArrayInt64N9FailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrInt64Nine where\n" ++
+    "  state slots : Array Int64 9\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "  entry set0(v : Int64) : Int64 do\n" ++
+    "    slots[0] := v\n" ++
+    "    return slots[0]\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-arr-int64-n9>" "Tests.SorobanArrInt64Nine" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planSoroban compiled with
+  | .error (.planInvariant .soroban msg) =>
+      expect (msg.contains "cap" || msg.contains "1..8")
+        s!"Array Int64 9, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .soroban, got {e.render}"
+  | .ok _ => throw <| IO.userError "Array Int64 9 must fail closed"
 
 unsafe def run : IO Unit := do
   testStateCellSorobanSource
@@ -850,16 +973,21 @@ unsafe def run : IO Unit := do
   testCapabilityProductPath
   testUnknownProfileFailClosed
   testArrayBoxFlatten
+  testArrInt64Flatten
   testArrayN9FailClosed
+  testArrayInt64N9FailClosed
   testArrayNonUInt64ElementFailClosed
   testArrayReturnFailClosed
+  testArrayInt64ReturnFailClosed
   testSignedNumericArrayStateFailClosed
   testArrayLongNameSymbolShortFailClosed
   testOptBoxAdmit
+  testOptInt64Flatten
   testOptionInt64ElementFailClosed
   testOptionReturnFailClosed
   testSignedNumericOptionStateFailClosed
   testMapMiniAdmit
+  testMapInt64Flatten
   testMapInt64ElementFailClosed
   testMapReturnFailClosed
   testSignedNumericMapStateFailClosed
