@@ -3,7 +3,7 @@ id: TARGET-NEAR
 title: NEAR target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-13
+updated: 2026-08-16
 normative: true
 ---
 
@@ -21,7 +21,12 @@ Phase 1：实现
 **工程已接线（摘）**：
 
 - Normalize 当前子集：算术/比较/assert、控制流、fn、let/for、shift/bitwise、revert/emit 等；
-- state/param **UInt8/16/32/64 与窄 Int** ABI/body 子集；**UInt128/256 软件多字（T9e）**：
+- state/param **UInt8/16/32/64 与 Int8/16/32/64** ABI/body 子集。`Int8/16/32`
+  是与 `UInt8/16/32` 同物理宽度的 **1/2/4-byte LE two's complement**（ABI `iN-le`，
+  load 符号扩展，add/sub/mul 按声明宽度 checked）；**不是** 8-byte-only Int64
+  槽，也不是 CosmWasm 8-byte Region 或 TON `intN` cell。Int64 仍为 8-byte
+  `u64-le` 历史 spelling。**Array/Map/Option of Int8/16/32 仍 fail closed**。
+  **UInt128/256 软件多字（T9e）**：
   add/sub/mul、**div/mod restoring binary long division**，以及 **multiword << / >>**
   （count≥bitWidth trap；checked-shl 高 limb overflow trap；`Examples/WideShiftProbe` +
   deterministic HostModel + near-sandbox suite，与 CosmWasm 同形）；

@@ -62,9 +62,13 @@ inductive Operation where
   | loadParam (destination inputOffset : Nat)
   /-- Narrow ABI param load (`bitWidth ∈ {8,16,32}`); UInt64/Int64 keep `loadParam`. -/
   | narrowLoadParam (bitWidth destination inputOffset : Nat)
+  /-- Signed narrow ABI param load (`bitWidth ∈ {8,16,32}`); sign-extends. -/
+  | narrowSignedLoadParam (bitWidth destination inputOffset : Nat)
   | loadState (destination : Nat) (field : KeyRegion)
   /-- Narrow ABI state load (`bitWidth ∈ {8,16,32}`); UInt64/Int64 keep `loadState`. -/
   | narrowLoadState (bitWidth destination : Nat) (field : KeyRegion)
+  /-- Signed narrow ABI state load (`bitWidth ∈ {8,16,32}`); sign-extends. -/
+  | narrowSignedLoadState (bitWidth destination : Nat) (field : KeyRegion)
   | checkedAdd (destination lhs rhs : Nat)
   | checkedSub (destination lhs rhs : Nat)
   | signedCheckedAdd (destination lhs rhs : Nat)
@@ -78,10 +82,19 @@ inductive Operation where
   | storeState (field : KeyRegion) (value : Nat)
   /-- Narrow field store (`bitWidth ∈ {8,16,32}`); UInt64/Int64 keep `storeState`. -/
   | narrowStoreState (bitWidth : Nat) (field : KeyRegion) (value : Nat)
+  /-- Signed narrow store (`bitWidth ∈ {8,16,32}`): range-check then 1/2/4-byte LE. -/
+  | narrowSignedStoreState (bitWidth : Nat) (field : KeyRegion) (value : Nat)
+  /-- Signed narrow checked add/sub/mul (`bitWidth ∈ {8,16,32}`). -/
+  | narrowSignedCheckedAdd (bitWidth destination lhs rhs : Nat)
+  | narrowSignedCheckedSub (bitWidth destination lhs rhs : Nat)
+  | narrowSignedCheckedMul (bitWidth destination lhs rhs : Nat)
   | setLayout (marker : KeyRegion) (value : UInt64)
   /-- Host `value_return` payload: `byteLen` ∈ {1,2,4,8,16,32} from MethodResultKind
   (scalar/multiword consecutive temps starting at `value`). -/
   | setReturnData (byteLen value : Nat)
+  /-- Signed narrow host `value_return` (`byteLen ∈ {1,2,4}`): range-check
+      via `extend*_s` identity, then pack the low `byteLen` LE bytes. -/
+  | setSignedReturnData (byteLen value : Nat)
   /-- B-RET-ABI: host `value_return` of preorder leaves from arbitrary temps.
   When `leafByteWidths` is empty, each leaf is packed as 8-byte LE (historical
   Struct/Array/Option path). Otherwise `leafByteWidths.size == temps.size` and
@@ -468,6 +481,12 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
       else
         { operations := #[.narrowLoadParam bitWidth next inputOffset],
           value := next, next := next + nLimbs }
+  | .narrowSignedParam bitWidth inputOffset =>
+      if paramAsTemp then
+        { operations := #[], value := inputOffset / 8, next := next }
+      else
+        { operations := #[.narrowSignedLoadParam bitWidth next inputOffset],
+          value := next, next := next + 1 }
   | .localTemp index =>
       match localEnv.find? (fun p => p.1 == loopEnvKeyV1 index) with
       | some (_, irTemp) =>
@@ -550,6 +569,40 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
         operations := #[.narrowLoadState bitWidth next (fieldRegion keys fieldIndex)]
         value := next
         next := next + nLimbs
+      }
+  | .narrowSignedStateLoad bitWidth fieldIndex =>
+      {
+        operations :=
+          #[.narrowSignedLoadState bitWidth next (fieldRegion keys fieldIndex)]
+        value := next
+        next := next + 1
+      }
+  | .narrowSignedCheckedAdd bitWidth lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowSignedCheckedAdd bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowSignedCheckedSub bitWidth lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowSignedCheckedSub bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowSignedCheckedMul bitWidth lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowSignedCheckedMul bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next
+        next := rhs.next + 1
       }
   | .checkedAdd lhs rhs =>
       let lhs := lowerExpr keys next paramAsTemp localEnv lhs
@@ -923,10 +976,24 @@ private def armOpsWithHardReturn (arm : Array Statement)
   else
     operations
 
+private def lowerStoreOp (keys : Array KeyRegion) (fields : Array StorageField)
+    (fieldIndex byteWidth temp : Nat) (storeIsInt : Bool) : Operation :=
+  let fieldIsInt :=
+    match fields[fieldIndex]? with
+    | some f => f.isInt
+    | none => storeIsInt
+  if byteWidth == 8 then
+    .storeState (fieldRegion keys fieldIndex) temp
+  else if fieldIsInt then
+    .narrowSignedStoreState (byteWidth * 8) (fieldRegion keys fieldIndex) temp
+  else
+    .narrowStoreState (byteWidth * 8) (fieldRegion keys fieldIndex) temp
+
 private partial def lowerBodyOps
-    (keys : Array KeyRegion) (next : Nat) (statements : Array Statement)
+    (keys : Array KeyRegion) (fields : Array StorageField)
+    (next : Nat) (statements : Array Statement)
     (fnMode : Bool) (localEnv : Array (Nat × Nat))
-    (returnByteLen : Nat) :
+    (returnByteLen : Nat) (returnSigned : Bool) :
     Array Operation × Nat := Id.run do
   let mut operations : Array Operation := #[]
   let mut next := next
@@ -936,36 +1003,32 @@ private partial def lowerBodyOps
     | .store store =>
         let value := lowerExpr keys next fnMode localEnv store.value
         operations := operations ++ value.operations
-        let storeOp : Operation :=
-          if store.byteWidth == 8 then
-            .storeState (fieldRegion keys store.fieldIndex) value.value
-          else
-            .narrowStoreState (store.byteWidth * 8) (fieldRegion keys store.fieldIndex) value.value
+        let storeOp :=
+          lowerStoreOp keys fields store.fieldIndex store.byteWidth value.value store.isInt
         operations := operations.push storeOp
         next := value.next
     | .storeAtomic leaves =>
         -- Two-phase snapshot: lower every leaf Expr first (all stateLoads read
         -- the pre-store KV), then emit all store ops. Sequential lower+store
         -- would make later leaves observe earlier writes mid-Map upsert.
-        let mut valueTemps : Array (Nat × Nat × Nat) := #[]
+        let mut valueTemps : Array (Nat × Nat × Nat × Bool) := #[]
         for store in leaves do
           let value := lowerExpr keys next fnMode localEnv store.value
           operations := operations ++ value.operations
-          valueTemps := valueTemps.push (store.fieldIndex, store.byteWidth, value.value)
+          valueTemps := valueTemps.push
+            (store.fieldIndex, store.byteWidth, value.value, store.isInt)
           next := value.next
         for item in valueTemps do
-          let (fieldIndex, byteWidth, temp) := item
-          let storeOp : Operation :=
-            if byteWidth == 8 then
-              .storeState (fieldRegion keys fieldIndex) temp
-            else
-              .narrowStoreState (byteWidth * 8) (fieldRegion keys fieldIndex) temp
+          let (fieldIndex, byteWidth, temp, isInt) := item
+          let storeOp := lowerStoreOp keys fields fieldIndex byteWidth temp isInt
           operations := operations.push storeOp
     | .returnValue value =>
         let value := lowerExpr keys next fnMode localEnv value
         operations := operations ++ value.operations
         if fnMode then
           operations := operations.push (.returnValue value.value)
+        else if returnSigned && returnByteLen < 8 then
+          operations := operations.push (.setSignedReturnData returnByteLen value.value)
         else
           operations := operations.push (.setReturnData returnByteLen value.value)
         next := value.next
@@ -1077,8 +1140,10 @@ private partial def lowerBodyOps
     | .ifThenElse condition thenBody elseBody =>
         let value := lowerExpr keys next fnMode localEnv condition
         operations := operations ++ value.operations
-        let (thenOps, next1) := lowerBodyOps keys value.next thenBody fnMode localEnv returnByteLen
-        let (elseOps, next2) := lowerBodyOps keys next1 elseBody fnMode localEnv returnByteLen
+        let (thenOps, next1) := lowerBodyOps keys fields value.next thenBody
+          fnMode localEnv returnByteLen returnSigned
+        let (elseOps, next2) := lowerBodyOps keys fields next1 elseBody
+          fnMode localEnv returnByteLen returnSigned
         operations := operations.push (.ifRegion value.value
           (armOpsWithHardReturn thenBody thenOps fnMode)
           (armOpsWithHardReturn elseBody elseOps fnMode))
@@ -1089,10 +1154,12 @@ private partial def lowerBodyOps
         let mut caseOps : Array (UInt64 × Array Operation) := #[]
         let mut nextC := value.next
         for (caseValue, caseBody) in cases do
-          let (ops, next1) := lowerBodyOps keys nextC caseBody fnMode localEnv returnByteLen
+          let (ops, next1) := lowerBodyOps keys fields nextC caseBody
+            fnMode localEnv returnByteLen returnSigned
           caseOps := caseOps.push (caseValue, armOpsWithHardReturn caseBody ops fnMode)
           nextC := next1
-        let (defaultOps, nextD) := lowerBodyOps keys nextC defaultBody fnMode localEnv returnByteLen
+        let (defaultOps, nextD) := lowerBodyOps keys fields nextC defaultBody
+          fnMode localEnv returnByteLen returnSigned
         operations := operations.push (.switchRegion value.value caseOps
           (armOpsWithHardReturn defaultBody defaultOps fnMode))
         next := nextD
@@ -1109,7 +1176,8 @@ private partial def lowerBodyOps
         let condOps := condL.operations
         let condTemp := condL.value
         next := condL.next
-        let (bodyOps, nextB) := lowerBodyOps keys next body fnMode localEnv' returnByteLen
+        let (bodyOps, nextB) := lowerBodyOps keys fields next body
+          fnMode localEnv' returnByteLen returnSigned
         next := nextB
         let updateL := lowerExpr keys next fnMode localEnv' update
         let updateOps := updateL.operations
@@ -1134,6 +1202,10 @@ private def methodResultByteLen : MethodResultKind → Nat
   | .aggregate leaves =>
       -- Prefer sum of declared leaf widths (Bytes N = N; Array N = 8N).
       leaves.foldl (init := 0) (fun acc l => acc + l.byteWidth)
+
+private def methodResultIsSigned : MethodResultKind → Bool
+  | .int8 | .int16 | .int32 => true
+  | _ => false
 
 /-- Attach `Method.resultKind` leaf widths onto every `setReturnDataLeaves`,
     including nested if/switch/for arms. Empty widths keep historical N×8
@@ -1191,7 +1263,8 @@ private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
     method.body.pop
   else
     method.body
-  let (bodyOps0, next) := lowerBodyOps keys 0 body false #[] (methodResultByteLen method.resultKind)
+  let (bodyOps0, next) := lowerBodyOps keys plan.storage.fields 0 body false #[]
+    (methodResultByteLen method.resultKind) (methodResultIsSigned method.resultKind)
   let bodyOps := attachAggregateLeafWidths method.resultKind bodyOps0
   operations := operations ++ bodyOps
   if method.mode == .initialize then
@@ -1239,7 +1312,7 @@ theorem methodIRLoweringV1_name (plan : Plan) (keys : Array KeyRegion)
 private def lowerFn (keys : Array KeyRegion) (fn : FnBinding) : FnIR :=
   let paramCount := fn.params.size
   -- Temps `0..paramCount-1` are the Wasm parameters; body lowering starts after.
-  let (bodyOps, next) := lowerBodyOps keys paramCount fn.body true #[] 8
+  let (bodyOps, next) := lowerBodyOps keys #[] paramCount fn.body true #[] 8 false
   {
     name := fn.name
     paramCount
@@ -1260,10 +1333,11 @@ private partial def opIsMethodOnlyV1 : Operation → Bool
   | .checkInputLen _ | .requireZeroAttachedDeposit | .requireExactAttachedDeposit _
   | .requireLayoutAbsent _ | .requireLayout _ _
   | .zeroState _ | .narrowZeroState _ _
-  | .loadState _ _ | .narrowLoadState _ _ _
-  | .storeState _ _ | .narrowStoreState _ _ _
-  | .setLayout _ _ | .setReturnData _ _ | .setReturnDataLeaves _ _
-  | .loadParam _ _ | .narrowLoadParam _ _ _
+  | .loadState _ _ | .narrowLoadState _ _ _ | .narrowSignedLoadState _ _ _
+  | .storeState _ _ | .narrowStoreState _ _ _ | .narrowSignedStoreState _ _ _
+  | .setLayout _ _ | .setReturnData _ _ | .setSignedReturnData _ _
+  | .setReturnDataLeaves _ _
+  | .loadParam _ _ | .narrowLoadParam _ _ _ | .narrowSignedLoadParam _ _ _
   | .blockTimestampSeconds _ | .blockIndex _ | .accountBalance _ | .accountBalanceU128 _
   | .attachedDepositValue _ | .sha256Host .. | .keccak256Host ..
   | .callerPrincipalLen _ | .callerPrincipalWord _ _
@@ -1322,14 +1396,15 @@ private partial def operationHostImportsCoveredV1
       imports.contains .currentAccountId && imports.contains .registerLen &&
         imports.contains .readRegister
   | .requireLayoutAbsent _ => imports.contains .storageRead
-  | .requireLayout .. | .loadState .. | .narrowLoadState .. =>
+  | .requireLayout .. | .loadState .. | .narrowLoadState ..
+  | .narrowSignedLoadState .. =>
       imports.contains .storageRead && imports.contains .registerLen &&
         imports.contains .readRegister
   | .zeroState _ | .narrowZeroState .. | .setLayout .. =>
       imports.contains .storageWrite
-  | .storeState .. | .narrowStoreState .. =>
+  | .storeState .. | .narrowStoreState .. | .narrowSignedStoreState .. =>
       imports.contains .storageWrite && imports.contains .registerLen
-  | .setReturnData .. | .setReturnDataLeaves .. =>
+  | .setReturnData .. | .setSignedReturnData .. | .setReturnDataLeaves .. =>
       imports.contains .valueReturn
   | .emitEvent .. => imports.contains .logUtf8
   | .revertError .. => imports.contains .panicUtf8
@@ -1351,6 +1426,7 @@ private partial def operationHostImportsCoveredV1
         bodyOps.all (operationHostImportsCoveredV1 imports) &&
         updateOps.all (operationHostImportsCoveredV1 imports)
   | .literal .. | .loadParam .. | .narrowLoadParam ..
+  | .narrowSignedLoadParam ..
   | .checkedAdd .. | .checkedSub .. | .signedCheckedAdd ..
   | .signedCheckedSub .. | .signedCheckedMul .. | .signedCheckedDiv ..
   | .signedCheckedMod .. | .signedCompare .. | .checkedNeg .. | .sar ..
@@ -1360,7 +1436,9 @@ private partial def operationHostImportsCoveredV1
   | .shr .. | .bitNot .. | .narrowCheckedAdd .. | .narrowCheckedSub ..
   | .narrowCheckedMul .. | .narrowCheckedDiv .. | .narrowCheckedMod ..
   | .narrowBitAnd .. | .narrowBitOr .. | .narrowBitXor ..
-  | .narrowBitNot .. | .narrowShl .. | .narrowShr .. | .boolNot ..
+  | .narrowBitNot .. | .narrowShl .. | .narrowShr ..
+  | .narrowSignedCheckedAdd .. | .narrowSignedCheckedSub ..
+  | .narrowSignedCheckedMul .. | .boolNot ..
   | .boolAnd .. | .boolOr .. => true
 
 /-- Fail-closed complete-module host-import consistency. The source Plan must
@@ -1435,7 +1513,9 @@ private partial def operationLocalReferencesValidV1
       tempSpanDeclaredV1 tempCount destination 4 &&
         tempSpanDeclaredV1 tempCount input 4
   | .narrowLoadParam bitWidth destination _
-  | .narrowLoadState bitWidth destination _ =>
+  | .narrowLoadState bitWidth destination _
+  | .narrowSignedLoadParam bitWidth destination _
+  | .narrowSignedLoadState bitWidth destination _ =>
       tempSpanDeclaredV1 tempCount destination
         (limbCountOfBitWidth bitWidth)
   | .checkedAdd destination lhs rhs | .checkedSub destination lhs rhs
@@ -1456,9 +1536,11 @@ private partial def operationLocalReferencesValidV1
   | .boolNot destination source =>
       destination < tempCount && source < tempCount
   | .storeState _ value => value < tempCount
-  | .narrowStoreState bitWidth _ value =>
+  | .narrowStoreState bitWidth _ value
+  | .narrowSignedStoreState bitWidth _ value =>
       tempSpanDeclaredV1 tempCount value (limbCountOfBitWidth bitWidth)
-  | .setReturnData byteLen value =>
+  | .setReturnData byteLen value
+  | .setSignedReturnData byteLen value =>
       let count := if byteLen > 8 then byteLen / 8 else 1
       tempSpanDeclaredV1 tempCount value count
   | .setReturnDataLeaves temps _ => temps.all (· < tempCount)
@@ -1497,7 +1579,10 @@ private partial def operationLocalReferencesValidV1
   | .narrowCheckedMod bitWidth destination lhs rhs
   | .narrowBitAnd bitWidth destination lhs rhs
   | .narrowBitOr bitWidth destination lhs rhs
-  | .narrowBitXor bitWidth destination lhs rhs =>
+  | .narrowBitXor bitWidth destination lhs rhs
+  | .narrowSignedCheckedAdd bitWidth destination lhs rhs
+  | .narrowSignedCheckedSub bitWidth destination lhs rhs
+  | .narrowSignedCheckedMul bitWidth destination lhs rhs =>
       let count := limbCountOfBitWidth bitWidth
       tempSpanDeclaredV1 tempCount destination count &&
         tempSpanDeclaredV1 tempCount lhs count &&
@@ -1717,21 +1802,25 @@ private partial def operationMemoryEndV1 (ir : IR) : Operation → Option Nat
       some (ir.memory.valueOffset + 16 + max 64 (8 * (wordIndex + 1)))
   | .loadParam _ inputOffset =>
       some (ir.memory.inputOffset + inputOffset + 8)
-  | .narrowLoadParam bitWidth _ inputOffset =>
+  | .narrowLoadParam bitWidth _ inputOffset
+  | .narrowSignedLoadParam bitWidth _ inputOffset =>
       some (ir.memory.inputOffset + inputOffset + bitWidth / 8)
   | .loadState _ field =>
       some (max (keyRegionMemoryEndV1 field) (ir.memory.valueOffset + 8))
-  | .narrowLoadState bitWidth _ field =>
+  | .narrowLoadState bitWidth _ field
+  | .narrowSignedLoadState bitWidth _ field =>
       some (max (keyRegionMemoryEndV1 field)
         (ir.memory.valueOffset + bitWidth / 8))
   | .storeState field _ =>
       some (max (keyRegionMemoryEndV1 field) (ir.memory.valueOffset + 8))
-  | .narrowStoreState bitWidth field _ =>
+  | .narrowStoreState bitWidth field _
+  | .narrowSignedStoreState bitWidth field _ =>
       some (max (keyRegionMemoryEndV1 field)
         (ir.memory.valueOffset + bitWidth / 8))
   | .setLayout marker _ =>
       some (max (keyRegionMemoryEndV1 marker) (ir.memory.valueOffset + 8))
-  | .setReturnData byteLength _ =>
+  | .setReturnData byteLength _
+  | .setSignedReturnData byteLength _ =>
       some (ir.memory.valueOffset + max 8 byteLength)
   | .setReturnDataLeaves temps leafByteWidths =>
       some (returnDataLeavesMemoryEndV1 ir.memory temps leafByteWidths)
@@ -1804,7 +1893,9 @@ private partial def operationMemoryEndV1 (ir : IR) : Operation → Option Nat
   | .shr .. | .bitNot .. | .narrowCheckedAdd .. | .narrowCheckedSub ..
   | .narrowCheckedMul .. | .narrowCheckedDiv .. | .narrowCheckedMod ..
   | .narrowBitAnd .. | .narrowBitOr .. | .narrowBitXor ..
-  | .narrowBitNot .. | .narrowShl .. | .narrowShr .. | .boolNot ..
+  | .narrowBitNot .. | .narrowShl .. | .narrowShr ..
+  | .narrowSignedCheckedAdd .. | .narrowSignedCheckedSub ..
+  | .narrowSignedCheckedMul .. | .boolNot ..
   | .boolAnd .. | .boolOr .. => some 0
 
 private def moduleOperationMemoryEndV1 (ir : IR) : Option Nat :=
@@ -2537,6 +2628,30 @@ private def renderLoadLeToI64 (indent : String) (destination addr byteWidth : Na
   | _ =>
       s!"{indent}(local.set $t{destination} (i64.load (i32.const {addr})))\n"
 
+/-- Load a LE signed integer of `byteWidth` from `addr` into an i64 local
+    (sign-extend via i32.loadN_s + i64.extend_i32_s). -/
+private def renderLoadSignedLeToI64 (indent : String) (destination addr byteWidth : Nat) : String :=
+  match byteWidth with
+  | 1 =>
+      s!"{indent}(local.set $t{destination} (i64.extend_i32_s (i32.load8_s (i32.const {addr}))))\n"
+  | 2 =>
+      s!"{indent}(local.set $t{destination} (i64.extend_i32_s (i32.load16_s (i32.const {addr}))))\n"
+  | 4 =>
+      s!"{indent}(local.set $t{destination} (i64.extend_i32_s (i32.load (i32.const {addr}))))\n"
+  | _ =>
+      s!"{indent}(local.set $t{destination} (i64.load (i32.const {addr})))\n"
+
+/-- Trap unless `temp == i64.extend{8,16,32}_s(temp)` (width-exact signed range). -/
+private def renderSignedWidthIdentity (indent : String) (temp bitWidth : Nat) : String :=
+  match bitWidth with
+  | 8 =>
+      s!"{indent}(if (i64.ne (local.get $t{temp}) (i64.extend8_s (local.get $t{temp}))) (then unreachable))\n"
+  | 16 =>
+      s!"{indent}(if (i64.ne (local.get $t{temp}) (i64.extend16_s (local.get $t{temp}))) (then unreachable))\n"
+  | 32 =>
+      s!"{indent}(if (i64.ne (local.get $t{temp}) (i64.extend_i32_s (i32.wrap_i64 (local.get $t{temp})))) (then unreachable))\n"
+  | _ => ""
+
 /-- Store low `byteWidth` bytes of an i64 local to `addr` (LE). -/
 private def renderStoreI64Le (indent : String) (addr valueTemp byteWidth : Nat) : String :=
   match byteWidth with
@@ -2566,7 +2681,7 @@ private def renderZeroLe (indent : String) (addr byteWidth : Nat) : String :=
 
 private def renderReadKey (registers : RegisterLayout) (memory : MemoryLayout)
     (indent : String) (destination : Nat) (field : KeyRegion)
-    (byteWidth : Nat := 8) : String :=
+    (byteWidth : Nat := 8) (signed : Bool := false) : String :=
   let header :=
     s!"{indent}(if (i64.ne (call $pf_storage_read (i64.const {field.length}) (i64.const {field.offset}) (i64.const {registers.storage})) (i64.const 1)) (then unreachable))\n" ++
       s!"{indent}(if (i64.ne (call $pf_register_len (i64.const {registers.storage})) (i64.const {byteWidth})) (then unreachable))\n" ++
@@ -2579,6 +2694,8 @@ private def renderReadKey (registers : RegisterLayout) (memory : MemoryLayout)
         out := out ++
           s!"{indent}(local.set $t{destination + i} (i64.load (i32.const {memory.valueOffset + i * 8})))\n"
       pure out
+  else if signed then
+    header ++ renderLoadSignedLeToI64 indent destination memory.valueOffset byteWidth
   else
     header ++ renderLoadLeToI64 indent destination memory.valueOffset byteWidth
 
@@ -2803,11 +2920,17 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
           pure out
       else
         renderLoadLeToI64 indent destination (memory.inputOffset + inputOffset) (bitWidth / 8)
+  | .narrowSignedLoadParam bitWidth destination inputOffset =>
+      renderLoadSignedLeToI64 indent destination
+        (memory.inputOffset + inputOffset) (bitWidth / 8)
   | .loadState destination field =>
       renderMethodWATInstructionsV1 indent
         (loadUInt64StateWATV1 registers memory destination field)
   | .narrowLoadState bitWidth destination field =>
       renderReadKey registers memory indent destination field (bitWidth / 8)
+  | .narrowSignedLoadState bitWidth destination field =>
+      renderReadKey registers memory indent destination field (bitWidth / 8)
+        (signed := true)
   | .checkedAdd destination lhs rhs =>
       s!"{indent}(local.set $t{destination} (i64.add (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
         s!"{indent}(if (i64.lt_u (local.get $t{destination}) (local.get $t{lhs})) (then unreachable))\n"
@@ -2882,6 +3005,15 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
         -- i64.add then high bits above bitWidth must be zero.
         s!"{indent}(local.set $t{destination} (i64.add (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
           s!"{indent}(if (i64.ne (i64.shr_u (local.get $t{destination}) (i64.const {bitWidth})) (i64.const 0)) (then unreachable))\n"
+  | .narrowSignedCheckedAdd bitWidth destination lhs rhs =>
+      s!"{indent}(local.set $t{destination} (i64.add (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
+        renderSignedWidthIdentity indent destination bitWidth
+  | .narrowSignedCheckedSub bitWidth destination lhs rhs =>
+      s!"{indent}(local.set $t{destination} (i64.sub (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
+        renderSignedWidthIdentity indent destination bitWidth
+  | .narrowSignedCheckedMul bitWidth destination lhs rhs =>
+      s!"{indent}(local.set $t{destination} (i64.mul (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
+        renderSignedWidthIdentity indent destination bitWidth
   | .narrowCheckedSub bitWidth destination lhs rhs =>
       if bitWidth > 64 then
         -- Multiword (UInt128/256): limb-wise checked sub with final borrow trap.
@@ -3334,6 +3466,14 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
 " ++
           s!"{indent}(if (i64.ne (call $pf_register_len (i64.const {registers.evicted})) (i64.const {bw})) (then unreachable))
 "
+  | .narrowSignedStoreState bitWidth field value =>
+      let bw := bitWidth / 8
+      renderSignedWidthIdentity indent value bitWidth ++
+        renderStoreI64Le indent memory.valueOffset value bw ++
+          s!"{indent}(if (i64.ne (call $pf_storage_write (i64.const {field.length}) (i64.const {field.offset}) (i64.const {bw}) (i64.const {memory.valueOffset}) (i64.const {registers.evicted})) (i64.const 1)) (then unreachable))
+" ++
+          s!"{indent}(if (i64.ne (call $pf_register_len (i64.const {registers.evicted})) (i64.const {bw})) (then unreachable))
+"
 
   | .setLayout marker value =>
       s!"{indent}(i64.store (i32.const {memory.valueOffset}) (i64.const {value.toNat}))\n" ++
@@ -3355,6 +3495,12 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
 "
           pure out
       else
+        s!"{indent}(i64.store (i32.const {memory.valueOffset}) (local.get $t{value}))
+" ++
+          s!"{indent}(call $pf_value_return (i64.const {byteLen}) (i64.const {memory.valueOffset}))
+"
+  | .setSignedReturnData byteLen value =>
+      renderSignedWidthIdentity indent value (byteLen * 8) ++
         s!"{indent}(i64.store (i32.const {memory.valueOffset}) (local.get $t{value}))
 " ++
           s!"{indent}(call $pf_value_return (i64.const {byteLen}) (i64.const {memory.valueOffset}))
@@ -3871,13 +4017,13 @@ private def renderDepositPolicy : DepositPolicy → String
   | .allowAttached => "allow-attached"
 
 private def renderParamJson (param : Param) : String :=
-  s!"\{\"name\":\"{Targets.escapeJson param.name}\",\"type\":\"{abiScalarTypeString param.byteWidth}\",\"inputOffset\":{param.inputOffset}}"
+  s!"\{\"name\":\"{Targets.escapeJson param.name}\",\"type\":\"{abiScalarTypeString param.byteWidth param.isInt}\",\"inputOffset\":{param.inputOffset}}"
 
 private def renderParamsJson (params : Array Param) : String :=
   String.intercalate "," (params.toList.map renderParamJson)
 
 private def renderFieldJson (field : StorageField) : String :=
-  s!"\{\"name\":\"{Targets.escapeJson field.name}\",\"sourceId\":{field.sourceId},\"key\":\"{Targets.escapeJson field.key}\",\"type\":\"{abiScalarTypeString field.byteWidth}\"}"
+  s!"\{\"name\":\"{Targets.escapeJson field.name}\",\"sourceId\":{field.sourceId},\"key\":\"{Targets.escapeJson field.key}\",\"type\":\"{abiScalarTypeString field.byteWidth field.isInt}\"}"
 
 private def renderLeafAbiJson (leaf : LeafAbiType) : String :=
   if leaf.isInt then

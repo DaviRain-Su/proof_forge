@@ -31,7 +31,8 @@ Goal: lift envelope-4 toward mid-tier (CW/TON/Aleo/Psy), then mid-tier toward th
 | FC-SUBJECT | main | FieldComparison Subject sibling APIs: `bodyEncodeOkV1` + `referenceAdmissionV1`. No second step machine | **committed** `56c9e36d1` |
 | FC-PRESERVE | main | Rewrite `FieldComparisonPreservationV1` against current PreservationABI (ordinals 0/1 only; ordinal 2 unprovable at all-zero init). No `sorry` | **committed** `63fdc56d6` |
 | TON-U256 | main | TON UInt256 as one `uint256` cell / `loadUint(256)` / int257 nonnegative guard (not CosmWasm 4-limb; no `(1 << 256)`); WideUInt256 six-target admit; Arr/Map/Opt-U256 and U256 shift/bitwise stay FC | **committed** `363e79a18` |
-| CW-U256 | main | CosmWasm public UInt256 as 4×8-byte KV Regions + 4 JSON decimals + 4-limb return (not a 32-byte Region, not TON one-cell); WideUInt256 seven-target; Arr/Map/Opt-U256 and Int128/256 stay FC | hash left for Commit |
+| CW-U256 | main | CosmWasm public UInt256 as 4×8-byte KV Regions + 4 JSON decimals + 4-limb return (not a 32-byte Region, not TON one-cell); WideUInt256 seven-target; Arr/Map/Opt-U256 and Int128/256 stay FC | **committed** `ddb22ab85` |
+| NEAR-I8-32 | main | NEAR public Int8/16/32 as 1/2/4-byte LE two's complement (same physical widths as UInt8/16/32, `iN-le`, sign-extend load, width-checked add/sub/mul; not CW Region, not TON intN cell); WideInt8/16/32 eight-target; Int128/256 and Arr/Map/Opt-Int stay FC | hash left for Commit |
 
 **File lock:** workers must not edit `Tests/Materialization/Targets.lean` or another target's tree. `FieldComparison*` is a main-agent serial slice (`FC-PRESERVE`), not a parallel leaf. Main agent integrates WideInt64 / OptInt / ArrInt / MapInt needles after each leaf lands.
 

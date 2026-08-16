@@ -152,6 +152,9 @@ structure StorageField where
   key : String
   byteWidth : Nat
   endianness : Endianness
+  /-- Signed scalar ABI (`Int8/16/32/64`). Unsigned/aggregate leaves stay false.
+      Int64 keeps historical 8-byte `u64-le` layout spelling. -/
+  isInt : Bool := false
   deriving BEq, Inhabited, Repr
 
 structure StorageLayout where
@@ -181,6 +184,8 @@ structure Param where
   inputOffset : Nat
   byteWidth : Nat
   endianness : Endianness
+  /-- Signed scalar ABI (`Int8/16/32/64`). Unsigned/aggregate leaves stay false. -/
+  isInt : Bool := false
   deriving BEq, Inhabited, Repr
 
 /-- Unsigned comparison operators for the public-UInt64 comparison envelope. -/
@@ -286,6 +291,16 @@ inductive Expr where
   /-- Result handle for a preceding dedicated `.keccak256Host` statement.
       Same four-limb UInt256 layout as `.sha256Result`. -/
   | keccak256Result (resultTemp : Nat)
+  /-- Signed narrow ABI param load (`bitWidth ∈ {8,16,32}`); sign-extends into
+      the i64 temp. Int64 keeps historical `param`. -/
+  | narrowSignedParam (bitWidth : Nat) (inputOffset : Nat)
+  /-- Signed narrow ABI state load (`bitWidth ∈ {8,16,32}`); sign-extends. -/
+  | narrowSignedStateLoad (bitWidth : Nat) (fieldIndex : Nat)
+  /-- Signed narrow checked add/sub/mul at declared width 8/16/32. Result must
+      equal `i64.extend{8,16,32}_s(result)`. Width 64 keeps `signedChecked*`. -/
+  | narrowSignedCheckedAdd (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowSignedCheckedSub (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowSignedCheckedMul (bitWidth : Nat) (lhs rhs : Expr)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -294,6 +309,9 @@ structure Store where
   /-- Physical store width in bytes (`1/2/4/8/16/32`). Default 8 keeps historical
       UInt64/Int64 Plan literals byte-identical. -/
   byteWidth : Nat := 8
+  /-- Signed store (`Int8/16/32`). Default false keeps historical encodings.
+      Encoded only when true and `byteWidth < 8`. -/
+  isInt : Bool := false
   deriving BEq, Inhabited, Repr
 
 inductive Statement where
@@ -679,15 +697,24 @@ def nearScheduleDisallowedError (kind : String) : String :=
 def stateKey (sourceId : Nat) : String :=
   s!"pf:v1:state:{sourceId}"
 
-/-- Layout field type suffix from physical byte width (`u8-le` … `u64-le`). -/
-def layoutFieldTypeSuffix (byteWidth : Nat) : String :=
-  match byteWidth with
-  | 1 => "u8-le"
-  | 2 => "u16-le"
-  | 4 => "u32-le"
-  | 16 => "u128-le"
-  | 32 => "u256-le"
-  | _ => "u64-le"
+/-- Layout field type suffix from physical byte width.
+    Signed 1/2/4-byte fields use `i8-le`/`i16-le`/`i32-le`. Int64 keeps the
+    historical `u64-le` marker/ABI spelling (do not retcon PoseTransform). -/
+def layoutFieldTypeSuffix (byteWidth : Nat) (isInt : Bool := false) : String :=
+  if isInt then
+    match byteWidth with
+    | 1 => "i8-le"
+    | 2 => "i16-le"
+    | 4 => "i32-le"
+    | _ => "u64-le"
+  else
+    match byteWidth with
+    | 1 => "u8-le"
+    | 2 => "u16-le"
+    | 4 => "u32-le"
+    | 16 => "u128-le"
+    | 32 => "u256-le"
+    | _ => "u64-le"
 
 /-- Input slot pitch for a param physical width (T9e multiword). -/
 def slotPitchOfByteWidth (byteWidth : Nat) : Nat :=
@@ -701,11 +728,11 @@ def exactInputLenOfParams (params : Array Param) : Nat :=
   | some p => p.inputOffset + slotPitchOfByteWidth p.byteWidth
 
 /-- ABI / IDL type string for a param or storage field (Int64 keeps `u64-le`). -/
-def abiScalarTypeString (byteWidth : Nat) : String :=
-  layoutFieldTypeSuffix byteWidth
+def abiScalarTypeString (byteWidth : Nat) (isInt : Bool := false) : String :=
+  layoutFieldTypeSuffix byteWidth isInt
 
 private def layoutFieldSignature (field : StorageField) : String :=
-  s!"{field.sourceId}:{field.name}:{field.key}:{field.byteWidth}:{layoutFieldTypeSuffix field.byteWidth}"
+  s!"{field.sourceId}:{field.name}:{field.key}:{field.byteWidth}:{layoutFieldTypeSuffix field.byteWidth field.isInt}"
 
 private def layoutSignature (fields : Array StorageField) : String :=
   s!"{fields.size}|{String.intercalate "|" (fields.toList.map layoutFieldSignature)}"
@@ -725,7 +752,8 @@ def layoutMarker (fields : Array StorageField) : UInt64 :=
 comparison/logical/literal temps, assert conditions, and entry/view return
 values. Body multi-width (T8c) admits UInt{8,16,32,64} temps; UInt32 also
 covers shift-count temps (zero-extended into the i64 plan surface). Top-level
-state/params admit UInt{8,16,32,64}|Int64 (T8b). Initializer result stays Unit. -/
+state/params admit UInt{8,16,32,64}|Int{8,16,32,64}. All signed temps stay
+`.int64` and dispatch by declared width. Initializer result stays Unit. -/
 private inductive NearValueKindV1 where
   | uint64
   | uint32
@@ -898,13 +926,33 @@ private def abiByteWidthOfTypeV1
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: ABI type must be UInt8/16/32/64/128/256 or Int8/16/32/64"
 
+/-- Sign-extend a high-zero width-N two's-complement bit pattern into i64 bits.
+    Envelope `decodeIntWidthLiteralLe` leaves high bits zero; NEAR temps are
+    sign-extended i64. Width 64 is identity. -/
+private def signExtendIntWidthToI64 (bitWidth : Nat) (value : UInt64) : UInt64 :=
+  if bitWidth == 0 || bitWidth >= 64 then
+    value
+  else
+    let modulus := Nat.shiftLeft 1 bitWidth
+    let signBit := Nat.shiftLeft 1 (bitWidth - 1)
+    let truncated := value.toNat % modulus
+    if truncated >= signBit then
+      UInt64.ofNat (truncated + (18446744073709551616 - modulus))
+    else
+      UInt64.ofNat truncated
+
 /-- Width-dispatch for ABI param loads: UInt64/Int64 keep historical `param`. -/
-private def mkParamExpr (bitWidth : Nat) (inputOffset : Nat) : Expr :=
-  if bitWidth == 64 then .param inputOffset else .narrowParam bitWidth inputOffset
+private def mkParamExpr (bitWidth : Nat) (inputOffset : Nat)
+    (isInt : Bool := false) : Expr :=
+  if bitWidth == 64 then .param inputOffset
+  else if isInt then .narrowSignedParam bitWidth inputOffset
+  else .narrowParam bitWidth inputOffset
 
 /-- Width-dispatch for state loads: UInt64/Int64 keep historical `stateLoad`. -/
-private def mkStateLoadExpr (bitWidth : Nat) (fieldIndex : Nat) : Expr :=
+private def mkStateLoadExpr (bitWidth : Nat) (fieldIndex : Nat)
+    (isInt : Bool := false) : Expr :=
   if bitWidth == 64 then .stateLoad fieldIndex
+  else if isInt then .narrowSignedStateLoad bitWidth fieldIndex
   else .narrowStateLoad bitWidth fieldIndex
 
 /-- Dense Map pilot capacity (aligned with EVM/Solana Token pilot). -/
@@ -1182,6 +1230,10 @@ private def aggregateResultKindOfV1
 private inductive ExpectedReturnV1 where
   | none_
   | scalar (kind : NearValueKindV1)
+  /-- Width-bearing signed scalar (`bitWidth ∈ {8,16,32,64}`). Int8/16/32
+      returns cannot reuse `.scalar .int64` or a wrong-width temp would
+      truncate to the low 1/2/4 bytes. -/
+  | signedScalar (bitWidth : Nat)
   | aggregate (leaves : Array LeafAbiType)
   deriving Inhabited
 
@@ -1427,9 +1479,11 @@ private def makeStorageLayoutV1
             }
           stateLeaves := stateLeaves.push leaves
         else
-          -- T8b: scalar state admits UInt{8,16,32,64} / Int64 with byteWidth 1/2/4/8.
-          -- KV keys stay one-per-field (no packing); value length is the ABI width.
+          -- T8b: scalar state admits UInt{8,16,32,64} / Int{8,16,32,64}
+          -- with byteWidth 1/2/4/8. Signed uses the same physical widths
+          -- (`iN-le`); KV keys stay one-per-field (no packing).
           requirePublicNearUintAbiOrInt64State nearPlanErr types state (allowNonPublic := true)
+          let isInt := (types.intWidthOf state.typeId).isSome
           let byteWidth ← abiByteWidthOfTypeV1 types state.typeId
           let fi := fields.size
           fields := fields.push {
@@ -1438,6 +1492,7 @@ private def makeStorageLayoutV1
             key := stateKey fi
             byteWidth
             endianness := .little
+            isInt
           }
           stateLeaves := stateLeaves.push #[fi]
   let marker := layoutMarker fields
@@ -1468,7 +1523,20 @@ private structure LoweredValueV1 where
       (Array/Map/Principal/named Struct/Enum/Option), 1 for Bytes leaves (UInt8).
       Scalar values keep 8. -/
   leafByteWidth : Nat := 8
+  /-- Declared signed bit width for `.int64` temps (`some 8/16/32/64`).
+      Unsigned/Bool/aggregate stay `none`. All signed temps share the i64
+      kind; store and checked arith dispatch on this width. -/
+  signedWidth : Option Nat := none
   deriving Inhabited
+
+/-- Stamp `.int64` temps with `intWidthOf typeId` so store/arith can join
+    declared width. Leaves non-int kinds unchanged. -/
+private def attachSignedWidthV1 (types : NearTypeClosureV1) (typeId : TypeIdV1)
+    (value : LoweredValueV1) : LoweredValueV1 :=
+  if value.kind == .int64 then
+    { value with signedWidth := types.intWidthOf typeId }
+  else
+    value
 
 private def LoweredValueV1.isAggregate (v : LoweredValueV1) : Bool :=
   v.aggregateLeaves.isSome
@@ -1631,6 +1699,7 @@ private def makeParamsV1 (owner : String) (types : NearTypeClosureV1)
         inputOffset := nextInputOffset
         byteWidth
         endianness := .little
+        isInt
       }
       nextInputOffset := nextInputOffset + slotPitchOfByteWidth byteWidth
       planned := planned.push binding
@@ -1642,13 +1711,14 @@ private def makeParamsV1 (owner : String) (types : NearTypeClosureV1)
               throw <| .planInvariant .near
                 s!"unsupported NEAR semantic shape: ABI UInt{bitWidth} is not admitted"
       values := values.push {
-        -- T8c: narrow ABI params retain semantic width for body arithmetic;
-        -- IR loads still zero-extend into i64 temps.
-        expr := mkParamExpr bitWidth binding.inputOffset
+        -- T8c: narrow unsigned ABI params retain semantic width (zero-extend).
+        -- Signed Int8/16/32 use `.narrowSignedParam` (sign-extend into i64).
+        expr := mkParamExpr bitWidth binding.inputOffset isInt
         kind
         depth := 1
         expandedNodes := 1
         dependencies := #[]
+        signedWidth := if isInt then some bitWidth else none
       }
   pure (planned, values)
 
@@ -1713,8 +1783,8 @@ private def decodeNearConstantSlotV1
     unless isAbiIntWidth bitWidth do
       throw <| .planInvariant .near
         s!"unsupported NEAR semantic shape: Int{bitWidth} constant is not admitted"
-    let value ← decodeIntWidthLiteralLe nearPlanErr "NEAR" bitWidth bytes
-    pure (.int64, value)
+    let raw ← decodeIntWidthLiteralLe nearPlanErr "NEAR" bitWidth bytes
+    pure (.int64, signExtendIntWidthToI64 bitWidth raw)
   else if let some bitWidth := types.uintWidthOf typeId then
     -- Constants pilot: single-word body widths only (no UInt128/256 const table).
     unless bitWidth ≤ 64 && isNearBodyUintWidth bitWidth do
@@ -1845,6 +1915,12 @@ private def mkShl (w : Nat) (l r : Expr) : Expr :=
   if w == 64 then .shl l r else .narrowShl w l r
 private def mkShr (w : Nat) (l r : Expr) : Expr :=
   if w == 64 then .shr l r else .narrowShr w l r
+private def mkSignedCheckedAdd (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .signedCheckedAdd l r else .narrowSignedCheckedAdd w l r
+private def mkSignedCheckedSub (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .signedCheckedSub l r else .narrowSignedCheckedSub w l r
+private def mkSignedCheckedMul (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .signedCheckedMul l r else .narrowSignedCheckedMul w l r
 
 private def makeCheckedAddValueV1
     (kind : NearValueKindV1) (bitWidth : Nat)
@@ -2211,25 +2287,28 @@ private def lowerBlockInstructionsV1
           | none =>
               throw <| .planInvariant .near
                 "unsupported NEAR semantic shape: Constant kind tag is corrupt"
-        values := ← appendResultValueV1 typeId values result {
-          expr := .literal value
-          kind
-          depth := 1
-          expandedNodes := 1
-          dependencies := #[]
-        }
+        values := ← appendResultValueV1 typeId values result
+          (attachSignedWidthV1 types typeId {
+            expr := .literal value
+            kind
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+          })
     | .literal typeId bytes, some result =>
         if let some bitWidth := types.intWidthOf typeId then
           unless isAbiIntWidth bitWidth do
             throw <| .planInvariant .near
               s!"unsupported NEAR semantic shape: Int{bitWidth} literal is not admitted"
-          let value ← decodeIntWidthLiteralLe nearPlanErr "NEAR" bitWidth bytes
+          let raw ← decodeIntWidthLiteralLe nearPlanErr "NEAR" bitWidth bytes
+          let value := signExtendIntWidthToI64 bitWidth raw
           values := ← appendResultValueV1 typeId values result {
             expr := .literal value
             kind := .int64
             depth := 1
             expandedNodes := 1
             dependencies := #[]
+            signedWidth := some bitWidth
           }
         else if let some bitWidth := types.uintWidthOf typeId then
           unless isNearBodyUintWidth bitWidth do
@@ -2351,21 +2430,36 @@ private def lowerBlockInstructionsV1
             | none =>
                 throw <| .planInvariant .near
                   s!"unsupported NEAR semantic shape: state field {fi} missing"
-          let isInt := (types.intWidthOf result.typeId).isSome
           let bitWidth ←
-            if isInt then pure 64
-            else match types.uintWidthOf result.typeId with
-              | some w =>
-                  unless isNearAbiUintWidth w do
-                    throw <| .planInvariant .near
-                      s!"unsupported NEAR semantic shape: state load UInt{w} is not admitted"
-                  pure w
-              | none =>
+            match types.intWidthOf result.typeId with
+            | some w =>
+                unless isAbiIntWidth w do
                   throw <| .planInvariant .near
-                    "unsupported NEAR semantic shape: state load must be UInt{8,16,32,64}, Int64, Principal, named Struct/Enum, Array/Map, or Option UInt64"
-          unless field.byteWidth == byteWidthOfBitWidth bitWidth do
-            throw <| .planInvariant .near
-              "unsupported NEAR semantic shape: state load width does not match field layout"
+                    s!"unsupported NEAR semantic shape: state load Int{w} is not admitted"
+                unless field.isInt do
+                  throw <| .planInvariant .near
+                    "unsupported NEAR semantic shape: signed state load requires isInt field"
+                unless field.byteWidth == byteWidthOfBitWidth w do
+                  throw <| .planInvariant .near
+                    "unsupported NEAR semantic shape: state load width does not match field layout"
+                pure w
+            | none =>
+                match types.uintWidthOf result.typeId with
+                | some w =>
+                    unless isNearAbiUintWidth w do
+                      throw <| .planInvariant .near
+                        s!"unsupported NEAR semantic shape: state load UInt{w} is not admitted"
+                    unless !field.isInt do
+                      throw <| .planInvariant .near
+                        "unsupported NEAR semantic shape: unsigned state load requires unsigned field"
+                    unless field.byteWidth == byteWidthOfBitWidth w do
+                      throw <| .planInvariant .near
+                        "unsupported NEAR semantic shape: state load width does not match field layout"
+                    pure w
+                | none =>
+                    throw <| .planInvariant .near
+                      "unsupported NEAR semantic shape: state load must be UInt{8,16,32,64}, Int{8,16,32,64}, Principal, named Struct/Enum, Array/Map, or Option UInt64"
+          let isInt := (types.intWidthOf result.typeId).isSome
           let kind ←
             if isInt then pure NearValueKindV1.int64
             else match uintKindOfWidthV1 bitWidth with
@@ -2374,13 +2468,13 @@ private def lowerBlockInstructionsV1
                   throw <| .planInvariant .near
                     s!"unsupported NEAR semantic shape: state load UInt{bitWidth} is not admitted"
           values := ← appendResultValueV1 result.typeId values result {
-            -- T8c: narrow ABI loads retain semantic width for body arithmetic;
-            -- IR still zero-extends into i64 temps.
-            expr := mkStateLoadExpr bitWidth fi
+            -- Narrow unsigned loads zero-extend; signed Int8/16/32 sign-extend.
+            expr := mkStateLoadExpr bitWidth fi isInt
             kind
             depth := 1
             expandedNodes := 1
             dependencies := #[]
+            signedWidth := if isInt then some bitWidth else none
           }
     | .binary op lhsId rhsId, some result =>
         let lhs ← currentValueWithArmsV1 values blockEntry segmentStart armReadables lhsId
@@ -2444,6 +2538,8 @@ private def lowerBlockInstructionsV1
             throw <| .planInvariant .near
               "unsupported NEAR semantic shape: shift count must be UInt32"
           if lhs.kind == .int64 then
+            -- Int8/16/32 shifts stay fail closed: i64 shl/sar is not a
+            -- width-checked IntN shift, and this slice does not emit one.
             let resultTid ← match types.int64TypeId with
               | some tid =>
                   unless result.typeId == tid do
@@ -2454,11 +2550,13 @@ private def lowerBlockInstructionsV1
                   "unsupported NEAR semantic shape: Int64 type is missing for shift")
             if op == .shl then
               let value ← makeShlValueV1 .int64 64 lhsId rhsId lhs rhs
-              values := ← appendResultValueV1 resultTid values result value
+              values := ← appendResultValueV1 resultTid values result
+                { value with signedWidth := some 64 }
             else
               let value ← makeBinaryTreeValueKindsV1 (fun l r => .sar l r)
                 .int64 .uint32 .int64 lhsId rhsId lhs rhs
-              values := ← appendResultValueV1 resultTid values result value
+              values := ← appendResultValueV1 resultTid values result
+                { value with signedWidth := some 64 }
           else
             let (widthTid, kind, bitWidth) ← admitUIntWidthResultTypeV1 types result.typeId
             unless kind == lhs.kind do
@@ -2480,45 +2578,64 @@ private def lowerBlockInstructionsV1
             throw <| .planInvariant .near
               "unsupported NEAR semantic shape: binary operands must share signedness"
           if lhs.kind == .int64 then
-            let wordTid ← match types.intWidthOf result.typeId with
-              | some _ => pure result.typeId
+            let (wordTid, signedWidth) ← match types.intWidthOf result.typeId with
+              | some w =>
+                  unless isAbiIntWidth w do
+                    throw <| .planInvariant .near
+                      s!"unsupported NEAR semantic shape: Int{w} is not admitted"
+                  pure (result.typeId, w)
               | none => throw (.planInvariant .near
                   "unsupported NEAR semantic shape: Int type is missing")
+            unless lhs.signedWidth == some signedWidth &&
+                rhs.signedWidth == some signedWidth do
+              throw <| .planInvariant .near
+                s!"unsupported NEAR semantic shape: signed operands must both be Int{signedWidth}"
             if op == .add then
               unless result.typeId == wordTid do
                 throw <| .planInvariant .near
                   "unsupported NEAR semantic shape: arithmetic result type mismatch"
-              let value ← makeBinaryTreeValueKindsV1 (fun l r => .signedCheckedAdd l r)
+              let value ← makeBinaryTreeValueKindsV1 (mkSignedCheckedAdd signedWidth)
                 .int64 .int64 .int64 lhsId rhsId lhs rhs
-              values := ← appendResultValueV1 wordTid values result value
+              values := ← appendResultValueV1 wordTid values result
+                { value with signedWidth := some signedWidth }
             else if op == .sub then
               unless result.typeId == wordTid do
                 throw <| .planInvariant .near
                   "unsupported NEAR semantic shape: arithmetic result type mismatch"
-              let value ← makeBinaryTreeValueKindsV1 (fun l r => .signedCheckedSub l r)
+              let value ← makeBinaryTreeValueKindsV1 (mkSignedCheckedSub signedWidth)
                 .int64 .int64 .int64 lhsId rhsId lhs rhs
-              values := ← appendResultValueV1 wordTid values result value
+              values := ← appendResultValueV1 wordTid values result
+                { value with signedWidth := some signedWidth }
             else if op == .mul then
               unless result.typeId == wordTid do
                 throw <| .planInvariant .near
                   "unsupported NEAR semantic shape: arithmetic result type mismatch"
-              let value ← makeBinaryTreeValueKindsV1 (fun l r => .signedCheckedMul l r)
+              let value ← makeBinaryTreeValueKindsV1 (mkSignedCheckedMul signedWidth)
                 .int64 .int64 .int64 lhsId rhsId lhs rhs
-              values := ← appendResultValueV1 wordTid values result value
+              values := ← appendResultValueV1 wordTid values result
+                { value with signedWidth := some signedWidth }
             else if op == .div then
+              unless signedWidth == 64 do
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: narrow signed division is outside the NEAR Int8/16/32 slice"
               unless result.typeId == wordTid do
                 throw <| .planInvariant .near
                   "unsupported NEAR semantic shape: arithmetic result type mismatch"
               let value ← makeBinaryTreeValueKindsV1 (fun l r => .signedCheckedDiv l r)
                 .int64 .int64 .int64 lhsId rhsId lhs rhs
-              values := ← appendResultValueV1 wordTid values result value
+              values := ← appendResultValueV1 wordTid values result
+                { value with signedWidth := some signedWidth }
             else if op == .mod then
+              unless signedWidth == 64 do
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: narrow signed remainder is outside the NEAR Int8/16/32 slice"
               unless result.typeId == wordTid do
                 throw <| .planInvariant .near
                   "unsupported NEAR semantic shape: arithmetic result type mismatch"
               let value ← makeBinaryTreeValueKindsV1 (fun l r => .signedCheckedMod l r)
                 .int64 .int64 .int64 lhsId rhsId lhs rhs
-              values := ← appendResultValueV1 wordTid values result value
+              values := ← appendResultValueV1 wordTid values result
+                { value with signedWidth := some signedWidth }
             else if op == .bitAnd || op == .bitOr || op == .bitXor then
               unless result.typeId == wordTid do
                 throw <| .planInvariant .near
@@ -2533,7 +2650,8 @@ private def lowerBlockInstructionsV1
                 else
                   makeBinaryTreeValueKindsV1 (fun l r => .bitXor l r)
                     .int64 .int64 .int64 lhsId rhsId lhs rhs
-              values := ← appendResultValueV1 wordTid values result value
+              values := ← appendResultValueV1 wordTid values result
+                { value with signedWidth := some signedWidth }
             else
               match comparisonOpOfBinaryV1 op with
               | some cmpOp =>
@@ -2550,7 +2668,7 @@ private def lowerBlockInstructionsV1
                   values := ← appendResultValueV1 boolTypeId values result value
               | none =>
                   throw <| .planInvariant .near
-                    "unsupported NEAR semantic shape: only checked Int64 arith/bitwise and comparisons are supported"
+                    "unsupported NEAR semantic shape: only checked Int8/16/32/64 arith/bitwise and comparisons are supported"
           else
             -- Unsigned body multi-width path (UInt8/16/32/64).
             unless lhs.kind == rhs.kind do
@@ -2610,7 +2728,8 @@ private def lowerBlockInstructionsV1
                 throw <| .planInvariant .near
                   "unsupported NEAR semantic shape: bitNot result type mismatch"
               let value ← makeBitNotValueV1 .int64 64 operandId operand
-              values := ← appendResultValueV1 wordTid values result value
+              values := ← appendResultValueV1 wordTid values result
+                (attachSignedWidthV1 types result.typeId value)
             else
               let some bitWidth := widthOfUintKindV1 operand.kind |
                 throw <| .planInvariant .near
@@ -2645,7 +2764,8 @@ private def lowerBlockInstructionsV1
                 "unsupported NEAR semantic shape: checkedNeg result must be Int64"
             let value ← makeUnaryTreeValueV1 (fun o => .checkedNeg o) .int64 .int64
               operandId operand
-            values := ← appendResultValueV1 tid values result value
+            values := ← appendResultValueV1 tid values result
+              { value with signedWidth := some 64 }
     | .pureCall callableId argIds, some result =>
         let fnIndex ← match fnEnv.byCallable[callableId.toNat]? with
           | some (some idx) => pure idx
@@ -2750,25 +2870,35 @@ private def lowerBlockInstructionsV1
                   s!"unsupported NEAR semantic shape: state field {fi} missing"
           let expectedBitWidth := bitWidthOfByteWidth field.byteWidth
           -- T8c: store value width must match field layout (narrow body temps OK).
+          -- Signed Int8/16/32/64 share the i64 temp kind; dispatch by field
+          -- isInt + byteWidth 1/2/4/8 (same physical widths as UInt8/16/32/64).
           if root.kind == .int64 then
-            unless field.byteWidth == 8 do
+            unless field.isInt do
               throw <| .planInvariant .near
-                "unsupported NEAR semantic shape: Int state store requires 8-byte field"
+                "unsupported NEAR semantic shape: signed state store requires isInt field"
+            unless field.byteWidth == 1 || field.byteWidth == 2 ||
+                field.byteWidth == 4 || field.byteWidth == 8 do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: signed state store requires 1/2/4/8-byte field"
+            unless root.signedWidth == some expectedBitWidth do
+              throw <| .planInvariant .near
+                s!"unsupported NEAR semantic shape: signed state store value width must match field bitWidth {expectedBitWidth}"
           else
             let some valueWidth := widthOfUintKindV1 root.kind |
               throw <| .planInvariant .near
-                "unsupported NEAR semantic shape: state store value must be admitted UInt width or Int64"
+                "unsupported NEAR semantic shape: state store value must be admitted UInt width or Int8/16/32/64"
             unless valueWidth == expectedBitWidth do
               throw <| .planInvariant .near
                 s!"unsupported NEAR semantic shape: state store value width {valueWidth} must match field bitWidth {expectedBitWidth}"
             unless isNearAbiUintWidth valueWidth do
               throw <| .planInvariant .near
-                "unsupported NEAR semantic shape: state store value must be admitted UInt width or Int64"
+                "unsupported NEAR semantic shape: state store value must be admitted UInt width or Int8/16/32/64"
           let value ← consumeCurrentSegmentV1 values blockEntry segmentStart valueId
           body := body.push (.store {
             fieldIndex := fi
             value
             byteWidth := field.byteWidth
+            isInt := field.isInt
           })
           armReadables := promoteDominatingPureV1 blockEntry values armReadables
           segmentStart := values.size
@@ -3374,13 +3504,13 @@ private def lowerBlockInstructionsV1
             let some e0 := outLeaves[0]? |
               throw <| .planInvariant .near "fieldGet scalar leaf missing"
             let kind ← scalarKindOfNamedLeafResultV1 types result.typeId
-            pure {
+            pure (attachSignedWidthV1 types result.typeId {
               expr := e0
               kind
               depth := base.depth + 1
               expandedNodes := base.expandedNodes + 1
               dependencies := #[baseId]
-            }
+            })
         values := ← appendResultValueV1 result.typeId values result value
     | .fieldSet baseId fieldIndex valueId, some result => do
         let base ← currentValueWithArmsV1 values blockEntry segmentStart armReadables baseId
@@ -3497,13 +3627,13 @@ private def lowerBlockInstructionsV1
             let kind ←
               if result.typeId == types.uint64TypeId then pure NearValueKindV1.uint64
               else scalarKindOfNamedLeafResultV1 types result.typeId
-            pure {
+            pure (attachSignedWidthV1 types result.typeId {
               expr := e0
               kind
               depth := base.depth + 1
               expandedNodes := base.expandedNodes + 1
               dependencies := #[baseId]
-            }
+            })
         values := ← appendResultValueV1 result.typeId values result value
     -- N5: Commit = identity passthrough; ContextRead declined (no clock ABI).
     | .commit valueId, some result => do
@@ -3518,6 +3648,8 @@ private def lowerBlockInstructionsV1
           expandedNodes := operand.expandedNodes + 1
           dependencies := operand.dependencies.push valueId
           aggregateLeaves := operand.aggregateLeaves
+          leafByteWidth := operand.leafByteWidth
+          signedWidth := operand.signedWidth
         }
     | .contextRead key, some result =>
         -- B-CTX-OPEN / ADR-0031 S1–S2 (NEAR):
@@ -3827,6 +3959,15 @@ private partial def emitRegionV1
                   s!"unsupported NEAR semantic shape: return value must be {expectedLabel}"
               let value ← consumeCurrentSegmentV1 values blockEntry segmentStart valueId
               pure (instrs.push (.returnValue value), values, nextLocal0, .closed)
+          | .signedScalar bitWidth =>
+              if root.isAggregate then
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: multi-leaf aggregate cannot be returned as scalar"
+              unless root.kind == .int64 && root.signedWidth == some bitWidth do
+                throw <| .planInvariant .near
+                  s!"unsupported NEAR semantic shape: return value must be Int{bitWidth}"
+              let value ← consumeCurrentSegmentV1 values blockEntry segmentStart valueId
+              pure (instrs.push (.returnValue value), values, nextLocal0, .closed)
           | .aggregate expectedLeaves =>
               -- B-RET-ABI: named Struct/Enum or admitted anonymous Array/Option.
               unless root.isAggregate do
@@ -3843,7 +3984,7 @@ private partial def emitRegionV1
   | .return_ none =>
       match expectedReturn with
       | .none_ => pure ()
-      | .scalar _ | .aggregate _ =>
+      | .scalar _ | .signedScalar _ | .aggregate _ =>
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: initializer expected-return kind is non-empty"
       unless segmentStart == values.size do
@@ -4224,7 +4365,8 @@ partial def exprUsesAttachedDepositValueV1 (expr : Expr) : Bool :=
   match expr with
   | .attachedDepositValue => true
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
-  | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
+  | .narrowSignedParam _ _
+  | .stateLoad _ | .narrowStateLoad _ _ | .narrowSignedStateLoad _ _ | .localTemp _
   | .blockTimestampSeconds | .blockIndex | .accountBalance | .accountBalanceU128
   | .callerPrincipalLen | .callerPrincipalWord _
   | .selfPrincipalLen | .selfPrincipalWord _ | .sha256Result _ | .keccak256Result _ => false
@@ -4236,7 +4378,9 @@ partial def exprUsesAttachedDepositValueV1 (expr : Expr) : Bool :=
   | .compare _ l r | .wideCompare _ _ l r | .narrowCheckedAdd _ l r
   | .narrowCheckedSub _ l r | .narrowCheckedMul _ l r | .narrowCheckedDiv _ l r
   | .narrowCheckedMod _ l r | .narrowBitAnd _ l r | .narrowBitOr _ l r
-  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r =>
+  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r
+  | .narrowSignedCheckedAdd _ l r | .narrowSignedCheckedSub _ l r
+  | .narrowSignedCheckedMul _ l r =>
       exprUsesAttachedDepositValueV1 l || exprUsesAttachedDepositValueV1 r
   | .checkedNeg e | .bitNot e | .narrowBitNot _ e | .boolNot e =>
       exprUsesAttachedDepositValueV1 e
@@ -4323,9 +4467,9 @@ private def makeEntryV1
             s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int64, Bool, named Struct/Enum, or admitted anonymous Array/Option/Bytes/Map"
       | none =>
           match types.intWidthOf callable.result.typeId with
-          | some 8 => pure (MethodResultKind.int8, ExpectedReturnV1.scalar .int64)
-          | some 16 => pure (MethodResultKind.int16, ExpectedReturnV1.scalar .int64)
-          | some 32 => pure (MethodResultKind.int32, ExpectedReturnV1.scalar .int64)
+          | some 8 => pure (MethodResultKind.int8, ExpectedReturnV1.signedScalar 8)
+          | some 16 => pure (MethodResultKind.int16, ExpectedReturnV1.signedScalar 16)
+          | some 32 => pure (MethodResultKind.int32, ExpectedReturnV1.signedScalar 32)
           | some 64 => pure (MethodResultKind.int64, ExpectedReturnV1.scalar .int64)
           | some w =>
               throw <| .planInvariant .near
@@ -4405,7 +4549,8 @@ partial def exprUsesTimestampV1 (expr : Expr) : Bool :=
   match expr with
   | .blockTimestampSeconds => true
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
-  | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _ | .accountBalance
+  | .narrowSignedParam _ _
+  | .stateLoad _ | .narrowStateLoad _ _ | .narrowSignedStateLoad _ _ | .localTemp _ | .accountBalance
   | .accountBalanceU128 | .attachedDepositValue
   | .blockIndex | .callerPrincipalLen | .callerPrincipalWord _
   | .selfPrincipalLen | .selfPrincipalWord _ | .sha256Result _ | .keccak256Result _ => false
@@ -4417,7 +4562,9 @@ partial def exprUsesTimestampV1 (expr : Expr) : Bool :=
   | .compare _ l r | .wideCompare _ _ l r | .narrowCheckedAdd _ l r
   | .narrowCheckedSub _ l r | .narrowCheckedMul _ l r | .narrowCheckedDiv _ l r
   | .narrowCheckedMod _ l r | .narrowBitAnd _ l r | .narrowBitOr _ l r
-  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r =>
+  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r
+  | .narrowSignedCheckedAdd _ l r | .narrowSignedCheckedSub _ l r
+  | .narrowSignedCheckedMul _ l r =>
       exprUsesTimestampV1 l || exprUsesTimestampV1 r
   | .checkedNeg e | .bitNot e | .narrowBitNot _ e | .boolNot e =>
       exprUsesTimestampV1 e
@@ -4429,7 +4576,8 @@ partial def exprUsesBlockIndexV1 (expr : Expr) : Bool :=
   match expr with
   | .blockIndex => true
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
-  | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
+  | .narrowSignedParam _ _
+  | .stateLoad _ | .narrowStateLoad _ _ | .narrowSignedStateLoad _ _ | .localTemp _
   | .blockTimestampSeconds | .accountBalance | .accountBalanceU128
   | .attachedDepositValue
   | .callerPrincipalLen | .callerPrincipalWord _
@@ -4442,7 +4590,9 @@ partial def exprUsesBlockIndexV1 (expr : Expr) : Bool :=
   | .compare _ l r | .wideCompare _ _ l r | .narrowCheckedAdd _ l r
   | .narrowCheckedSub _ l r | .narrowCheckedMul _ l r | .narrowCheckedDiv _ l r
   | .narrowCheckedMod _ l r | .narrowBitAnd _ l r | .narrowBitOr _ l r
-  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r =>
+  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r
+  | .narrowSignedCheckedAdd _ l r | .narrowSignedCheckedSub _ l r
+  | .narrowSignedCheckedMul _ l r =>
       exprUsesBlockIndexV1 l || exprUsesBlockIndexV1 r
   | .checkedNeg e | .bitNot e | .narrowBitNot _ e | .boolNot e =>
       exprUsesBlockIndexV1 e
@@ -4454,7 +4604,8 @@ partial def exprUsesAccountBalanceV1 (expr : Expr) : Bool :=
   match expr with
   | .accountBalance | .accountBalanceU128 => true
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
-  | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
+  | .narrowSignedParam _ _
+  | .stateLoad _ | .narrowStateLoad _ _ | .narrowSignedStateLoad _ _ | .localTemp _
   | .blockTimestampSeconds | .blockIndex | .attachedDepositValue
   | .callerPrincipalLen | .callerPrincipalWord _
   | .selfPrincipalLen | .selfPrincipalWord _ | .sha256Result _ | .keccak256Result _ => false
@@ -4466,7 +4617,9 @@ partial def exprUsesAccountBalanceV1 (expr : Expr) : Bool :=
   | .compare _ l r | .wideCompare _ _ l r | .narrowCheckedAdd _ l r
   | .narrowCheckedSub _ l r | .narrowCheckedMul _ l r | .narrowCheckedDiv _ l r
   | .narrowCheckedMod _ l r | .narrowBitAnd _ l r | .narrowBitOr _ l r
-  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r =>
+  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r
+  | .narrowSignedCheckedAdd _ l r | .narrowSignedCheckedSub _ l r
+  | .narrowSignedCheckedMul _ l r =>
       exprUsesAccountBalanceV1 l || exprUsesAccountBalanceV1 r
   | .checkedNeg e | .bitNot e | .narrowBitNot _ e | .boolNot e =>
       exprUsesAccountBalanceV1 e
@@ -4479,7 +4632,8 @@ partial def exprUsesCallerV1 (expr : Expr) : Bool :=
   match expr with
   | .callerPrincipalLen | .callerPrincipalWord _ => true
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
-  | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
+  | .narrowSignedParam _ _
+  | .stateLoad _ | .narrowStateLoad _ _ | .narrowSignedStateLoad _ _ | .localTemp _
   | .blockTimestampSeconds | .blockIndex | .accountBalance | .accountBalanceU128
   | .attachedDepositValue
   | .selfPrincipalLen | .selfPrincipalWord _ | .sha256Result _ | .keccak256Result _ => false
@@ -4491,7 +4645,9 @@ partial def exprUsesCallerV1 (expr : Expr) : Bool :=
   | .compare _ l r | .wideCompare _ _ l r | .narrowCheckedAdd _ l r
   | .narrowCheckedSub _ l r | .narrowCheckedMul _ l r | .narrowCheckedDiv _ l r
   | .narrowCheckedMod _ l r | .narrowBitAnd _ l r | .narrowBitOr _ l r
-  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r =>
+  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r
+  | .narrowSignedCheckedAdd _ l r | .narrowSignedCheckedSub _ l r
+  | .narrowSignedCheckedMul _ l r =>
       exprUsesCallerV1 l || exprUsesCallerV1 r
   | .checkedNeg e | .bitNot e | .narrowBitNot _ e | .boolNot e =>
       exprUsesCallerV1 e
@@ -4649,7 +4805,8 @@ partial def exprUsesSelfV1 (expr : Expr) : Bool :=
   match expr with
   | .selfPrincipalLen | .selfPrincipalWord _ => true
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
-  | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
+  | .narrowSignedParam _ _
+  | .stateLoad _ | .narrowStateLoad _ _ | .narrowSignedStateLoad _ _ | .localTemp _
   | .blockTimestampSeconds | .blockIndex | .accountBalance | .accountBalanceU128
   | .attachedDepositValue
   | .callerPrincipalLen | .callerPrincipalWord _ | .sha256Result _ | .keccak256Result _ => false
@@ -4661,7 +4818,9 @@ partial def exprUsesSelfV1 (expr : Expr) : Bool :=
   | .compare _ l r | .wideCompare _ _ l r | .narrowCheckedAdd _ l r
   | .narrowCheckedSub _ l r | .narrowCheckedMul _ l r | .narrowCheckedDiv _ l r
   | .narrowCheckedMod _ l r | .narrowBitAnd _ l r | .narrowBitOr _ l r
-  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r =>
+  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r
+  | .narrowSignedCheckedAdd _ l r | .narrowSignedCheckedSub _ l r
+  | .narrowSignedCheckedMul _ l r =>
       exprUsesSelfV1 l || exprUsesSelfV1 r
   | .checkedNeg e | .bitNot e | .narrowBitNot _ e | .boolNot e =>
       exprUsesSelfV1 e

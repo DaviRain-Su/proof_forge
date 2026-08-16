@@ -16629,3 +16629,22 @@ normative: false
   （evm/solana/near/noir/psy/ton/cosmwasm）。Arr/Map/Opt-U256 与
   Int128/256 仍 FC。**不**声称 wasmd / formal / runtime / sandbox
   parity，也**不**关闭 TASK/TST。
+
+## 2026-08-16 — NEAR-I8-32 1/2/4-byte signed ABI（engineering）
+
+- NEAR 将公共 Int8/16/32 作为与 UInt8/16/32 同物理宽度的 1/2/4-byte LE
+  two's complement 接入（KV 值长度 1/2/4、param slot pitch 仍 8、ABI
+  `iN-le`）。load 走 `i32.load8_s`/`load16_s`/`i32.load` + `i64.extend_i32_s`；
+  store 与 add/sub/mul 要求 `temp == i64.extend{8,16,32}_s(temp)`。
+  不是 CosmWasm 8-byte Region 高位零，也不是 TON `intN` cell。
+- Int64 仍为 8-byte 历史 `u64-le` spelling。窄 signed div/mod/neg/shl/sar
+  仍 fail closed。Array/Map/Option of Int8/16/32 与 Int128/256 仍 FC。
+- ValidatePlan 将 `store.isInt`/`narrowSigned*` bitWidth 接到 layout
+  param/field；`isInt` 仅允许 byteWidth ∈ {1,2,4,8}。signed store 要求
+  value `signedWidth` 等于字段宽度。`encodeParam`/`encodeStorageField`
+  在 `isInt && byteWidth < 8` 时绑定 planDigest。Int8/16/32 return 在
+  `value_return` 前做 `extend*_s` identity。
+- WideInt8/16/32 八 target files-nonempty admit
+  （evm/solana/near/noir/psy/aleo/cw/ton）；envelope-4 仍走宽度针。
+  **不**声称 sandbox / formal / runtime / hermetic / release，也**不**关闭
+  TASK/TST。

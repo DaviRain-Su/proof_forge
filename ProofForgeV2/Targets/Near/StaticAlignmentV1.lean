@@ -72,7 +72,7 @@ def UInt64StateBindingRelV1
     name := binding.semanticName
     key := binding.physicalKey
     byteWidth := 8
-    endianness := .little
+    endianness := .little, isInt := false
   }
 
 /-- One initialized logical UInt64 slot and its target KV observation agree.
@@ -555,12 +555,14 @@ def recognizeNullaryZeroTwoUInt64InitializerMethodV1
       .store {
         fieldIndex := field0Index
         value := .literal 0
-        byteWidth := 8
+        byteWidth := 8,
+        isInt := false
       },
       .store {
         fieldIndex := field1Index
         value := .literal 0
-        byteWidth := 8
+        byteWidth := 8,
+        isInt := false
       },
       .returnNone
     ] =>
@@ -585,12 +587,14 @@ theorem recognizeNullaryZeroTwoUInt64InitializerMethodV1_sound
         .store {
           fieldIndex := shape.field0Index
           value := .literal 0
-          byteWidth := 8
+          byteWidth := 8,
+          isInt := false
         },
         .store {
           fieldIndex := shape.field1Index
           value := .literal 0
-          byteWidth := 8
+          byteWidth := 8,
+          isInt := false
         },
         .returnNone
       ]
@@ -606,12 +610,14 @@ theorem recognizeNullaryZeroTwoUInt64InitializerMethodV1_sound
         .store {
           fieldIndex := _
           value := .literal 0
-          byteWidth := 8
+          byteWidth := 8,
+          isInt := false
         },
         .store {
           fieldIndex := _
           value := .literal 0
-          byteWidth := 8
+          byteWidth := 8,
+          isInt := false
         },
         .returnNone
       ] := Array.toList_inj.mp (by assumption)
@@ -750,12 +756,14 @@ structure NullaryZeroTwoUInt64InitializerStaticAlignmentV1
       .store {
         fieldIndex := binding0.physicalFieldIndex
         value := .literal 0
-        byteWidth := 8
+        byteWidth := 8,
+        isInt := false
       },
       .store {
         fieldIndex := binding1.physicalFieldIndex
         value := .literal 0
-        byteWidth := 8
+        byteWidth := 8,
+        isInt := false
       },
       .returnNone
     ]
@@ -916,17 +924,19 @@ def recognizeUnaryAddTwoUInt64DepositMethodV1
       name := parameterName
       inputOffset := 0
       byteWidth := 8
-      endianness := .little
+      endianness := .little, isInt := false
     }], 8, .mutate, .requireZero, .uint64, [
       .store {
         fieldIndex := field0Index
         value := .checkedAdd (.stateLoad load0Index) (.param 0)
-        byteWidth := 8
+        byteWidth := 8,
+        isInt := false
       },
       .store {
         fieldIndex := field1Index
         value := .checkedAdd (.stateLoad load1Index) (.param 0)
-        byteWidth := 8
+        byteWidth := 8,
+        isInt := false
       },
       .returnValue (.stateLoad returnIndex)
     ] => some {
@@ -954,7 +964,7 @@ theorem recognizeUnaryAddTwoUInt64DepositMethodV1_sound
         name := shape.parameterName
         inputOffset := 0
         byteWidth := 8
-        endianness := .little
+        endianness := .little, isInt := false
       }]
       exactInputLen := 8
       mode := .mutate
@@ -964,12 +974,14 @@ theorem recognizeUnaryAddTwoUInt64DepositMethodV1_sound
         .store {
           fieldIndex := shape.field0Index
           value := .checkedAdd (.stateLoad shape.load0Index) (.param 0)
-          byteWidth := 8
+          byteWidth := 8,
+          isInt := false
         },
         .store {
           fieldIndex := shape.field1Index
           value := .checkedAdd (.stateLoad shape.load1Index) (.param 0)
-          byteWidth := 8
+          byteWidth := 8,
+          isInt := false
         },
         .returnValue (.stateLoad shape.returnIndex)
       ]
@@ -984,18 +996,20 @@ theorem recognizeUnaryAddTwoUInt64DepositMethodV1_sound
         name := _
         inputOffset := 0
         byteWidth := 8
-        endianness := .little
+        endianness := .little, isInt := false
       }] := Array.toList_inj.mp (by assumption)
     have hbody : body = #[
         .store {
           fieldIndex := _
           value := .checkedAdd (.stateLoad _) (.param 0)
-          byteWidth := 8
+          byteWidth := 8,
+          isInt := false
         },
         .store {
           fieldIndex := _
           value := .checkedAdd (.stateLoad _) (.param 0)
-          byteWidth := 8
+          byteWidth := 8,
+          isInt := false
         },
         .returnValue (.stateLoad _)
       ] := Array.toList_inj.mp (by assumption)
@@ -1032,7 +1046,7 @@ def recognizeUnaryAddTwoUInt64DepositMethodIRV1
       name := parameterName
       inputOffset := 0
       byteWidth := 8
-      endianness := .little
+      endianness := .little, isInt := false
     }], .mutate, 7, [
       .checkInputLen 8,
       .requireZeroAttachedDeposit,
@@ -1074,7 +1088,7 @@ theorem recognizeUnaryAddTwoUInt64DepositMethodIRV1_sound
         name := shape.parameterName
         inputOffset := 0
         byteWidth := 8
-        endianness := .little
+        endianness := .little, isInt := false
       }]
       mode := .mutate
       tempCount := 7
@@ -1103,7 +1117,7 @@ theorem recognizeUnaryAddTwoUInt64DepositMethodIRV1_sound
         name := _
         inputOffset := 0
         byteWidth := 8
-        endianness := .little
+        endianness := .little, isInt := false
       }] := Array.toList_inj.mp (by assumption)
     have hoperations : operations = #[
         .checkInputLen 8,
@@ -1156,7 +1170,7 @@ structure UnaryAddTwoUInt64DepositStaticAlignmentV1
       name := parameterName
       inputOffset := 0
       byteWidth := 8
-      endianness := .little
+      endianness := .little, isInt := false
     }]
     exactInputLen := 8
     mode := .mutate
@@ -1167,13 +1181,15 @@ structure UnaryAddTwoUInt64DepositStaticAlignmentV1
         fieldIndex := binding0.physicalFieldIndex
         value := .checkedAdd
           (.stateLoad binding0.physicalFieldIndex) (.param 0)
-        byteWidth := 8
+        byteWidth := 8,
+        isInt := false
       },
       .store {
         fieldIndex := binding1.physicalFieldIndex
         value := .checkedAdd
           (.stateLoad binding1.physicalFieldIndex) (.param 0)
-        byteWidth := 8
+        byteWidth := 8,
+        isInt := false
       },
       .returnValue (.stateLoad binding1.physicalFieldIndex)
     ]
@@ -1185,7 +1201,7 @@ structure UnaryAddTwoUInt64DepositStaticAlignmentV1
       name := parameterName
       inputOffset := 0
       byteWidth := 8
-      endianness := .little
+      endianness := .little, isInt := false
     }]
     mode := .mutate
     tempCount := 7
@@ -1349,19 +1365,21 @@ def recognizeGuardedSubTwoUInt64WithdrawMethodV1
       name := parameterName
       inputOffset := 0
       byteWidth := 8
-      endianness := .little
+      endianness := .little, isInt := false
     }], 8, .mutate, .requireZero, .unit, [
       .assert (.compare .le (.param 0) (.stateLoad guard0Index)),
       .assert (.compare .le (.param 0) (.stateLoad guard1Index)),
       .store {
         fieldIndex := store0Index
         value := .checkedSub (.stateLoad load0Index) (.param 0)
-        byteWidth := 8
+        byteWidth := 8,
+        isInt := false
       },
       .store {
         fieldIndex := store1Index
         value := .checkedSub (.stateLoad load1Index) (.param 0)
-        byteWidth := 8
+        byteWidth := 8,
+        isInt := false
       },
       .returnNone
     ] => some {
@@ -1390,7 +1408,7 @@ theorem recognizeGuardedSubTwoUInt64WithdrawMethodV1_sound
         name := shape.parameterName
         inputOffset := 0
         byteWidth := 8
-        endianness := .little
+        endianness := .little, isInt := false
       }]
       exactInputLen := 8
       mode := .mutate
@@ -1402,12 +1420,14 @@ theorem recognizeGuardedSubTwoUInt64WithdrawMethodV1_sound
         .store {
           fieldIndex := shape.store0Index
           value := .checkedSub (.stateLoad shape.load0Index) (.param 0)
-          byteWidth := 8
+          byteWidth := 8,
+          isInt := false
         },
         .store {
           fieldIndex := shape.store1Index
           value := .checkedSub (.stateLoad shape.load1Index) (.param 0)
-          byteWidth := 8
+          byteWidth := 8,
+          isInt := false
         },
         .returnNone
       ]
@@ -1422,7 +1442,7 @@ theorem recognizeGuardedSubTwoUInt64WithdrawMethodV1_sound
         name := _
         inputOffset := 0
         byteWidth := 8
-        endianness := .little
+        endianness := .little, isInt := false
       }] := Array.toList_inj.mp (by assumption)
     have hbody : body = #[
         .assert (.compare .le (.param 0) (.stateLoad _)),
@@ -1430,12 +1450,14 @@ theorem recognizeGuardedSubTwoUInt64WithdrawMethodV1_sound
         .store {
           fieldIndex := _
           value := .checkedSub (.stateLoad _) (.param 0)
-          byteWidth := 8
+          byteWidth := 8,
+          isInt := false
         },
         .store {
           fieldIndex := _
           value := .checkedSub (.stateLoad _) (.param 0)
-          byteWidth := 8
+          byteWidth := 8,
+          isInt := false
         },
         .returnNone
       ] := Array.toList_inj.mp (by assumption)
@@ -1471,7 +1493,7 @@ def recognizeGuardedSubTwoUInt64WithdrawMethodIRV1
       name := parameterName
       inputOffset := 0
       byteWidth := 8
-      endianness := .little
+      endianness := .little, isInt := false
     }], .mutate, 12, [
       .checkInputLen 8,
       .requireZeroAttachedDeposit,
@@ -1520,7 +1542,7 @@ theorem recognizeGuardedSubTwoUInt64WithdrawMethodIRV1_sound
         name := shape.parameterName
         inputOffset := 0
         byteWidth := 8
-        endianness := .little
+        endianness := .little, isInt := false
       }]
       mode := .mutate
       tempCount := 12
@@ -1555,7 +1577,7 @@ theorem recognizeGuardedSubTwoUInt64WithdrawMethodIRV1_sound
         name := _
         inputOffset := 0
         byteWidth := 8
-        endianness := .little
+        endianness := .little, isInt := false
       }] := Array.toList_inj.mp (by assumption)
     have hoperations : operations = #[
         .checkInputLen 8, .requireZeroAttachedDeposit, .requireLayout _ _,
@@ -1601,7 +1623,7 @@ structure GuardedSubTwoUInt64WithdrawStaticAlignmentV1
       name := parameterName
       inputOffset := 0
       byteWidth := 8
-      endianness := .little
+      endianness := .little, isInt := false
     }]
     exactInputLen := 8
     mode := .mutate
@@ -1616,13 +1638,15 @@ structure GuardedSubTwoUInt64WithdrawStaticAlignmentV1
         fieldIndex := binding0.physicalFieldIndex
         value := .checkedSub
           (.stateLoad binding0.physicalFieldIndex) (.param 0)
-        byteWidth := 8
+        byteWidth := 8,
+        isInt := false
       },
       .store {
         fieldIndex := binding1.physicalFieldIndex
         value := .checkedSub
           (.stateLoad binding1.physicalFieldIndex) (.param 0)
-        byteWidth := 8
+        byteWidth := 8,
+        isInt := false
       },
       .returnNone
     ]
@@ -1634,7 +1658,7 @@ structure GuardedSubTwoUInt64WithdrawStaticAlignmentV1
       name := parameterName
       inputOffset := 0
       byteWidth := 8
-      endianness := .little
+      endianness := .little, isInt := false
     }]
     mode := .mutate
     tempCount := 12

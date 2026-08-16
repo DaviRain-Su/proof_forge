@@ -135,6 +135,41 @@ private def decodeUInt64LE (bytes : ByteArray) : Option U64 :=
 private def decodeUIntLE (bytes : ByteArray) (byteWidth : Nat) : Option U64 :=
   if bytes.size == byteWidth then decodeUIntLEAt bytes 0 byteWidth else none
 
+/-- Sign-extend a high-zero width-N two's-complement bit pattern into i64 bits. -/
+private def signExtendU64 (bitWidth : Nat) (value : U64) : U64 :=
+  if bitWidth == 0 || bitWidth >= 64 then
+    value
+  else
+    let modulus := Nat.shiftLeft 1 bitWidth
+    let signBit := Nat.shiftLeft 1 (bitWidth - 1)
+    let truncated := value.toNat % modulus
+    if truncated >= signBit then
+      UInt64.ofNat (truncated + (18446744073709551616 - modulus))
+    else
+      UInt64.ofNat truncated
+
+/-- Decode exactly `byteWidth` LE bytes as signed two's complement, sign-extended. -/
+private def decodeIntLE (bytes : ByteArray) (byteWidth : Nat) : Option U64 :=
+  match decodeUIntLE bytes byteWidth with
+  | some value => some (signExtendU64 (byteWidth * 8) value)
+  | none => none
+
+private def i64ToInt (value : U64) : Int :=
+  (Int.ofNat value.toNat) -
+    (if value.toNat ≥ 9223372036854775808 then (18446744073709551616 : Int) else 0)
+
+private def intToI64 (value : Int) : U64 :=
+  if value < 0 then
+    UInt64.ofNat (value + (18446744073709551616 : Int)).toNat
+  else
+    UInt64.ofNat value.toNat
+
+private def signedMinInt (bitWidth : Nat) : Int :=
+  - (Int.ofNat (Nat.pow 2 (bitWidth - 1)))
+
+private def signedMaxInt (bitWidth : Nat) : Int :=
+  Int.ofNat (Nat.pow 2 (bitWidth - 1) - 1)
+
 private def storageLookup? (storage : HostStorage) (key : String) : Option ByteArray :=
   match storage.find? (fun item => item.1 == key) with
   | some item => some item.2
@@ -351,6 +386,14 @@ private partial def step (input : ByteArray) (deposit : Deposit)
           | some value => pure value
           | none => modelError "narrow parameter read is outside the exact input"
         writeTemp machine destination value
+  | .narrowSignedLoadParam bitWidth destination inputOffset => do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+        modelError s!"narrowSignedLoadParam bitWidth {bitWidth} is not admitted"
+      let bw := bitWidth / 8
+      let value ← match decodeUIntLEAt input inputOffset bw with
+        | some value => pure (signExtendU64 bitWidth value)
+        | none => modelError "signed narrow parameter read is outside the exact input"
+      writeTemp machine destination value
   | .loadState destination field => do
       let encoded ← requireStorage machine field
       let value ← match decodeUInt64LE encoded with
@@ -381,6 +424,15 @@ private partial def step (input : ByteArray) (deposit : Deposit)
           | none =>
               modelError s!"state key '{field.key}' is not exactly {bw} bytes"
         writeTemp machine destination value
+  | .narrowSignedLoadState bitWidth destination field => do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+        modelError s!"narrowSignedLoadState bitWidth {bitWidth} is not admitted"
+      let encoded ← requireStorage machine field
+      let value ← match decodeIntLE encoded (bitWidth / 8) with
+        | some value => pure value
+        | none =>
+            modelError s!"state key '{field.key}' is not exactly {bitWidth / 8} signed bytes"
+      writeTemp machine destination value
   | .checkedAdd destination lhs rhs => do
       let left ← readTemp machine lhs
       let right ← readTemp machine rhs
@@ -816,6 +868,42 @@ private partial def step (input : ByteArray) (deposit : Deposit)
         let value ← readTemp machine source
         pure { machine with
           storage := storagePut machine.storage field.key (encodeUIntLE value bw) }
+  | .narrowSignedStoreState bitWidth field source => do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+        modelError s!"narrowSignedStoreState bitWidth {bitWidth} is not admitted"
+      let bw := bitWidth / 8
+      let previous ← requireStorage machine field
+      unless previous.size == bw do
+        modelError s!"evicted state at '{field.key}' is not exactly {bw} bytes"
+      let value ← readTemp machine source
+      unless value == signExtendU64 bitWidth value do
+        modelError s!"Int{bitWidth} store is outside the declared signed range"
+      pure { machine with
+        storage := storagePut machine.storage field.key (encodeUIntLE value bw) }
+  | .narrowSignedCheckedAdd bitWidth destination lhs rhs => do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+        modelError s!"narrowSignedCheckedAdd bitWidth {bitWidth} is not admitted"
+      let r := i64ToInt (← readTemp machine lhs) + i64ToInt (← readTemp machine rhs)
+      if r < signedMinInt bitWidth || r > signedMaxInt bitWidth then
+        modelError s!"Int{bitWidth} addition overflow"
+      else
+        writeTemp machine destination (intToI64 r)
+  | .narrowSignedCheckedSub bitWidth destination lhs rhs => do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+        modelError s!"narrowSignedCheckedSub bitWidth {bitWidth} is not admitted"
+      let r := i64ToInt (← readTemp machine lhs) - i64ToInt (← readTemp machine rhs)
+      if r < signedMinInt bitWidth || r > signedMaxInt bitWidth then
+        modelError s!"Int{bitWidth} subtraction overflow"
+      else
+        writeTemp machine destination (intToI64 r)
+  | .narrowSignedCheckedMul bitWidth destination lhs rhs => do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+        modelError s!"narrowSignedCheckedMul bitWidth {bitWidth} is not admitted"
+      let r := i64ToInt (← readTemp machine lhs) * i64ToInt (← readTemp machine rhs)
+      if r < signedMinInt bitWidth || r > signedMaxInt bitWidth then
+        modelError s!"Int{bitWidth} multiplication overflow"
+      else
+        writeTemp machine destination (intToI64 r)
   | .wideCompare bitWidth destination lhs rhs op => do
       let nLimbs := if bitWidth ≤ 64 then (1 : Nat) else bitWidth / 64
       let mut allEq := true
@@ -870,6 +958,16 @@ private partial def step (input : ByteArray) (deposit : Deposit)
       else
         let value ← readTemp machine source
         pure { machine with returned := some value, returnedLeaves := #[value] }
+  | .setSignedReturnData byteLen source => do
+      if machine.returned.isSome then
+        modelError "return data was already set"
+      unless byteLen == 1 || byteLen == 2 || byteLen == 4 do
+        modelError s!"setSignedReturnData byteLen {byteLen} is not admitted"
+      let bitWidth := byteLen * 8
+      let value ← readTemp machine source
+      unless value == signExtendU64 bitWidth value do
+        modelError s!"Int{bitWidth} return is outside the declared signed range"
+      pure { machine with returned := some value, returnedLeaves := #[value] }
   | .setReturnDataLeaves temps _leafByteWidths => do
       -- B-RET-ABI: preorder leaves from arbitrary temps (widths unused in host
       -- model — values stay full i64 words; Bytes packing is WAT-level).
@@ -1262,8 +1360,10 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
     | .literal _ _ => "literal"
     | .loadParam _ _ => "loadParam"
     | .narrowLoadParam _ _ _ => "narrowLoadParam"
+    | .narrowSignedLoadParam _ _ _ => "narrowSignedLoadParam"
     | .loadState _ _ => "loadState"
     | .narrowLoadState _ _ _ => "narrowLoadState"
+    | .narrowSignedLoadState _ _ _ => "narrowSignedLoadState"
     | .checkedAdd _ _ _ => "checkedAdd"
     | .checkedSub _ _ _ => "checkedSub"
     | .checkedMul _ _ _ => "checkedMul"
@@ -1286,6 +1386,9 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
     | .narrowCheckedAdd _ _ _ _ => "narrowCheckedAdd"
     | .narrowCheckedSub _ _ _ _ => "narrowCheckedSub"
     | .narrowCheckedMul _ _ _ _ => "narrowCheckedMul"
+    | .narrowSignedCheckedAdd _ _ _ _ => "narrowSignedCheckedAdd"
+    | .narrowSignedCheckedSub _ _ _ _ => "narrowSignedCheckedSub"
+    | .narrowSignedCheckedMul _ _ _ _ => "narrowSignedCheckedMul"
     | .narrowCheckedDiv _ _ _ _ => "narrowCheckedDiv"
     | .narrowCheckedMod _ _ _ _ => "narrowCheckedMod"
     | .narrowBitAnd _ _ _ _ => "narrowBitAnd"
@@ -1299,8 +1402,10 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
     | .boolOr _ _ _ => "boolOr"
     | .storeState _ _ => "storeState"
     | .narrowStoreState _ _ _ => "narrowStoreState"
+    | .narrowSignedStoreState _ _ _ => "narrowSignedStoreState"
     | .setLayout _ _ => "setLayout"
     | .setReturnData _ _ => "setReturnData"
+    | .setSignedReturnData _ _ => "setSignedReturnData"
     | .setReturnDataLeaves _ _ => "setReturnDataLeaves"
     | .compare _ _ _ op =>
         match op with
@@ -4400,6 +4505,403 @@ private unsafe def testInt8ParamAdmitted (session : Language.Loader.ParserSessio
   | .ok plan =>
       expect (plan.entries.any fun e => e.name == "set")
         "Int8 param: NEAR plan has set entry"
+      -- Unused Int8 vs UInt8 params must not share planDigest (Param.isInt).
+      let uintText :=
+        "import ProofForgeV2\n\n" ++
+        "namespace ProofForgeV2.Examples\n\n" ++
+        "open ProofForgeV2.Language\n\n" ++
+        "program UInt8Param where\n" ++
+        "  state count : UInt64\n\n" ++
+        "  init() do\n" ++
+        "    count := 0\n\n" ++
+        "  entry set(x : UInt8) : UInt64 do\n" ++
+        "    return 0\n\n" ++
+        "end ProofForgeV2.Examples\n"
+      let uintSource ← liftResult (← session.selectProgramV1
+        uintText "<near-host-u8>" "Examples.UInt8Param" none)
+      let uintCompiled ← liftResult <| Compiler.compileValidatedSourceV1 uintSource
+      let uintCapability ← liftResult <|
+        Targets.resolveEngineeringRequirementsV1 selection uintCompiled
+      let uintPlan ← liftResult <| Targets.Near.planFromCapability uintCapability
+      let intDigest ←
+        match Targets.Near.engineeringNearPlanDigestV1 plan with
+        | .ok d => pure d
+        | .error e => throw <| IO.userError s!"Int8 param digest: {e}"
+      let uintDigest ←
+        match Targets.Near.engineeringNearPlanDigestV1 uintPlan with
+        | .ok d => pure d
+        | .error e => throw <| IO.userError s!"UInt8 param digest: {e}"
+      expect (intDigest != uintDigest)
+        "Int8 vs UInt8 unused param must not share planDigest"
+
+/-- NEAR-I8-32: public Int8/16/32 state + params use the same 1/2/4-byte KV
+    widths as UInt8/16/32, `iN-le` ABI, and sign-extending loads. Pins a
+    negative byte (`Int8 -1 = 0xff`) so this is not high-zero unsigned. -/
+private unsafe def testNarrowSignedAbiProductPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program NarrowSignedAbi where\n" ++
+    "  state a : Int8\n" ++
+    "  state b : Int16\n" ++
+    "  state c : Int32\n\n" ++
+    "  init(x : Int8, y : Int16, z : Int32) do\n" ++
+    "    a := x\n" ++
+    "    b := y\n" ++
+    "    c := z\n\n" ++
+    "  entry set8(x : Int8) : UInt64 do\n" ++
+    "    a := x\n" ++
+    "    return 0\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return 0\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    text "<near-narrow-signed-abi>" "Examples.NarrowSignedAbi" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  expect (plan.storage.fields.size == 3)
+    "narrow-signed-abi: expected three state fields"
+  expect (plan.storage.fields[0]!.byteWidth == 1 &&
+      plan.storage.fields[0]!.isInt &&
+      plan.storage.fields[1]!.byteWidth == 2 &&
+      plan.storage.fields[1]!.isInt &&
+      plan.storage.fields[2]!.byteWidth == 4 &&
+      plan.storage.fields[2]!.isInt)
+    "narrow-signed-abi: field byteWidths must be 1/2/4 with isInt"
+  let initParams := plan.initializer.params
+  expect (initParams.size == 3 &&
+      initParams[0]!.byteWidth == 1 && initParams[0]!.isInt &&
+      initParams[0]!.inputOffset == 0 &&
+      initParams[1]!.byteWidth == 2 && initParams[1]!.isInt &&
+      initParams[1]!.inputOffset == 8 &&
+      initParams[2]!.byteWidth == 4 && initParams[2]!.isInt &&
+      initParams[2]!.inputOffset == 16)
+    "narrow-signed-abi: init params keep 8-byte pitch with signed byteWidths"
+  liftResult <| Targets.Near.validatePlan plan
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  liftResult <| Targets.Near.validateIR ir
+  let initIR ← findMethod ir "init"
+  let initKinds := operationKinds initIR.operations
+  expect (initKinds.contains "narrowSignedLoadParam")
+    s!"narrow-signed-abi: init must signed-load params, got {initKinds}"
+  expect (initKinds.contains "narrowSignedStoreState")
+    s!"narrow-signed-abi: init must signed-store state, got {initKinds}"
+  expect (!initKinds.contains "narrowLoadParam")
+    s!"narrow-signed-abi: init must not zero-extend signed params, got {initKinds}"
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  -- Int8 -1 / Int16 -2 / Int32 -3 as 8-byte slots (low 1/2/4 bytes are payload).
+  let pack3 := encodeUInt64LE (intToI64 (-1)) ++
+    encodeUInt64LE (intToI64 (-2)) ++ encodeUInt64LE (intToI64 (-3))
+  let (storage0, _, _) ← requireSuccess "narrow-signed-abi init" <|
+    execute initIR empty pack3 zero
+  let aKey := ir.keys[1]!
+  let bKey := ir.keys[2]!
+  let cKey := ir.keys[3]!
+  expect (match storageLookup? storage0 aKey.key with
+    | some bytes => bytes.size == 1 && bytes[0]!.toNat == 255
+    | none => false)
+    "narrow-signed-abi: field a must be 1-byte 0xff (Int8 -1)"
+  expect (match storageLookup? storage0 bKey.key with
+    | some bytes =>
+        bytes.size == 2 && decodeIntLE bytes 2 == some (intToI64 (-2))
+    | none => false)
+    "narrow-signed-abi: field b must be 2-byte LE Int16 -2"
+  expect (match storageLookup? storage0 cKey.key with
+    | some bytes =>
+        bytes.size == 4 && decodeIntLE bytes 4 == some (intToI64 (-3))
+    | none => false)
+    "narrow-signed-abi: field c must be 4-byte LE Int32 -3"
+  let set8IR ← findMethod ir "set8"
+  let (storage1, ret, _) ← requireSuccess "narrow-signed-abi set8" <|
+    execute set8IR storage0 (encodeUInt64LE (intToI64 (-8))) zero
+  expect (ret == some 0)
+    "narrow-signed-abi: set8 must return UInt64 0"
+  expect (match storageLookup? storage1 aKey.key with
+    | some bytes => bytes.size == 1 && bytes[0]!.toNat == 248
+    | none => false)
+    "narrow-signed-abi: set8(-8) must store 0xf8"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some watFile := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "narrow-signed-abi: missing .wat artifact"
+  let some abiFile := files.find? (fun f => f.path.endsWith ".near-abi.json") |
+    throw <| IO.userError "narrow-signed-abi: missing .near-abi.json artifact"
+  expectContains watFile.contents "i32.load8_s" "narrow-signed-abi WAT load8_s"
+  expectContains watFile.contents "i32.load16_s" "narrow-signed-abi WAT load16_s"
+  expectContains watFile.contents "i64.extend_i32_s" "narrow-signed-abi WAT extend_i32_s"
+  expect (!watFile.contents.contains "i32.load8_u")
+    "narrow-signed-abi WAT must not use unsigned load8_u on the signed path"
+  expectContains watFile.contents "i32.store8" "narrow-signed-abi WAT store8"
+  expectContains abiFile.contents "\"type\":\"i8-le\"" "narrow-signed-abi ABI i8-le"
+  expectContains abiFile.contents "\"type\":\"i16-le\"" "narrow-signed-abi ABI i16-le"
+  expectContains abiFile.contents "\"type\":\"i32-le\"" "narrow-signed-abi ABI i32-le"
+
+/-- Expect a stored IntN field after a HostModel execute. -/
+private def expectStoredInt
+    (label : String) (storage : HostStorage) (key : String)
+    (byteWidth : Nat) (want : Int) : IO Unit := do
+  expect (match storageLookup? storage key with
+    | some bytes =>
+        bytes.size == byteWidth &&
+          decodeIntLE bytes byteWidth == some (intToI64 want)
+    | none => false)
+    s!"{label}: field must be Int{byteWidth * 8} {want}"
+
+/-- NEAR-I8-32: body checked add/sub/mul at declared signed width. Success +
+    both overflow edges (max+1 and min-1) with full KV rollback. Pins the
+    width identity (`extend8_s` / `extend16_s` / `wrap_i64`) so a missing
+    arith guard cannot hide behind load sign-extend. -/
+private unsafe def testNarrowSignedBodyProductPath
+    (session : Language.Loader.ParserSession) (bitWidth : Nat) : IO Unit := do
+  unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+    throw <| IO.userError s!"narrow-signed-body: bitWidth {bitWidth} is not admitted"
+  let typeName := s!"Int{bitWidth}"
+  let byteWidth := bitWidth / 8
+  let label := s!"narrow-signed-body-{bitWidth}"
+  let text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    s!"program NarrowSignedBody{bitWidth} where\n" ++
+    s!"  state a : {typeName}\n\n" ++
+    s!"  init(x : {typeName}) do\n" ++
+    "    a := x\n\n" ++
+    s!"  entry bumpAdd(delta : {typeName}) : UInt64 do\n" ++
+    "    a := a + delta\n" ++
+    "    return 0\n\n" ++
+    s!"  entry bumpSub(delta : {typeName}) : UInt64 do\n" ++
+    "    a := a - delta\n" ++
+    "    return 0\n\n" ++
+    s!"  entry bumpMul(delta : {typeName}) : UInt64 do\n" ++
+    "    a := a * delta\n" ++
+    "    return 0\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return 0\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    text s!"<near-{label}>" s!"Examples.NarrowSignedBody{bitWidth}" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  let widthJoin (w lw pw : Nat) (store : Targets.Near.Store) : Bool :=
+    w == bitWidth && lw == bitWidth && pw == bitWidth &&
+      store.fieldIndex == 0 && store.byteWidth == byteWidth && store.isInt
+  let some bumpAdd := plan.entries.find? (·.name == "bumpAdd") |
+    throw <| IO.userError s!"{label}: missing bumpAdd entry"
+  let some bumpSub := plan.entries.find? (·.name == "bumpSub") |
+    throw <| IO.userError s!"{label}: missing bumpSub entry"
+  let some bumpMul := plan.entries.find? (·.name == "bumpMul") |
+    throw <| IO.userError s!"{label}: missing bumpMul entry"
+  let addOk :=
+    match bumpAdd.body[0]? with
+    | some (Targets.Near.Statement.store store) =>
+        match store.value with
+        | Targets.Near.Expr.narrowSignedCheckedAdd w
+            (Targets.Near.Expr.narrowSignedStateLoad lw 0)
+            (Targets.Near.Expr.narrowSignedParam pw 0) => widthJoin w lw pw store
+        | _ => false
+    | _ => false
+  let subOk :=
+    match bumpSub.body[0]? with
+    | some (Targets.Near.Statement.store store) =>
+        match store.value with
+        | Targets.Near.Expr.narrowSignedCheckedSub w
+            (Targets.Near.Expr.narrowSignedStateLoad lw 0)
+            (Targets.Near.Expr.narrowSignedParam pw 0) => widthJoin w lw pw store
+        | _ => false
+    | _ => false
+  let mulOk :=
+    match bumpMul.body[0]? with
+    | some (Targets.Near.Statement.store store) =>
+        match store.value with
+        | Targets.Near.Expr.narrowSignedCheckedMul w
+            (Targets.Near.Expr.narrowSignedStateLoad lw 0)
+            (Targets.Near.Expr.narrowSignedParam pw 0) => widthJoin w lw pw store
+        | _ => false
+    | _ => false
+  expect addOk s!"{label}: bumpAdd must lower Int{bitWidth} add as narrowSignedCheckedAdd"
+  expect subOk s!"{label}: bumpSub must lower Int{bitWidth} sub as narrowSignedCheckedSub"
+  expect mulOk s!"{label}: bumpMul must lower Int{bitWidth} mul as narrowSignedCheckedMul"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  liftResult <| Targets.Near.validateIR ir
+  let addIR ← findMethod ir "bumpAdd"
+  let subIR ← findMethod ir "bumpSub"
+  let mulIR ← findMethod ir "bumpMul"
+  expect ((operationKinds addIR.operations).contains "narrowSignedCheckedAdd" &&
+      (operationKinds subIR.operations).contains "narrowSignedCheckedSub" &&
+      (operationKinds mulIR.operations).contains "narrowSignedCheckedMul")
+    s!"{label}: IR must lower signed add/sub/mul"
+  let initIR ← findMethod ir "init"
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let aKey := ir.keys[1]!
+  let initTo (want : Int) : IO HostStorage := do
+    let (st, _, _) ← requireSuccess s!"{label} init({want})" <|
+      execute initIR empty (encodeUInt64LE (intToI64 want)) zero
+    expectStoredInt s!"{label} init({want})" st aKey.key byteWidth want
+    pure st
+  let expectOverflow (opLabel : String) (method : Targets.Near.MethodIR)
+      (start delta : Int) : IO Unit := do
+    let st ← initTo start
+    match execute method st (encodeUInt64LE (intToI64 delta)) zero with
+    | .trapped rolled _ =>
+        expectStoredInt s!"{label} {opLabel} overflow rollback" rolled
+          aKey.key byteWidth start
+    | .success .. =>
+        throw <| IO.userError
+          s!"{label}: {opLabel} {start} {delta} must trap on Int{bitWidth} overflow"
+  -- Success: sign-extend rather than high-zero 255+255.
+  let stNeg ← initTo (-1)
+  let (stAdd, retAdd, _) ← requireSuccess s!"{label} bumpAdd(-1)" <|
+    execute addIR stNeg (encodeUInt64LE (intToI64 (-1))) zero
+  expect (retAdd == some 0) s!"{label}: bumpAdd must return UInt64 0"
+  expectStoredInt s!"{label} bumpAdd(-1)" stAdd aKey.key byteWidth (-2)
+  let (stSub, _, _) ← requireSuccess s!"{label} bumpSub(-1)" <|
+    execute subIR stNeg (encodeUInt64LE (intToI64 (-1))) zero
+  expectStoredInt s!"{label} bumpSub(-1)" stSub aKey.key byteWidth 0
+  let (stMul, _, _) ← requireSuccess s!"{label} bumpMul(-2)" <|
+    execute mulIR (← initTo (-2)) (encodeUInt64LE (intToI64 (-2))) zero
+  expectStoredInt s!"{label} bumpMul(-2)" stMul aKey.key byteWidth 4
+  let maxVal := signedMaxInt bitWidth
+  let minVal := signedMinInt bitWidth
+  expectOverflow "add max+1" addIR maxVal 1
+  expectOverflow "add min-1" addIR minVal (-1)
+  expectOverflow "sub min-1" subIR minVal 1
+  expectOverflow "sub max-(-1)" subIR maxVal (-1)
+  expectOverflow "mul max*2" mulIR maxVal 2
+  expectOverflow "mul min*(-1)" mulIR minVal (-1)
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some watFile := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError s!"{label}: missing .wat artifact"
+  let loadInsn :=
+    match bitWidth with
+    | 8 => "i32.load8_s"
+    | 16 => "i32.load16_s"
+    | _ => "i32.load"
+  let identityInsn :=
+    match bitWidth with
+    | 8 => "i64.extend8_s"
+    | 16 => "i64.extend16_s"
+    | _ => "i32.wrap_i64"
+  expectContains watFile.contents loadInsn s!"{label} WAT {loadInsn}"
+  expectContains watFile.contents identityInsn
+    s!"{label} WAT {identityInsn} width identity (not only load sign-extend)"
+  expectContains watFile.contents "i64.add" s!"{label} WAT i64.add"
+  expectContains watFile.contents "i64.sub" s!"{label} WAT i64.sub"
+  expectContains watFile.contents "i64.mul" s!"{label} WAT i64.mul"
+
+/-- NEAR-I8-32: Int8/16/32 method results pack 1/2/4-byte two's complement
+    (`-1` → `0xff`/`0xffff`/`0xffffffff`) and apply signed width identity
+    before `value_return`. -/
+private unsafe def testNarrowSignedResultProductPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program NarrowSignedResult where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n\n" ++
+    "  entry get8(x : Int8) : Int8 do\n" ++
+    "    return x\n\n" ++
+    "  entry get16(x : Int16) : Int16 do\n" ++
+    "    return x\n\n" ++
+    "  entry get32(x : Int32) : Int32 do\n" ++
+    "    return x\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    text "<near-narrow-signed-result>" "Examples.NarrowSignedResult" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  expect (plan.entries.map (·.resultKind) ==
+      #[.int8, .int16, .int32, .uint64])
+    "narrow-signed-result: resultKinds must be int8/16/32 + peek uint64"
+  liftResult <| Targets.Near.validatePlan plan
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  liftResult <| Targets.Near.validateIR ir
+  let get8IR ← findMethod ir "get8"
+  let get16IR ← findMethod ir "get16"
+  let get32IR ← findMethod ir "get32"
+  expect (get8IR.operations.any fun
+    | .setSignedReturnData 1 _ => true
+    | _ => false)
+    "narrow-signed-result: get8 must emit setSignedReturnData byteLen=1"
+  expect (get16IR.operations.any fun
+    | .setSignedReturnData 2 _ => true
+    | _ => false)
+    "narrow-signed-result: get16 must emit setSignedReturnData byteLen=2"
+  expect (get32IR.operations.any fun
+    | .setSignedReturnData 4 _ => true
+    | _ => false)
+    "narrow-signed-result: get32 must emit setSignedReturnData byteLen=4"
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let (storage0, _, _) ← requireSuccess "narrow-signed-result init" <|
+    execute (← findMethod ir "init") empty (encodeUInt64LE 7) zero
+  let (_, ret8, _) ← requireSuccess "narrow-signed-result get8(-1)" <|
+    execute get8IR storage0 (encodeUInt64LE (intToI64 (-1))) zero
+  let (_, ret16, _) ← requireSuccess "narrow-signed-result get16(-1)" <|
+    execute get16IR storage0 (encodeUInt64LE (intToI64 (-1))) zero
+  let (_, ret32, _) ← requireSuccess "narrow-signed-result get32(-1)" <|
+    execute get32IR storage0 (encodeUInt64LE (intToI64 (-1))) zero
+  expect (ret8 == some (intToI64 (-1)))
+    s!"narrow-signed-result: get8(-1) must return sign-extended -1, got {ret8}"
+  expect (ret16 == some (intToI64 (-1)))
+    s!"narrow-signed-result: get16(-1) must return sign-extended -1, got {ret16}"
+  expect (ret32 == some (intToI64 (-1)))
+    s!"narrow-signed-result: get32(-1) must return sign-extended -1, got {ret32}"
+  expect (match ret8 with
+    | some v =>
+        let packed := encodeUIntLE v 1
+        packed.size == 1 && packed[0]!.toNat == 255
+    | none => false)
+    "narrow-signed-result: Int8 -1 packs to 0xff"
+  expect (match ret16 with
+    | some v =>
+        let packed := encodeUIntLE v 2
+        packed.size == 2 && packed[0]!.toNat == 255 && packed[1]!.toNat == 255
+    | none => false)
+    "narrow-signed-result: Int16 -1 packs to 0xffff"
+  expect (match ret32 with
+    | some v =>
+        let packed := encodeUIntLE v 4
+        packed.size == 4 && packed[0]!.toNat == 255 && packed[1]!.toNat == 255 &&
+          packed[2]!.toNat == 255 && packed[3]!.toNat == 255
+    | none => false)
+    "narrow-signed-result: Int32 -1 packs to 0xffffffff"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some abiFile := files.find? (fun f => f.path.endsWith ".near-abi.json") |
+    throw <| IO.userError "narrow-signed-result: missing near-abi.json"
+  expectContains abiFile.contents "\"i8-le\"" "narrow-signed-result ABI i8-le"
+  expectContains abiFile.contents "\"i16-le\"" "narrow-signed-result ABI i16-le"
+  expectContains abiFile.contents "\"i32-le\"" "narrow-signed-result ABI i32-le"
+  let some watFile := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "narrow-signed-result: missing .wat"
+  expectContains watFile.contents
+    "(call $pf_value_return (i64.const 1)" "narrow-signed-result WAT return len 1"
+  expectContains watFile.contents
+    "(call $pf_value_return (i64.const 2)" "narrow-signed-result WAT return len 2"
+  expectContains watFile.contents
+    "(call $pf_value_return (i64.const 4)" "narrow-signed-result WAT return len 4"
+  expectContains watFile.contents "i64.extend8_s"
+    "narrow-signed-result WAT Int8 return identity"
+  expectContains watFile.contents "i64.extend16_s"
+    "narrow-signed-result WAT Int16 return identity"
+  expectContains watFile.contents "i32.wrap_i64"
+    "narrow-signed-result WAT Int32 return identity"
 
 /-- Dense Map empty-table put: sequential leaf store-then-read would flip
     firstEmpty after writing occ[0]=1 mid-batch (key/val stay 0 or land in
@@ -6370,6 +6872,12 @@ unsafe def run : IO Unit := do
   testNarrowResultProductPath session
   -- T8c-NEAR: body multi-width UInt8 add success + overflow.
   testNarrowBodyProductPath session
+  -- NEAR-I8-32: Int8/16/32 1/2/4-byte two's complement ABI + width-checked add.
+  testNarrowSignedAbiProductPath session
+  testNarrowSignedBodyProductPath session 8
+  testNarrowSignedBodyProductPath session 16
+  testNarrowSignedBodyProductPath session 32
+  testNarrowSignedResultProductPath session
   IO.println "Tests.Materialization.NearHostModel: ok"
 
 end Tests.Materialization.NearHostModel

@@ -3930,10 +3930,9 @@ unsafe def runWideIntegerNeedles : IO Unit := do
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"WideInt64: {target} must materialize Int64"
 
-  -- WideInt32: Int32 state/return. Seven targets admit files-nonempty
-  -- (original four minus NEAR + Psy/Aleo/CW/TON). NEAR has a unique
-  -- 8-byte-field needle. Quint/Soroban/OpenVM/ICP stay on the width
-  -- needle. Int32 ≠ Int64. Not opening Int8/16.
+  -- WideInt32: Int32 state/return. Eight targets admit files-nonempty
+  -- (evm/solana/near/noir/psy/aleo/cw/ton). Envelope-4 stay on the width
+  -- needle. Int32 ≠ Int64. Arr/Map/Opt of Int32 stay FC.
   -- WideInt64 / WideInt128 / WideInt256 / WideUInt stay.
   let wideInt32Source :=
     "import ProofForgeV2\n\n" ++
@@ -3954,13 +3953,11 @@ unsafe def runWideIntegerNeedles : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"WideInt32 select: {e.render}"
   let wideI32Compiled ← liftResult <| Compiler.compileValidatedSourceV1 wideI32V1
-  for target in [TargetId.evm, TargetId.solana, TargetId.noir, TargetId.psy,
-      TargetId.aleo, TargetId.cosmwasm, TargetId.ton] do
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.psy, TargetId.aleo, TargetId.cosmwasm, TargetId.ton] do
     let out ← liftResult <| materializeSelected target wideI32Compiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"WideInt32: {target} must materialize Int32"
-  expectMaterializePlanInvariantV1 "WideInt32" TargetId.near TargetKind.near
-    wideI32Compiled "Int state store requires 8-byte field"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -3969,9 +3966,9 @@ unsafe def runWideIntegerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "WideInt32" target kind wideI32Compiled
       "only anonymous UInt64/Int64 widths are supported"
 
-  -- WideInt16: Int16 state/return. Same four-admit / eight-decline set
-  -- as WideInt32, but Int16 ≠ Int32 so it is its own pin. Not opening
-  -- Int8. WideInt32 / WideInt64 / WideInt128 / WideInt256 stay.
+  -- WideInt16: Int16 state/return. Same eight-admit / envelope-4-decline
+  -- set as WideInt32, but Int16 ≠ Int32 so it is its own pin.
+  -- WideInt32 / WideInt64 / WideInt128 / WideInt256 stay.
   let wideInt16Source :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -3991,13 +3988,11 @@ unsafe def runWideIntegerNeedles : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"WideInt16 select: {e.render}"
   let wideI16Compiled ← liftResult <| Compiler.compileValidatedSourceV1 wideI16V1
-  for target in [TargetId.evm, TargetId.solana, TargetId.noir, TargetId.psy,
-      TargetId.aleo, TargetId.cosmwasm, TargetId.ton] do
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.psy, TargetId.aleo, TargetId.cosmwasm, TargetId.ton] do
     let out ← liftResult <| materializeSelected target wideI16Compiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"WideInt16: {target} must materialize Int16"
-  expectMaterializePlanInvariantV1 "WideInt16" TargetId.near TargetKind.near
-    wideI16Compiled "Int state store requires 8-byte field"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -4006,8 +4001,8 @@ unsafe def runWideIntegerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "WideInt16" target kind wideI16Compiled
       "only anonymous UInt64/Int64 widths are supported"
 
-  -- WideInt8: Int8 state/return. Same four-admit / eight-decline set as
-  -- WideInt16/32, but Int8 ≠ Int16 so it is its own pin (last narrow
+  -- WideInt8: Int8 state/return. Same eight-admit / envelope-4-decline set
+  -- as WideInt16/32, but Int8 ≠ Int16 so it is its own pin (last narrow
   -- signed width). WideInt16 / WideInt32 / WideInt64 / WideInt128 /
   -- WideInt256 stay.
   let wideInt8Source :=
@@ -4029,13 +4024,11 @@ unsafe def runWideIntegerNeedles : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"WideInt8 select: {e.render}"
   let wideI8Compiled ← liftResult <| Compiler.compileValidatedSourceV1 wideI8V1
-  for target in [TargetId.evm, TargetId.solana, TargetId.noir, TargetId.psy,
-      TargetId.aleo, TargetId.cosmwasm, TargetId.ton] do
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.psy, TargetId.aleo, TargetId.cosmwasm, TargetId.ton] do
     let out ← liftResult <| materializeSelected target wideI8Compiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"WideInt8: {target} must materialize Int8"
-  expectMaterializePlanInvariantV1 "WideInt8" TargetId.near TargetKind.near
-    wideI8Compiled "Int state store requires 8-byte field"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),

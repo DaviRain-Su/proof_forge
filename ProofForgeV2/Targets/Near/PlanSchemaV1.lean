@@ -200,12 +200,33 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   -- Tag 52 is appended so existing expression encodings stay byte-identical.
   | .keccak256Result resultTemp =>
       pure ((encodeU8 52).append (← encodeNatAsU32le resultTemp))
+  -- NEAR-I8-32: signed narrow param/load/arith (tags 53-57 appended).
+  | .narrowSignedParam bitWidth inputOffset =>
+      pure (((encodeU8 53).append (← encodeNatAsU32le bitWidth)).append
+        (← encodeNatAsU32le inputOffset))
+  | .narrowSignedStateLoad bitWidth fieldIndex =>
+      pure (((encodeU8 54).append (← encodeNatAsU32le bitWidth)).append
+        (← encodeNatAsU32le fieldIndex))
+  | .narrowSignedCheckedAdd bitWidth lhs rhs =>
+      pure ((((encodeU8 55).append (← encodeNatAsU32le bitWidth)).append
+        (← encodeExpr lhs)).append (← encodeExpr rhs))
+  | .narrowSignedCheckedSub bitWidth lhs rhs =>
+      pure ((((encodeU8 56).append (← encodeNatAsU32le bitWidth)).append
+        (← encodeExpr lhs)).append (← encodeExpr rhs))
+  | .narrowSignedCheckedMul bitWidth lhs rhs =>
+      pure ((((encodeU8 57).append (← encodeNatAsU32le bitWidth)).append
+        (← encodeExpr lhs)).append (← encodeExpr rhs))
 
 private partial def encodeStatement (stmt : Statement) : Except String ByteArray := do
   match stmt with
   | .store op =>
-      pure ((((encodeU8 0).append (← encodeNatAsU32le op.fieldIndex)).append
-        (← encodeNatAsU32le op.byteWidth)).append (← encodeExpr op.value))
+      let mut out := (((encodeU8 0).append (← encodeNatAsU32le op.fieldIndex)).append
+        (← encodeNatAsU32le op.byteWidth)).append (← encodeExpr op.value)
+      -- Append isInt only for signed narrow stores so historical encodings
+      -- (unsigned + Int64 8-byte) stay byte-identical.
+      if op.isInt && op.byteWidth < 8 then
+        out := out.append (encodeBool true)
+      pure out
   | .returnValue value => pure ((encodeU8 1).append (← encodeExpr value))
   | .returnAggregate leaves leafIsInt =>
       -- Tag 11: multi-leaf aggregate return (B-RET-ABI).
@@ -266,6 +287,8 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
         out := out.append (← encodeNatAsU32le op.fieldIndex)
         out := out.append (← encodeNatAsU32le op.byteWidth)
         out := out.append (← encodeExpr op.value)
+        if op.isInt && op.byteWidth < 8 then
+          out := out.append (encodeBool true)
       pure out
   | .nativeDeposit amount =>
       -- Tag 11 (ADR-0029 C2): exact attached_deposit check.
@@ -297,9 +320,14 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
         (← encodeNatAsU32le resultTemp))
 
 private def encodeParam (p : Param) : Except String ByteArray := do
-  pure (((((← encodeNatAsU32le p.sourceId).append (← encodeString p.name)).append
+  let mut out := ((((← encodeNatAsU32le p.sourceId).append (← encodeString p.name)).append
     (← encodeNatAsU32le p.inputOffset)).append (← encodeNatAsU32le p.byteWidth)).append
-    (encodeU8 (encodeEndianness p.endianness)))
+    (encodeU8 (encodeEndianness p.endianness))
+  -- Append isInt only for signed narrow params so historical encodings
+  -- (unsigned + Int64 8-byte) stay byte-identical.
+  if p.isInt && p.byteWidth < 8 then
+    out := out.append (encodeBool true)
+  pure out
 
 private def encodeMethod (m : Method) : Except String ByteArray := do
   let mut out := ByteArray.empty
@@ -318,9 +346,12 @@ private def encodeInterfaceBinding (b : InterfaceBinding) : Except String ByteAr
   pure ((← encodeString b.name).append (← encodeNatAsU32le b.fieldCount))
 
 private def encodeStorageField (f : StorageField) : Except String ByteArray := do
-  pure (((((← encodeNatAsU32le f.sourceId).append (← encodeString f.name)).append
+  let mut out := ((((← encodeNatAsU32le f.sourceId).append (← encodeString f.name)).append
     (← encodeString f.key)).append (← encodeNatAsU32le f.byteWidth)).append
-    (encodeU8 (encodeEndianness f.endianness)))
+    (encodeU8 (encodeEndianness f.endianness))
+  if f.isInt && f.byteWidth < 8 then
+    out := out.append (encodeBool true)
+  pure out
 
 private def encodeDigest32 (label : String) (digest : Digest) :
     Except String ByteArray := do

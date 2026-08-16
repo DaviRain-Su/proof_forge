@@ -39,7 +39,9 @@ private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) : Expr → Bool
   | .narrowCheckedAdd .. | .narrowCheckedSub .. | .narrowCheckedMul ..
   | .narrowCheckedDiv .. | .narrowCheckedMod .. | .narrowBitNot ..
   | .narrowBitAnd .. | .narrowBitOr .. | .narrowBitXor ..
-  | .narrowShl .. | .narrowShr .. | .sha256Result _ | .keccak256Result _ => false
+  | .narrowShl .. | .narrowShr .. | .narrowSignedCheckedAdd ..
+  | .narrowSignedCheckedSub .. | .narrowSignedCheckedMul ..
+  | .sha256Result _ | .keccak256Result _ => false
   | _ => true
 
 /-- Exact expression family accepted as the one-word (four LE limbs) input to
@@ -78,10 +80,36 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
       | some nodes => some (1 + nodes)
     match expr with
     | .literal .. | .bigLiteral .. => some 1
-    | .param inputOffset | .narrowParam _ inputOffset =>
-        if params.any (·.inputOffset == inputOffset) then some 1 else none
-    | .stateLoad fieldIndex | .narrowStateLoad _ fieldIndex =>
-        if fieldIndex < layout.fields.size then some 1 else none
+    | .param inputOffset =>
+        match params.find? (·.inputOffset == inputOffset) with
+        | some p => if p.byteWidth == 8 then some 1 else none
+        | none => none
+    | .narrowParam bitWidth inputOffset =>
+        match params.find? (·.inputOffset == inputOffset) with
+        | some p =>
+            if !p.isInt && bitWidth == 8 * p.byteWidth then some 1 else none
+        | none => none
+    | .narrowSignedParam bitWidth inputOffset =>
+        match params.find? (·.inputOffset == inputOffset) with
+        | some p =>
+            if p.isInt && (bitWidth == 8 || bitWidth == 16 || bitWidth == 32) &&
+                bitWidth == 8 * p.byteWidth then some 1 else none
+        | none => none
+    | .stateLoad fieldIndex =>
+        match layout.fields[fieldIndex]? with
+        | some f => if f.byteWidth == 8 then some 1 else none
+        | none => none
+    | .narrowStateLoad bitWidth fieldIndex =>
+        match layout.fields[fieldIndex]? with
+        | some f =>
+            if !f.isInt && bitWidth == 8 * f.byteWidth then some 1 else none
+        | none => none
+    | .narrowSignedStateLoad bitWidth fieldIndex =>
+        match layout.fields[fieldIndex]? with
+        | some f =>
+            if f.isInt && (bitWidth == 8 || bitWidth == 16 || bitWidth == 32) &&
+                bitWidth == 8 * f.byteWidth then some 1 else none
+        | none => none
     | .localTemp index =>
         if localScope.contains (loopBindingKeyV1 index) then some 1 else none
     | .sha256Result resultTemp =>
@@ -113,6 +141,13 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
     | .signedCheckedAdd lhs rhs => binaryNodes lhs rhs
     | .signedCheckedSub lhs rhs => binaryNodes lhs rhs
     | .signedCheckedMul lhs rhs => binaryNodes lhs rhs
+    | .narrowSignedCheckedAdd bitWidth lhs rhs
+    | .narrowSignedCheckedSub bitWidth lhs rhs
+    | .narrowSignedCheckedMul bitWidth lhs rhs =>
+        if bitWidth == 8 || bitWidth == 16 || bitWidth == 32 then
+          binaryNodes lhs rhs
+        else
+          none
     | .signedCheckedDiv lhs rhs => binaryNodes lhs rhs
     | .signedCheckedMod lhs rhs => binaryNodes lhs rhs
     | .signedCompare _ lhs rhs => binaryNodes lhs rhs
@@ -191,7 +226,9 @@ private def validateStorageLayout (limits : ResourceLimits)
       field.byteWidth == 16 || field.byteWidth == 32
     unless field.sourceId == index && isIdentifier field.name &&
         field.key == stateKey index && admittedWidth &&
-        field.endianness == .little do
+        field.endianness == .little &&
+        (!field.isInt || field.byteWidth == 1 || field.byteWidth == 2 ||
+          field.byteWidth == 4 || field.byteWidth == 8) do
       throw <| .planInvariant .near
         "state field KV layout is not canonical little-endian with admitted ABI byteWidth"
   if hasDuplicates (layout.fields.map (·.name)) ||
@@ -215,7 +252,9 @@ private def validateParams (limits : ResourceLimits) (owner : String)
       param.byteWidth == 16 || param.byteWidth == 32
     unless param.sourceId == index && isIdentifier param.name &&
         param.inputOffset == expectedOffset && admittedWidth &&
-        param.endianness == .little do
+        param.endianness == .little &&
+        (!param.isInt || param.byteWidth == 1 || param.byteWidth == 2 ||
+          param.byteWidth == 4 || param.byteWidth == 8) do
       throw <| .planInvariant .near
         s!"parameter binding in {owner} is not canonical little-endian with admitted ABI byteWidth"
     expectedOffset := expectedOffset + slotPitchOfByteWidth param.byteWidth
@@ -258,6 +297,14 @@ private partial def checkMethodStatementsV1
         unless store.byteWidth == field.byteWidth do
           throw <| .planInvariant .near
             "method store byteWidth does not match state field layout"
+        unless store.isInt == field.isInt do
+          throw <| .planInvariant .near
+            "method store isInt does not match state field layout"
+        if field.isInt then
+          unless field.byteWidth == 1 || field.byteWidth == 2 ||
+              field.byteWidth == 4 || field.byteWidth == 8 do
+            throw <| .planInvariant .near
+              "signed method store requires a 1/2/4/8-byte field"
         total ← addPlanExprNodes limits layout params fns total store.value localScope
         methodTemps ← addMethodExprTemps limits layout params fns methodTemps
           store.value localScope
@@ -282,6 +329,14 @@ private partial def checkMethodStatementsV1
           unless store.byteWidth == field.byteWidth do
             throw <| .planInvariant .near
               "method store byteWidth does not match state field layout"
+          unless store.isInt == field.isInt do
+            throw <| .planInvariant .near
+              "method store isInt does not match state field layout"
+          if field.isInt then
+            unless field.byteWidth == 1 || field.byteWidth == 2 ||
+                field.byteWidth == 4 || field.byteWidth == 8 do
+              throw <| .planInvariant .near
+                "signed method store requires a 1/2/4/8-byte field"
           total ← addPlanExprNodes limits layout params fns total store.value localScope
           methodTemps ← addMethodExprTemps limits layout params fns methodTemps
             store.value localScope
