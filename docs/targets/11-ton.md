@@ -40,9 +40,9 @@ stub、body=`op32 · query_id=0 · UInt64 args`；仅 init/mutate，view/pureFn 
 **UInt256 = 单个 `uint256` cell + `body.loadUint(256)` +
 `assert (0 <= t)`（非负 int257 已蕴含 `0≤t<2^256`；不得发射不可表示的
 `(1 << 256)`；越界加/乘先由 TVM ADD/MUL 溢出）**，不是 CosmWasm 式 lo/hi
-或 4-limb；Int128/256 仍 FC；Array UInt256 与 Map/Opt-of-UInt128/256 以及
-UInt128/256 shl/shr/bitwise 仍 FC）；named Struct/Enum、`Array UInt64 N`、
-`Array Int64 N` 与 `Array UInt128 N`、dense
+或 4-limb；Int128/256 仍 FC；Array UInt256 与 Map-of-UInt128/256 以及
+Option-of-UInt256 与 UInt128/256 shl/shr/bitwise 仍 FC）；named
+Struct/Enum、`Array UInt64 N`、`Array Int64 N` 与 `Array UInt128 N`、dense
 `Map UInt64 UInt64` cap-8、dense `Map UInt64 Int64` cap-8 与
 fixed `Bytes N` state 已 flatten 到 c4。**Array Int64 N** 是 N 个连续
 `int64` c4 cell（`isInt` / `loadInt`），flatten 与 Array UInt64 相同；**不是**
@@ -52,8 +52,13 @@ Array UInt64/Int64 相同，`leafByteWidth=16`、`isInt=false`；**不是**
 CosmWasm 2-limb Regions，也**不是** 两个 UInt64 叶。Cell budget
 `64+Σ(field.byteWidth*8)≤1023` 当存在 uint128 叶（与 `__layout` uint64
 共享同一 cell；N=8 fail closed；N=7 + sibling UInt64 也 fail closed；
-不套用到既有 Map 24×uint64）。Map/Opt-of-UInt128 与 Array UInt256
-本切片仍 FC。**dense Map UInt64 Int64** 是
+不套用到既有 Map 24×uint64）。Map-of-UInt128 与 Array UInt256
+仍 FC。**Option UInt128 state** 是 Enum 形双叶：`name_tag` 无符号
+uint64 cell + `name_p0` 一个 unsigned `uint128` cell（`loadUint(128)` /
+int257 `0≤t<2^128`）；flatten 与 Option UInt64 相同；**不是** CosmWasm
+2-limb Regions，也**不是** 两个 UInt64 叶。Cell budget
+`64+64+128=256≤1023`。Option UInt128 return 与 Option UInt256 仍 FC。
+**dense Map UInt64 Int64** 是
 cap-8 24 叶 occ/key/val flatten：occ/key 保持无符号 uint64 cell，仅 val 叶
 为有符号 int64 cell / `loadInt`，put/get 仅对 val 槽走
 `signedCheckedMul`/`signedCheckedAdd`（负 `loadInt` 不经过
@@ -65,7 +70,7 @@ Regions。named Struct/Enum 以及 anonymous
 `Array UInt64 N`（1..8）/`Option UInt64` **view** 返回已开多栈 get-method。entry
 aggregate、Array Int64 return、Array UInt128 return、Array Int8、Array UInt256、Map Int8 /
 Map UInt128 / Map Int64 return / Int64-key、
-Option Int8/16/32、Option UInt128、Option Int64 return、
+Option Int8/16/32、Option UInt256、Option UInt128 return、Option Int64 return、
 Map/Bytes/nested/非 admitted 元素与 target pureFn aggregate仍 fail closed；
 Field/Principal/String、ContextRead/Commit、nonempty invariants/constants、masterchain/library/
 extra currencies仍 FC。

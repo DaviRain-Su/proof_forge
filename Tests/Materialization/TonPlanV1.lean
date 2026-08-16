@@ -16,7 +16,9 @@
   aggregate FC), B-OPT-STATE Option UInt64 state (Enum-shaped 2-leaf c4
   layout, none default, payload zeroing, match read, tolk→fif), Option Int64
   state as tag+signed int64 cell (not a UInt64 alias and not CosmWasm
-  Regions; Option Int8 / Option UInt128 / Option Int64 return stay FC),
+  Regions), Option UInt128 state as unsigned tag uint64 + one uint128
+  payload cell (not CosmWasm 2-limb / not two UInt64 leaves; Option Int8 /
+  Option UInt256 / Option UInt128 return / Option Int64 return stay FC),
   B-CTX-OPEN context.unixTimeSeconds → Plan blockUnixTimeSeconds / Tolk
   blockchain.now() (entry+view; caller/unknown FC), Array Int64 N as N
   consecutive int64 c4 cells (isInt / loadInt; not a UInt64 alias and not
@@ -30,7 +32,7 @@
   Map Int8 / Map UInt128 / Map Int64 return stay FC), and explicit
   fail-closed boundaries (sync call,
   Int128/256, Array Int64 return, Array UInt256, Array UInt128 return,
-  Array/Map/Option of Int8/16/32 and Map/Opt of UInt128/256,
+  Array/Map/Option of Int8/16/32 and Map of UInt128 / Opt of UInt256,
   UInt128/256 shifts/bitwise, Map/Bytes returns, N>8,
   nested/narrow-element containers, Option params, invariants,
   Field/Principal).
@@ -2470,10 +2472,10 @@ private unsafe def testOptionInt64State
   expect (abi.contains "\"returns\":\"int64\"") "OptInt64 ABI returns int64"
   IO.println "  ✓ Option Int64 state tag+signed int64 cell Plan/IR/Tolk/ABI pin"
 
-/-- Option Int8 / Option UInt128 stay fail closed on the historical payload
-    needle (`requires UInt64 payload` is a contains-match). Anonymous
+/-- Option Int8 stays fail closed on the historical payload needle
+    (`requires UInt64 payload` is a contains-match). Anonymous
     `Option Int64` return stays fail closed on the existing UInt64-payload
-    return needle. -/
+    return needle. Option UInt128  state is admitted separately. -/
 private unsafe def testOptionInt64ElementFc
     (session : Language.Loader.ParserSession) : IO Unit := do
   let optI8 := wrapProgram "OptI8Ton" <|
@@ -2485,16 +2487,6 @@ private unsafe def testOptionInt64ElementFc
   let optI8Compiled ← compileSource session optI8 "Examples.OptI8Ton" "<ton-opt-i8-el>"
   expectPlanErrorContaining "OptI8" "requires UInt64 payload"
     (planTon optI8Compiled)
-  let optU128 := wrapProgram "OptU128Ton" <|
-    "  state o : Option UInt128\n\n" ++
-    "  init() do\n" ++
-    "    o := Option.none()\n\n" ++
-    "  view peek() : UInt64 do\n" ++
-    "    return 0\n"
-  let optU128Compiled ← compileSource session optU128 "Examples.OptU128Ton"
-    "<ton-opt-u128>"
-  expectPlanErrorContaining "OptU128" "requires UInt64 payload"
-    (planTon optU128Compiled)
   let optInt64Ret := wrapProgram "OptInt64RetTon" <|
     "  state slot : Option Int64\n\n" ++
     "  init() do\n" ++
@@ -2506,7 +2498,122 @@ private unsafe def testOptionInt64ElementFc
   expectPlanErrorContaining "OptInt64Ret"
     "anonymous Option return requires UInt64 payload"
     (planTon optInt64RetCompiled)
-  IO.println "  ✓ Option Int8 / Option UInt128 / Option Int64 return stay fail closed"
+  IO.println "  ✓ Option Int8 / Option Int64 return stay fail closed"
+
+/-- TON-OPT-U128: Option UInt128 state = unsigned tag uint64 + one
+    unsigned uint128 payload cell (same 2-leaf flatten as Option
+    UInt64/Int64; not CosmWasm 2-limb Regions and not two UInt64
+    leaves). peek match returns UInt128 — anonymous Option UInt128
+    return stays fail closed. Cell budget 64+64+128=256 ≤ 1023. -/
+private unsafe def testOptionUInt128State
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "OptU128" <|
+    "  state slot : Option UInt128\n\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n\n" ++
+    "  entry set(v : UInt128) : UInt128 do\n" ++
+    "    slot := Option.some(v)\n" ++
+    "    return v\n\n" ++
+    "  entry clear() : UInt128 do\n" ++
+    "    slot := Option.none()\n" ++
+    "    return 0\n\n" ++
+    "  view peek() : UInt128 do\n" ++
+    "    match slot with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let compiled ← compileSource session source "Examples.OptU128"
+    "<ton-option-uint128>"
+  let plan ← liftResult <| planTon compiled
+  expect (plan.storage.fields.size == 2)
+    s!"OptU128: Option UInt128 must flatten to tag+payload (2), got {plan.storage.fields.size}"
+  expect (plan.storage.fields.map (·.name) == #["slot_tag", "slot_p0"])
+    s!"OptU128: leaf names must be slot_tag/slot_p0, got {plan.storage.fields.map (·.name)}"
+  expect (plan.storage.fields[0]!.byteWidth == 8) "OptU128 tag byteWidth=8"
+  expect (plan.storage.fields[1]!.byteWidth == 16) "OptU128 p0 byteWidth=16"
+  expect (!plan.storage.fields[0]!.isInt) "OptU128 tag stays unsigned"
+  expect (!plan.storage.fields[1]!.isInt) "OptU128 p0 is unsigned UInt128"
+  expect (layoutFieldTypeSuffix
+      plan.storage.fields[0]!.byteWidth plan.storage.fields[0]!.isInt == "u64-le")
+    "OptU128 tag ABI suffix is u64-le"
+  expect (layoutFieldTypeSuffix
+      plan.storage.fields[1]!.byteWidth plan.storage.fields[1]!.isInt == "u128-le")
+    "OptU128 p0 ABI suffix is u128-le (not u64-le / not 2-limb)"
+  let noneAtomic (body : Array Statement) : Bool :=
+    body.any fun s =>
+      match s with
+      | .storeAtomic leaves =>
+          leaves.size == 2 &&
+            leaves[0]!.byteWidth == 8 && leaves[1]!.byteWidth == 16 &&
+            leaves[0]!.value == .literal 0 && leaves[1]!.value == .literal 0 &&
+            leaves[0]!.fieldIndex == plan.storage.fields[0]!.sourceId &&
+            leaves[1]!.fieldIndex == plan.storage.fields[1]!.sourceId
+      | _ => false
+  expect (noneAtomic plan.initializer.body)
+    "OptU128 init Option.none must storeAtomic tag u64 + payload u128 zeros"
+  let some set := plan.entries.find? (·.name == "set") |
+    throw <| IO.userError "OptU128 missing set"
+  expect (set.resultKind == MethodResultKind.uint128) "OptU128 set result UInt128"
+  let setAtomic := set.body.any fun s =>
+    match s with
+    | .storeAtomic leaves =>
+        leaves.size == 2 &&
+          leaves[0]!.byteWidth == 8 && leaves[1]!.byteWidth == 16 &&
+          leaves[0]!.value == .literal 1 &&
+          match leaves[1]!.value with
+          | .param _ => true
+          | .narrowParam 128 _ => true
+          | _ => false
+    | _ => false
+  expect setAtomic "OptU128 set some(v) must storeAtomic tag=1 + UInt128 param"
+  let some clear := plan.entries.find? (·.name == "clear") |
+    throw <| IO.userError "OptU128 missing clear"
+  expect (noneAtomic clear.body)
+    "OptU128 clear Option.none must storeAtomic 2-leaf zeros"
+  let some peek := plan.entries.find? (·.name == "peek") |
+    throw <| IO.userError "OptU128 missing peek"
+  expect (peek.mode == .view && peek.resultKind == MethodResultKind.uint128)
+    "OptU128 peek must be view UInt128 (not Option UInt128 return)"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"OptU128 plan must validate: {e.render}"
+  let files ← liftResult <| filesTon compiled
+  let tolk ← findFile files "OptU128.tolk"
+  expect (tolk.contains "slot_tag: uint64") "OptU128 Tolk slot_tag: uint64"
+  expect (tolk.contains "slot_p0: uint128") "OptU128 Tolk slot_p0: uint128"
+  expect (!tolk.contains "slot_p0: uint64")
+    "OptU128 Tolk must not alias slot_p0 as uint64"
+  expect (!tolk.contains "slot_p0_lo" && !tolk.contains "slot_p0_hi" &&
+      !tolk.contains "slot_p0_l0" && !tolk.contains "slot_p0_l1")
+    "OptU128 Tolk must not emit CosmWasm 2-limb names"
+  expect (tolk.contains "body.loadUint(128)") "OptU128 param loadUint(128)"
+  expect (tolk.contains "(1 << 128)") "OptU128 UInt128 range guard"
+  let abi ← findFile files "OptU128.ton-abi.json"
+  expect (abi.contains "{\"name\":\"slot_tag\",\"type\":\"uint64\"}")
+    s!"OptU128 ABI tag must stay uint64, got: {abi}"
+  expect (abi.contains "{\"name\":\"slot_p0\",\"type\":\"uint128\"}")
+    s!"OptU128 ABI p0 must be uint128 (not a UInt64 alias), got: {abi}"
+  expect (abi.contains "\"type\":\"uint128\"") "OptU128 ABI JSON type uint128"
+  expect (abi.contains "\"returns\":\"uint128\"") "OptU128 ABI returns uint128"
+  IO.println "  ✓ Option UInt128 state tag+uint128 cell Plan/IR/Tolk/ABI pin"
+
+/-- Anonymous Option UInt128 view return stays UInt64-only after state
+    started admitting a UInt128 payload. -/
+private unsafe def testOptionUInt128ReturnFc
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "OptU128Ret" <|
+    "  state slot : Option UInt128\n\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n\n" ++
+    "  view get() : Option UInt128 do\n" ++
+    "    return slot\n"
+  let compiled ← compileSource session src "Examples.OptU128Ret"
+    "<ton-opt-u128-ret>"
+  expectPlanErrorContaining "OptU128Ret"
+    "anonymous Option return requires UInt64 payload"
+    (planTon compiled)
+  IO.println "  ✓ Option UInt128 return stays fail closed"
 
 /-- B-CTX-OPEN (BL-38): `context.unixTimeSeconds` lowers on TON to Tolk
     `blockchain.now()` (Plan Expr tag 51 / `blockUnixTimeSeconds`);
@@ -2836,6 +2943,8 @@ unsafe def run : IO Unit := do
   testOptionState session
   testOptionInt64State session
   testOptionInt64ElementFc session
+  testOptionUInt128State session
+  testOptionUInt128ReturnFc session
   testAggregateFailClosed session
   testContextReadUnixTime session
   testEnvReadNativeStayFailClosed session

@@ -16783,3 +16783,19 @@ normative: false
   ArrI8 / ArrU256 仍走 `Array state element must be UInt64` contains-match。
   Targets ArrU128 EVM+TON files-nonempty。Map/Opt-of-UInt128 与 Array UInt256
   未开。**不**声称 sandbox / formal / runtime / hermetic / release。
+
+## 2026-08-16 — TON-OPT-U128 TON Option UInt128 tag+uint128 cell（engineering）
+
+- TON `requireOptionUInt64StateV1` 现返回 `(payloadByteWidth, payloadIsInt)`
+  并接纳匿名 `Option UInt128`：`name_tag` 无符号 uint64 cell + `name_p0`
+  一个 unsigned `uint128` cell（`loadUint(128)` / int257 `0≤t<2^128`）。
+  不是 CosmWasm 2-limb Regions，也不是两个 UInt64 叶。State load 对
+  payload 走 `narrowStateLoad 128`；construct/match `variantPayload` 接纳
+  uint128 payload。Cell budget `64+64+128=256≤1023`。
+- `TonPlanV1` 钉 `OptU128` tag `byteWidth=8` / p0 `byteWidth=16` /
+  `u128-le` / `slot_p0: uint128` / `loadUint(128)` / `(1 << 128)` +
+  Focus；匿名 Option UInt128 return 走
+  `anonymous Option return requires UInt64 payload`。OptI8 / OptU256
+  仍走 `requires UInt64 payload` contains-match。Targets OptU128 TON
+  files-nonempty。Map-of-UInt128 与 Option UInt256 未开。**不**声称
+  sandbox / formal / runtime / hermetic / release。

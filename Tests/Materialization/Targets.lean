@@ -7023,10 +7023,11 @@ unsafe def runRemainingNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "OptInt" TargetId.icp TargetKind.icp
     optIntCompiled "anonymous Option is outside the current container-state pilot"
 
-  -- OptU128: Option UInt128 state. All twelve stay named FC. Aleo/TON
-  -- share the Option-payload needle (UInt128 width is admitted).
-  -- Quint/Soroban/OpenVM/ICP stay on the UInt64 width needle. Not
-  -- opening Option-of-UInt128.
+  -- OptU128: Option UInt128 state. TON admits as tag uint64 + one
+  -- uint128 payload cell (not CosmWasm 2-limb). Other eleven stay
+  -- named FC. Aleo shares the Option-payload needle (UInt128 width
+  -- is admitted). Quint/Soroban/OpenVM/ICP stay on the UInt64 width
+  -- needle. Not opening Option-of-UInt128 on the eleven.
   let optU128Source :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -7056,8 +7057,9 @@ unsafe def runRemainingNeedles : IO Unit := do
       (TargetId.aleo, TargetKind.aleo)] do
     expectMaterializePlanInvariantV1 "OptU128" target kind optU128Compiled
       "Option state 'o' requires UInt64 payload"
-  expectMaterializePlanInvariantV1 "OptU128" TargetId.ton TargetKind.ton
-    optU128Compiled "Option state 'o' requires UInt64 payload"
+  let optU128TonOut ← liftResult <| materializeSelected TargetId.ton optU128Compiled
+  expect (!(MaterializedArtifactsV1.filesOf optU128TonOut).isEmpty)
+    "OptU128: ton must materialize Option UInt128"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
