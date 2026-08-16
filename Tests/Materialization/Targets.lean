@@ -4909,8 +4909,9 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "ArrBool" TargetId.openvm TargetKind.openvm
     arrBoolCompiled "Array element must be UInt64"
 
-  -- ArrInt: Array Int64 2 state. CosmWasm admits N×8-byte signed leaves.
-  -- Eleven stay named Array-element FC. Not opening Array-of-Int8 or
+  -- ArrInt: Array Int64 2 state. CosmWasm admits N×8-byte signed KV leaves;
+  -- TON admits N consecutive int64 c4 cells (isInt / loadInt). Other ten
+  -- stay named Array-element FC. Not opening Array-of-Int8 or
   -- Array-of-UInt128. ArrBool / ArrayBox / MapInt / OptInt / MapBool stay.
   let arrIntSource :=
     "import ProofForgeV2\n\n" ++
@@ -4935,13 +4936,15 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
   let arrIntOut ← liftResult <| materializeSelected TargetId.cosmwasm arrIntCompiled
   expect (!(MaterializedArtifactsV1.filesOf arrIntOut).isEmpty)
     "ArrInt: cosmwasm must materialize Array Int64 2"
+  let arrIntTonOut ← liftResult <| materializeSelected TargetId.ton arrIntCompiled
+  expect (!(MaterializedArtifactsV1.filesOf arrIntTonOut).isEmpty)
+    "ArrInt: ton must materialize Array Int64 2"
   for (target, kind) in #[
       (TargetId.solana, TargetKind.solana),
       (TargetId.near, TargetKind.near),
       (TargetId.noir, TargetKind.noir),
       (TargetId.aleo, TargetKind.aleo),
-      (TargetId.psy, TargetKind.psy),
-      (TargetId.ton, TargetKind.ton)] do
+      (TargetId.psy, TargetKind.psy)] do
     expectMaterializePlanInvariantV1 "ArrInt" target kind arrIntCompiled
       "Array state element must be UInt64"
   expectMaterializePlanInvariantV1 "ArrInt" TargetId.quint TargetKind.quint

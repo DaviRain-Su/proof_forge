@@ -795,6 +795,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-16 | **CW-U256**：CosmWasm 公共 UInt256 作为四个连续 8-byte KV Region + 四个 JSON decimal limb + 4-limb `setReturnDataMulti`（`_l0`..`_l3`；物理仍 `pf_db_load_u64`/`pf_db_store_u64`）。不是 32-byte Region，也不是 TON 单 cell。WideUInt256 七 target admit（evm/solana/near/noir/psy/ton/cosmwasm）。Arr/Map/Opt-U256 与 Int128/256 仍 FC。**不**声称 wasmd / formal / runtime parity |
 | 2026-08-16 | **NEAR-I8-32**：NEAR 公共 Int8/16/32 作为与 UInt8/16/32 同物理宽度的 1/2/4-byte LE two's complement（`iN-le`、load 符号扩展、add/sub/mul 按声明宽度 checked）。不是 8-byte-only Int64，也不是 CosmWasm 8-byte Region 或 TON `intN` cell。WideInt8/16/32 八 target admit（evm/solana/near/noir/psy/aleo/cw/ton）。Envelope-4 仍走宽度针。Int128/256 与 Arr/Map/Opt of Int8/16/32 仍 FC。**不**声称 sandbox / formal / runtime parity |
 | 2026-08-16 | **CW-ARR-INT**：CosmWasm `Array Int64 N`（1..8）作为 N 个连续 8-byte signed KV 叶（`isInt`、ABI `i64-le`；flatten 同 Array UInt64）。不是 packed array，也不是 UInt64 别名。IndexGet/IndexSet/storeAtomic 保留 signedness。Array Int8/16/32、Array UInt128、Map/Opt of Int 仍 FC。**不**声称 wasmd / formal / runtime parity |
+| 2026-08-16 | **TON-ARR-INT**：TON `Array Int64 N`（1..8）作为 N 个连续 8-byte signed c4 cell（`isInt`、Tolk `int64` / `loadInt`；flatten 同 Array UInt64）。不是 UInt64 位别名，也不是 CosmWasm Regions。IndexGet/IndexSet/storeAtomic 保留 signedness。Array Int64 return、Array Int8、Array UInt128、Map/Opt of Int 仍 FC。**不**声称 sandbox / formal / runtime parity |
 
 ---
 

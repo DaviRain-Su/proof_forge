@@ -16662,3 +16662,18 @@ normative: false
   `Array state element must be UInt64` contains-match。Targets ArrInt 仅
   CosmWasm files-nonempty。Arr/Map/Opt of Int8/16/32 与 UInt128 仍 FC。
   **不**声称 wasmd / formal / runtime / hermetic / release。
+
+## 2026-08-16 — TON-ARR-INT TON Array Int64 N×int64 c4 cells（engineering）
+
+- TON `containerLeafLayoutV1` 现接纳 `Array UInt64 N` 或 `Array Int64 N`
+  （`leafIsInt`）。Int64 叶为 8-byte `isInt` c4 cell（Tolk `int64` /
+  `loadInt`），flatten 与 Array UInt64 相同；不是 packed array，不是
+  UInt64 位别名，也不是 CosmWasm Regions。`storeAtomic` 仍只抄
+  `field.byteWidth`；signedness 在 `StorageField.isInt`，Emit 渲染
+  `int64` / `loadInt`。IndexGet/IndexSet/construct 要求元素 signedness
+  一致。`anonymousReturnLeafAbiV1` 仍只接受 UInt64 元素。
+- `TonPlanV1` 钉 `ArrInt64` 两叶 `slots_0`/`slots_1` + storeAtomic
+  8-byte + Focus；Array Int8 / Array UInt128 仍走
+  `Array state element must be UInt64` contains-match。Targets ArrInt
+  CosmWasm+TON files-nonempty。Arr/Map/Opt of Int8 与 Array UInt128 仍
+  FC。**不**声称 sandbox / formal / runtime / hermetic / release。

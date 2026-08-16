@@ -41,10 +41,14 @@ stub、body=`op32 · query_id=0 · UInt64 args`；仅 init/mutate，view/pureFn 
 `assert (0 <= t)`（非负 int257 已蕴含 `0≤t<2^256`；不得发射不可表示的
 `(1 << 256)`；越界加/乘先由 TVM ADD/MUL 溢出）**，不是 CosmWasm 式 lo/hi
 或 4-limb；Int128/256 仍 FC；UInt128/256 的 Array/Map/Option 与 shl/shr/bitwise 仍
-FC）；named Struct/Enum、`Array UInt64 N`、dense `Map UInt64 UInt64` cap-8 与
-fixed `Bytes N` state 已 flatten 到 c4；named Struct/Enum 以及 anonymous
-`Array UInt64 N`（1..8）/`Option UInt64` **view** 返回已开多栈 get-method。entry aggregate、
-Map/Bytes/nested/非 UInt64元素与 target pureFn aggregate仍 fail closed；
+FC）；named Struct/Enum、`Array UInt64 N` 与 `Array Int64 N`、dense
+`Map UInt64 UInt64` cap-8 与
+fixed `Bytes N` state 已 flatten 到 c4。**Array Int64 N** 是 N 个连续
+`int64` c4 cell（`isInt` / `loadInt`），flatten 与 Array UInt64 相同；**不是**
+UInt64 位别名，也**不是** CosmWasm Regions。named Struct/Enum 以及 anonymous
+`Array UInt64 N`（1..8）/`Option UInt64` **view** 返回已开多栈 get-method。entry
+aggregate、Array Int64 return、Array Int8、Array UInt128、Map/Opt of Int、
+Map/Bytes/nested/非 admitted 元素与 target pureFn aggregate仍 fail closed；
 Field/Principal/String、ContextRead/Commit、nonempty invariants/constants、masterchain/library/
 extra currencies仍 FC。
 
