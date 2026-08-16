@@ -91,6 +91,10 @@ def subjectDataV1
   requirements := requirementsV1
 }
 
+/-- Exact production body encoder proposition used by generated subjects. -/
+def bodyEncodeOkV1 (data : SemanticProgramDataV1) (bytes : ByteArray) : Prop :=
+  encodeSemanticProgramDataBodyV1 data = .ok bytes
+
 theorem exactAtRoot_typesV1 :
     ExactMidOffsetInvertAtV1 (encodeArray encodeTypeDeclV1)
       (decodeArray maxTableElements decodeTypeDeclV1)
@@ -756,5 +760,18 @@ theorem structureV1
   · exact (emptyOperationRequirementsV1 qualifiedName state0Name state1Name
       state2Name viewName literalInvariantName eqInvariantName
       neInvariantName).2.2
+
+/-- The parameterized family also passes the sole production Reference resource
+    admission scan. This proves a check result; the private admitted carrier is
+    still minted only by `admitReferenceProgramSliceV1`. -/
+theorem referenceAdmissionV1
+    (qualifiedName : QualifiedName)
+    (state0Name state1Name state2Name : String)
+    (viewName literalInvariantName eqInvariantName neInvariantName : String) :
+    ProofForgeV2.Semantic.ReferenceV1.validateReferenceProgramDataAdmissionV1
+        (subjectDataV1 qualifiedName state0Name state1Name state2Name viewName
+          literalInvariantName eqInvariantName neInvariantName) = .ok () := by
+  set_option maxRecDepth 400000 in
+  rfl
 
 end ProofForgeV2.Semantic.FieldComparisonSubjectV1

@@ -16573,3 +16573,17 @@ normative: false
   EffectCheck、BoundCheck、DisclosureCheck、AuthorityCustodyCheck及ContextExtensionCheck，因此还不能宣称
   `checkProgramTypedResultV1`整体通过，也尚未mint `CompiledSemanticV1` identity。下一处确定阻塞是
   production `TypeCheckV1`中StateCell reachable的kernel-opaque recursive walkers。
+
+## 2026-08-16 — FieldComparison Subject sibling APIs（engineering packaging）
+
+- `FieldComparisonSubjectV1` 现与其它 production subject 家族对齐：`bodyEncodeOkV1` 是
+  `encodeSemanticProgramDataBodyV1 data = .ok bytes` 的命名命题，`referenceAdmissionV1`
+  证明参数化家族通过 sole production `validateReferenceProgramDataAdmissionV1`。
+  私有 admitted carrier 仍只由 `admitReferenceProgramSliceV1` 铸造。
+- 不提交 `FieldComparisonPreservationV1`。工作区草稿相对当前 PreservationABI / Outcome
+  分案已过期，且 ordinal 2（`state0 != state1`）在无 initializer/entry 的全零初态上
+  不成立；禁止用 `sorry` 或改家族形状硬关。下一刀 `FC-PRESERVE` 需按
+  `StatefulEqualityPreservationV1` / `InitializerViewEqualityPreservationV1` 现用 lemma
+  重写 ordinal 0/1。
+- `lake build ProofForgeV2.Semantic.FieldComparisonSubjectV1` 通过。**不**声称 formal
+  TASK-D2-07 / TST-SEM-002/003 / target refinement。
