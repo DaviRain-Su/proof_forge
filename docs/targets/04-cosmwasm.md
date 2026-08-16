@@ -36,12 +36,13 @@ restoring binary long division；Arr/Map/Opt-U256 仍 FC；**Int{8,16,32} ABI** 
 temp、按宽度 checked overflow），Int128/256 仍 FC）；named
 Struct/Enum state、`Array UInt64 N` 与 **`Array Int64 N`（1..8）** state 与 dense `Map UInt64 UInt64` **cap-4** state 已开（cosmwasm-vm MAX_LOCALS；emit CSE）。
 **Array Int64 N** 是 N 个连续 8-byte **signed** KV 叶（`isInt`、ABI `i64-le`），flatten 与 Array UInt64 相同；**不是** packed array，也**不是** UInt64 别名。
+**Option Int64 state** 是 Enum 形双叶：`name_tag` 无符号 u64-le + `name_p0` 有符号 i64-le；flatten 与 Option UInt64 相同；**不是** UInt64 别名。
 ≤8 个
 UInt64/Int64 leaf 的 named entry/view aggregate return，以及 anonymous `Array UInt64 N`
 （1..8）/`Option UInt64`/`Bytes N`（1..8，JSON 十进制数组、字节零扩展）entry/view return 已开；
 **Bytes N state**（1-byte KV leaves）与 **scalar `const` / `Op.Constant`**（UInt{8,16,32,64}/
 Int64/Bool 表）已开。**dense Map return**（`Map UInt64 UInt64` cap-8 → 24-leaf occ/key/val
-JSON decimals；`Examples/MapDump` + `map_dump.rs`）已开。nested/非 UInt64 元素（**Arr/Map/Opt of Int8/16/32 与 UInt128 仍 FC**；Array Int64 return 与 Map/Opt of Int 仍 FC）、aggregate
+JSON decimals；`Examples/MapDump` + `map_dump.rs`）已开。nested/非 UInt64 元素（**Arr/Map/Opt of Int8/16/32 与 UInt128 仍 FC**；Array Int64 return、Map of Int 与 Option Int64 return 仍 FC）、aggregate
 param/pureFn、invariants 仍 fail closed。
 
 **runtime rungs**：`runtime-tests/cosmwasm` 的 cosmwasm-vm 3.0.9 mock 覆盖
@@ -142,7 +143,7 @@ Field/Principal/String interface、除 execute/init `context.caller` 与 Env-bac
 `context.blockHeight`（含 cw-vm runtime 门）外的 ContextRead、Commit、nonempty
 **invariants**（scalar constants 已开）、Arr/Map/Opt-U256（bare UInt256 ABI 已开：
 4×8-byte Region + 4 JSON decimals，不是 32-byte KV / TON uint256 cell）、
-Int128/256、Arr/Map/Opt of Int8/16/32 与 UInt128、JSON 全集与 gas model。Option UInt64 state、Bytes N state/return、dense Map
+Int128/256、Arr/Map/Opt of Int8/16/32 与 UInt128、Map of Int、Option Int64 return、JSON 全集与 gas model。Option UInt64 state、Option Int64 state（unsigned tag + signed 8-byte payload）、Bytes N state/return、dense Map
 return（cap-8）、Array Int64 N state（N×8-byte signed leaves）已开。wasmd smart query 当前仍非 Binary，rung-1 harness 使用 raw state。
 不得写成 formal runtime-validated。
 

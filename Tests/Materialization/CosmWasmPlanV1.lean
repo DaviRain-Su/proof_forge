@@ -10,7 +10,9 @@
   anonymous Array UInt64 N / Option UInt64 entry/view returns (ArrayRet/
   OptionRet Plan/IR/WAT/ABI pins + Map/Bytes/N>8/nested FC), B-OPT-STATE
   Option UInt64 state (OptionState tag+payload / storeAtomic / none zeroing +
-  non-UInt64/nested/param FC), sync call still fail closed, multi-width
+  non-UInt64/nested/param FC) and Option Int64 state (unsigned tag + signed
+  i64-le payload; Option Int8 / Option UInt128 / Option Int64 return FC),
+  sync call still fail closed, multi-width
   UInt8/16/32 pins (body guards / param range / 8-byte narrow state slots),
   UInt128 2-limb ABI and UInt256 4-limb ABI (state/param/result; 8-byte
   Regions only), Array Int64 N as N×8-byte signed KV leaves (isInt /
@@ -1499,6 +1501,124 @@ private unsafe def testOptionState
     s!"OptionState ABI must declare getOpt, got: {abi}"
   IO.println "  ✓ OptionState Option UInt64 state Plan/IR/WAT/ABI pin"
 
+/-- CW-OPT-INT: Option Int64 state = unsigned tag + signed 8-byte payload
+    (same flatten as Option UInt64; not a UInt64 alias). peek match returns
+    Int64 — anonymous Option Int64 return stays fail closed. -/
+private unsafe def testOptionInt64State
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "OptInt64" <|
+    "  state slot : Option Int64\n\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n\n" ++
+    "  entry set(v : Int64) : Int64 do\n" ++
+    "    slot := Option.some(v)\n" ++
+    "    return v\n\n" ++
+    "  entry clear() : Int64 do\n" ++
+    "    slot := Option.none()\n" ++
+    "    return 0\n\n" ++
+    "  view peek() : Int64 do\n" ++
+    "    match slot with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let compiled ← compileSource session source "Examples.OptInt64"
+    "<cw-option-int64>"
+  let plan ← liftResult <| planCw compiled
+  expect (plan.storage.fields.size == 2)
+    s!"OptInt64: Option Int64 must flatten to tag+payload (2), got {plan.storage.fields.size}"
+  expect (plan.storage.fields.map (·.name) == #["slot_tag", "slot_p0"])
+    s!"OptInt64: leaf names must be slot_tag/slot_p0, got {plan.storage.fields.map (·.name)}"
+  expect (plan.storage.fields[0]!.byteWidth == 8) "OptInt64 tag byteWidth=8"
+  expect (plan.storage.fields[1]!.byteWidth == 8) "OptInt64 p0 byteWidth=8"
+  expect (!plan.storage.fields[0]!.isInt) "OptInt64 tag stays unsigned"
+  expect plan.storage.fields[1]!.isInt "OptInt64 p0 is signed Int64"
+  expect (layoutFieldTypeSuffix
+      plan.storage.fields[0]!.byteWidth plan.storage.fields[0]!.isInt == "u64-le")
+    "OptInt64 tag ABI suffix is u64-le"
+  expect (layoutFieldTypeSuffix
+      plan.storage.fields[1]!.byteWidth plan.storage.fields[1]!.isInt == "i64-le")
+    "OptInt64 p0 ABI suffix is i64-le (not a UInt64 alias)"
+  let mixedAtomic (body : Array Statement) : Bool :=
+    body.any fun s =>
+      match s with
+      | .storeAtomic leaves =>
+          leaves.size == 2 &&
+            !leaves[0]!.isInt && leaves[0]!.byteWidth == 8 &&
+            leaves[1]!.isInt && leaves[1]!.byteWidth == 8
+      | _ => false
+  expect (mixedAtomic plan.initializer.body)
+    "OptInt64 init Option.none must storeAtomic mixed isInt (tag u64, p0 i64)"
+  let some set := plan.entries.find? (·.name == "set") |
+    throw <| IO.userError "OptInt64 missing set"
+  expect (set.resultKind == MethodResultKind.int64) "OptInt64 set result Int64"
+  expect (mixedAtomic set.body)
+    "OptInt64 set some(v) must storeAtomic mixed isInt"
+  let some clear := plan.entries.find? (·.name == "clear") |
+    throw <| IO.userError "OptInt64 missing clear"
+  expect (mixedAtomic clear.body)
+    "OptInt64 clear Option.none must storeAtomic mixed isInt"
+  let some peek := plan.entries.find? (·.name == "peek") |
+    throw <| IO.userError "OptInt64 missing peek"
+  expect (peek.mode == .view && peek.resultKind == MethodResultKind.int64)
+    "OptInt64 peek must be view Int64 (not Option Int64 return)"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"OptInt64 plan must validate: {e.render}"
+  let files ← liftResult <| filesCw compiled
+  let wat ← findFile files "OptInt64.wat"
+  expect (wat.contains "pf_db_load_u64") "OptInt64 WAT 8-byte Region load"
+  expect (wat.contains "pf_db_store_u64") "OptInt64 WAT 8-byte Region store"
+  expect (wat.contains "pf:cw:v1:state:0") "OptInt64 WAT state key 0"
+  expect (wat.contains "pf:cw:v1:state:1") "OptInt64 WAT state key 1"
+  let abi ← findFile files "OptInt64.cosmwasm-abi.json"
+  expect (abi.contains
+      "{\"name\":\"slot_tag\",\"key\":\"pf:cw:v1:state:0\",\"type\":\"u64\"}")
+    s!"OptInt64 ABI tag must be u64, got: {abi}"
+  expect (abi.contains
+      "{\"name\":\"slot_p0\",\"key\":\"pf:cw:v1:state:1\",\"type\":\"i64\"}")
+    s!"OptInt64 ABI p0 must be i64 (not both-u64 alias), got: {abi}"
+  expect (abi.contains "\"returns\":\"i64\"") "OptInt64 ABI returns i64"
+  IO.println "  ✓ Option Int64 state tag+signed payload Plan/IR/WAT/ABI pin"
+
+/-- Option Int8 / Option UInt128 stay fail closed on the historical payload
+    needle (`requires UInt64 payload` is a contains-match). Anonymous
+    `Option Int64` return stays fail closed on the existing UInt64-payload
+    return needle. -/
+private unsafe def testOptionInt64ElementFc
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let optI8 := wrapProgram "OptI8Cw" <|
+    "  state o : Option Int8\n\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return 0\n"
+  let optI8Compiled ← compileSource session optI8 "Examples.OptI8Cw" "<cw-opt-i8>"
+  expectPlanErrorContaining "OptI8" "requires UInt64 payload"
+    (planCw optI8Compiled)
+  let optU128 := wrapProgram "OptU128Cw" <|
+    "  state o : Option UInt128\n\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return 0\n"
+  let optU128Compiled ← compileSource session optU128 "Examples.OptU128Cw"
+    "<cw-opt-u128>"
+  expectPlanErrorContaining "OptU128" "requires UInt64 payload"
+    (planCw optU128Compiled)
+  let optInt64Ret := wrapProgram "OptInt64RetCw" <|
+    "  state slot : Option Int64\n\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n\n" ++
+    "  view get() : Option Int64 do\n" ++
+    "    return slot\n"
+  let optInt64RetCompiled ← compileSource session optInt64Ret
+    "Examples.OptInt64RetCw" "<cw-opt-int64-ret>"
+  expectPlanErrorContaining "OptInt64Ret"
+    "anonymous Option return requires UInt64 payload"
+    (planCw optInt64RetCompiled)
+  IO.println "  ✓ Option Int8 / Option UInt128 / Option Int64 return stay fail closed"
+
 /-- B-OPT-STATE FC: Option of non-UInt64, nested Option, Option params stay closed. -/
 private unsafe def expectOptionStateFailClosed
     (session : Language.Loader.ParserSession)
@@ -2064,6 +2184,8 @@ unsafe def run : IO Unit := do
   testAnonymousOptionReturn session
   testAnonymousReturnBoundaries session
   testOptionState session
+  testOptionInt64State session
+  testOptionInt64ElementFc session
   testOptionStateFailClosed session
   testInvariantFc session
   testMaterializeAggregate session

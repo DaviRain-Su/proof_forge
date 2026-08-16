@@ -16677,3 +16677,17 @@ normative: false
   `Array state element must be UInt64` contains-match。Targets ArrInt
   CosmWasm+TON files-nonempty。Arr/Map/Opt of Int8 与 Array UInt128 仍
   FC。**不**声称 sandbox / formal / runtime / hermetic / release。
+
+## 2026-08-16 — CW-OPT-INT CosmWasm Option Int64 2-leaf state（engineering）
+
+- CosmWasm `requireOptionUInt64StateV1` 现接纳匿名 `Option UInt64` 或
+  `Option Int64`（返回 `payloadIsInt`）。tag 叶保持无符号 u64-le；payload
+  仅在 Int64 时 `isInt` / ABI `i64-le`。flatten 与 Option UInt64 相同
+  （`name_tag`/`name_p0`、none 默认双叶清零、storeAtomic 抄 `field.isInt`、
+  match 走既有 VariantTag/VariantPayload）。不是 UInt64 别名。物理 WAT
+  仍 `pf_db_*_u64`。`anonymousReturnLeafAbiV1` Option 臂仍只接受 UInt64。
+- `CosmWasmPlanV1` 钉 `OptInt64` 双叶 mixed isInt + Focus；Option Int8 /
+  Option UInt128 仍走 `requires UInt64 payload` contains-match；匿名
+  Option Int64 return 仍 `anonymous Option return requires UInt64 payload`。
+  Targets OptInt 仅 CosmWasm files-nonempty。Map of Int 与 Opt of Int8 /
+  UInt128 仍 FC。**不**声称 wasmd / formal / runtime / hermetic / release。

@@ -6974,10 +6974,12 @@ unsafe def runRemainingNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "OptBool" TargetId.icp TargetKind.icp
     optBoolCompiled "anonymous Option is outside the current container-state pilot"
 
-  -- OptInt: Option Int64 state. Eight targets stay named Option-payload
-  -- FC. Quint/Soroban/OpenVM admit Option type so they fail on payload.
-  -- ICP stays Option-pilot. Not opening Option-of-Int64. OptBool /
-  -- OptBox / MapBool / ArrBool / BoolPredicate stay.
+  -- OptInt: Option Int64 state. CosmWasm admits unsigned tag + signed
+  -- payload (same 2-leaf flatten as Option UInt64; not a UInt64 alias).
+  -- Other eleven stay named Option-payload FC. Quint/Soroban/OpenVM
+  -- admit Option type so they fail on payload. ICP stays Option-pilot.
+  -- Not opening Option-of-Int8 or Option-of-UInt128. OptBool / OptBox /
+  -- MapBool / ArrBool / BoolPredicate stay.
   let optIntSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -6999,12 +7001,14 @@ unsafe def runRemainingNeedles : IO Unit := do
     optIntCompiled "Option state admits only UInt64 payload"
   expectMaterializePlanInvariantV1 "OptInt" TargetId.solana TargetKind.solana
     optIntCompiled "Option state 'o' element must be UInt64"
+  let optIntOut ← liftResult <| materializeSelected TargetId.cosmwasm optIntCompiled
+  expect (!(MaterializedArtifactsV1.filesOf optIntOut).isEmpty)
+    "OptInt: cosmwasm must materialize Option Int64"
   for (target, kind) in #[
       (TargetId.near, TargetKind.near),
       (TargetId.noir, TargetKind.noir),
       (TargetId.aleo, TargetKind.aleo),
       (TargetId.psy, TargetKind.psy),
-      (TargetId.cosmwasm, TargetKind.cosmwasm),
       (TargetId.ton, TargetKind.ton)] do
     expectMaterializePlanInvariantV1 "OptInt" target kind optIntCompiled
       "Option state 'o' requires UInt64 payload"

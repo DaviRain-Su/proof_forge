@@ -34,7 +34,8 @@ Goal: lift envelope-4 toward mid-tier (CW/TON/Aleo/Psy), then mid-tier toward th
 | CW-U256 | main | CosmWasm public UInt256 as 4×8-byte KV Regions + 4 JSON decimals + 4-limb return (not a 32-byte Region, not TON one-cell); WideUInt256 seven-target; Arr/Map/Opt-U256 and Int128/256 stay FC | **committed** `ddb22ab85` |
 | NEAR-I8-32 | main | NEAR public Int8/16/32 as 1/2/4-byte LE two's complement (same physical widths as UInt8/16/32, `iN-le`, sign-extend load, width-checked add/sub/mul; not CW Region, not TON intN cell); WideInt8/16/32 eight-target; Int128/256 and Arr/Map/Opt-Int stay FC | **committed** `43203d6ac` |
 | CW-ARR-INT | main | CosmWasm Array Int64 N (1..8) as N×8-byte `isInt` Regions (ABI `i64-le`; same flatten as Array UInt64; not packed / not UInt64 alias). Not Array-of-Int8/UInt128; not TON/Aleo | **committed** `0285ab03f` |
-| TON-ARR-INT | main | TON Array Int64 N (1..8) as N consecutive 8-byte `isInt` c4 cells (`int64` / `loadInt`; same flatten as Array UInt64; not a UInt64 alias, not CW Regions). Not Array-of-Int8/UInt128; not Map/Opt of Int | hash left for Commit |
+| TON-ARR-INT | main | TON Array Int64 N (1..8) as N consecutive 8-byte `isInt` c4 cells (`int64` / `loadInt`; same flatten as Array UInt64; not a UInt64 alias, not CW Regions). Not Array-of-Int8/UInt128; not Map/Opt of Int | **committed** `743ba7c64` |
+| CW-OPT-INT | main | CosmWasm anonymous Option Int64 state as existing 2-leaf Option layout (`name_tag` unsigned u64-le + `name_p0` signed i64-le). Reuse Option UInt64 tag/payload/storeAtomic/match. Not Option-of-Int8/16/32, not Option-of-UInt128, not Option Int64 return, not TON/Aleo | hash left for Commit |
 
 **File lock:** workers must not edit `Tests/Materialization/Targets.lean` or another target's tree. `FieldComparison*` is a main-agent serial slice (`FC-PRESERVE`), not a parallel leaf. Main agent integrates WideInt64 / OptInt / ArrInt / MapInt needles after each leaf lands.
 

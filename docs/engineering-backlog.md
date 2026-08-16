@@ -796,6 +796,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-16 | **NEAR-I8-32**：NEAR 公共 Int8/16/32 作为与 UInt8/16/32 同物理宽度的 1/2/4-byte LE two's complement（`iN-le`、load 符号扩展、add/sub/mul 按声明宽度 checked）。不是 8-byte-only Int64，也不是 CosmWasm 8-byte Region 或 TON `intN` cell。WideInt8/16/32 八 target admit（evm/solana/near/noir/psy/aleo/cw/ton）。Envelope-4 仍走宽度针。Int128/256 与 Arr/Map/Opt of Int8/16/32 仍 FC。**不**声称 sandbox / formal / runtime parity |
 | 2026-08-16 | **CW-ARR-INT**：CosmWasm `Array Int64 N`（1..8）作为 N 个连续 8-byte signed KV 叶（`isInt`、ABI `i64-le`；flatten 同 Array UInt64）。不是 packed array，也不是 UInt64 别名。IndexGet/IndexSet/storeAtomic 保留 signedness。Array Int8/16/32、Array UInt128、Map/Opt of Int 仍 FC。**不**声称 wasmd / formal / runtime parity |
 | 2026-08-16 | **TON-ARR-INT**：TON `Array Int64 N`（1..8）作为 N 个连续 8-byte signed c4 cell（`isInt`、Tolk `int64` / `loadInt`；flatten 同 Array UInt64）。不是 UInt64 位别名，也不是 CosmWasm Regions。IndexGet/IndexSet/storeAtomic 保留 signedness。Array Int64 return、Array Int8、Array UInt128、Map/Opt of Int 仍 FC。**不**声称 sandbox / formal / runtime parity |
+| 2026-08-16 | **CW-OPT-INT**：CosmWasm 匿名 `Option Int64` state 作为既有 2-leaf Option 布局（`name_tag` 无符号 u64-le + `name_p0` 有符号 i64-le）。复用 Option UInt64 tag/payload/storeAtomic/match。不是 UInt64 别名。Option Int8/16/32、Option UInt128、Option Int64 return、Map of Int 仍 FC。**不**声称 wasmd / formal / runtime parity |
 
 ---
 
