@@ -16691,3 +16691,19 @@ normative: false
   Option Int64 return 仍 `anonymous Option return requires UInt64 payload`。
   Targets OptInt 仅 CosmWasm files-nonempty。Map of Int 与 Opt of Int8 /
   UInt128 仍 FC。**不**声称 wasmd / formal / runtime / hermetic / release。
+
+## 2026-08-16 — TON-OPT-INT TON Option Int64 2-leaf state（engineering）
+
+- TON `requireOptionUInt64StateV1` 现接纳匿名 `Option UInt64` 或
+  `Option Int64`（返回 `payloadIsInt`）。tag 叶保持无符号 uint64 cell；
+  payload 仅在 Int64 时 `isInt` / Tolk `int64` / `loadInt`。flatten 与
+  Option UInt64 相同（`name_tag`/`name_p0`、none 默认双叶清零、
+  `storeAtomic` 仍只抄 `field.byteWidth`；signedness 在
+  `StorageField.isInt`，Emit 渲染 `int64` / `loadInt`、match 走既有
+  VariantTag/VariantPayload）。不是 UInt64 别名，也不是 CosmWasm Regions。
+  `anonymousReturnLeafAbiV1` Option 臂仍只接受 UInt64。
+- `TonPlanV1` 钉 `OptInt64` 双叶 mixed isInt + Focus；Option Int8 /
+  Option UInt128 仍走 `requires UInt64 payload` contains-match；匿名
+  Option Int64 return 仍 `anonymous Option return requires UInt64 payload`。
+  Targets OptInt CosmWasm+TON files-nonempty。Map of Int 与 Opt of Int8 /
+  UInt128 仍 FC。**不**声称 sandbox / formal / runtime / hermetic / release。

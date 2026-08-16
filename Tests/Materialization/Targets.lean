@@ -6976,7 +6976,8 @@ unsafe def runRemainingNeedles : IO Unit := do
 
   -- OptInt: Option Int64 state. CosmWasm admits unsigned tag + signed
   -- payload (same 2-leaf flatten as Option UInt64; not a UInt64 alias).
-  -- Other eleven stay named Option-payload FC. Quint/Soroban/OpenVM
+  -- TON admits tag unsigned uint64 cell + signed int64 payload cell.
+  -- Other ten stay named Option-payload FC. Quint/Soroban/OpenVM
   -- admit Option type so they fail on payload. ICP stays Option-pilot.
   -- Not opening Option-of-Int8 or Option-of-UInt128. OptBool / OptBox /
   -- MapBool / ArrBool / BoolPredicate stay.
@@ -7004,12 +7005,14 @@ unsafe def runRemainingNeedles : IO Unit := do
   let optIntOut ← liftResult <| materializeSelected TargetId.cosmwasm optIntCompiled
   expect (!(MaterializedArtifactsV1.filesOf optIntOut).isEmpty)
     "OptInt: cosmwasm must materialize Option Int64"
+  let optIntTonOut ← liftResult <| materializeSelected TargetId.ton optIntCompiled
+  expect (!(MaterializedArtifactsV1.filesOf optIntTonOut).isEmpty)
+    "OptInt: ton must materialize Option Int64"
   for (target, kind) in #[
       (TargetId.near, TargetKind.near),
       (TargetId.noir, TargetKind.noir),
       (TargetId.aleo, TargetKind.aleo),
-      (TargetId.psy, TargetKind.psy),
-      (TargetId.ton, TargetKind.ton)] do
+      (TargetId.psy, TargetKind.psy)] do
     expectMaterializePlanInvariantV1 "OptInt" target kind optIntCompiled
       "Option state 'o' requires UInt64 payload"
   expectMaterializePlanInvariantV1 "OptInt" TargetId.quint TargetKind.quint

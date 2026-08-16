@@ -797,6 +797,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-16 | **CW-ARR-INT**：CosmWasm `Array Int64 N`（1..8）作为 N 个连续 8-byte signed KV 叶（`isInt`、ABI `i64-le`；flatten 同 Array UInt64）。不是 packed array，也不是 UInt64 别名。IndexGet/IndexSet/storeAtomic 保留 signedness。Array Int8/16/32、Array UInt128、Map/Opt of Int 仍 FC。**不**声称 wasmd / formal / runtime parity |
 | 2026-08-16 | **TON-ARR-INT**：TON `Array Int64 N`（1..8）作为 N 个连续 8-byte signed c4 cell（`isInt`、Tolk `int64` / `loadInt`；flatten 同 Array UInt64）。不是 UInt64 位别名，也不是 CosmWasm Regions。IndexGet/IndexSet/storeAtomic 保留 signedness。Array Int64 return、Array Int8、Array UInt128、Map/Opt of Int 仍 FC。**不**声称 sandbox / formal / runtime parity |
 | 2026-08-16 | **CW-OPT-INT**：CosmWasm 匿名 `Option Int64` state 作为既有 2-leaf Option 布局（`name_tag` 无符号 u64-le + `name_p0` 有符号 i64-le）。复用 Option UInt64 tag/payload/storeAtomic/match。不是 UInt64 别名。Option Int8/16/32、Option UInt128、Option Int64 return、Map of Int 仍 FC。**不**声称 wasmd / formal / runtime parity |
+| 2026-08-16 | **TON-OPT-INT**：TON 匿名 `Option Int64` state 作为既有 2-leaf Option 布局（`name_tag` 无符号 uint64 cell + `name_p0` 有符号 int64 cell / `loadInt`）。复用 Option UInt64 tag/payload/storeAtomic/match。不是 UInt64 别名，也不是 CosmWasm Regions。Option Int8/16/32、Option UInt128、Option Int64 return、Map of Int 仍 FC。**不**声称 sandbox / formal / runtime parity |
 
 ---
 

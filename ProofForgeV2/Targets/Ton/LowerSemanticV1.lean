@@ -680,10 +680,13 @@ private def tonTypeClosureWording : PilotTypeClosureWording where
     **Anonymous containers** via `pilotContainerStatePolicyArrayMapBytes`
     (Array → N×UInt64 leaves; Map → dense cap-8; Bytes → N×UInt8; Option admitted
     as body intermediate when Map is on — never pushed into `containerTypeIds`).
-    **B-OPT-STATE / BL-34**: anonymous `Option UInt64` **state** admitted as
-    Enum-shaped tag+payload c4 leaves (`name_tag`/`name_p0`; none default =
+    **B-OPT-STATE / BL-34**: anonymous `Option UInt64` or `Option Int64`
+    **state** admitted as Enum-shaped tag+payload c4 leaves (`name_tag`/
+    `name_p0`; tag is always unsigned uint64; payload is signed int64 only
+    for Int64 — not a UInt64 alias and not CosmWasm Regions; none default =
     zero fields; storeAtomic on assign; match via VariantTag/VariantPayload).
-    Option of non-UInt64, nested Option, Option params stay fail closed.
+    Option Int8/16/32, Option UInt128, nested Option, Option params, and
+    Option Int64 return stay fail closed.
     **N-ANON-RESULT (TON ABI)**: anonymous `Array UInt64 N` (1..8) and
     `Option UInt64` **view** returns reuse the same multi-stack get-method path;
     entry aggregate stays fail closed (no return channel); Map/Bytes/nested/
@@ -845,16 +848,23 @@ private def isAnonymousOptionTypeIdV1
   | some { shape := .option _, name := none, .. } => true
   | _ => false
 
-/-- B-OPT-STATE: admit only anonymous `Option UInt64` for state (tag+payload).
-    Non-UInt64 / nested / named Option stay fail closed. -/
+/-- B-OPT-STATE: admit anonymous `Option UInt64` or `Option Int64` state
+    (tag+payload). Returns `payloadIsInt` (false = UInt64, true = Int64).
+    Tag stays unsigned. Option Int8/16/32, Option UInt128, nested, and
+    named Option stay fail closed. Historical needle `requires UInt64 payload`
+    is preserved as a contains-match. -/
 private def requireOptionUInt64StateV1
     (typeDecls : Array TypeDeclV1) (types : TonTypeClosureV1)
-    (typeId : TypeIdV1) (stateName : String) : CompileResult Unit := do
+    (typeId : TypeIdV1) (stateName : String) : CompileResult Bool := do
   match typeDecls[typeId.toNat]? with
   | some { shape := .option elTid, name := none, .. } =>
-      unless elTid == types.uint64TypeId do
+      if elTid == types.uint64TypeId then
+        pure false
+      else if types.int64TypeId == some elTid then
+        pure true
+      else
         throw <| .planInvariant .ton
-          s!"unsupported Ton semantic shape: Option state '{stateName}' requires UInt64 payload"
+          s!"unsupported Ton semantic shape: Option state '{stateName}' requires UInt64 payload or Int64 payload"
   | _ =>
       throw <| .planInvariant .ton
         s!"unsupported Ton semantic shape: state '{stateName}' is not anonymous Option UInt64"
@@ -1252,12 +1262,16 @@ private def makeStorageLayoutV1
             }
           stateLeaves := stateLeaves.push leaves
         else if isAnonymousOptionTypeIdV1 typeDecls state.typeId then
-          -- B-OPT-STATE / BL-34: Option UInt64 → tag + payload (2×8-byte c4
-          -- leaves), same physical shape as a 1-payload Enum. Names follow
-          -- Enum convention (`name_tag` / `name_p0`). Default zero fields =
+          -- B-OPT-STATE / BL-34: Option UInt64 or Int64 → tag + payload
+          -- (2×8-byte c4 cells), same physical shape as a 1-payload Enum.
+          -- Names follow Enum convention (`name_tag` / `name_p0`). Tag is
+          -- always unsigned uint64; payload is int64 only for Int64 (not a
+          -- UInt64 alias and not CosmWasm Regions). Default zero fields =
           -- Option.none; storeAtomic writes both leaves; none construct zeroes
-          -- payload (pin). Non-UInt64 Option payload fails closed above.
-          requireOptionUInt64StateV1 typeDecls types state.typeId state.name
+          -- payload (pin). Int8/16/32 and UInt128 Option payloads fail closed
+          -- above.
+          let payloadIsInt ←
+            requireOptionUInt64StateV1 typeDecls types state.typeId state.name
           let tagName := state.name ++ "_tag"
           let pName := state.name ++ "_p0"
           unless isIdentifier tagName do
@@ -1269,7 +1283,7 @@ private def makeStorageLayoutV1
           if fields.size + 2 > maxStateFields then
             throw <| .planInvariant .ton "state count is outside the profile limits"
           let mut leaves : Array Nat := #[]
-          for leafName in #[tagName, pName] do
+          for (leafName, leafIsInt) in #[(tagName, false), (pName, payloadIsInt)] do
             let fi := fields.size
             leaves := leaves.push fi
             fields := fields.push {
@@ -1278,6 +1292,7 @@ private def makeStorageLayoutV1
               key := stateKey fi
               byteWidth := 8
               endianness := .little
+              isInt := leafIsInt
             }
           stateLeaves := stateLeaves.push leaves
         else if types.isPrincipal state.typeId then
@@ -2135,8 +2150,10 @@ private def lowerBlockInstructionsV1
           let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
           values := ← appendResultValueV1 result.typeId values result value
         else if isAnonymousOptionTypeIdV1 typeDecls result.typeId then
-          -- B-OPT-STATE: Option UInt64 state load → 2-leaf aggregate (tag, payload).
-          requireOptionUInt64StateV1 typeDecls types result.typeId "load"
+          -- B-OPT-STATE: Option UInt64 or Int64 state load → 2-leaf aggregate
+          -- (tag unsigned, payload signed only for Int64).
+          let _ ←
+            requireOptionUInt64StateV1 typeDecls types result.typeId "load"
           unless leafIdxs.size == 2 do
             throw <| .planInvariant .ton
               "unsupported Ton semantic shape: Option state load leaf count mismatch"
@@ -2765,14 +2782,21 @@ private def lowerBlockInstructionsV1
               let value := mkAggregateValueV1 leafExprs deps depth (nodes + n)
               values := ← appendResultValueV1 result.typeId values result value
         | none => do
-            -- Option UInt64 construct (none/some) for B-OPT-STATE storage and
-            -- N-ANON-RESULT view returns; named Struct/Enum construct remains
-            -- the other non-container path. Option is never in containerTypeIds.
+            -- Option UInt64/Int64 construct (none/some) for B-OPT-STATE storage
+            -- and UInt64 anonymous-result returns; named Struct/Enum construct
+            -- remains the other non-container path. Option Int64 return stays
+            -- UInt64-only in `anonymousReturnLeafAbiV1`.
             match typeDecls[typeId.toNat]? with
             | some { shape := .option elTid, name := none, .. } => do
-                unless elTid == types.uint64TypeId do
+                unless elTid == types.uint64TypeId ||
+                    types.int64TypeId == some elTid do
                   throw <| .planInvariant .ton
                     "unsupported Ton semantic shape: Option construct requires UInt64 payload"
+                let wantKind :=
+                  if types.int64TypeId == some elTid then
+                    TonValueKindV1.int64
+                  else
+                    TonValueKindV1.uint64
                 match ctorIdx.toNat with
                 | 0 =>
                     -- Option.none → (tag=0, payload=0)
@@ -2783,16 +2807,17 @@ private def lowerBlockInstructionsV1
                     let value := mkAggregateValueV1 leaves #[] 1 2
                     values := ← appendResultValueV1 result.typeId values result value
                 | 1 =>
-                    -- Option.some(v) → (tag=1, payload=v)
+                    -- Option.some(v) → (tag=1, payload=v); v is UInt64 or
+                    -- Int64 matching elTid.
                     unless argIds.size == 1 do
                       throw <| .planInvariant .ton
                         "unsupported Ton semantic shape: Option.some construct takes one arg"
                     let some argId := argIds[0]? |
                       throw <| .planInvariant .ton "Option.some construct arg missing"
                     let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
-                    unless !arg.isAggregate && arg.kind == .uint64 do
+                    unless !arg.isAggregate && arg.kind == wantKind do
                       throw <| .planInvariant .ton
-                        "unsupported Ton semantic shape: Option.some arg must be scalar UInt64"
+                        "unsupported Ton semantic shape: Option.some arg must be scalar UInt64 or Int64 matching the Option payload"
                     let leaves : Array Expr := #[.literal 1, arg.expr]
                     let value := mkAggregateValueV1 leaves #[argId]
                       (arg.depth + 1) (arg.expandedNodes + 2)
