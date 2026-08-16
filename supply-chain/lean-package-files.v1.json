@@ -881,9 +881,9 @@
       "sha256": "d1bfb25f2f3de18d287051f139f5db232bb4918177b77411ffbcc8cba0b8bf40"
     },
     {
-      "bytes": 251550,
+      "bytes": 253084,
       "path": "ProofForgeV2/Targets/CosmWasm/LowerSemanticV1.lean",
-      "sha256": "c827dd3e938627c456ed1b410862f8942119a0c37cd9ed2a20159f1ff08debe6"
+      "sha256": "1531983e0608869cb6368dc1ce504cb48f43646b799db1d34e56f55426aa824c"
     },
     {
       "bytes": 15206,
@@ -896,9 +896,9 @@
       "sha256": "25f5e002bff410af6a7f61ce969accf7324e8ee00733432aea38f5357a6b1154"
     },
     {
-      "bytes": 36167,
+      "bytes": 36329,
       "path": "ProofForgeV2/Targets/CosmWasm/ValidatePlanV1.lean",
-      "sha256": "95f2b3d3505686a85e2260535ae845d641cf5e7622d4bb0664ef64c14fd527ec"
+      "sha256": "dd852e0f802a2b20f3a9e9392abbaab9b22423c70fb00c8588c78cf19e31227f"
     },
     {
       "bytes": 7471,

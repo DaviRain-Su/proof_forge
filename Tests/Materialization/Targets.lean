@@ -4909,10 +4909,9 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "ArrBool" TargetId.openvm TargetKind.openvm
     arrBoolCompiled "Array element must be UInt64"
 
-  -- ArrInt: Array Int64 2 state. Eight targets stay named Array-element
-  -- FC. Envelope-4 admit Int64 width so they fail on the Array-pilot
-  -- (same needle as ArrBool). Not opening Array-of-Int64. ArrBool /
-  -- ArrayBox / MapInt / OptInt / MapBool stay.
+  -- ArrInt: Array Int64 2 state. CosmWasm admits N×8-byte signed leaves.
+  -- Eleven stay named Array-element FC. Not opening Array-of-Int8 or
+  -- Array-of-UInt128. ArrBool / ArrayBox / MapInt / OptInt / MapBool stay.
   let arrIntSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -4933,13 +4932,15 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
   let arrIntCompiled ← liftResult <| Compiler.compileValidatedSourceV1 arrIntV1
   expectMaterializePlanInvariantV1 "ArrInt" TargetId.evm TargetKind.evm
     arrIntCompiled "Array state element must be UInt8/16/32/64"
+  let arrIntOut ← liftResult <| materializeSelected TargetId.cosmwasm arrIntCompiled
+  expect (!(MaterializedArtifactsV1.filesOf arrIntOut).isEmpty)
+    "ArrInt: cosmwasm must materialize Array Int64 2"
   for (target, kind) in #[
       (TargetId.solana, TargetKind.solana),
       (TargetId.near, TargetKind.near),
       (TargetId.noir, TargetKind.noir),
       (TargetId.aleo, TargetKind.aleo),
       (TargetId.psy, TargetKind.psy),
-      (TargetId.cosmwasm, TargetKind.cosmwasm),
       (TargetId.ton, TargetKind.ton)] do
     expectMaterializePlanInvariantV1 "ArrInt" target kind arrIntCompiled
       "Array state element must be UInt64"

@@ -797,7 +797,7 @@ private def cosmwasmPlanErr (message : String) : CompileError :=
     a 4-limb JSON decimal array (`setReturnDataMulti`). Not a 32-byte KV
     Region and not a TON one-cell `uint256`.
     Array + Map container state via `pilotContainerStatePolicyArrayMap`
-    (Array → N×UInt64 leaves; Map → capacity-8×(occ,key,val); Option admitted
+    (Array → N×8-byte UInt64 or Int64 leaves; Map → capacity-8×(occ,key,val); Option admitted
     as Map IndexGet intermediate / N-ANON-RESULT return shape — never pushed to
     `containerTypeIds`). **B-OPT-STATE / BL-33**: anonymous `Option UInt64`
     **state** admitted as Enum-shaped tag+payload KV leaves (`name_tag`/
@@ -987,37 +987,42 @@ private def nearMapSlotsPerEntryV1 : Nat := 3
 private def nearMapPilotLeafCountV1 : Nat :=
   nearMapPilotCapacityV1 * nearMapSlotsPerEntryV1
 
-/-- Container leaf layout for CosmWasm KV flattening: `(leafCount, leafByteWidth)`.
-    Array: fixed `Array UInt64 N` → N×8-byte UInt64 leaves. Map: dense
-    capacity-8 occ/key/val → 24×8-byte leaves (loop IR, not pure-expr temps).
-    Bytes: fixed `Bytes N` → N×1-byte UInt8 leaves (byte-exact KV identity;
-    element-wise IndexGet/IndexSet). -/
+/-- Container leaf layout for CosmWasm KV flattening:
+    `(leafCount, leafByteWidth, leafIsInt)`.
+    Array: fixed `Array UInt64 N` or `Array Int64 N` → N×8-byte leaves
+    (`leafIsInt` only for Int64; not a packed array and not a UInt64 alias).
+    Map: dense capacity-8 occ/key/val → 24×8-byte unsigned leaves
+    (loop IR, not pure-expr temps). Bytes: fixed `Bytes N` → N×1-byte UInt8
+    leaves (byte-exact KV identity; element-wise IndexGet/IndexSet). -/
 private def containerLeafLayoutV1
     (typeDecls : Array TypeDeclV1) (types : CosmWasmTypeClosureV1)
-    (typeId : TypeIdV1) : CompileResult (Option (Nat × Nat)) := do
+    (typeId : TypeIdV1) : CompileResult (Option (Nat × Nat × Bool)) := do
   unless types.isContainer typeId do
     return none
   match typeDecls[typeId.toNat]? with
   | some { shape := .array elTid len, .. } =>
-      unless elTid == types.uint64TypeId do
+      -- Keep the historical "must be UInt64" needle as a contains-match so
+      -- ArrI8 / ArrU128 / ArrU256 stay fail closed without a new string.
+      unless elTid == types.uint64TypeId || types.int64TypeId == some elTid do
         throw <| .planInvariant .cosmwasm
-          "unsupported CosmWasm semantic shape: Array state element must be UInt64"
+          "unsupported CosmWasm semantic shape: Array state element must be UInt64 or Int64"
       let n := len.toNat
       unless n ≥ 1 do
         throw <| .planInvariant .cosmwasm
           "unsupported CosmWasm semantic shape: Array state length must be ≥ 1"
-      pure (some (n, 8))
+      let leafIsInt := types.int64TypeId == some elTid
+      pure (some (n, 8, leafIsInt))
   | some { shape := .map keyTid valTid, .. } =>
       unless keyTid == types.uint64TypeId && valTid == types.uint64TypeId do
         throw <| .planInvariant .cosmwasm
           "unsupported CosmWasm semantic shape: Map state admits only Map UInt64 UInt64"
-      pure (some (nearMapPilotLeafCountV1, 8))
+      pure (some (nearMapPilotLeafCountV1, 8, false))
   | some { shape := .bytes len, .. } =>
       let n := len.toNat
       unless n ≥ 1 do
         throw <| .planInvariant .cosmwasm
           "unsupported CosmWasm semantic shape: Bytes state length must be ≥ 1"
-      pure (some (n, 1))
+      pure (some (n, 1, false))
   | _ =>
       throw <| .planInvariant .cosmwasm
         "unsupported CosmWasm semantic shape: container TypeId is not Array/Map/Bytes"
@@ -1305,10 +1310,11 @@ private def makeStorageLayoutV1
     unless isIdentifier state.name do
       throw <| .planInvariant .cosmwasm s!"state name '{state.name}' is not a safe identifier"
     match ← containerLeafLayoutV1 typeDecls types state.typeId with
-    | some (n, leafByteWidth) =>
-        -- Array/Map: N consecutive 8-byte UInt64 KV fields; Bytes: N
-        -- consecutive 1-byte UInt8 KV fields. Physical names `name_0`..
-        -- `name_{n-1}` keep layout markers deterministic.
+    | some (n, leafByteWidth, leafIsInt) =>
+        -- Array: N consecutive 8-byte UInt64 or Int64 KV fields (`isInt`
+        -- selects ABI `i64-le`, not a UInt64 alias). Map: 24×8-byte unsigned.
+        -- Bytes: N consecutive 1-byte UInt8 KV fields. Physical names
+        -- `name_0`..`name_{n-1}` keep layout markers deterministic.
         -- Visibility: same N1 allowNonPublic as scalar state.
         if fields.size + n > maxStateFields then
           throw <| .planInvariant .cosmwasm "state count is outside the profile limits"
@@ -1326,6 +1332,7 @@ private def makeStorageLayoutV1
             key := stateKey fi
             byteWidth := leafByteWidth
             endianness := .little
+            isInt := leafIsInt
           }
         stateLeaves := stateLeaves.push leaves
     | none =>
@@ -1598,7 +1605,7 @@ private def makeParamsV1 (owner : String) (types : CosmWasmTypeClosureV1)
       -- IndexGet on the leaves is the only access — params are immutable).
       -- Array/Map params stay fail closed: no CosmWasm array-param ABI in this
       -- pilot (Bytes leaves are the only flattened container param surface).
-      let some (n, leafByteWidth) ←
+      let some (n, leafByteWidth, _) ←
         containerLeafLayoutV1 typeDecls types param.typeId |
         throw <| .planInvariant .cosmwasm
           "unsupported CosmWasm semantic shape: container param is not Array/Map/Bytes"
@@ -2398,7 +2405,7 @@ private def lowerBlockInstructionsV1
               -- Legacy 1:1 without stateLeaves: physical index == stateId.
               pure #[stateId.toNat]
         if types.isContainer result.typeId then
-          let some (n, leafByteWidth) ←
+          let some (n, leafByteWidth, _) ←
             containerLeafLayoutV1 typeDecls types result.typeId |
             throw <| .planInvariant .cosmwasm
               "unsupported CosmWasm semantic shape: container state load is not Array/Map/Bytes UInt64"
@@ -2407,8 +2414,9 @@ private def lowerBlockInstructionsV1
               "unsupported CosmWasm semantic shape: Array/Map/Bytes state load leaf count mismatch"
           let mut leafExprs : Array Expr := #[]
           for fi in leafIdxs do
-            -- Array/Map leaves are 8-byte UInt64 loads; Bytes leaves are
-            -- 1-byte UInt8 loads (zero-extended into the i64 plan surface).
+            -- Array/Map 8-byte leaves stay historical `stateLoad` (Int64
+            -- signedness is on the layout/ABI `isInt` bit, not a second load
+            -- opcode). Bytes leaves are 1-byte UInt8 loads (zero-extended).
             leafExprs := leafExprs.push
               (if leafByteWidth == 8 then .stateLoad fi else .narrowStateLoad 8 fi)
           let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
@@ -2917,6 +2925,7 @@ private def lowerBlockInstructionsV1
               fieldIndex := fi
               value := leafExpr
               byteWidth := field.byteWidth
+              isInt := field.isInt
             }
           body := body.push (.storeAtomic storeLeaves)
           armReadables := promoteDominatingPureV1 blockEntry values armReadables
@@ -3229,7 +3238,7 @@ private def lowerBlockInstructionsV1
           throw <| .planInvariant .cosmwasm
             "unsupported CosmWasm semantic shape: construct result typeId must match op typeId"
         match ← containerLeafLayoutV1 typeDecls types typeId with
-        | some (n, leafByteWidth) => do
+        | some (n, leafByteWidth, leafIsInt) => do
             unless leafByteWidth == 8 do
               throw <| .planInvariant .cosmwasm
                 "unsupported CosmWasm semantic shape: Bytes construct is outside the CosmWasm pilot (Bytes values enter via state/params only)"
@@ -3260,9 +3269,10 @@ private def lowerBlockInstructionsV1
               let mut nodes : Nat := 0
               for argId in argIds do
                 let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
-                unless !arg.isAggregate && arg.kind == .uint64 do
+                let wantKind := if leafIsInt then CosmWasmValueKindV1.int64 else .uint64
+                unless !arg.isAggregate && arg.kind == wantKind do
                   throw <| .planInvariant .cosmwasm
-                    "unsupported CosmWasm semantic shape: Array construct args must be scalar UInt64"
+                    "unsupported CosmWasm semantic shape: Array construct args must be scalar UInt64 or Int64 matching the array element"
                 leafExprs := leafExprs.push arg.expr
                 deps := deps.push argId
                 depth := Nat.max depth (arg.depth + 1)
@@ -3412,12 +3422,15 @@ private def lowerBlockInstructionsV1
               dependencies := #[baseId, idxId]
             }
           else
-            unless result.typeId == types.uint64TypeId do
+            -- Array 8-byte leaf: UInt64 or Int64. Reject mixed signedness
+            -- (Int64 result from a UInt64 array or the reverse).
+            let wantInt := types.int64TypeId == some result.typeId
+            unless result.typeId == types.uint64TypeId || wantInt do
               throw <| .planInvariant .cosmwasm
-                "unsupported CosmWasm semantic shape: Array IndexGet result must be UInt64"
+                "unsupported CosmWasm semantic shape: Array IndexGet result must be UInt64 or Int64"
             values := ← appendResultValueV1 result.typeId values result {
               expr := leaf
-              kind := .uint64
+              kind := if wantInt then .int64 else .uint64
               depth := base.depth + 1
               expandedNodes := base.expandedNodes + 1
               dependencies := #[baseId, idxId]
@@ -3434,7 +3447,7 @@ private def lowerBlockInstructionsV1
         let val ← currentValueWithArmsV1 values blockEntry segmentStart armReadables valueId
         unless !val.isAggregate do
           throw <| .planInvariant .cosmwasm
-            "unsupported CosmWasm semantic shape: IndexSet value must be a scalar UInt8/UInt64"
+            "unsupported CosmWasm semantic shape: IndexSet value must be a scalar UInt8/UInt64/Int64"
         if base.leafExprs.size == nearMapPilotLeafCountV1 then
           unless val.kind == .uint64 do
             throw <| .planInvariant .cosmwasm
@@ -3481,9 +3494,17 @@ private def lowerBlockInstructionsV1
               (leafByteWidth := 1)
             values := ← appendResultValueV1 result.typeId values result value
           else
-            unless val.kind == .uint64 do
+            -- Array 8-byte: value kind must match the result Array element.
+            -- Do not accept `.uint64` into an Int64 array (or the reverse).
+            let wantInt :=
+              match typeDecls[result.typeId.toNat]? with
+              | some { shape := .array elTid _, .. } =>
+                  types.int64TypeId == some elTid
+              | _ => false
+            unless (wantInt && val.kind == .int64) ||
+                (!wantInt && val.kind == .uint64) do
               throw <| .planInvariant .cosmwasm
-                "unsupported CosmWasm semantic shape: Array IndexSet value must be scalar UInt64"
+                "unsupported CosmWasm semantic shape: Array IndexSet value must be scalar UInt64 or Int64 matching the array element"
             let mut outLeaves : Array Expr := #[]
             for j in [0:leaves.size] do
               if j == i then

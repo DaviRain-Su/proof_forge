@@ -315,6 +315,9 @@ private partial def checkMethodStatementsV1
           unless store.byteWidth == field.byteWidth do
             throw <| .planInvariant .cosmwasm
               "method store byteWidth does not match state field layout"
+          unless store.isInt == field.isInt do
+            throw <| .planInvariant .cosmwasm
+              "method store isInt does not match state field layout"
           total ← addPlanExprNodes limits layout params fns total store.value
           methodTemps ← addMethodExprTemps limits layout params fns methodTemps store.value
         total := total + 1

@@ -16648,3 +16648,17 @@ normative: false
   （evm/solana/near/noir/psy/aleo/cw/ton）；envelope-4 仍走宽度针。
   **不**声称 sandbox / formal / runtime / hermetic / release，也**不**关闭
   TASK/TST。
+
+## 2026-08-16 — CW-ARR-INT CosmWasm Array Int64 N×8-byte signed leaves（engineering）
+
+- CosmWasm `containerLeafLayoutV1` 现接纳 `Array UInt64 N` 或 `Array Int64 N`
+  （`leafIsInt`）。Int64 叶为 8-byte `isInt` KV（ABI `i64-le`），flatten 与
+  Array UInt64 相同；不是 packed array，也不是无 `isInt` 的 UInt64 位别名。
+  `storeAtomic` 把 `field.isInt` 抄到每片 `Store`；IndexGet/IndexSet/construct
+  要求元素 signedness 一致。ValidatePlan 在 storeAtomic 上核对
+  `store.isInt == field.isInt`。物理 WAT 仍是 `pf_db_*_u64`。
+- `CosmWasmPlanV1` 钉 `ArrInt64` 两叶 `slots_0`/`slots_1` + storeAtomic
+  signed + Focus；Array Int8 / Array UInt128 仍走
+  `Array state element must be UInt64` contains-match。Targets ArrInt 仅
+  CosmWasm files-nonempty。Arr/Map/Opt of Int8/16/32 与 UInt128 仍 FC。
+  **不**声称 wasmd / formal / runtime / hermetic / release。
