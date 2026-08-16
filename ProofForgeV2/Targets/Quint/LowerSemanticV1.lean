@@ -21,8 +21,11 @@ Anonymous `Option UInt64` **state** flattens to two UInt64 leaves
 Anonymous `Map UInt64 UInt64` **state** flattens to 24 UInt64 leaves
 (cap-8 × occ/key/val interleaved; `Map.empty` + IndexSet upsert;
 IndexGet → Option tag+payload). Array/Option/Map + signedNumeric,
-Array/Option/Map param/return, N=0/N>8, non-UInt64 element/payload/key,
-non-literal Array index, nested arrays/Option/Map, and Bytes fail closed.
+Array/Option/Map/Bytes param/return, N=0/N>8, non-UInt64 element/payload/key,
+non-literal Array/Bytes index, and nested arrays/Option/Map fail closed.
+Anonymous `Bytes N` (N=1..8) **state** flattens to N unsigned UInt64 leaves
+storing the low 8 bits (`0..255`); IndexGet/Set reuse the Array literal-index
+path. UInt8 is admitted only as the Bytes element literal lane.
 Plan is target-owned and retains no Semantic carrier.
 
 ADR-0029 Phase A5: void `Op.ExternalCall` whose callee is in the closed
@@ -250,10 +253,10 @@ private def quintTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt64/Int64 widths are supported"
   unsupportedShapeDetail :=
-    "only anonymous UInt64, Int64, Bool, Unit, Principal (pf.assets identity args only), Array UInt64 N state flatten, Option UInt64 2-leaf flatten, and Map UInt64 UInt64 cap-8 flatten are supported (narrow Int/Field/aggregates/Bytes fail closed)"
+    "only anonymous UInt64, Int64, UInt8 (Bytes element), Bool, Unit, Principal (pf.assets identity args only), Array UInt64 N state flatten, Option UInt64 2-leaf flatten, Map UInt64 UInt64 cap-8 flatten, and Bytes N (N UInt64 low-8 leaves) are supported (narrow Int/Field/aggregates fail closed)"
 
 private def pilotUintWidthPolicyU64U32Index : PilotUintWidthPolicy where
-  admittedWidths := #[64, 32]
+  admittedWidths := #[64, 32, 8]
 
 private abbrev QuintTypeClosureV1 := PilotTypeClosureV1
 
@@ -264,7 +267,7 @@ private def validateQuintTypeClosureV1
     (intPolicy := pilotIntWidthPolicyI64)
     (fieldPolicy := pilotFieldPolicyNone)
     (principalPolicy := pilotPrincipalPolicyAdmit)
-    (containerPolicy := pilotContainerStatePolicyArrayMap)
+    (containerPolicy := pilotContainerStatePolicyArrayMapBytes)
 
 private def maxIdentifierBytes : Nat := 200
 private def maxPureInlineDepth : Nat := 64
@@ -318,6 +321,9 @@ private def isPrincipalType (types : QuintTypeClosureV1) (typeId : TypeIdV1) : B
 
 private def isUInt32Type (types : QuintTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   types.uintTypeIdAt 32 == some typeId
+
+private def isUInt8Type (types : QuintTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  types.uintTypeIdAt 8 == some typeId
 
 /-- Dense Map UInt64 UInt64 pilot: cap-8 × (occ, key, val) = 24 UInt64 leaves. -/
 private def mapPilotCapacityV1 : Nat := 8
@@ -495,9 +501,17 @@ private def arrayUInt64LenV1
       -- Map is handled by `requireMapUInt64V1` / `makeStateLayoutV1`, not here.
       planError
         "unsupported Quint semantic shape: Map UInt64 flatten is not an Array length"
+  | some { shape := .bytes len, .. } =>
+      -- Bytes N → N unsigned UInt64 leaves (low 8 bits). Independent of
+      -- signedNumeric; BytesBox is UInt64-domain.
+      let n := len.toNat
+      unless 1 ≤ n && n ≤ 8 do
+        planError
+          s!"unsupported Quint semantic shape: Bytes N state must be 1..8 (got {n}; cap 8 flatten)"
+      pure (some n)
   | _ =>
       planError
-        "unsupported Quint semantic shape: container TypeId is not Array UInt64 (Bytes stay fail closed)"
+        "unsupported Quint semantic shape: container TypeId is not Array UInt64 or Bytes N"
 
 /-- Physical PlanState leaves after Array/Option flatten. `leavesOf[logicalId]`
     is the dense field-index list (`name`, `name_0`..`name_{N-1}`, or
@@ -834,11 +848,14 @@ private def lowerLiteral
   else if isUInt32Type types typeId then
     let v ← decodeUInt32LiteralLe quintPlanErr "Quint" valueBytes
     pure { ty := .uint64, expr := .litU64 v, expandedNodes := 1 }
+  else if isUInt8Type types typeId then
+    let v ← decodeUInt8LiteralLe quintPlanErr "Quint" valueBytes
+    pure { ty := .uint64, expr := .litU64 v, expandedNodes := 1 }
   else if isBoolType types typeId then
     let b ← decodeBoolLiteralBit quintPlanErr "Quint" valueBytes
     pure { ty := .bool, expr := .litBool b, expandedNodes := 1 }
   else
-    planError "unsupported Quint semantic shape: literal type is outside UInt64/Int64/UInt32/Bool"
+    planError "unsupported Quint semantic shape: literal type is outside UInt64/Int64/UInt32/UInt8/Bool"
 
 private def signedRangeCond (e : Expr) : Expr :=
   .boolAnd
@@ -1026,6 +1043,18 @@ private partial def lowerInstructions
         match instr.result with
         | none => planError "unsupported Quint semantic shape: literal must produce a value"
         | some vd => acc := { acc with env := envInsert acc.env vd.valueId v }
+    | .constant constantId => do
+        let some c := data.constants[constantId.toNat]? |
+          planError "unsupported Quint semantic shape: Constant references an unknown constant id"
+        unless c.id == constantId do
+          planError "unsupported Quint semantic shape: Constant id does not match declaration order"
+        let v ← lowerLiteral types c.typeId c.valueBytes
+        match instr.result with
+        | none => planError "unsupported Quint semantic shape: Constant must produce a value"
+        | some vd =>
+            unless vd.typeId == c.typeId do
+              planError "unsupported Quint semantic shape: Constant result typeId must match the declaration"
+            acc := { acc with env := envInsert acc.env vd.valueId v }
     | .stateLoad stateId => do
         unless allowStateRead do
           planError "unsupported Quint semantic shape: pureFn cannot read state"
@@ -1278,7 +1307,7 @@ private partial def lowerInstructions
                 | some n => pure n
                 | none =>
                     planError
-                      "unsupported Quint semantic shape: construct admits only Array UInt64 N, Option UInt64, or Map UInt64 UInt64 on Quint"
+                      "unsupported Quint semantic shape: construct admits only Array UInt64 N, Bytes N, Option UInt64, or Map UInt64 UInt64 on Quint"
               unless ctorIdx == 0 do
                 planError "unsupported Quint semantic shape: Array construct ctorIdx must be 0"
               unless argIds.size == n do
@@ -1413,7 +1442,7 @@ private partial def lowerInstructions
               expr := payload
               expandedNodes := 1
             } }
-    | .constant .. | .fieldGet .. | .fieldSet ..
+    | .fieldGet .. | .fieldSet ..
     | .checkedCast .. | .commit ..
     | .emit .. | .schedule .. =>
         planError "unsupported Quint semantic shape: op is outside Q0"
@@ -1547,14 +1576,18 @@ private def makePlanFromSemanticDataV1
     (sourceHash semanticHash : String) : CompileResult Plan := do
   unless isIdentifier programName do
     planError s!"program name '{programName}' is not a safe identifier"
-  unless data.constants.isEmpty do
-    planError "unsupported Quint semantic shape: constants table must be empty"
   unless data.events.isEmpty do
     planError "unsupported Quint semantic shape: events table must be empty"
   for err in data.errors do
     unless err.fields.isEmpty do
       planError "unsupported Quint semantic shape: declared errors must have zero payload fields"
   let types ← validateQuintTypeClosureV1 data.types
+  for c in data.constants do
+    unless isInt64Type types c.typeId || isUInt64Type types c.typeId ||
+        isUInt32Type types c.typeId || isBoolType types c.typeId do
+      planError
+        "unsupported Quint semantic shape: constant is not admitted UInt64/Int64/UInt32/Bool"
+    let _ ← lowerLiteral types c.typeId c.valueBytes
   let mut signed? : Option Bool := none
   for st in data.logicalState do
     signed? ← noteIntegerDomain types st.typeId signed? s!"state '{st.name}'"

@@ -4098,6 +4098,65 @@ private unsafe def testInt64Containers : IO Unit := do
           e.render.contains "key" || e.render.contains "shape")
         s!"Map Int64-key FC must cite Map/UInt64/key, got: {e.render}"
 
+/-- T3: scalar Op.Constant inlines as the existing literal envelope
+    (UInt{8,16,32,64} / Int64 / Bool). String/aggregate stay fail closed. -/
+private unsafe def testScalarConstInline : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ConstBox where\n" ++
+    "  const ANSWER : UInt64 := 42\n" ++
+    "  state stored : UInt64\n" ++
+    "  init() do\n" ++
+    "    stored := 0\n" ++
+    "  entry answer() : UInt64 do\n" ++
+    "    stored := stored + ANSWER\n" ++
+    "    return stored\n"
+  let src ← liftResult "load ConstBox" (← session.selectProgramV1
+    source "<evm-const-box>" "Tests.EvmConstBox" none)
+  let compiled ← liftResult "compile ConstBox" <|
+    Compiler.compileValidatedSourceV1 src
+  let plan ← liftResult "plan ConstBox" <| planEvm compiled
+  expect (plan.objectName == "ConstBox")
+    "ConstBox object name"
+  expect (plan.storageLayout.map (·.name) == #["stored"])
+    "ConstBox must keep a single UInt64 slot"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"ConstBox plan must validate: {e.render}"
+  let out ← liftResult "materialize ConstBox" <|
+    materializeSelected TargetId.evm compiled
+  expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+    "ConstBox must emit Yul"
+  let yul ← match (MaterializedArtifactsV1.filesOf out).find?
+      (·.path == "ConstBox.yul") with
+    | some f => pure f.contents
+    | none => throw <| IO.userError "ConstBox: missing ConstBox.yul"
+  expect (yul.contains "42" || yul.contains "0x2a")
+    "ConstBox Yul must inline the UInt64 constant"
+  let strSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ConstStr where\n" ++
+    "  const GREETING : String := \"hi\"\n" ++
+    "  state count : UInt64\n" ++
+    "  init() do\n" ++
+    "    count := 0\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let strSrc ← liftResult "load ConstStr" (← session.selectProgramV1
+    strSource "<evm-const-str>" "Tests.EvmConstStr" none)
+  let strCompiled ← liftResult "compile ConstStr" <|
+    Compiler.compileValidatedSourceV1 strSrc
+  match planEvm strCompiled with
+  | .ok _ => throw <| IO.userError "EVM String constant must fail closed"
+  | .error e =>
+      expect (e.render.contains "constant" || e.render.contains "String" ||
+          e.render.contains "admitted")
+        s!"String const FC must cite constant envelope, got: {e.render}"
+  IO.println "  ConstBox scalar const inline + String FC pin ok"
+
 /-- BL-28: result-bearing external call lowers on EVM to real CALL +
     returndata read (iszero/returndatasize/UInt64 range guards). UInt64
     positive retained; Bool result stays fail closed (wide admit). -/
@@ -5641,6 +5700,7 @@ unsafe def run : IO Unit := do
   testAnonymousOptionUInt64Return
   testOptionUInt64State
   testInt64Containers
+  testScalarConstInline
   testCallReturnEvm
   testCallReturnWideEvm
   testCallReturnNarrowEvm

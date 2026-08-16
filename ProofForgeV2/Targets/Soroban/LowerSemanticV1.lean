@@ -19,9 +19,11 @@ Anonymous `Map UInt64 UInt64` **state** flattens to 24 instance `u64`
 keys (cap-8 × occ/key/val interleaved; `Map.empty` + IndexSet upsert;
 IndexGet → Option tag+payload). Array/Option/Map + signedNumeric,
 Array/Option/Map param/return, N=0/N>8, non-UInt64 element/payload/key,
-non-literal Array index, nested arrays/Option/Map, Bytes, and leaf
+non-literal Array/Bytes index, nested arrays/Option/Map, and leaf
 names that exceed the `symbol_short!` 9-byte limit fail closed (never
-truncated). Plan is target-owned and retains no Semantic carrier.
+truncated). Anonymous `Bytes N` (N=1..8) **state** flattens to N unsigned
+UInt64 leaves storing the low 8 bits; IndexGet/Set reuse the Array
+literal-index path. Plan is target-owned and retains no Semantic carrier.
 
 Language subset (fail closed otherwise):
 - anonymous UInt64/Int64/Bool/Unit; public homogeneous UInt64 or Int64
@@ -201,12 +203,12 @@ private def sorobanTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt64/Int64 widths are supported"
   unsupportedShapeDetail :=
-    "only anonymous UInt64, Int64, Bool, Unit, Array UInt64 N state flatten, Option UInt64 2-leaf state, and Map UInt64 UInt64 cap-8 flatten are supported (narrow Int/Field/Principal/aggregates/Bytes fail closed)"
+    "only anonymous UInt64, Int64, UInt8 (Bytes element), Bool, Unit, Array UInt64 N state flatten, Option UInt64 2-leaf state, Map UInt64 UInt64 cap-8 flatten, and Bytes N (N UInt64 low-8 leaves) are supported (narrow Int/Field/Principal/aggregates fail closed)"
 
 /-- UInt32 is interned by Normalize for Array index literals only.
     State/params stay UInt64 or Int64 via the public-slot require helpers. -/
 private def pilotUintWidthPolicyU64U32Index : PilotUintWidthPolicy where
-  admittedWidths := #[64, 32]
+  admittedWidths := #[64, 32, 8]
 
 private abbrev SorobanTypeClosureV1 := PilotTypeClosureV1
 
@@ -217,7 +219,7 @@ private def validateSorobanTypeClosureV1
     (intPolicy := pilotIntWidthPolicyI64)
     (fieldPolicy := pilotFieldPolicyNone)
     (principalPolicy := pilotPrincipalPolicyNone)
-    (containerPolicy := pilotContainerStatePolicyArrayMap)
+    (containerPolicy := pilotContainerStatePolicyArrayMapBytes)
 
 private def maxIdentifierBytes : Nat := 200
 private def maxPureInlineDepth : Nat := 64
@@ -264,6 +266,9 @@ private def isUnitType (types : SorobanTypeClosureV1) (typeId : TypeIdV1) : Bool
 
 private def isUInt32Type (types : SorobanTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   types.uintTypeIdAt 32 == some typeId
+
+private def isUInt8Type (types : SorobanTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  types.uintTypeIdAt 8 == some typeId
 
 /-- Dense Map UInt64 UInt64 pilot: cap-8 × (occ, key, val) = 24 UInt64 leaves. -/
 private def mapPilotCapacityV1 : Nat := 8
@@ -439,9 +444,15 @@ private def arrayUInt64LenV1
   | some { shape := .map _ _, .. } =>
       planError
         "unsupported Soroban semantic shape: Map UInt64 flatten is not an Array length"
+  | some { shape := .bytes len, .. } =>
+      let n := len.toNat
+      unless 1 ≤ n && n ≤ 8 do
+        planError
+          s!"unsupported Soroban semantic shape: Bytes N state must be 1..8 (got {n}; cap 8 flatten)"
+      pure (some n)
   | _ =>
       planError
-        "unsupported Soroban semantic shape: container TypeId is not Array UInt64 (Bytes stay fail closed)"
+        "unsupported Soroban semantic shape: container TypeId is not Array UInt64 or Bytes N"
 
 /-- Physical PlanState leaves after Array/Option/Map flatten.
     `leavesOf[logicalId]` is the dense field-index list (`name`,
@@ -682,11 +693,14 @@ private def lowerLiteral
   else if isUInt32Type types typeId then
     let v ← decodeUInt32LiteralLe sorobanPlanErr "Soroban" valueBytes
     pure { ty := .uint64, expr := .litU64 v, expandedNodes := 1 }
+  else if isUInt8Type types typeId then
+    let v ← decodeUInt8LiteralLe sorobanPlanErr "Soroban" valueBytes
+    pure { ty := .uint64, expr := .litU64 v, expandedNodes := 1 }
   else if isBoolType types typeId then
     let b ← decodeBoolLiteralBit sorobanPlanErr "Soroban" valueBytes
     pure { ty := .bool, expr := .litBool b, expandedNodes := 1 }
   else
-    planError "unsupported Soroban semantic shape: literal type is outside UInt64/Int64/UInt32/Bool"
+    planError "unsupported Soroban semantic shape: literal type is outside UInt64/Int64/UInt32/UInt8/Bool"
 
 private def signedRangeCond (e : Expr) : Expr :=
   .boolAnd
@@ -869,6 +883,18 @@ private partial def lowerInstructions
         match instr.result with
         | none => planError "unsupported Soroban semantic shape: literal must produce a value"
         | some vd => acc := { acc with env := envInsert acc.env vd.valueId v }
+    | .constant constantId => do
+        let some c := data.constants[constantId.toNat]? |
+          planError "unsupported Soroban semantic shape: Constant references an unknown constant id"
+        unless c.id == constantId do
+          planError "unsupported Soroban semantic shape: Constant id does not match declaration order"
+        let v ← lowerLiteral types c.typeId c.valueBytes
+        match instr.result with
+        | none => planError "unsupported Soroban semantic shape: Constant must produce a value"
+        | some vd =>
+            unless vd.typeId == c.typeId do
+              planError "unsupported Soroban semantic shape: Constant result typeId must match the declaration"
+            acc := { acc with env := envInsert acc.env vd.valueId v }
     | .stateLoad stateId => do
         unless allowStateRead do
           planError "unsupported Soroban semantic shape: pureFn cannot read state"
@@ -1176,7 +1202,7 @@ private partial def lowerInstructions
               let newLeaves := bv.leaves.set! i vv.expr
               let tv := mkArrayLeaves newLeaves (1 + bv.expandedNodes + vv.expandedNodes)
               acc := { acc with env := envInsert acc.env vd.valueId tv }
-    | .constant .. | .fieldGet .. | .fieldSet ..
+    | .fieldGet .. | .fieldSet ..
     | .variantTag .. | .variantPayload ..
     | .checkedCast .. | .commit ..
     | .emit .. =>
@@ -1279,8 +1305,6 @@ private def makePlanFromSemanticDataV1
     (sourceHash semanticHash : String) : CompileResult Plan := do
   unless isIdentifier programName do
     planError s!"program name '{programName}' is not a safe identifier"
-  unless data.constants.isEmpty do
-    planError "unsupported Soroban semantic shape: constants table must be empty"
   unless data.events.isEmpty do
     planError "unsupported Soroban semantic shape: events table must be empty"
   for err in data.errors do
@@ -1289,6 +1313,12 @@ private def makePlanFromSemanticDataV1
   unless data.invariants.isEmpty do
     planError "unsupported Soroban semantic shape: invariants are outside S0"
   let types ← validateSorobanTypeClosureV1 data.types
+  for c in data.constants do
+    unless isInt64Type types c.typeId || isUInt64Type types c.typeId ||
+        isUInt32Type types c.typeId || isBoolType types c.typeId do
+      planError
+        "unsupported Soroban semantic shape: constant is not admitted UInt64/Int64/UInt32/Bool"
+    let _ ← lowerLiteral types c.typeId c.valueBytes
   let mut signed? : Option Bool := none
   for st in data.logicalState do
     signed? ← noteIntegerDomain types st.typeId signed? s!"state '{st.name}'"

@@ -2902,6 +2902,33 @@ unsafe def testUnknownProfileFailClosed : IO Unit := do
             s!"unknown TON profile must fail closed, got {sel.codegenProfile}"
   IO.println "  ✓ unknown profile fail closed"
 
+/-- T3: scalar Op.Constant inlines as the existing literal envelope. -/
+private unsafe def testScalarConstInline
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "ConstBox" <|
+    "  const ANSWER : UInt64 := 42\n\n" ++
+    "  state stored : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    stored := 0\n\n" ++
+    "  entry answer() : UInt64 do\n" ++
+    "    stored := stored + ANSWER\n" ++
+    "    return stored\n"
+  let compiled ← compileSource session source "Examples.ConstBox" "<ton-const-box>"
+  let plan ← liftResult (planTon compiled)
+  expect (plan.storage.fields.size == 1)
+    s!"ConstBox must keep a single UInt64 field, got {plan.storage.fields.size}"
+  let strSource := wrapProgram "ConstStr" <|
+    "  const GREETING : String := \"hi\"\n\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    count := 0\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let strCompiled ← compileSource session strSource "Examples.ConstStr" "<ton-const-str>"
+  expectPlanErrorContaining "ConstStr" "constant"
+    (planTon strCompiled)
+  IO.println "  ✓ Ton scalar const inline + String FC pin ok"
+
 unsafe def run : IO Unit := do
   IO.println "TonPlanV1"
   let session ← Tests.Language.ParserSession.shared
@@ -2949,6 +2976,7 @@ unsafe def run : IO Unit := do
   testContextReadUnixTime session
   testEnvReadNativeStayFailClosed session
   testUnknownProfileFailClosed
+  testScalarConstInline session
   IO.println "TonPlanV1: all checks passed"
 
 end Tests.Materialization.TonPlanV1

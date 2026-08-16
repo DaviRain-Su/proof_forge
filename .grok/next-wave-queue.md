@@ -42,13 +42,16 @@ Goal: lift envelope-4 toward mid-tier (CW/TON/Aleo/Psy), then mid-tier toward th
 | ALEO-AGG-VIEWS | main | Aleo named Struct/Enum, Array UInt64 N, Option UInt64 view returns as query descriptors (`kind=computed`, result leaf array). Never Final functions / never on-chain outputs | **committed** `c4111f279` |
 | TON-ARR-U128 | main | TON Array UInt128 N as N consecutive 16-byte unsigned c4 cells (`uint128` / `loadUint(128)` / int257 `0≤t<2^128`; same flatten as Array UInt64/Int64; not CosmWasm 2-limb). N=8 cell-budget FC | **committed** `7fc78d7e2` |
 | TON-OPT-U128 | main | TON anonymous Option UInt128 as unsigned tag uint64 cell + one uint128 payload cell (`loadUint(128)`; not CosmWasm 2-limb / not two UInt64 leaves). Reuse Option tag/storeAtomic/match. Option UInt128 return / Option UInt256 / Map UInt128 stay FC | **committed** `d3928ebff` |
-| ENV4-INT64-CONTAINERS | main | Homogeneous Int64 Array/Option/Map on Quint/Soroban/OpenVM; ICP Array Int64 only (Option/Map stay FC). Program-wide signedNumeric follows leaf domain; mixed UInt64↔Int64 still FC. Not CW/TON `Map UInt64 Int64` | hash left for Commit |
-| NEAR-INT64-CONTAINERS | main | NEAR Array Int64 / Option Int64 / Map UInt64 Int64 per-leaf isInt flatten (CW/TON template). Int8 containers / Int64-key / Int64 return stay FC | implemented; hash left for Commit |
-| SOL-INT64-CONTAINERS | main | Solana same flatten on StateField.isInt (cap-8 / 24 leaves). Mollusk not this slice | implemented; hash left for Commit |
-| NOIR-INT64-CONTAINERS | main | Noir InputType.i64 on signed leaves; no signedChecked* | implemented; hash left for Commit |
-| ALEO-INT64-CONTAINERS | main | Aleo flatten triples isInt; cap-2 / 6 leaves stays | implemented; hash left for Commit |
-| PSY-INT64-CONTAINERS | main | Psy TypeId-driven LoweredVal.isInt; names-only storage | implemented; hash left for Commit |
-| EVM-INT64-CONTAINERS | main | EVM Array/Option Int64 + hashed Map value signedness (not 24-leaf) | implemented; hash left for Commit |
+| ENV4-INT64-CONTAINERS | main | Homogeneous Int64 Array/Option/Map on Quint/Soroban/OpenVM; ICP Array Int64 only (Option/Map stay FC). Program-wide signedNumeric follows leaf domain; mixed UInt64↔Int64 still FC. Not CW/TON `Map UInt64 Int64` | **committed** `3fdec007b` |
+| NEAR-INT64-CONTAINERS | main | NEAR Array Int64 / Option Int64 / Map UInt64 Int64 per-leaf isInt flatten (CW/TON template). Int8 containers / Int64-key / Int64 return stay FC | **committed** `9ad083de6` |
+| SOL-INT64-CONTAINERS | main | Solana same flatten on StateField.isInt (cap-8 / 24 leaves). Mollusk not this slice | **committed** `9ad083de6` |
+| NOIR-INT64-CONTAINERS | main | Noir InputType.i64 on signed leaves; no signedChecked* | **committed** `9ad083de6` |
+| ALEO-INT64-CONTAINERS | main | Aleo flatten triples isInt; cap-2 / 6 leaves stays | **committed** `9ad083de6` |
+| PSY-INT64-CONTAINERS | main | Psy TypeId-driven LoweredVal.isInt; names-only storage | **committed** `9ad083de6` |
+| EVM-INT64-CONTAINERS | main | EVM Array/Option Int64 + hashed Map value signedness (not 24-leaf) | **committed** `9ad083de6` |
+| T3-CONST | main | Scalar `Op.Constant` inline via existing `Op.Literal` on EVM/Solana(product)/Noir/TON/Quint/Soroban/OpenVM/ICP. String/aggregate/Principal const + Solana `Cpi*IR` empty-table stay FC | implemented; hash left for Commit |
+| T3-ALEO-PRIN | main | Aleo 9-leaf Principal wire identity (`owner_len`+`w0..w7`, ≠address/Field). Return / caller→address stay FC | implemented; hash left for Commit |
+| T3-ENV4-BYTES | main | Quint/Soroban/OpenVM/ICP Bytes N as N UInt64 low-8 leaves. No Candid `vec nat8`. Bytes return stay FC | implemented; hash left for Commit |
 
 **File lock:** workers must not edit `Tests/Materialization/Targets.lean` or another target's tree. `FieldComparison*` is a main-agent serial slice (`FC-PRESERVE`), not a parallel leaf. Main agent integrates WideInt64 / OptInt / ArrInt / MapInt needles after each leaf lands.
 

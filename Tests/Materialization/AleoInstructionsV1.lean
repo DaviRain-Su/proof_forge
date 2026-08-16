@@ -1670,6 +1670,62 @@ unsafe def testConstProductLower : IO Unit := do
     "UInt32 const 3 must lower to literal 3u32"
   expect (hasBinaryOp prog2 "add") "narrow const add"
 
+/-- T3: Principal 9-leaf wire identity (T10/T12), not Aleo address. -/
+unsafe def testPrincipalIdentityLeaves : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PrincipalMix where\n" ++
+    "  state owner : Principal\n" ++
+    "  init(initial : Principal) do\n" ++
+    "    owner := initial\n" ++
+    "  entry set(who : Principal) : Bool do\n" ++
+    "    owner := who\n" ++
+    "    return true\n" ++
+    "  entry eq(a : Principal, b : Principal) : Bool do\n" ++
+    "    return a == b\n" ++
+    "  entry matchesOwner(who : Principal) : Bool do\n" ++
+    "    return owner == who\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-principal>" "Tests.AleoPrincipal" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| Targets.Aleo.engineeringPlanFromCompiled compiled
+  expect (plan.stateFieldNames.size == 9)
+    s!"Principal state must flatten to 9 leaves, got {plan.stateFieldNames.size}"
+  expect (plan.stateFieldNames[0]! == "owner_len")
+    s!"Principal leaf 0 must be owner_len, got {plan.stateFieldNames[0]!}"
+  expect (plan.stateFieldNames[1]! == "owner_w0")
+    s!"Principal leaf 1 must be owner_w0, got {plan.stateFieldNames[1]!}"
+  expect (plan.stateFieldNames[8]! == "owner_w7")
+    s!"Principal leaf 8 must be owner_w7, got {plan.stateFieldNames[8]!}"
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  let cap ← liftResult <|
+    resolveEngineeringRequirementsV1 selection compiled
+  let prog ← liftResult <| programFromCapabilityV1 cap
+  expect (countMappings prog == 10)
+    s!"Principal must emit 9 state + guard mappings, got {countMappings prog}"
+  -- Principal return stays FC (9 leaves > B-RET-ABI cap of 8).
+  let retSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PrincipalReturn where\n" ++
+    "  state owner : Principal\n" ++
+    "  init(initial : Principal) do\n" ++
+    "    owner := initial\n" ++
+    "  view getOwner() : Principal do\n" ++
+    "    return owner\n"
+  let parsedRet ← liftResult (← session.selectProgramV1
+    retSource "<aleo-principal-ret>" "Tests.AleoPrincipalReturn" none)
+  let compiledRet ← liftResult <| Compiler.compileValidatedSourceV1 parsedRet
+  match Targets.Aleo.engineeringPlanFromCompiled compiledRet with
+  | .ok _ =>
+      throw <| IO.userError "Principal return must Plan fail closed"
+  | .error e =>
+      expect (!(e.render.isEmpty))
+        s!"Principal return must fail closed, got {e.render}"
+
 /-- G5-HARD: former residual bucket true lower (Int64 / Field / pureFn). -/
 private def testG5HardResidualTrueLower : IO Unit := do
   let intParam0 : PlanParam :=
@@ -2745,6 +2801,7 @@ unsafe def run : IO Unit := do
   testG5MatrixBoolAssertStructural
   testG5MatrixProductAssertLower
   testConstProductLower
+  testPrincipalIdentityLeaves
   testG5HardResidualTrueLower
   testG5HardResidualAllowlistClassifier
   testG5MatrixNestedMapPlanFailClosed

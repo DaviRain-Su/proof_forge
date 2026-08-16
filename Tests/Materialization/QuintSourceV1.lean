@@ -519,6 +519,30 @@ unsafe def testArraySlotsFlatten : IO Unit := do
   expect (!qnt.contains "List[")
     "Array flatten must not emit a native Quint List"
 
+/-- T3: Bytes 4 → 4 unsigned UInt64 leaves (low 8 bits). -/
+unsafe def testBytesBoxFlatten : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BytesBox where\n" ++
+    "  state b : Bytes 4\n" ++
+    "  init() do\n" ++
+    "    b[0] := 0\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    b[0] := 0\n" ++
+    "    return v\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-bytes-box>" "Tests.QuintBytesBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  expect (!plan.signedNumeric) "BytesBox stays unsigned"
+  expect (plan.states.map (·.name) == #["b_0", "b_1", "b_2", "b_3"])
+    "Bytes 4 must flatten to b_0..b_3 UInt64 leaves"
+  liftResult <| Targets.Quint.validatePlan plan
+  let files ← liftResult <| buildQuint compiled
+  expect (!files.isEmpty) "BytesBox must materialize Quint files"
+
 /-- N=9 exceeds the 1..8 flatten cap. -/
 unsafe def testArrayN9FailClosed : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -1717,6 +1741,7 @@ unsafe def run : IO Unit := do
   testInt64Cell
   testMixedInt64UInt64Fc
   testArraySlotsFlatten
+  testBytesBoxFlatten
   testArrInt64Flatten
   testArrayN9FailClosed
   testArrayInt64N9FailClosed

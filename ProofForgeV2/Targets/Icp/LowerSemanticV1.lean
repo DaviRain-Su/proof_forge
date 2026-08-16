@@ -13,8 +13,10 @@ Narrow ICP-2 Counter/StateCell target leaf (ADR-0047). Envelope:
 * public UInt64 **or** public Int64 state (homogeneous numeric domain: a
   program is entirely UInt64 or entirely Int64 on every integer
   state/param/result; mixing is fail closed). Array UInt64 N∈1..8 state
-  flattens to N mutable i64 Wasm globals (no Candid `vec`). Bool results
-  are admitted. No Field/Principal/Map/Option/Bytes/named aggregates
+  flattens to N mutable i64 Wasm globals (no Candid `vec`). `Bytes N`
+  (N=1..8) state flattens to N extra i64 globals storing low-8 bits
+  (no Candid `vec nat8`). Bool results are admitted. No
+  Field/Principal/Map/Option/named aggregates
 * `init` (initializer), `entry` (canister_update), `view` (canister_query)
 * single-block callable bodies; checked `+`/`-`/`*`/`/`/`%` and
   comparisons (no bitwise); literal, param, stateLoad, stateStore, return,
@@ -153,10 +155,10 @@ private def icpTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt64/Int64 widths are supported"
   unsupportedShapeDetail :=
-    "only anonymous UInt64, Int64, Bool, Unit, and Array UInt64 N state flatten are supported (narrow Int/Field/Principal/aggregates/Map/Option/Bytes/String fail closed on the ICP-2 Counter/StateCell envelope)"
+    "only anonymous UInt64, Int64, UInt8 (Bytes element), Bool, Unit, Array UInt64 N state flatten, and Bytes N (N i64 globals, low-8, no Candid vec nat8) are supported (narrow Int/Field/Principal/aggregates/Map/Option/String fail closed on the ICP-2 Counter/StateCell envelope)"
 
 private def pilotUintWidthPolicyU64U32Index : PilotUintWidthPolicy where
-  admittedWidths := #[64, 32]
+  admittedWidths := #[64, 32, 8]
 
 private abbrev IcpTypeClosureV1 := PilotTypeClosureV1
 
@@ -167,7 +169,7 @@ private def validateIcpTypeClosureV1
     (intPolicy := pilotIntWidthPolicyI64)
     (fieldPolicy := pilotFieldPolicyNone)
     (principalPolicy := pilotPrincipalPolicyNone)
-    (containerPolicy := pilotContainerStatePolicyArrayOnly)
+    (containerPolicy := pilotContainerStatePolicyArrayBytes)
 
 private def maxIdentifierBytes : Nat := 200
 private def maxStateFields : Nat := 64
@@ -199,6 +201,9 @@ private def isBoolType (types : IcpTypeClosureV1) (typeId : TypeIdV1) : Bool :=
 private def isUInt32Type (types : IcpTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   types.uintTypeIdAt 32 == some typeId
 
+private def isUInt8Type (types : IcpTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  types.uintTypeIdAt 8 == some typeId
+
 /-- CosmWasm/Quint-style Array UInt64 N flatten: `some n` for admitted 1..8;
     `none` for scalars. Nested/narrow/Map/Bytes/N=0/N>8 fail closed. -/
 private def arrayUInt64LenV1
@@ -216,9 +221,15 @@ private def arrayUInt64LenV1
         planError
           s!"unsupported ICP semantic shape: Array UInt64 N state must be 1..8 (got {n}; cap 8 flatten; no Candid vec)"
       pure (some n)
+  | some { shape := .bytes len, .. } =>
+      let n := len.toNat
+      unless 1 ≤ n && n ≤ 8 do
+        planError
+          s!"unsupported ICP semantic shape: Bytes N state must be 1..8 (got {n}; cap 8 flatten; no Candid vec nat8)"
+      pure (some n)
   | _ =>
       planError
-        "unsupported ICP semantic shape: container TypeId is not Array UInt64 (Map/Bytes/Option stay fail closed)"
+        "unsupported ICP semantic shape: container TypeId is not Array UInt64 or Bytes N (Map/Option stay fail closed)"
 
 /-- Physical PlanState leaves after Array flatten. `leavesOf[logicalId]` is
     the dense field-index list (`name` or `name_0`..`name_{N-1}`). -/
@@ -432,8 +443,11 @@ private def lowerLiteral
   else if isUInt32Type types typeId then
     let v ← decodeUInt32LiteralLe icpPlanErr "ICP" valueBytes
     pure (mkScalar (.literal v))
+  else if isUInt8Type types typeId then
+    let v ← decodeUInt8LiteralLe icpPlanErr "ICP" valueBytes
+    pure (mkScalar (.literal v))
   else
-    planError "unsupported ICP semantic shape: literal type is outside UInt64/Int64/UInt32"
+    planError "unsupported ICP semantic shape: literal type is outside UInt64/Int64/UInt32/UInt8"
 
 private def literalIndexNatV1 (v : LoweredValue) : CompileResult Nat := do
   let e ← requireScalar v "Array index"
@@ -489,6 +503,18 @@ private partial def lowerInstructions
         match instr.result with
         | none => planError "unsupported ICP semantic shape: literal must produce a value"
         | some vd => acc := { acc with env := envInsert acc.env vd.valueId v }
+    | .constant constantId => do
+        let some c := data.constants[constantId.toNat]? |
+          planError "unsupported ICP semantic shape: Constant references an unknown constant id"
+        unless c.id == constantId do
+          planError "unsupported ICP semantic shape: Constant id does not match declaration order"
+        let v ← lowerLiteral types c.typeId c.valueBytes
+        match instr.result with
+        | none => planError "unsupported ICP semantic shape: Constant must produce a value"
+        | some vd =>
+            unless vd.typeId == c.typeId do
+              planError "unsupported ICP semantic shape: Constant result typeId must match the declaration"
+            acc := { acc with env := envInsert acc.env vd.valueId v }
     | .stateLoad stateId => do
         match instr.result with
         | none => planError "unsupported ICP semantic shape: stateLoad must produce a value"
@@ -532,8 +558,6 @@ private partial def lowerInstructions
         match instr.result with
         | none => planError "unsupported ICP semantic shape: binary must produce a value"
         | some vd => acc := { acc with env := envInsert acc.env vd.valueId (mkScalar e) }
-    | .constant .. =>
-        planError "unsupported ICP semantic shape: constants table must be empty (ICP-2 has no const lowering)"
     | .contextRead key => do
         match instr.result with
         | none =>
@@ -714,8 +738,6 @@ private def makePlanFromSemanticDataV1
     (sourceHash semanticHash : String) : CompileResult Plan := do
   unless isIdentifier programName do
     planError s!"program name '{programName}' is not a safe identifier"
-  unless data.constants.isEmpty do
-    planError "unsupported ICP semantic shape: constants table must be empty (ICP-2 admits zero constants)"
   unless data.events.isEmpty do
     planError "unsupported ICP semantic shape: events table must be empty (emit is outside ICP-2)"
   unless data.errors.isEmpty do
@@ -723,6 +745,12 @@ private def makePlanFromSemanticDataV1
   unless data.invariants.isEmpty do
     planError "unsupported ICP semantic shape: invariants must be empty (nonempty invariants fail closed on ICP-2)"
   let types ← validateIcpTypeClosureV1 data.types
+  for c in data.constants do
+    unless isInt64Type types c.typeId || isUInt64Type types c.typeId ||
+        isUInt32Type types c.typeId do
+      planError
+        "unsupported ICP semantic shape: constant is not admitted UInt64/Int64/UInt32"
+    let _ ← lowerLiteral types c.typeId c.valueBytes
   let mut signed? : Option Bool := none
   for st in data.logicalState do
     signed? ← noteIntegerDomain types st.typeId signed? s!"state '{st.name}'"

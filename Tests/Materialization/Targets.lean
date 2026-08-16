@@ -271,11 +271,21 @@ private unsafe def testConstInvariantMaterializationBoundary : IO Unit := do
           | .constant 0 => true
           | _ => false))))
     "const boundary: entry must retain Op.Constant 0"
-  for (target, kind, marker) in #[
-      (TargetId.evm, TargetKind.evm, "constants/invariants"),
-      (TargetId.solana, TargetKind.solana, "constants/invariants"),
-      (TargetId.noir, TargetKind.noir, "constants/invariants")] do
-    expectMaterializePlanInvariantV1 "constant" target kind constCompiled marker
+  -- Noir admits scalar UInt{8,16,32,64}/Int64/Bool const (inline as plan literals).
+  let noirConstants ← liftResult <| materializeSelected TargetId.noir constCompiled
+  let noirFiles := MaterializedArtifactsV1.filesOf noirConstants
+  expect (!(noirFiles.isEmpty))
+    s!"constant/noir: scalar Op.Constant must materialize; got {noirFiles.map (·.path)}"
+  -- Solana admits scalar UInt{8,16,32,64}/Int64/Bool const (inline as plan literals).
+  let solanaConstants ← liftResult <| materializeSelected TargetId.solana constCompiled
+  let solanaFiles := MaterializedArtifactsV1.filesOf solanaConstants
+  expect (!(solanaFiles.isEmpty))
+    s!"constant/solana: scalar Op.Constant must materialize; got {solanaFiles.map (·.path)}"
+  -- EVM admits scalar UInt{8,16,32,64}/Int64/Bool const (inline as plan literals).
+  let evmConstants ← liftResult <| materializeSelected TargetId.evm constCompiled
+  let evmFiles := MaterializedArtifactsV1.filesOf evmConstants
+  expect (evmFiles.any (fun f => f.path.endsWith ".yul"))
+    s!"constant/evm: scalar Op.Constant must materialize Yul; got {evmFiles.map (·.path)}"
   -- NEAR admits scalar UInt/Int/Bool const table (inline as plan literals).
   let nearConstants ← liftResult <| materializeSelected TargetId.near constCompiled
   let nearFiles := MaterializedArtifactsV1.filesOf nearConstants
@@ -294,15 +304,16 @@ private unsafe def testConstInvariantMaterializationBoundary : IO Unit := do
   let psyFiles := MaterializedArtifactsV1.filesOf psyConstants
   expect (psyFiles.any (·.path == "ConstTargetBoundary.dpn.json"))
     s!"constant/psy: supported scalar Op.Constant must materialize to a Psy DPN package; got {psyFiles.map (·.path)}"
-  -- Extra five from probe; not opening const. TON shares the constants/invariants
-  -- envelope; Quint/Soroban/ICP/OpenVM require an empty constants table.
-  for (target, kind, marker) in #[
-      (TargetId.ton, TargetKind.ton, "constants/invariants"),
-      (TargetId.quint, TargetKind.quint, "constants"),
-      (TargetId.soroban, TargetKind.soroban, "constants"),
-      (TargetId.icp, TargetKind.icp, "constants"),
-      (TargetId.openvm, TargetKind.openvm, "constants")] do
-    expectMaterializePlanInvariantV1 "constant" target kind constCompiled marker
+  -- TON admits scalar UInt{8,16,32,64}/Int64/Bool const (inline as plan literals).
+  let tonConstants ← liftResult <| materializeSelected TargetId.ton constCompiled
+  let tonFiles := MaterializedArtifactsV1.filesOf tonConstants
+  expect (!(tonFiles.isEmpty))
+    s!"constant/ton: scalar Op.Constant must materialize; got {tonFiles.map (·.path)}"
+  -- Envelope-4 admits scalar UInt64/Int64/Bool (ICP: UInt64/Int64) const inline.
+  for target in [TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp] do
+    let out ← liftResult <| materializeSelected target constCompiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"constant/{target}: scalar Op.Constant must materialize; got {(MaterializedArtifactsV1.filesOf out).map (·.path)}"
 
   let invariantSource ← liftResult (← session.selectProgramV1
     invariantTargetBoundarySourceTextV1 "<targets-invariant-boundary>"
@@ -4135,12 +4146,23 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
   expect (psyPlan.stateFieldNames[0]! == "owner_len")
     s!"Psy Principal leaf 0 must be owner_len, got {psyPlan.stateFieldNames[0]!}"
   -- Extra seven from probe; CosmWasm admits identity storage (files nonempty).
-  -- Aleo/TON/Quint/Soroban/ICP/OpenVM stay FC. Not opening Principal; not
-  -- remapping Principal → pubkey / account-id / Field.
+  -- T3: Aleo admits the same 9-leaf wire identity (not address). TON/Quint/
+  -- Soroban/ICP/OpenVM stay FC. Not remapping Principal → pubkey / account-id /
+  -- Field / Aleo address.
   let prinCw ← liftResult <| materializeSelected TargetId.cosmwasm prinCompiled
   expect (!(MaterializedArtifactsV1.filesOf prinCw).isEmpty)
     "N2c principal: CosmWasm must materialize Principal identity storage"
-  for target in [TargetId.aleo, TargetId.quint, TargetId.ton, TargetId.soroban,
+  let prinAleo ← liftResult <| materializeSelected TargetId.aleo prinCompiled
+  expect (!(MaterializedArtifactsV1.filesOf prinAleo).isEmpty)
+    "N2c principal: Aleo must materialize Principal identity storage"
+  let aleoPlan ← liftResult <| planAleo prinCompiled
+  expect (aleoPlan.stateFieldNames.size == 9)
+    s!"T3 Aleo Principal must flatten to 9 UInt64 leaves, got {aleoPlan.stateFieldNames.size}"
+  expect (aleoPlan.stateFieldNames[0]! == "owner_len")
+    s!"T3 Aleo Principal leaf 0 must be owner_len, got {aleoPlan.stateFieldNames[0]!}"
+  expect (aleoPlan.stateFieldNames[8]! == "owner_w7")
+    s!"T3 Aleo Principal leaf 8 must be owner_w7, got {aleoPlan.stateFieldNames[8]!}"
+  for target in [TargetId.quint, TargetId.ton, TargetId.soroban,
       TargetId.icp, TargetId.openvm] do
     match materializeSelected target prinCompiled with
     | .ok _ =>
@@ -6441,9 +6463,9 @@ unsafe def runSignedContainerNeedles : IO Unit := do
 set_option maxRecDepth 10000 in
 unsafe def runRemainingNeedles : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
-  -- BytesBox: Bytes 4 state. Eight materializers admit; Quint/Soroban/
-  -- ICP/OpenVM stay envelope FC. Not opening Bytes on those four.
-  -- State only — no Bytes return ABI. Files-nonempty or named decline.
+  -- BytesBox: Bytes 4 state. All twelve materializers admit (T3 opened
+  -- Quint/Soroban/ICP/OpenVM as N UInt64 low-8 leaves). State only —
+  -- no Bytes return ABI. Files-nonempty.
   let bytesBoxSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -6462,21 +6484,11 @@ unsafe def runRemainingNeedles : IO Unit := do
     | .error e => throw <| IO.userError s!"BytesBox select: {e.render}"
   let bytesCompiled ← liftResult <| Compiler.compileValidatedSourceV1 bytesV1
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
-      TargetId.psy, TargetId.aleo, TargetId.cosmwasm, TargetId.ton] do
+      TargetId.psy, TargetId.aleo, TargetId.cosmwasm, TargetId.ton,
+      TargetId.quint, TargetId.soroban, TargetId.icp, TargetId.openvm] do
     let out ← liftResult <| materializeSelected target bytesCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"BytesBox: {target} must materialize Bytes 4"
-  for target in [TargetId.quint, TargetId.soroban, TargetId.icp, TargetId.openvm] do
-    match materializeSelected target bytesCompiled with
-    | .ok _ =>
-        throw <| IO.userError s!"BytesBox: {target} must decline Bytes state"
-    | .error e =>
-        expect ((e.render).contains "Bytes" ||
-            (e.render).contains "container" ||
-            (e.render).contains "anonymous" ||
-            (e.render).contains "unsupported" ||
-            (e.render).contains "pilot")
-          s!"BytesBox {target} message must cite Bytes/container boundary, got {e.render}"
 
   -- BytesRetBox: Bytes 4 view-return. NEAR/Psy/CW admit. EVM/Solana/Noir/
   -- Aleo/TON named B-RET FC; Quint/Soroban/OpenVM/ICP stay container-state

@@ -615,6 +615,9 @@ private structure EvmLowerLayoutV1 where
   pfAssetsDeclared : Bool := false
   /-- Hashed-Map storage profile (1 base slot per Map). -/
   hashedMapStorage : Bool := false
+  /-- Source-order ConstantV1 rows for body `Op.Constant` inline. Empty keeps
+      historical Plans byte-identical. Validated at plan construction. -/
+  constants : Array ConstantV1 := #[]
   deriving Inhabited
 
 /-- Resolve admitted scalar state/param TypeId to physical byte width
@@ -2460,6 +2463,43 @@ private def decodeBoolLiteralV1 (bytes : ByteArray) : CompileResult UInt64 := do
   let bit ← decodeBoolLiteralBit evmPlanErr "EVM" bytes
   pure (if bit then 1 else 0)
 
+/-- Scalar const envelope: UInt{8,16,32,64} / Int64 / Bool. String, Principal,
+    aggregate, Field, and wide/narrow-Int constants stay fail closed. -/
+private def isEvmScalarConstUintWidth (w : Nat) : Bool :=
+  w == 8 || w == 16 || w == 32 || w == 64
+
+private def admitEvmConstantTypeV1
+    (types : EvmTypeClosureV1) (typeId : TypeIdV1) : CompileResult Unit := do
+  if let some bitWidth := types.uintWidthOf typeId then
+    unless isEvmScalarConstUintWidth bitWidth do
+      throw <| .planInvariant .evm
+        s!"unsupported EVM semantic shape: UInt{bitWidth} constant is outside the EVM scalar const pilot"
+  else if let some bitWidth := types.intWidthOf typeId then
+    unless bitWidth == 64 do
+      throw <| .planInvariant .evm
+        s!"unsupported EVM semantic shape: Int{bitWidth} constant is not admitted"
+  else
+    let boolTid ← match types.boolTypeId with
+      | some tid => pure tid
+      | none =>
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: Bool type is missing for Bool constant"
+    unless typeId == boolTid do
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: constant is not admitted UInt width, Int64, or Bool"
+
+private def validateEvmConstantTableV1
+    (types : EvmTypeClosureV1) (constants : Array ConstantV1) :
+    CompileResult Unit := do
+  for i in [0:constants.size] do
+    let some c := constants[i]? |
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: constant table hole"
+    unless c.id.toNat == i do
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: Constant id does not match declaration order"
+    admitEvmConstantTypeV1 types c.typeId
+
 /-- Every instruction result emitted since the prior stateStore must be in the
     current sink's dependency closure. This preserves the current NormalizeV1
     evaluation regions instead of deferring stale state loads or checked failures across a
@@ -2733,6 +2773,67 @@ private def lowerBlockInstructionsV1
   let mut hasAssert := false
   for instruction in block.instructions do
     match instruction.op, instruction.result with
+    | .constant constantId, some result =>
+        let some c := layout.constants[constantId.toNat]? |
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: Constant references an unknown constant id"
+        unless c.id == constantId do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: Constant id does not match declaration order"
+        unless result.typeId == c.typeId do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: Constant result typeId must match the declaration"
+        admitEvmConstantTypeV1 types c.typeId
+        -- Inline via the same type-directed decoder as Op.Literal.
+        match types.uintWidthOf c.typeId with
+        | some bitWidth => do
+            unless isEvmScalarConstUintWidth bitWidth do
+              throw <| .planInvariant .evm
+                s!"unsupported EVM semantic shape: UInt{bitWidth} constant is outside the EVM scalar const pilot"
+            let n ← decodeUIntWideLiteralLe evmPlanErr "EVM" bitWidth c.valueBytes
+            values := ← appendResultValueV1 c.typeId values result {
+              expr := .literal (UInt64.ofNat n)
+              depth := 1
+              expandedNodes := 1
+              dependencies := #[]
+              isBool := false
+              isInt := false
+              bitWidth
+            }
+        | none =>
+            match types.intWidthOf c.typeId with
+            | some bitWidth => do
+                unless bitWidth == 64 do
+                  throw <| .planInvariant .evm
+                    s!"unsupported EVM semantic shape: Int{bitWidth} constant is not admitted"
+                let value ← decodeIntWidthLiteralLe evmPlanErr "EVM" bitWidth c.valueBytes
+                values := ← appendResultValueV1 c.typeId values result {
+                  expr := .literal value
+                  depth := 1
+                  expandedNodes := 1
+                  dependencies := #[]
+                  isBool := false
+                  isInt := true
+                  bitWidth
+                }
+            | none => do
+                let boolTid ← match types.boolTypeId with
+                  | some tid => pure tid
+                  | none => throw (.planInvariant .evm
+                      "unsupported EVM semantic shape: Bool type is missing for Bool constant")
+                unless c.typeId == boolTid do
+                  throw <| .planInvariant .evm
+                    "unsupported EVM semantic shape: constant is not admitted UInt width, Int64, or Bool"
+                let value ← decodeBoolLiteralV1 c.valueBytes
+                values := ← appendResultValueV1 boolTid values result {
+                  expr := .literal value
+                  depth := 1
+                  expandedNodes := 1
+                  dependencies := #[]
+                  isBool := true
+                  isInt := false
+                  bitWidth := 1
+                }
     | .literal typeId bytes, some result =>
         match types.uintWidthOf typeId with
         | some bitWidth => do
@@ -5190,7 +5291,7 @@ private def makeInterfaceBindingV1 (label : String) (name : String)
 private def makePlanFromSemanticDataV1
     (source : SemanticProgramDataV1)
     (hashedMapStorage : Bool := false) : CompileResult Plan := do
-  if !source.constants.isEmpty || !source.invariants.isEmpty then
+  if !source.invariants.isEmpty then
     throw <| .planInvariant .evm
       "unsupported EVM semantic shape: constants/invariants are outside the current UInt64 pilot"
   -- init (0..1) + entries + pureFns; each class is capped at maxEntries.
@@ -5205,9 +5306,11 @@ private def makePlanFromSemanticDataV1
     collectMapUInt64StaticKeysV1 source.types types source.callables
   let pfAssetsDeclared :=
     source.requirements.items.any (·.id == wireExtensionPfAssetsIdV1)
-  let storageLayout ←
+  validateEvmConstantTableV1 types source.constants
+  let storageLayout0 ←
     makeStorageLayoutV1 types source.types source.logicalState mapStaticKeys
       pfAssetsDeclared hashedMapStorage
+  let storageLayout := { storageLayout0 with constants := source.constants }
   let events ← source.events.mapM (fun d =>
     makeInterfaceBindingV1 "event" d.name d.fields types.uint64TypeId)
   let errors ← source.errors.mapM (fun d =>

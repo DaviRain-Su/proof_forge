@@ -772,6 +772,8 @@ private structure NoirLowerLayoutV1 where
   fields : Array StateField
   stateLeaves : Array (Array Nat)
   typeDecls : Array TypeDeclV1
+  /-- Source-order ConstantV1 rows for body `Op.Constant` inline. -/
+  constants : Array ConstantV1 := #[]
   deriving Inhabited
 
 private structure LoweredValueV1 where
@@ -1434,6 +1436,37 @@ private def decodeBoolLiteralV1 (bytes : ByteArray) : CompileResult UInt64 := do
     (invalidDetail := "Bool literal byte must be 0x00 or 0x01")
   pure (if bit then 1 else 0)
 
+/-- Scalar const envelope: UInt{8,16,32,64} / Int64 / Bool. -/
+private def isNoirScalarConstUintWidth (w : Nat) : Bool :=
+  w == 8 || w == 16 || w == 32 || w == 64
+
+private def admitNoirConstantTypeV1
+    (types : NoirTypeClosureV1) (typeId : TypeIdV1) : CompileResult Unit := do
+  if let some bitWidth := types.uintWidthOf typeId then
+    unless isNoirScalarConstUintWidth bitWidth do
+      throw <| .planInvariant .noir
+        s!"unsupported Noir semantic shape: UInt{bitWidth} constant is outside the Noir scalar const pilot"
+  else if let some bitWidth := types.intWidthOf typeId then
+    unless bitWidth == 64 do
+      throw <| .planInvariant .noir
+        s!"unsupported Noir semantic shape: Int{bitWidth} constant is not admitted"
+  else
+    unless types.boolTypeId == some typeId do
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: constant is not admitted UInt width, Int64, or Bool"
+
+private def validateNoirConstantTableV1
+    (types : NoirTypeClosureV1) (constants : Array ConstantV1) :
+    CompileResult Unit := do
+  for i in [0:constants.size] do
+    let some c := constants[i]? |
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: constant table hole"
+    unless c.id.toNat == i do
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: Constant id does not match declaration order"
+    admitNoirConstantTypeV1 types c.typeId
+
 private def currentValueV1
     (values : Array LoweredValueV1)
     (paramCount segmentStart : Nat)
@@ -1910,6 +1943,58 @@ private def lowerBlockInstructionsV1
   let mut body : Array Statement := #[]
   for instruction in block.instructions do
     match instruction.op, instruction.result with
+    | .constant constantId, some result =>
+        let some c := layout.constants[constantId.toNat]? |
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: Constant references an unknown constant id"
+        unless c.id == constantId do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: Constant id does not match declaration order"
+        unless result.typeId == c.typeId do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: Constant result typeId must match the declaration"
+        admitNoirConstantTypeV1 types c.typeId
+        if let some bitWidth := types.intWidthOf c.typeId then
+          unless bitWidth == 64 do
+            throw <| .planInvariant .noir
+              s!"unsupported Noir semantic shape: Int{bitWidth} constant is not admitted"
+          let value ← decodeIntWidthLiteralLe noirPlanErr "Noir" bitWidth c.valueBytes
+          values := ← appendResultValueV1 c.typeId values result {
+            expr := .literal value
+            kind := .int64
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+          }
+        else if types.boolTypeId == some c.typeId then
+          let value ← decodeBoolLiteralV1 c.valueBytes
+          values := ← appendResultValueV1 c.typeId values result {
+            expr := .literal value
+            kind := .bool
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+          }
+        else
+          match types.uintWidthOf c.typeId with
+          | some w =>
+              unless isNoirScalarConstUintWidth w do
+                throw <| .planInvariant .noir
+                  s!"unsupported Noir semantic shape: UInt{w} constant is outside the Noir scalar const pilot"
+              let some kind := uintKindOfWidthV1 w |
+                throw <| .planInvariant .noir
+                  s!"unsupported Noir semantic shape: UInt{w} constant is not admitted"
+              let value ← decodeUIntWidthLiteralLe noirPlanErr "Noir" w c.valueBytes
+              values := ← appendResultValueV1 c.typeId values result {
+                expr := .literal value
+                kind
+                depth := 1
+                expandedNodes := 1
+                dependencies := #[]
+              }
+          | none =>
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: constant is not admitted UInt width, Int64, or Bool"
     | .literal typeId bytes, some result =>
         if let some bitWidth := types.intWidthOf typeId then
           unless isAbiIntWidth bitWidth do
@@ -3461,7 +3546,7 @@ private def makeInterfaceBindingV1 (label : String) (name : String)
 private def makePlanFromSemanticDataV1
     (artifactProgramName sourceHash semanticHash : String)
     (source : SemanticProgramDataV1) : CompileResult Plan := do
-  if !source.constants.isEmpty || !source.invariants.isEmpty then
+  if !source.invariants.isEmpty then
     throw <| .planInvariant .noir
       "unsupported Noir semantic shape: constants/invariants are outside the current UInt64 pilot"
   if source.callables.size > maxRelations then
@@ -3470,7 +3555,9 @@ private def makePlanFromSemanticDataV1
     throw <| .planInvariant .noir
       s!"requirement count exceeds canonical limit {Targets.maxRequirementKinds}"
   let types ← validateNoirTypeClosureV1 source.types
-  let layout ← makeStateLayoutV1 types source.types source.logicalState
+  validateNoirConstantTableV1 types source.constants
+  let layout0 ← makeStateLayoutV1 types source.types source.logicalState
+  let layout := { layout0 with constants := source.constants }
   let states := layout.fields
   let events ← source.events.mapM (fun d =>
     makeInterfaceBindingV1 "event" d.name d.fields types.uint64TypeId)

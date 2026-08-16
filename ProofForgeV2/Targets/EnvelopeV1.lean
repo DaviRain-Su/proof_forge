@@ -264,7 +264,9 @@ def pilotFieldPolicyGoldilocks : PilotFieldPolicy where
     reinterpretation as a host address (T10 EVM pilot: len + 8×UInt64 body
     words, ≤64B body bound — same leaf pattern as N4 String; not 20-byte
     address). T12 extends the same leaf storage pilot to Solana/NEAR/Noir
-    (still not pubkey/account-id/Field reinterpretation). Aleo/Psy remain
+    (still not pubkey/account-id/Field reinterpretation). Psy and Aleo admit
+    the same 9-leaf wire identity (`pilotPrincipalPolicyAdmit`); Aleo uses
+    UInt64 words, not `address` / Field. TON and envelope-4 stay
     `pilotPrincipalPolicyNone`.
 
     Default is fail-closed. A target may set `admitPrincipal := true` only
@@ -275,7 +277,7 @@ structure PilotPrincipalPolicy where
   deriving BEq, Repr
 
 /-- Historical / opt-out and B-3 research pin: Principal fail-closed
-    (Aleo/Psy and any target without lossless leaf storage; no pubkey /
+    (TON/envelope-4 and any target without lossless leaf storage; no pubkey /
     account-id / Field exact match). -/
 def pilotPrincipalPolicyNone : PilotPrincipalPolicy where
   admitPrincipal := false
@@ -329,6 +331,14 @@ def pilotContainerStatePolicyArrayOnly : PilotContainerStatePolicy where
   admitArray := true
   admitMap := false
   admitBytes := false
+  admitOption := false
+
+/-- ICP T3 Bytes wave: Array flatten + fixed Bytes N (N UInt64 low-8 leaves).
+    Map/Option stay fail closed. -/
+def pilotContainerStatePolicyArrayBytes : PilotContainerStatePolicy where
+  admitArray := true
+  admitMap := false
+  admitBytes := true
   admitOption := false
 
 /-- Array flatten + independent Option UInt64 2-leaf state (tag+payload).
@@ -1390,6 +1400,19 @@ def decodeUInt64LiteralLe
       | .ok () => pure value
       | .error _ =>
           throw <| mkErr (shapeMsg targetLabel "trailing UInt64 literal bytes")
+
+/-- Decode a 1-byte UInt8 literal, zero-extended to UInt64.
+
+    Used by envelope-4 Bytes N IndexSet values (`0..255` stored in UInt64
+    leaves). Trailing bytes fail closed. -/
+def decodeUInt8LiteralLe
+    (mkErr : String → CompileError)
+    (targetLabel : String)
+    (bytes : ByteArray) : CompileResult UInt64 := do
+  unless bytes.size == 1 do
+    throw <| mkErr (shapeMsg targetLabel
+      "UInt8 literal must contain exactly 1 byte")
+  pure (UInt64.ofNat (bytes.get! 0).toNat)
 
 /-- Decode a 4-byte little-endian UInt32 literal via WireV1 `decodeU32le` +
     full-consume `finish`, zero-extended to UInt64.

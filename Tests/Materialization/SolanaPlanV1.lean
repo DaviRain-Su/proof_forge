@@ -3796,6 +3796,37 @@ private unsafe def testInt64ContainerFailClosed
     (planSolana mapKeyCompiled)
   IO.println "  ✓ Solana Int8 containers / Int64 return / Int64-key Map stay fail closed"
 
+/-- T3: scalar Op.Constant inlines as the existing literal envelope. -/
+private unsafe def testScalarConstInline
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "ConstBox" <|
+    "  const ANSWER : UInt64 := 42\n\n" ++
+    "  state stored : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    stored := 0\n\n" ++
+    "  entry answer() : UInt64 do\n" ++
+    "    stored := stored + ANSWER\n" ++
+    "    return stored\n"
+  let compiled ← compileSource session source "Examples.ConstBox" "<solana-const-box>"
+  let plan ← liftResult (planSolana compiled)
+  expect (plan.stateAccount.fields.size == 1)
+    s!"ConstBox must keep a single UInt64 field, got {plan.stateAccount.fields.size}"
+  liftResult <| validatePlan plan
+  let files ← liftResult (filesSolana compiled)
+  expect (!files.isEmpty)
+    "ConstBox must emit Solana artifacts"
+  let strSource := wrapProgram "ConstStr" <|
+    "  const GREETING : String := \"hi\"\n\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    count := 0\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let strCompiled ← compileSource session strSource "Examples.ConstStr" "<solana-const-str>"
+  expectPlanErrorContaining "ConstStr" "constant"
+    (planSolana strCompiled)
+  IO.println "  ✓ Solana scalar const inline + String FC pin ok"
+
 unsafe def run : IO Unit := do
   testNarrowIntAbi
   let session ← Tests.Language.ParserSession.shared
@@ -3849,6 +3880,7 @@ unsafe def run : IO Unit := do
   testOptionInt64State session
   testMapInt64State session
   testInt64ContainerFailClosed session
+  testScalarConstInline session
   testAggregateFailClosed session
   testContextReadBlockHeight session
   IO.println "Tests.Materialization.SolanaPlanV1: ok"

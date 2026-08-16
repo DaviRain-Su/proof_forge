@@ -4294,6 +4294,39 @@ private unsafe def testInt64ContainerFailClosed : IO Unit := do
     "anonymous Array return requires UInt64 elements"
   IO.println "  ✓ Noir Int8 containers / Int64-key Map / Array Int64 return stay fail closed"
 
+/-- T3: scalar Op.Constant inlines as the existing literal envelope. -/
+private unsafe def testScalarConstInline : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ConstBox where\n" ++
+    "  const ANSWER : UInt64 := 42\n\n" ++
+    "  state stored : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    stored := 0\n\n" ++
+    "  entry answer() : UInt64 do\n" ++
+    "    stored := stored + ANSWER\n" ++
+    "    return stored\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let plan ← compileNoirPlan sourceText "Examples.ConstBox" "<noir-const-box>"
+  expect (plan.states.size == 1)
+    s!"ConstBox must keep a single UInt64 state, got {plan.states.size}"
+  expectNoirPlanErrorContaining "ConstStr" "Examples.ConstStr"
+    ("import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      "program ConstStr where\n" ++
+      "  const GREETING : String := \"hi\"\n\n" ++
+      "  state count : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    count := 0\n\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return count\n\n" ++
+      "end ProofForgeV2.Examples\n")
+    "constant"
+  IO.println "  ✓ Noir scalar const inline + String FC pin ok"
+
 unsafe def run : IO Unit := do
   runCheckedSubFast
   runCompareAssertFast
@@ -4360,5 +4393,6 @@ unsafe def run : IO Unit := do
   testOptInt64
   testMapInt64
   testInt64ContainerFailClosed
+  testScalarConstInline
 
 end Tests.Materialization.NoirRelationModel

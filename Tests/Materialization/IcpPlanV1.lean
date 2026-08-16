@@ -634,6 +634,33 @@ private unsafe def testArraySlotsFlatten
   expect (did.contains "get0 : () -> (nat64) query;") "did get0 stays scalar"
   IO.println "  ✓ Array UInt64 2 flatten (two i64 globals; no Candid vec)"
 
+private unsafe def testBytesBoxFlatten
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "BytesBox" <|
+    "  state b : Bytes 4\n\n" ++
+    "  init() do\n" ++
+    "    b[0] := 0\n\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    b[0] := 0\n" ++
+    "    return v\n"
+  let compiled ← compileSource session src "Examples.BytesBox" "<icp-bytes-box>"
+  let plan ← liftResult <| planIcp compiled
+  expect (plan.signedNumeric == false) "BytesBox stays unsigned"
+  expect (plan.states.size == 4) "Bytes 4 flattens to four i64 globals"
+  expect (plan.states[0]!.name == "b_0") "leaf b_0"
+  expect (plan.states[3]!.name == "b_3") "leaf b_3"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"BytesBox plan must validate: {e.render}"
+  let files ← liftResult <| filesIcp compiled
+  let wat ← findFile files "BytesBox.wat"
+  let did ← findFile files "BytesBox.did"
+  expect (wat.contains "(global $g_state_0 (mut i64)") "wat global 0"
+  expect (wat.contains "(global $g_state_3 (mut i64)") "wat global 3"
+  expect (!wat.contains "vec") "no Candid vec nat8 in wat"
+  expect (!did.contains "vec") "no Candid vec nat8 in did"
+  IO.println "  ✓ Bytes 4 flatten (four i64 globals; no Candid vec)"
+
 private unsafe def testArrayN9FailClosed
     (session : Language.Loader.ParserSession) : IO Unit := do
   let src := wrapProgram "ArrN9" <|
@@ -825,6 +852,7 @@ unsafe def run : IO Unit := do
   testScheduleFc session
   testAggregateFc session
   testArraySlotsFlatten session
+  testBytesBoxFlatten session
   testArrInt64Flatten session
   testArrayN9FailClosed session
   testArrayInt64N9FailClosed session

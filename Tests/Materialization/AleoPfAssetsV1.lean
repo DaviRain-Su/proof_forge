@@ -215,8 +215,8 @@ unsafe def testCryptoSha256StayFailClosed : IO Unit := do
 
 /-- SYS-S4: name remaining ContextRead catalog keys. unixTime stays on the
     existing generic reject (no Aleo clock). attachedValue/chainId/blockHeight
-    are named no-host. caller/self are Principal — Aleo type-closure rejects
-    Principal before the ContextRead arm. -/
+    are named no-host. caller/self stay fail closed at ContextRead
+    (Principal identity storage is open; address mapping is deferred). -/
 unsafe def testContextReadStayFailClosed : IO Unit := do
   let expectPlanFc (label body needle : String) : IO Unit := do
     let source :=
@@ -248,7 +248,7 @@ unsafe def testContextReadStayFailClosed : IO Unit := do
     "has no Aleo host binding"
   expectPlanFc "BlockHeightAleo" (ctxBody "context.blockHeight")
     "has no Aleo host binding"
-  -- Principal keys: type-closure fires first (no Principal on Aleo).
+  -- Principal keys: ContextRead mapping to Aleo address stays deferred.
   expectPlanFc "SelfAleo"
     ("  entry who() : UInt64 do\n" ++
       "    let s : Principal := context.contractId\n" ++

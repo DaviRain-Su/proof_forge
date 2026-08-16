@@ -44,19 +44,19 @@ normative: false
 | stateLoad/stateStore（named 聚合） | LOWERED(N3) | LOWERED(L2) | LOWERED(L1) | LOWERED(NoirAggregate) | LOWERED(H3) | LOWERED(H3) |
 | stateLoad/stateStore（Array） | LOWERED(EvmIndex; UInt8/16/32/64 **or Int64**; signedness on `LoweredValueV1.isInt`) | LOWERED(ArrayState; UInt64 **or Int64** N×8-byte `isInt` leaves) | LOWERED(NearAggregate; UInt64 **or Int64** N×8-byte `isInt` leaves) | LOWERED(NoirContainer; UInt64 **or Int64** N×`inputType` `.u64`/`.i64` leaves) | LOWERED(UInt64 **or Int64** names-only Felt leaves; `isInt` from TypeId) | LOWERED(H3 flatten; UInt64 **or Int64** N×`i64`/`u64` mapping leaves；Int8/return FC) |
 | stateLoad/stateStore（Map） | LOWERED(**hashed 1-slot** UInt64 key + UInt64 **or Int64** val; Principal key UInt64-only; not 24-leaf isInt table) | LOWERED(cap-8 UInt64 key + UInt64 **or Int64** val; aggregate CSE→storeStateMulti；ELF+Mollusk 4/4) | LOWERED(cap-8 UInt64 key + UInt64 **or Int64** val; atomic KV store) | LOWERED(cap-8 UInt64 key + UInt64 **or Int64** val; atomic multi-leaf PI；val slots `.i64`) | LOWERED(cap-8 UInt64 key + UInt64 **or Int64** val; names-only 24 Felt leaves; mux `.select`) | LOWERED(cap-2 / 6 leaves; UInt64 key + UInt64 **or Int64** val; atomic mapping store；Int64-key FC) |
-| stateLoad/stateStore（Bytes） | LOWERED(D4-E2: N×UInt8 leaves) | LOWERED(L2: N×UInt8 leaves) | LOWERED(N×UInt8 KV leaves) | LOWERED(L3: N×UInt8 leaves) | FAIL-CLOSED | LOWERED(Bytes N: N×u8 mappings) |
+| stateLoad/stateStore（Bytes） | LOWERED(D4-E2: N×UInt8 leaves) | LOWERED(L2: N×UInt8 leaves) | LOWERED(N×UInt8 KV leaves) | LOWERED(L3: N×UInt8 leaves) | LOWERED(N×Felt u8 leaves) | LOWERED(Bytes N: N×u8 mappings) |
 | stateLoad/stateStore（Option） | **LOWERED(BL-31: Option UInt64 **or Int64**; tag unsigned + payload `isInt`)** | **LOWERED(BL-29: Option UInt64 **or Int64**)** | **LOWERED(BL-30: Option UInt64 **or Int64**)** | **LOWERED(BL-32: Option UInt64 **or Int64**)** | **LOWERED(BL-36: Option UInt64 **or Int64**)** | **LOWERED(BL-35: Option UInt64 **or Int64**；Int8/return FC)** |
 | stateLoad/stateStore（String） | LOWERED(N4) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
 | stateLoad/stateStore（Field bn254） | LOWERED(N2b-EVM) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(原生) | FAIL-CLOSED(非Goldilocks) | FAIL-CLOSED(非BLS12-377) |
 | stateLoad/stateStore（Field BLS12-377） | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | **LOWERED(T14)** |
 | stateLoad/stateStore（Field Goldilocks） | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | **LOWERED(T14)** | FAIL-CLOSED |
-| constant（`Op.Constant`） | FAIL-CLOSED(nonempty table) | FAIL-CLOSED(nonempty table) | FAIL-CLOSED(nonempty table) | FAIL-CLOSED(nonempty table) | **LOWERED(UInt8/16/32、Bool、UInt64<p、非负 Int64；显式 VM profile 另开 UInt128 canonical 16B→4×UInt32 limbs；Goldilocks ConstantV1 复用 decoder，source 无 Field literal；负 Int64/UInt64≥p FC)** | FAIL-CLOSED |
+| constant（`Op.Constant`） | **LOWERED(T3: scalar via `Op.Literal`；String/aggregate/Principal FC)** | **LOWERED(T3 product Lower；`Cpi*IR` 空表门仍在)** | **LOWERED(NEAR const slot)** | **LOWERED(T3: scalar via literal)** | **LOWERED(UInt8/16/32、Bool、UInt64<p、非负 Int64；显式 VM profile 另开 UInt128 canonical 16B→4×UInt32 limbs；Goldilocks ConstantV1 复用 decoder，source 无 Field literal；负 Int64/UInt64≥p FC)** | **LOWERED(ALEO-CONST: `lowerLiteral` 内联)** |
 | construct（named Struct/Enum） | LOWERED(N3) | LOWERED(L2) | LOWERED(L1) | LOWERED(NoirAggregate) | LOWERED(H3) | LOWERED(H3) |
 | fieldGet/fieldSet | LOWERED(N3) | LOWERED(L2) | LOWERED(L1) | LOWERED(NoirAggregate) | LOWERED(H3) | LOWERED(H3) |
 | variantTag/variantPayload | LOWERED(N3) | LOWERED | LOWERED(NearAggregate) | LOWERED(NoirAggregate) | LOWERED | LOWERED(H3) |
 | indexGet/indexSet（Array） | LOWERED(EvmIndex) | LOWERED(ArrayState) | LOWERED(NearAggregate) | LOWERED(NoirContainer) | LOWERED | LOWERED(H3 flatten) |
 | indexGet/indexSet（Map） | LOWERED(Map+Option) | LOWERED(Map+Option) | LOWERED(Map+Option) | LOWERED(Map+Option) | LOWERED(Map+Option; UInt64 **or Int64** val; mux `.select`) | LOWERED(dense Map cap-2) |
-| indexGet/indexSet（Bytes） | LOWERED(D4-E2) | LOWERED(L2: literal index) | LOWERED(NearAggregate: literal index、UInt8 leaf；动态索引 FC) | LOWERED(L3: compile-time literal index、UInt8 leaf；动态索引 FC) | FAIL-CLOSED | FAIL-CLOSED |
+| indexGet/indexSet（Bytes） | LOWERED(D4-E2) | LOWERED(L2: literal index) | LOWERED(NearAggregate: literal index、UInt8 leaf；动态索引 FC) | LOWERED(L3: compile-time literal index、UInt8 leaf；动态索引 FC) | LOWERED(literal index；动态索引 FC) | LOWERED(literal index；动态索引 FC) |
 | fieldAdd/Sub/Mul/Div/Neg（Field） | LOWERED(N2b-EVM bn254) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(原生 bn254) | **LOWERED(T14 Goldilocks)** | **LOWERED(T14 BLS12-377)** |
 | eq/ne（所有支持类型） | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
 | ordering 比较 | LOWERED(UInt/Int) | LOWERED(UInt/Int) | LOWERED | LOWERED(UInt/Field) | LOWERED | LOWERED |
@@ -74,7 +74,7 @@ normative: false
 | **named aggregate entry/view return（B-RET-ABI）** | LOWERED(≤8 UInt64/Int64 叶 tuple ABI) | LOWERED(≤8 叶 N×8-byte LE) | LOWERED(≤8 叶 N×8-byte LE) | LOWERED(per-leaf verifier inputs) | LOWERED(ordered DPN `circuit_outputs`) | LOWERED(non-Final entry tuple；computed view-over-state FC) |
 | **anonymous Array/Map/Option/Bytes result（N-ANON-RESULT）** | LOWERED(Array UInt64 N≤8 / Option UInt64；Array/Option/Map Int64 return + Map/Bytes FC) | LOWERED(Array UInt64 N≤8 / Option UInt64；Map/Bytes FC) | LOWERED(Array UInt64 N≤8 / Option UInt64；Map/Bytes FC) | LOWERED(Array UInt64 N≤8 / Option UInt64；Map/Bytes FC) | LOWERED(Array UInt64 N≤8 / Option UInt64；Map/Bytes FC) | LOWERED(Array UInt64 N≤8 / Option UInt64；Map/Bytes / Int64 container return 与 computed view-over-state FC) |
 | **match 多臂同构造器** | LOWERED(N-A2) | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
-| **Principal state/params** | LOWERED(T10: leaf storage; ≠address) | LOWERED(T12: 9×u64 leaves; ≠32B pubkey) | LOWERED(T12: 9×KV leaves; ≠account-id) | LOWERED(T12: 9×u64 inputs; ≠Field) | LOWERED(9-leaf wire identity；≠network address) | FAIL-CLOSED |
+| **Principal state/params** | LOWERED(T10: leaf storage; ≠address) | LOWERED(T12: 9×u64 leaves; ≠32B pubkey) | LOWERED(T12: 9×KV leaves; ≠account-id) | LOWERED(T12: 9×u64 inputs; ≠Field) | LOWERED(9-leaf wire identity；≠network address) | **LOWERED(T3: 9×u64 identity leaves；≠address/Field；return FC)** |
 | **UInt128 state/param/body** | LOWERED(T9b 原生 word) | LOWERED(T9e 2×u64 multiword；mul schoolbook；div/mod restoring binary long division `910835aa4`，runtime differential 待补) | LOWERED(T9e 2×i64 multiword；**mul 真 schoolbook NEAR lane**；div/mod/shift FC) | LOWERED(T11 原生 u128 / multi-limb analogue；mul/div/mod FC；UInt256 FC) | LOWERED(DPN 4×UInt32 LE limbs；checked arithmetic/compare/bitwise/shift) | FAIL-CLOSED |
 | **UInt256 state/param/body** | LOWERED(T9b) | LOWERED(T9e 4×u64；mul schoolbook；div/mod restoring binary long division `910835aa4`，runtime differential 待补) | LOWERED(T9e 4×i64；**mul 真 schoolbook NEAR lane**；div/mod/shift FC) | LOWERED(T13；add/sub/cmp/bit；mul/div/mod FC) | LOWERED(DPN 8×UInt32 LE limbs；bounded wide algorithms) | FAIL-CLOSED |
 
@@ -97,7 +97,7 @@ normative: false
 | Array/Map state | **LOWERED** | Array UInt64；dense Map UInt64 cap-8；atomic KV store |
 | anonymous Array/Option result | **LOWERED** | `Array UInt64 N`(1..8) / `Option UInt64` entry+view；Map/Bytes/nested/非 UInt64 FC |
 | ContextRead | **PARTIAL** | `unixTimeSeconds` OPEN（Env JSON time）；`blockHeight`→Env JSON bare-u64 `height`；`caller`→`MessageInfo.sender` 仅 instantiate/execute，query/view FC；`self`→`Env.contract.address` view-safe；`attachedValue`→`MessageInfo.funds` 单 denom `stake` execute/init，query FC；`chainId` FC（host 为 String，不静默哈希成 UInt64） |
-| Commit · nonempty invariants · Bytes state · Field/Principal/String interface | **FAIL-CLOSED** | Option UInt64 state 已 LOWERED（B-OPT-STATE）；iterator/IBC/migrate/reply entry 未开 |
+| Commit · nonempty invariants · Field/Principal/String interface | **FAIL-CLOSED** | Bytes N state 已 LOWERED；Option UInt64 state 已 LOWERED（B-OPT-STATE）；iterator/IBC/migrate/reply entry 未开 |
 | 制品 / 验收 | WAT + locked `wat2wasm` + `cosmwasm-check` 3.0.9 + cosmwasm-vm mock 48 tests + wasmd v0.70.3 Docker rung-1 | **非** 主网 / formal / hermetic |
 
 ### TON（`ton-tolk-boc-v1`，label `source-only`）
@@ -114,7 +114,7 @@ normative: false
 | Array/Map/Bytes state | **LOWERED** | Array UInt64；dense Map UInt64 cap-8；fixed Bytes N；c4 flatten |
 | anonymous Array/Option view result | **LOWERED** | `Array UInt64 N`(1..8) / `Option UInt64`；entry、Map/Bytes/nested/非 UInt64 FC |
 | ContextRead | **PARTIAL** | `unixTimeSeconds` OPEN（`blockchain.now()`）；`attachedValue`/`chainId`/`self` named no-host FC；`caller` 因 Principal 可能在 type-closure 先拒 |
-| Commit · nonempty invariants/constants · Field/Principal/String interface | **FAIL-CLOSED** | Option UInt64 state 已 LOWERED（B-OPT-STATE） |
+| Commit · nonempty invariants · Field/Principal/String interface | **FAIL-CLOSED** | scalar `Op.Constant` 已 LOWERED（T3）；Option UInt64 state 已 LOWERED（B-OPT-STATE） |
 | 制品 / 验收 | Tolk 1.4.2 → `.fif` + real BoC + `@ton/sandbox` 10/10（含 ScheduleFlow） | **非** 主网 / formal / hermetic |
 
 ## 1c. Quint Q0 executable-model 真实范围（第九 materializer）
@@ -127,8 +127,10 @@ normative: false
 | pureCall | **LOWERED** | target 内联；depth≤64、expanded op≤4096、checks≤128、单表达式 fully-expanded rendered node budget≤16384（含 div/mod guard duplication）；state/effect FC，未调用 pureFn 也完整验证 |
 | zero-param public-Bool invariant | **LOWERED** | read-only single-block；发射为不依赖 `pf_last_*` instrumentation 的 `val` |
 | Array/Option/Map state（齐次 UInt64 或 Int64） | **LOWERED** | N=1..8 Array flatten；Option tag+payload；Map cap-8 occ/key/val；元素/payload/key/value 跟随程序级 signedNumeric；无原生 List/Option/Map；错域混用 / return / N∉1..8 仍 FC |
+| Bytes N state | **LOWERED** | N=1..8 UInt64 叶存低 8 位；IndexGet/Set 复用 Array 字面量下标；param/return/N=0 仍 FC |
+| scalar `Op.Constant` | **LOWERED** | 经已有 `lowerLiteral`（UInt64/Int64/UInt32/Bool）；String/aggregate/Principal const 仍 FC |
 | multi-block/if/match/for、Field/Principal/String/named aggregates | **FAIL-CLOSED** | Q0 不做语义近似 |
-| event/nonzero revert payload/call/schedule/ContextRead/Commit/constants | **FAIL-CLOSED** | zero-payload declared revert 保留 ErrorId（failure code=`256+id`）；resolver 仅 rollback/state/Bool/checked-arithmetic 四键 |
+| event/nonzero revert payload/call/schedule/ContextRead/Commit | **FAIL-CLOSED** | zero-payload declared revert 保留 ErrorId（failure code=`256+id`）；resolver 仅 rollback/state/Bool/checked-arithmetic 四键 |
 | 制品 / 验收 | `.qnt` + zero-tool finalize；host-optional exact Quint 0.32 typecheck + TS smoke | 不可部署；非 ITF/MBT/verify/Apalache/formal |
 
 ## 1d. Soroban / OpenVM / ICP 工程 MVP 真实范围
@@ -137,9 +139,9 @@ normative: false
 
 | Target | Profile | 已开 | 诚实 FC / 非声称 |
 |---|---|---|---|
-| **Soroban** | sole `soroban-source-u64-v1` | public UInt64/Bool/Unit Counter/StateCell `.rs`；4-key；zero-tool Finalize `deployable=false` | auth/TTL/Wasm/stellar-cli；UInt64 ContextRead 四键 named no-host；`pf.crypto.*` / nativeVaultBalance named no-host；Principal `self`/`caller` 在 type-closure 先拒 |
-| **OpenVM** | default `openvm-guest-source-v1`；opt-in `openvm-guest-elf-v1` | 受控 guest tree（O0 zero-tool）；O1 locked `cargo-openvm` 2.0.1 → ELF+`.vmexe` extras 仍 `deployable=false` | keygen/execute/prove/verify；UInt64 ContextRead 四键 / `pf.crypto.*` / nativeVaultBalance named no-host |
-| **ICP** | sole `icp-wasm-candid-u64-v1` | Counter/StateCell `.wat`+`.did`；locked wat2wasm `{name}.wasm` `deployable=true`；host-optional PocketIC；**CAP-1a** `unixTimeSeconds`→`ic0.time` ns÷10⁹（init/update/query） | PocketIC 不进 Finalize；sync+event FC；async advertise-only；`blockHeight`/`attachedValue`/`chainId` / `pf.crypto.*` / nativeVaultBalance named no-host |
+| **Soroban** | sole `soroban-source-u64-v1` | public UInt64/Bool/Unit Counter/StateCell `.rs`；4-key；zero-tool Finalize `deployable=false`；T3 scalar const 内联 + Bytes N（N UInt64 低 8 位叶） | auth/TTL/Wasm/stellar-cli；UInt64 ContextRead 四键 named no-host；`pf.crypto.*` / nativeVaultBalance named no-host；Principal `self`/`caller` 在 type-closure 先拒 |
+| **OpenVM** | default `openvm-guest-source-v1`；opt-in `openvm-guest-elf-v1` | 受控 guest tree（O0 zero-tool）；O1 locked `cargo-openvm` 2.0.1 → ELF+`.vmexe` extras 仍 `deployable=false`；T3 scalar const 内联 + Bytes N | keygen/execute/prove/verify；UInt64 ContextRead 四键 / `pf.crypto.*` / nativeVaultBalance named no-host |
+| **ICP** | sole `icp-wasm-candid-u64-v1` | Counter/StateCell `.wat`+`.did`；locked wat2wasm `{name}.wasm` `deployable=true`；host-optional PocketIC；**CAP-1a** `unixTimeSeconds`→`ic0.time` ns÷10⁹（init/update/query）；T3 scalar const 内联 + Bytes N（N extra i64 globals，无 Candid `vec nat8`） | PocketIC 不进 Finalize；sync+event FC；async advertise-only；`blockHeight`/`attachedValue`/`chainId` / `pf.crypto.*` / nativeVaultBalance named no-host |
 
 ## 2. 验收/差分覆盖矩阵
 
@@ -174,7 +176,7 @@ normative: false
 |---|---|---|---|
 | **B-1a** | NEAR 聚合与容器 | **闭合（L1 + follow-ups）**：Array UInt、dense Map cap-8、fixed Bytes N、**named Struct/Enum** 与 `Option UInt64` state 已 flatten-to-KV（construct/fieldGet/fieldSet/variant ops + atomic storeAtomic；HostModel 端到端）；named 与 anonymous Array/Option ≤8-leaf aggregate return 已由 B-RET-ABI/N-ANON-RESULT 开放 | NearAggregate + NS-1 + Bytes + L1 + BL-30 |
 | **B-1b** | Noir named 聚合 | **闭合(NoirAggregate + L3)**：named Struct/Enum + **Map UInt64 / Map UInt64 Int64 dense pilot**（cap-8 occ/key/val multi-leaf PI + IndexGet→Option + IndexSet；val slots `inputType .i64`；`storeAggregate` 两阶段 snapshot 与 empty-upsert relation model）+ **Array UInt64 / Array Int64 state flatten** + **Option UInt64 / Option Int64**（tag `.u64` + payload `.i64`）+ **fixed Bytes N**（N×UInt8 leaves、literal IndexGet/Set、atomic store）；Bytes construct/param/动态索引、Int8 容器、Int64-key Map、Int64 container return 与 nested 仍 FAIL-CLOSED | NoirAggregate + NoirMap + NoirContainer + MapSnapshot + L3 ✅ |
-| **B-1c** | Aleo 全功能 | **AleoCoverage + H3/NS-1/Bytes/Int64/T14 + G123 + BL-35 + ALEO-I1–I4 + ALEO-INT64-CONTAINERS**：标量、named Struct/Enum、Array UInt64 **or Int64**、dense Map cap-2（UInt64 **or Int64** val，6 叶）、fixed Bytes N、**Option UInt64 or Int64 state**、Commit 身份透传与 **BLS12-377 Fr** 已 LOWERED；Map aggregate StateStore 以 get-all-before-set two-phase 修复 empty upsert。Plan content digest 已进入 identity chain；产品另发 content-bound query-contract sidecar（bare mappings/views/resultDropped，非 executable query）。bn254/Goldilocks、Option params/Int8 containers/Int64-key/Int64 container return/nested/Principal/String/ContextRead/externalCall/schedule/emit/pf.assets 仍 FAIL-CLOSED。Leo 4.0.2 两平台 Tool Lock + locked-only acceptance + opt-in product compile finalization；无 VM/prove/deploy 门 | AleoCoverage + T14 + MapSnapshot + G123 + B-OPT-STATE + ALEO-I1–I4 ✅ |
+| **B-1c** | Aleo 全功能 | **AleoCoverage + H3/NS-1/Bytes/Int64/T14 + G123 + BL-35 + ALEO-I1–I4 + ALEO-INT64-CONTAINERS**：标量、named Struct/Enum、Array UInt64 **or Int64**、dense Map cap-2（UInt64 **or Int64** val，6 叶）、fixed Bytes N、**Option UInt64 or Int64 state**、Commit 身份透传与 **BLS12-377 Fr** 已 LOWERED；Map aggregate StateStore 以 get-all-before-set two-phase 修复 empty upsert。Plan content digest 已进入 identity chain；产品另发 content-bound query-contract sidecar（bare mappings/views/resultDropped，非 executable query）。bn254/Goldilocks、Option params/Int8 containers/Int64-key/Int64 container return/nested/String/ContextRead/externalCall/schedule/emit/pf.assets 仍 FAIL-CLOSED。Principal 9-leaf wire identity（≠address）已 LOWERED；return / caller→address 仍 FC。Leo 4.0.2 两平台 Tool Lock + locked-only acceptance + opt-in product compile finalization；无 VM/prove/deploy 门 | AleoCoverage + T14 + MapSnapshot + G123 + B-OPT-STATE + ALEO-I1–I4 ✅ |
 | **B-1d** | Solana Map/Bytes/Option state | **Map pilot + L2 + BL-29 已闭合**：Map 已进 ELF+Mollusk；named Struct/Enum、fixed Bytes N 与 `Option UInt64` state 已 flatten；`storeAggregate` structural CSE + `storeStateMulti` 固定 pre-store snapshot，峰值 177 temp/1424B，`put_into_empty` 已解除 ignore；Option state 6 项 Mollusk 通过；Option params/非 UInt64/nested、Bytes construct 与动态索引仍 FAIL-CLOSED | SolanaMapPilot + B-SOL-MAP-ELF + B-SOL-MAP-UPSERT + L2 + BL-29 ✅ |
 | **B-1e** | EVM Map/Bytes/Option state | **闭合(Map pilot + BL-31)**：Array + Bytes + **Map UInt64 cap-8** + `Option UInt64` state 进入 locked-solc engineering finalization（`deployable=true` 仅为制品标志；Token creation bytecode 现约 2.6 KiB，已低于 EIP-3860；chain/Anvil/OZ 产品门另计）；aggregate `storeAtomic` 保证 leaf Expr/sload 全先于 sstore；Option params/非 UInt64/nested 仍 FC | EvmMapPilot + MapSnapshot + B-EVM-MAP-STACK + BL-31 ✅ |
 
@@ -228,7 +230,7 @@ normative: false
 - **AddressBearing**（B-3 followup）：**EVM static-callee open；Solana legacy 已 #111 fail closed** — research 确认 callee 为 static QN 非 dynamic address；EVM resolver 七键 + Plan/IR/emitter 打开；Solana legacy 删除双 call 键且 Plan/IR/SBPF 拒绝旧节点；真实 CPI 见 epic #110；任意 Principal→address 仍 fail closed
 - **EVMOZ-003 / ADR-0025 EVM caller encoding**：**encoding 决策已 accepted** — EVM `context.caller` = `u32le(20)||CALLER`；shared wire 不变；**S1-EVM Plan 已原子 cutover（2026-08-06）**；不解锁 address ABI / Ownable F01 全 OZ 信用 / 他 target 自动镜像
 - **T10 EVM Principal storage**：**已闭合** — EVM `pilotPrincipalPolicyAdmit` + N4-isomorphic leaf storage（len+8×UInt64）；params/state/eq/ne；非 address；多宽 return 仍 fail closed
-- **T12 NEAR/Solana/Noir Principal storage**：**已闭合** — 三 target `pilotPrincipalPolicyAdmit` + 同构 9-leaf layout（Solana account pitch / NEAR 9×KV / Noir 9×u64 inputs）；params/state/eq/ne；非 pubkey/account-id/Field；多宽 return 仍 fail closed；Aleo 仍 fail closed；**Psy PSY-SCALAR-ABI（2026-08-08）** 另开 wire-identity `len`+8×UInt32（max 32B；非 address；return FC）
+- **T12 NEAR/Solana/Noir Principal storage**：**已闭合** — 三 target `pilotPrincipalPolicyAdmit` + 同构 9-leaf layout（Solana account pitch / NEAR 9×KV / Noir 9×u64 inputs）；params/state/eq/ne；非 pubkey/account-id/Field；多宽 return 仍 fail closed；**Aleo T3** 已开同构 9×u64 identity（≠address/Field；return FC）；**Psy PSY-SCALAR-ABI（2026-08-08）** 另开 wire-identity `len`+8×UInt32（max 32B；非 address；return FC）
 - **NearWasmAcceptance**（C-1）：**已闭合工程子集** — `Tests/Materialization/NearWasmAcceptance.lean`；locked `wat2wasm` + host-optional `wasm-interp`/`wasmtime`/`wasmer` runtime-load 门
 - **AleoPsyResearch**（C-2）：**已闭合** — `docs/research/15-aleo-psy-compiler-vm.md`（不升格门）
 - **NoirProveResearch**（C-4）：**已闭合** — `docs/research/16-noir-prove-path.md`（不升格 prove/verify）
