@@ -12,11 +12,14 @@
   Option UInt64 state (OptionState tag+payload / storeAtomic / none zeroing +
   non-UInt64/nested/param FC) and Option Int64 state (unsigned tag + signed
   i64-le payload; Option Int8 / Option UInt128 / Option Int64 return FC),
+  dense Map UInt64 Int64 state (cap-8 24-leaf occ/key unsigned + val signed;
+  not a UInt64-value alias; Map Int8 / Map UInt128 / Map Int64 return FC),
   sync call still fail closed, multi-width
   UInt8/16/32 pins (body guards / param range / 8-byte narrow state slots),
   UInt128 2-limb ABI and UInt256 4-limb ABI (state/param/result; 8-byte
   Regions only), Array Int64 N as N×8-byte signed KV leaves (isInt /
-  ABI i64-le; not a packed array or UInt64 alias), and other FC
+  ABI i64-le; not a packed array or UInt64 alias; Array Int64 24
+  stays uniformly signed, not Map occ/key/val mix), and other FC
   boundaries (Int128, Arr/Map/Opt-U256, Arr/Map/Opt of Int8/16/32
   and UInt128, invariants).
 
@@ -868,6 +871,46 @@ private unsafe def testArrayInt64State
   expect (abi.contains "\"returns\":\"i64\"") "ArrInt64 ABI returns i64"
   IO.println "  ✓ Array Int64 2 as N×8-byte signed leaves"
 
+/-- Array Int64 24 must stay 24 uniform signed leaves. Map val-only isInt
+    is TypeDecl `.map`, not `n == 24`; this N is the Map flatten width so
+    a count-keyed layout would silently mark occ/key unsigned. Init writes
+    only the pad scalar — IndexGet/IndexSet still use size==24 as a Map
+    proxy (pre-existing), so this pin is layout-only. -/
+private unsafe def testArrayInt64x24Layout
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "ArrInt64x24" <|
+    "  state slots : Array Int64 24\n" ++
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry ping(v : Int64) : Int64 do\n" ++
+    "    return v\n\n" ++
+    "  view get() : Int64 do\n" ++
+    "    return 0\n"
+  let compiled ← compileSource session src "Examples.ArrInt64x24"
+    "<cw-arr-int64-24>"
+  let plan ← liftResult <| planCw compiled
+  expect (plan.storage.fields.size == 25)
+    s!"ArrInt64x24: 24 array leaves + pad, got {plan.storage.fields.size}"
+  for i in [0:24] do
+    let some field := plan.storage.fields[i]? |
+      throw <| IO.userError s!"ArrInt64x24 missing field {i}"
+    expect (field.name == s!"slots_{i}")
+      s!"ArrInt64x24 field {i} name must be slots_{i}, got {field.name}"
+    expect (field.byteWidth == 8) s!"ArrInt64x24 slots_{i} byteWidth=8"
+    expect field.isInt
+      s!"ArrInt64x24 slots_{i} must stay isInt (not Map occ/key/val mix)"
+    expect (layoutFieldTypeSuffix field.byteWidth field.isInt == "i64-le")
+      s!"ArrInt64x24 slots_{i} ABI suffix must be i64-le"
+  let some pad := plan.storage.fields[24]? |
+    throw <| IO.userError "ArrInt64x24 missing pad"
+  expect (pad.name == "pad" && !pad.isInt && pad.byteWidth == 8)
+    "ArrInt64x24 pad stays unsigned u64-le"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"ArrInt64x24 plan must validate: {e.render}"
+  IO.println "  ✓ Array Int64 24 stays 24 uniform signed leaves"
+
 /-- Array Int8 / Array UInt128 stay fail closed on the historical element
     needle (`Array state element must be UInt64` is a contains-match).
     Anonymous `Array Int64 2` return stays fail closed on the existing
@@ -1619,6 +1662,131 @@ private unsafe def testOptionInt64ElementFc
     (planCw optInt64RetCompiled)
   IO.println "  ✓ Option Int8 / Option UInt128 / Option Int64 return stay fail closed"
 
+/-- CW-MAP-INT: Map UInt64 Int64 state = cap-8 24-leaf occ/key/val flatten
+    (same loop IR as Map UInt64 UInt64). occ/key stay unsigned u64-le;
+    only val slots (`i % 3 == 2`) are signed i64-le — not a UInt64-value
+    alias. get match returns Int64; anonymous Map Int64 return stays FC. -/
+private unsafe def testMapInt64State
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "MapInt64" <|
+    "  state m : Map UInt64 Int64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry put(k : UInt64, v : Int64) : Int64 do\n" ++
+    "    m[k] := v\n" ++
+    "    return v\n\n" ++
+    "  view get(k : UInt64) : Int64 do\n" ++
+    "    match m[k] with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let compiled ← compileSource session source "Examples.MapInt64"
+    "<cw-map-int64>"
+  let plan ← liftResult <| planCw compiled
+  expect (plan.storage.fields.size == 24)
+    s!"MapInt64: Map UInt64 Int64 must flatten to 24 leaves, got {plan.storage.fields.size}"
+  for i in [0:24] do
+    let some field := plan.storage.fields[i]? |
+      throw <| IO.userError s!"MapInt64 missing field {i}"
+    expect (field.name == s!"m_{i}")
+      s!"MapInt64 field {i} name must be m_{i}, got {field.name}"
+    expect (field.byteWidth == 8)
+      s!"MapInt64 m_{i} byteWidth=8"
+    expect (field.isInt == (i % 3 == 2))
+      s!"MapInt64 m_{i} isInt must be {i % 3 == 2} (val only)"
+    let wantSuffix := if i % 3 == 2 then "i64-le" else "u64-le"
+    expect (layoutFieldTypeSuffix field.byteWidth field.isInt == wantSuffix)
+      s!"MapInt64 m_{i} ABI suffix must be {wantSuffix}"
+  let mixedMapAtomic (body : Array Statement) : Bool :=
+    body.any fun s =>
+      match s with
+      | .storeAtomic leaves =>
+          leaves.size == 24 &&
+            Id.run do
+              let mut ok := true
+              for i in [0:24] do
+                match leaves[i]? with
+                | none => ok := false
+                | some leaf =>
+                    unless leaf.byteWidth == 8 && leaf.isInt == (i % 3 == 2) do
+                      ok := false
+              pure ok
+      | _ => false
+  expect (mixedMapAtomic plan.initializer.body)
+    "MapInt64 init empty must storeAtomic 24 leaves (val isInt only)"
+  let some put := plan.entries.find? (·.name == "put") |
+    throw <| IO.userError "MapInt64 missing put"
+  expect (put.resultKind == MethodResultKind.int64) "MapInt64 put result Int64"
+  expect (mixedMapAtomic put.body)
+    "MapInt64 put must storeAtomic 24 leaves (val isInt only)"
+  let some get := plan.entries.find? (·.name == "get") |
+    throw <| IO.userError "MapInt64 missing get"
+  expect (get.mode == .view && get.resultKind == MethodResultKind.int64)
+    "MapInt64 get must be view Int64 (not Map return)"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"MapInt64 plan must validate: {e.render}"
+  let files ← liftResult <| filesCw compiled
+  let wat ← findFile files "MapInt64.wat"
+  expect (wat.contains "pf_db_load_u64") "MapInt64 WAT 8-byte Region load"
+  expect (wat.contains "pf_db_store_u64") "MapInt64 WAT 8-byte Region store"
+  expect (wat.contains "(call $pf_parse_i64_field")
+    "MapInt64 Int64 entry word must be signed-parsed"
+  let abi ← findFile files "MapInt64.cosmwasm-abi.json"
+  expect (abi.contains
+      "{\"name\":\"m_0\",\"key\":\"pf:cw:v1:state:0\",\"type\":\"u64\"}")
+    s!"MapInt64 ABI occ m_0 must be u64, got: {abi}"
+  expect (abi.contains
+      "{\"name\":\"m_1\",\"key\":\"pf:cw:v1:state:1\",\"type\":\"u64\"}")
+    s!"MapInt64 ABI key m_1 must be u64, got: {abi}"
+  expect (abi.contains
+      "{\"name\":\"m_2\",\"key\":\"pf:cw:v1:state:2\",\"type\":\"i64\"}")
+    s!"MapInt64 ABI val m_2 must be i64 (not a UInt64 alias), got: {abi}"
+  expect (abi.contains
+      "{\"name\":\"m_23\",\"key\":\"pf:cw:v1:state:23\",\"type\":\"i64\"}")
+    s!"MapInt64 ABI last val m_23 must be i64, got: {abi}"
+  expect (abi.contains "\"returns\":\"i64\"") "MapInt64 ABI returns i64"
+  IO.println "  ✓ Map UInt64 Int64 state cap-8 occ/key unsigned + val signed"
+
+/-- Map Int8-value / Map UInt128-value stay fail closed on the historical
+    Map-U64-U64 needle (`Map state admits only Map UInt64 UInt64` is a
+    contains-match). Anonymous `Map UInt64 Int64` return stays fail closed
+    on the existing UInt64-value return needle. -/
+private unsafe def testMapInt64ElementFc
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let mapI8 := wrapProgram "MapI8Cw" <|
+    "  state m : Map UInt64 Int8\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    return v\n"
+  let mapI8Compiled ← compileSource session mapI8 "Examples.MapI8Cw" "<cw-map-i8>"
+  expectPlanErrorContaining "MapI8" "Map state admits only Map UInt64 UInt64"
+    (planCw mapI8Compiled)
+  let mapU128 := wrapProgram "MapU128Cw" <|
+    "  state m : Map UInt64 UInt128\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    return v\n"
+  let mapU128Compiled ← compileSource session mapU128 "Examples.MapU128Cw"
+    "<cw-map-u128>"
+  expectPlanErrorContaining "MapU128" "Map state admits only Map UInt64 UInt64"
+    (planCw mapU128Compiled)
+  let mapInt64Ret := wrapProgram "MapInt64RetCw" <|
+    "  state m : Map UInt64 Int64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  view dump() : Map UInt64 Int64 do\n" ++
+    "    return m\n"
+  let mapInt64RetCompiled ← compileSource session mapInt64Ret
+    "Examples.MapInt64RetCw" "<cw-map-int64-ret>"
+  expectPlanErrorContaining "MapInt64Ret"
+    "anonymous Map return requires Map UInt64 UInt64"
+    (planCw mapInt64RetCompiled)
+  IO.println "  ✓ Map Int8 / Map UInt128 / Map Int64 return stay fail closed"
+
 /-- B-OPT-STATE FC: Option of non-UInt64, nested Option, Option params stay closed. -/
 private unsafe def expectOptionStateFailClosed
     (session : Language.Loader.ParserSession)
@@ -2174,6 +2342,7 @@ unsafe def run : IO Unit := do
   testUint256Abi session
   testU256ContainerFc session
   testArrayInt64State session
+  testArrayInt64x24Layout session
   testArrayInt64ElementFc session
   testNarrowIntAbi session
   testMultiwordDivMod session
@@ -2186,6 +2355,8 @@ unsafe def run : IO Unit := do
   testOptionState session
   testOptionInt64State session
   testOptionInt64ElementFc session
+  testMapInt64State session
+  testMapInt64ElementFc session
   testOptionStateFailClosed session
   testInvariantFc session
   testMaterializeAggregate session

@@ -5797,10 +5797,10 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "MapBool" TargetId.icp TargetKind.icp
     mapBoolCompiled "anonymous Map is outside the current container-state pilot"
 
-  -- MapInt: Map UInt64 Int64 state. Eight targets stay named
-  -- Map-value/pilot FC. Envelope-4 admit Int64 width so they fail on
-  -- the Map-pilot (same needle as MapBool). Not opening Map-of-Int64.
-  -- MapBool / MapStr / MapMini / OptInt / OptBool stay.
+  -- MapInt: Map UInt64 Int64 state. CosmWasm admits cap-8 occ/key
+  -- unsigned + val signed (not a UInt64-value alias). Other eleven stay
+  -- named Map-value/pilot FC. Not opening Map-of-Int8, Int64-key, or
+  -- Map UInt128. MapBool / MapStr / MapMini / OptInt / OptBool stay.
   let mapIntSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -5822,11 +5822,13 @@ unsafe def runSignedContainerNeedles : IO Unit := do
       (TargetId.solana, TargetKind.solana)] do
     expectMaterializePlanInvariantV1 "MapInt" target kind mapIntCompiled
       "Map state value must be UInt64"
+  let mapIntCwOut ← liftResult <| materializeSelected TargetId.cosmwasm mapIntCompiled
+  expect (!(MaterializedArtifactsV1.filesOf mapIntCwOut).isEmpty)
+    "MapInt: cosmwasm must materialize Map UInt64 Int64"
   for (target, kind) in #[
       (TargetId.near, TargetKind.near),
       (TargetId.noir, TargetKind.noir),
       (TargetId.aleo, TargetKind.aleo),
-      (TargetId.cosmwasm, TargetKind.cosmwasm),
       (TargetId.ton, TargetKind.ton)] do
     expectMaterializePlanInvariantV1 "MapInt" target kind mapIntCompiled
       "Map state admits only Map UInt64 UInt64"

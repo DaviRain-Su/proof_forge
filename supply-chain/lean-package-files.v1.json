@@ -881,9 +881,9 @@
       "sha256": "d1bfb25f2f3de18d287051f139f5db232bb4918177b77411ffbcc8cba0b8bf40"
     },
     {
-      "bytes": 254395,
+      "bytes": 256055,
       "path": "ProofForgeV2/Targets/CosmWasm/LowerSemanticV1.lean",
-      "sha256": "1c8532fec7c264e45195af7aed8a5853afa992906d37c71b1425ca8dd3746eb0"
+      "sha256": "948805d651de8744d86d765180767b0cf2a8391b1b39ceded9cac67a36763b04"
     },
     {
       "bytes": 15206,

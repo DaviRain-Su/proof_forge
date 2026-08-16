@@ -16707,3 +16707,21 @@ normative: false
   Option Int64 return 仍 `anonymous Option return requires UInt64 payload`。
   Targets OptInt CosmWasm+TON files-nonempty。Map of Int 与 Opt of Int8 /
   UInt128 仍 FC。**不**声称 sandbox / formal / runtime / hermetic / release。
+
+## 2026-08-16 — CW-MAP-INT CosmWasm Map UInt64 Int64 cap-8 state（engineering）
+
+- CosmWasm `containerLeafLayoutV1` Map 臂现接纳 `Map UInt64 UInt64` 或
+  `Map UInt64 Int64`。第三 Bool 是 value-is-Int64，不是 24 叶统一 signed
+  旗。`makeStorageLayoutV1` 按 TypeDecl `.map`（**不是** leaf count 24）
+  仅把 `i % 3 == 2` 的 val 槽标 `isInt` / ABI `i64-le`；occ/key 保持
+  u64-le。`Array Int64 24` 仍是 24 个均匀 signed 叶。IndexSet 在 Map
+  value TypeId 为 Int64 时接受 `.int64` 并按位写入 val 叶（不
+  unsigned-store）。空 construct 仍是 24 个零字面量。
+  `anonymousReturnLeafAbiV1` Map 臂仍只接受 `Map UInt64 UInt64`。物理
+  WAT 仍 `pf_db_*_u64`。不是 UInt64-value 别名。
+- `CosmWasmPlanV1` 钉 `MapInt64` 24 叶 mixed isInt + `Array Int64 24`
+  均匀 `isInt=true` + Focus；Map Int8 / Map UInt128 仍走
+  `Map state admits only Map UInt64 UInt64` contains-match；匿名 Map
+  Int64 return 仍 `anonymous Map return requires Map UInt64 UInt64`。
+  Targets MapInt 仅 CosmWasm files-nonempty。Int64-key / Map UInt128 /
+  TON/Aleo 未开。**不**声称 wasmd / formal / runtime / hermetic / release。

@@ -994,9 +994,11 @@ private def nearMapPilotLeafCountV1 : Nat :=
     `(leafCount, leafByteWidth, leafIsInt)`.
     Array: fixed `Array UInt64 N` or `Array Int64 N` → N×8-byte leaves
     (`leafIsInt` only for Int64; not a packed array and not a UInt64 alias).
-    Map: dense capacity-8 occ/key/val → 24×8-byte unsigned leaves
-    (loop IR, not pure-expr temps). Bytes: fixed `Bytes N` → N×1-byte UInt8
-    leaves (byte-exact KV identity; element-wise IndexGet/IndexSet). -/
+    Map: dense capacity-8 occ/key/val → 24×8-byte leaves (loop IR, not
+    pure-expr temps). Third Bool is **value-is-Int64** for
+    `Map UInt64 Int64` (occ/key stay unsigned; not a UInt64-value alias);
+    `Map UInt64 UInt64` keeps it false. Bytes: fixed `Bytes N` → N×1-byte
+    UInt8 leaves (byte-exact KV identity; element-wise IndexGet/IndexSet). -/
 private def containerLeafLayoutV1
     (typeDecls : Array TypeDeclV1) (types : CosmWasmTypeClosureV1)
     (typeId : TypeIdV1) : CompileResult (Option (Nat × Nat × Bool)) := do
@@ -1016,10 +1018,15 @@ private def containerLeafLayoutV1
       let leafIsInt := types.int64TypeId == some elTid
       pure (some (n, 8, leafIsInt))
   | some { shape := .map keyTid valTid, .. } =>
-      unless keyTid == types.uint64TypeId && valTid == types.uint64TypeId do
+      -- Historical needle stays a contains-match so MapInt8 / MapU128 /
+      -- Int64-key / other value shapes stay fail closed. Third Bool is
+      -- value-is-Int64, not a uniform 24-leaf signed flag.
+      unless keyTid == types.uint64TypeId &&
+          (valTid == types.uint64TypeId || types.int64TypeId == some valTid) do
         throw <| .planInvariant .cosmwasm
           "unsupported CosmWasm semantic shape: Map state admits only Map UInt64 UInt64"
-      pure (some (nearMapPilotLeafCountV1, 8, false))
+      let valIsInt := types.int64TypeId == some valTid
+      pure (some (nearMapPilotLeafCountV1, 8, valIsInt))
   | some { shape := .bytes len, .. } =>
       let n := len.toNat
       unless n ≥ 1 do
@@ -1322,12 +1329,20 @@ private def makeStorageLayoutV1
     match ← containerLeafLayoutV1 typeDecls types state.typeId with
     | some (n, leafByteWidth, leafIsInt) =>
         -- Array: N consecutive 8-byte UInt64 or Int64 KV fields (`isInt`
-        -- selects ABI `i64-le`, not a UInt64 alias). Map: 24×8-byte unsigned.
-        -- Bytes: N consecutive 1-byte UInt8 KV fields. Physical names
-        -- `name_0`..`name_{n-1}` keep layout markers deterministic.
-        -- Visibility: same N1 allowNonPublic as scalar state.
+        -- selects ABI `i64-le`, not a UInt64 alias). Map cap-8: 24×8-byte
+        -- occ/key/val; `leafIsInt` is value-is-Int64 so only val slots
+        -- (`i % 3 == 2`) are `i64-le` — occ/key stay unsigned (not a
+        -- UInt64-value alias). Bytes: N consecutive 1-byte UInt8 KV fields.
+        -- Physical names `name_0`..`name_{n-1}` keep layout markers
+        -- deterministic. Visibility: same N1 allowNonPublic as scalar state.
+        -- Signedness follows TypeDecl shape, never leaf count: Array Int64
+        -- 24 stays 24 uniform i64-le leaves (same flatten as any Array N).
         if fields.size + n > maxStateFields then
           throw <| .planInvariant .cosmwasm "state count is outside the profile limits"
+        let isMapState :=
+          match typeDecls[state.typeId.toNat]? with
+          | some { shape := .map .., .. } => true
+          | _ => false
         let mut leaves : Array Nat := #[]
         for i in [0:n] do
           let leafName := state.name ++ "_" ++ toString i
@@ -1336,13 +1351,20 @@ private def makeStorageLayoutV1
               s!"state name '{leafName}' is not a safe identifier"
           let fi := fields.size
           leaves := leaves.push fi
+          -- Map: val signed only when value-is-Int64. Array/Bytes keep a
+          -- uniform `leafIsInt` even when N happens to be 24.
+          let slotIsInt :=
+            if isMapState then
+              leafIsInt && (i % 3 == 2)
+            else
+              leafIsInt
           fields := fields.push {
             sourceId := fi
             name := leafName
             key := stateKey fi
             byteWidth := leafByteWidth
             endianness := .little
-            isInt := leafIsInt
+            isInt := slotIsInt
           }
         stateLeaves := stateLeaves.push leaves
     | none =>
@@ -3474,9 +3496,17 @@ private def lowerBlockInstructionsV1
           throw <| .planInvariant .cosmwasm
             "unsupported CosmWasm semantic shape: IndexSet value must be a scalar UInt8/UInt64/Int64"
         if base.leafExprs.size == nearMapPilotLeafCountV1 then
-          unless val.kind == .uint64 do
+          -- Map UInt64 UInt64 keeps unsigned values; Map UInt64 Int64
+          -- accepts Int64 and stores the signed temp (not unsigned-cast).
+          let wantInt :=
+            match typeDecls[result.typeId.toNat]? with
+            | some { shape := .map _ valTid, .. } =>
+                types.int64TypeId == some valTid
+            | _ => false
+          let wantKind := if wantInt then CosmWasmValueKindV1.int64 else .uint64
+          unless val.kind == wantKind do
             throw <| .planInvariant .cosmwasm
-              "unsupported CosmWasm semantic shape: Map IndexSet value must be scalar UInt64"
+              "unsupported CosmWasm semantic shape: Map IndexSet value must be scalar UInt64 or Int64 matching the map value"
           let (outLeaves0, okInsert) ←
             mapUpsertLeavesV1 base.leafExprs idx.expr val.expr
           let gate := Expr.checkedDiv (.literal 1) okInsert
