@@ -43,6 +43,12 @@ Goal: lift envelope-4 toward mid-tier (CW/TON/Aleo/Psy), then mid-tier toward th
 | TON-ARR-U128 | main | TON Array UInt128 N as N consecutive 16-byte unsigned c4 cells (`uint128` / `loadUint(128)` / int257 `0≤t<2^128`; same flatten as Array UInt64/Int64; not CosmWasm 2-limb). N=8 cell-budget FC | **committed** `7fc78d7e2` |
 | TON-OPT-U128 | main | TON anonymous Option UInt128 as unsigned tag uint64 cell + one uint128 payload cell (`loadUint(128)`; not CosmWasm 2-limb / not two UInt64 leaves). Reuse Option tag/storeAtomic/match. Option UInt128 return / Option UInt256 / Map UInt128 stay FC | **committed** `d3928ebff` |
 | ENV4-INT64-CONTAINERS | main | Homogeneous Int64 Array/Option/Map on Quint/Soroban/OpenVM; ICP Array Int64 only (Option/Map stay FC). Program-wide signedNumeric follows leaf domain; mixed UInt64↔Int64 still FC. Not CW/TON `Map UInt64 Int64` | hash left for Commit |
+| NEAR-INT64-CONTAINERS | main | NEAR Array Int64 / Option Int64 / Map UInt64 Int64 per-leaf isInt flatten (CW/TON template). Int8 containers / Int64-key / Int64 return stay FC | implemented; hash left for Commit |
+| SOL-INT64-CONTAINERS | main | Solana same flatten on StateField.isInt (cap-8 / 24 leaves). Mollusk not this slice | implemented; hash left for Commit |
+| NOIR-INT64-CONTAINERS | main | Noir InputType.i64 on signed leaves; no signedChecked* | implemented; hash left for Commit |
+| ALEO-INT64-CONTAINERS | main | Aleo flatten triples isInt; cap-2 / 6 leaves stays | implemented; hash left for Commit |
+| PSY-INT64-CONTAINERS | main | Psy TypeId-driven LoweredVal.isInt; names-only storage | implemented; hash left for Commit |
+| EVM-INT64-CONTAINERS | main | EVM Array/Option Int64 + hashed Map value signedness (not 24-leaf) | implemented; hash left for Commit |
 
 **File lock:** workers must not edit `Tests/Materialization/Targets.lean` or another target's tree. `FieldComparison*` is a main-agent serial slice (`FC-PRESERVE`), not a parallel leaf. Main agent integrates WideInt64 / OptInt / ArrInt / MapInt needles after each leaf lands.
 

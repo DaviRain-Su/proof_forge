@@ -31,10 +31,13 @@ Phase 1：实现
   （count≥bitWidth trap；checked-shl 高 limb overflow trap；`Examples/WideShiftProbe` +
   deterministic HostModel + near-sandbox suite，与 CosmWasm 同形）；
   schedule → 原生 promise；sync call 在 capability 矩阵上 fail-closed；
-- **Array + dense Map UInt64 cap-8 + fixed Bytes N + named Struct/Enum + Option UInt64 state**
-  flatten-to-KV；聚合 `StateStore` 使用 `storeAtomic` 两阶段 IR（先求值全部叶、再写 KV），HostModel
+- **Array + dense Map UInt64 cap-8 + fixed Bytes N + named Struct/Enum + Option UInt64/Int64 state**
+  flatten-to-KV；`Array Int64 N` 为 N×8-byte `isInt` 叶（不是 UInt64 别名）；`Option Int64`
+  为 unsigned tag + signed payload；`Map UInt64 Int64` 仅 val 槽 `isInt`（occ/key 仍 unsigned）。
+  聚合 `StateStore` 使用 `storeAtomic` 两阶段 IR（先求值全部叶、再写 KV），HostModel
   已固定 empty Map upsert、连续 Map StateStore、PointBox/EnumBox，以及 Option tag/payload 的
-  none/some/reset（reset 清零 stale payload）；Option params、非 UInt64 payload与 nested Option 仍 FC；
+  none/some/reset（reset 清零 stale payload）；Option params、Int8/16/32 payload、Int64-key Map、
+  Array/Option/Map Int64 return 与 nested Option 仍 FC；
 - **聚合返回**：named Struct/Enum 与 anonymous Array/Option UInt64 保持 ≤8 叶，经单次
   `value_return` 发 N×8-byte LE；dense Map UInt64 UInt64 使用固定 24 叶特例，Bytes 见下；
   nested/非 UInt64 元素返回仍 fail-closed；

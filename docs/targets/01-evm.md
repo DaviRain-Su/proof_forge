@@ -3,7 +3,7 @@ id: TARGET-EVM
 title: EVM target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-12
+updated: 2026-08-16
 normative: true
 ---
 
@@ -29,21 +29,29 @@ deploy 默认 ctor `0` 或 `PF_EVM_INIT_ARGS`，再 view/mutate；`init`/`constr
 - multi-width UInt/Int 与 body 窄宽、UInt128/256（EVM-only）ABI/body 子集；Field(bn254) mod-p 通道；
 - 控制流 if/match、fn/localCall、let/bounded for、shift/bitwise/logical、revert/emit；
 - named 聚合 flatten、定长 Array IndexGet/Set（bounds revert）；String 类型面（**String match switch 已落地 N-A1**）；
-- **Map 产品默认 = hashed storage（ADR-0038）**：`Map UInt64 UInt64` 与
-  `Map Principal UInt64` 各占 **1 个 base storage leaf**；entry 经 keccak 派生 slot，
-  Yul helpers `pf_hmap_u64_*` / `pf_hmap_p_*`。dense 24/44-leaf 表已从产品默认退役
-  （历史 pilot 仅作对照，不得再写成主路径）。Bytes（N×UInt8 leaves，D4-E2）仍为
-  定长 leaf 布局。`EvmSmoke` 钉 hashed layout size、helper 名与 dual-StateStore 分离；
+- **Map 产品默认 = hashed storage（ADR-0038）**：`Map UInt64 UInt64`、
+  `Map UInt64 Int64` 与 `Map Principal UInt64` 各占 **1 个 base storage leaf**；
+  entry 经 keccak 派生 slot，Yul helpers `pf_hmap_u64_*` / `pf_hmap_p_*`。
+  Int64 Map **value** 的 signedness 在 `LoweredValueV1.isInt` + helper value path，
+  **不是** 24-leaf `isInt` 表（产品 hashed 路径禁止发明 dense signed table）。
+  dense 24/44-leaf 表已从产品默认退役（历史 pilot 仅作对照，不得再写成主路径）。
+  Bytes（N×UInt8 leaves，D4-E2）仍为定长 leaf 布局。`EvmSmoke` 钉 hashed layout
+  size、helper 名与 dual-StateStore 分离；Int64-key Map 仍 fail-closed；
   `EvmSolcAcceptance` 检查 host solc，`TokenV1` 产品路径锁定 solc 0.8.34；
 - **ADR-0030 E4 EVM demo**：`Examples/MiniAmm.lean` 以 `context.caller` 作 Principal-key
   LP share（hashed Map base + 5×UInt64 = 6 slots），vault-internal addLiquidity /
   swap / removeLiquidity / balanceOf；Plan/Yul/`EvmSmoke` + host-optional Anvil smoke。
   locked-solc `--optimize` creation bytecode 远低于 EIP-3860 49152 B initcode 上限。
   无 `pf.assets` 的 MiniAmm 不得写成双链 MiniAMM closure；
-- **Option UInt64 state（BL-31）**：Enum-shaped tag/payload 双 slot；`none` 与 reset 清零 payload，
-  `StateStore` 复用 `storeAtomic`；Option parameter、非 UInt64 payload 与 nested Option 仍 fail-closed；
+- **Option UInt64 / Option Int64 state（BL-31）**：Enum-shaped tag/payload 双 slot；
+  tag 保持无符号；Int64 payload 的 signedness 在 `LoweredValueV1.isInt`（StorageBinding
+  无 `isInt`）。`none` 与 reset 清零 payload，`StateStore` 复用 `storeAtomic`；
+  Option parameter、Option Int64 return、非 UInt64/Int64 payload 与 nested Option 仍 fail-closed；
+- **Array Int64 N**：与 Array UInt8/16/32/64 同 `arrayScalarLeafLayoutV1` 连续 8-byte
+  slot；IndexGet/IndexSet 保留 `isInt`；Array Int8 与 Array Int64 return 仍 fail-closed；
 - **bounded aggregate return ABI**：named Struct/Enum 与 anonymous `Array UInt64 N`（1..8）/
-  `Option UInt64` 发 Solidity tuple；Map/Bytes/nested/非 UInt64元素与 target pureFn aggregate仍 FC；
+  `Option UInt64` 发 Solidity tuple；Map/Bytes/nested/非 UInt64元素（含 Array/Option Int64
+  return）与 target pureFn aggregate仍 FC；
 - **static-QN external call/schedule**：sync 发真实 `CALL`；result-bearing UInt64 路径要求
   `returndatasize ≥ 32`、读取首 word并做 UInt64 range check；schedule 仍同步 CALL+discard。
   callee 仍为 target-path hash stub，真实 deployment-address binding 未闭合；
@@ -110,7 +118,7 @@ deploy 默认 ctor `0` 或 `PF_EVM_INIT_ARGS`，再 view/mutate；`init`/`constr
   Anvil leg 从实际部署 artifact 的 `proof-forge.output.v1` manifest 读取。
   工程步骤（identity-bound differential 方向），**非** formal C-3 / TST closure。
 
-**明确未闭合**：完整 SemanticProgramV1 表面；ContextRead 已开放版本化的 `unixTimeSeconds`、`caller` 与 **`blockHeight`（S2：`number()`）**，未知键仍 FC；Option parameter、非 UInt64 payload 与 nested Option 仍 fail-closed；static-QN callee 仍是 hashed-address stub，缺真实 deployment-address binding；formal Plan/IR/Build/Output identity 与 identity-bound Reference↔Anvil formal differential；G4 不是 formal TST closure，不得写成 D4 / formal TASK 完成；**不得**把 Cancun profile 写成 OZ compatibility 或 formal hardfork 闭合；**不得**把 ADR-0025/S1 写成 Ownable/OZ/ABI/formal 完成。
+**明确未闭合**：完整 SemanticProgramV1 表面；ContextRead 已开放版本化的 `unixTimeSeconds`、`caller` 与 **`blockHeight`（S2：`number()`）**，未知键仍 FC；Option parameter、Option Int64 return、非 UInt64/Int64 payload 与 nested Option 仍 fail-closed；Array/Map Int64 return 与 Int64-key Map 仍 FC；static-QN callee 仍是 hashed-address stub，缺真实 deployment-address binding；formal Plan/IR/Build/Output identity 与 identity-bound Reference↔Anvil formal differential；G4 不是 formal TST closure，不得写成 D4 / formal TASK 完成；**不得**把 Cancun profile 写成 OZ compatibility 或 formal hardfork 闭合；**不得**把 ADR-0025/S1 写成 Ownable/OZ/ABI/formal 完成。
 
 ## 0.1 `context.caller` Principal encoding 与物化合同（ADR-0025；S1-EVM）
 

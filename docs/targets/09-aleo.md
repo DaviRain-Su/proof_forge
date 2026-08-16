@@ -58,7 +58,10 @@ program call、proof、deploy 或 network query。
 - public UInt8/16/32/64/128、Int8/16/32/64、Bool、Unit 与 exact BLS12-377 Fr Field
   （UInt128 走原生 `u128`；Int8/16/32 走原生 `i8`/`i16`/`i32`；超出 UInt64 Plan leaf
   的 UInt128 字面量仍 fail closed）；
-- named Struct/Enum、Array、Bytes、`Option UInt64` 与 dense Map cap-2 的受限 flatten；
+- named Struct/Enum、Array、Bytes、`Option UInt64` / `Option Int64` 与 dense
+  Map cap-2（`Map UInt64 UInt64` 或 `Map UInt64 Int64`，6 叶；仅 val 可为
+  `i64`）的受限 flatten；`Array Int64 N` 为 N×`i64` mapping 叶（不是 UInt64
+  别名）；Option tag 保持 `u64`、payload 为 `i64`；
 - checked arithmetic、比较、bitwise/logical/shift；
 - immutable let、assign、assert、if/match、bounded-for、bare revert；
 - pure function inline 与 literal-backed constants；
@@ -75,7 +78,8 @@ lowering；任一未声明形状 fail closed。
 - 带 payload 的 error；
 - nonempty invariant Plan；
 - Principal、String、UInt256、Int128/256；
-- nested/non-UInt64 Option、aggregate pure-function return；
+- nested/Int8 Option、Int64-key Map、Int64 container return、aggregate
+  pure-function return；
 - record custody、proof execution、deployment 与 network query。
 
 Plan admitted 但 Instructions lowering 失败时返回 `ALEO-IR-G5-HARD`；不存在 source
@@ -93,7 +97,8 @@ materialize 有序输出两个 `materialized-base`：
 query descriptor 描述 public mapping、bare view、**computed query view**（`kind=computed`，
 off-chain recipe；不是 Final、不是链上返回值——Aleo Final 会丢掉 output）与
 dropped-result observation。**computed aggregate view**（named Struct/Enum、
-`Array UInt64 N`、`Option UInt64`）同样只是 query descriptor：`result` 是
+`Array UInt64 N`、`Option UInt64`；`Array Int64` / `Option Int64` view
+return 仍 fail closed）同样只是 query descriptor：`result` 是
 `u64`/`i64` 叶数组，不是标量字符串；Instructions 不发射 `function <view>`，
 Final 也不带业务 output。它不执行查询，也不是编译器输入。
 `ArtifactEncoding.aleoInstructions` 是唯一 Aleo artifact encoding。

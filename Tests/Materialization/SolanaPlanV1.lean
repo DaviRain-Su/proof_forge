@@ -3657,6 +3657,145 @@ private unsafe def testContextReadBlockHeight
         "context.caller must fail closed on ordinary Solana (CPI-only)"
   IO.println "  ADR-0031 S2 context.blockHeight → Clock.slot Plan/IR/SBPF pin ok"
 
+private def expectPlanErrorContaining (label needle : String)
+    (result : CompileResult α) : IO Unit :=
+  match result with
+  | .error e =>
+      expect (e.render.contains needle)
+        s!"{label}: FC must contain '{needle}', got {e.render}"
+  | .ok _ => throw <| IO.userError s!"{label}: expected failure, got ok"
+
+/-- Array Int64 2: N×8-byte signed leaves (not a UInt64 alias). -/
+private unsafe def testArrayInt64State
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "ArrInt64" <|
+    "  state slots : Array Int64 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  entry set0(v : Int64) : Int64 do\n" ++
+    "    slots[0] := v\n" ++
+    "    return slots[0]\n\n" ++
+    "  view get() : Int64 do\n" ++
+    "    return slots[1]\n"
+  let compiled ← compileSource session source "Examples.ArrInt64"
+    "<solana-arr-int64>"
+  let plan ← liftResult (planSolana compiled)
+  expect (plan.stateAccount.fields.size == 2) "ArrInt64 fields.size==2"
+  expect (plan.stateAccount.fields[0]!.name == "slots_0") "ArrInt64 slots_0"
+  expect (plan.stateAccount.fields[1]!.name == "slots_1") "ArrInt64 slots_1"
+  expect plan.stateAccount.fields[0]!.isInt "ArrInt64 slots_0 isInt"
+  expect plan.stateAccount.fields[1]!.isInt "ArrInt64 slots_1 isInt"
+  let set0 ← findHandler plan "set0"
+  expect (set0.resultKind == .i64) "ArrInt64 entry result i64"
+  IO.println "  ✓ Solana Array Int64 2 as N×8-byte signed leaves"
+
+/-- Option Int64: unsigned tag + signed payload. -/
+private unsafe def testOptionInt64State
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "OptInt64" <|
+    "  state slot : Option Int64\n\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n\n" ++
+    "  entry setSome(v : Int64) : Int64 do\n" ++
+    "    slot := Option.some(v)\n" ++
+    "    return v\n\n" ++
+    "  view peek() : Int64 do\n" ++
+    "    match slot with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let compiled ← compileSource session source "Examples.OptInt64"
+    "<solana-opt-int64>"
+  let plan ← liftResult (planSolana compiled)
+  expect (plan.stateAccount.fields.size == 2)
+    s!"OptInt64: must flatten to tag+payload, got {plan.stateAccount.fields.size}"
+  let some tagF := plan.stateAccount.fields.find? (·.name == "slot_tag") |
+    throw <| IO.userError "OptInt64 missing slot_tag"
+  let some payF := plan.stateAccount.fields.find? (·.name == "slot_p0") |
+    throw <| IO.userError "OptInt64 missing slot_p0"
+  expect (!tagF.isInt) "OptInt64 tag stays unsigned"
+  expect payF.isInt "OptInt64 p0 is signed Int64"
+  IO.println "  ✓ Solana Option Int64 as unsigned tag + signed payload"
+
+/-- Map UInt64 Int64: 24 occ/key/val leaves; only val slots signed. -/
+private unsafe def testMapInt64State
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "MapInt64" <|
+    "  state m : Map UInt64 Int64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry put(k : UInt64, v : Int64) : Int64 do\n" ++
+    "    m[k] := v\n" ++
+    "    return v\n\n" ++
+    "  view get(k : UInt64) : Int64 do\n" ++
+    "    match m[k] with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let compiled ← compileSource session source "Examples.MapInt64"
+    "<solana-map-int64>"
+  let plan ← liftResult (planSolana compiled)
+  expect (plan.stateAccount.fields.size == 24)
+    s!"MapInt64: must flatten to 24 leaves, got {plan.stateAccount.fields.size}"
+  for i in [0:24] do
+    let some field := plan.stateAccount.fields[i]? |
+      throw <| IO.userError s!"MapInt64 missing field {i}"
+    expect (field.name == s!"m_{i}")
+      s!"MapInt64 field {i} name must be m_{i}, got {field.name}"
+    expect (field.isInt == (i % 3 == 2))
+      s!"MapInt64 m_{i} isInt must be {i % 3 == 2} (val only)"
+  IO.println "  ✓ Solana Map UInt64 Int64 val-only signed leaves"
+
+private unsafe def testInt64ContainerFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let arrI8 := wrapProgram "ArrI8Sol" <|
+    "  state slots : Array Int8 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    slots[0] := 0\n" ++
+    "    return v\n"
+  let arrI8Compiled ← compileSource session arrI8 "Examples.ArrI8Sol"
+    "<solana-arr-i8>"
+  expectPlanErrorContaining "ArrI8" "Array state element must be UInt64"
+    (planSolana arrI8Compiled)
+  let arrRet := wrapProgram "ArrInt64RetSol" <|
+    "  state slots : Array Int64 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  view get() : Array Int64 2 do\n" ++
+    "    return slots\n"
+  let arrRetCompiled ← compileSource session arrRet "Examples.ArrInt64RetSol"
+    "<solana-arr-int64-ret>"
+  expectPlanErrorContaining "ArrInt64Ret" "anonymous Array return element must be UInt64"
+    (planSolana arrRetCompiled)
+  let optI8 := wrapProgram "OptI8Sol" <|
+    "  state o : Option Int8\n\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return 0\n"
+  let optI8Compiled ← compileSource session optI8 "Examples.OptI8Sol"
+    "<solana-opt-i8>"
+  expectPlanErrorContaining "OptI8" "element must be UInt64"
+    (planSolana optI8Compiled)
+  let mapKey := wrapProgram "MapIntKeySol" <|
+    "  state m : Map Int64 UInt64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    return v\n"
+  let mapKeyCompiled ← compileSource session mapKey "Examples.MapIntKeySol"
+    "<solana-map-int-key>"
+  expectPlanErrorContaining "MapIntKey" "Map state admits only Map UInt64 UInt64"
+    (planSolana mapKeyCompiled)
+  IO.println "  ✓ Solana Int8 containers / Int64 return / Int64-key Map stay fail closed"
+
 unsafe def run : IO Unit := do
   testNarrowIntAbi
   let session ← Tests.Language.ParserSession.shared
@@ -3706,6 +3845,10 @@ unsafe def run : IO Unit := do
   testAnonymousArrayReturn session
   testAnonymousOptionReturn session
   testOptionState session
+  testArrayInt64State session
+  testOptionInt64State session
+  testMapInt64State session
+  testInt64ContainerFailClosed session
   testAggregateFailClosed session
   testContextReadBlockHeight session
   IO.println "Tests.Materialization.SolanaPlanV1: ok"

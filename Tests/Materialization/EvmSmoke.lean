@@ -3844,6 +3844,260 @@ private unsafe def testOptionUInt64State : IO Unit := do
           e.render.contains "public")
         s!"Option param FC must cite parameter/Option boundary, got: {e.render}"
 
+/-- T1 EVM Int64 containers: Array Int64 / Option Int64 / hashed Map UInt64 Int64.
+    Signedness lives on LoweredValueV1.isInt + ABI/Yul value path, not a
+    StorageBinding.isInt table. Product Map stays hashed 1-slot (not 24-leaf).
+    Array/Option/Map Int64 return and Int64-key Map stay fail closed. -/
+private unsafe def testInt64Containers : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  -- Array Int64: N×8-byte slots; IndexGet/Set keep isInt; ABI int64 + signextend.
+  let arrSrc :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrInt64 where\n" ++
+    "  state slots : Array Int64 2\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
+    "  entry set0(v : Int64) : Int64 do\n" ++
+    "    slots[0] := v\n" ++
+    "    return slots[0]\n" ++
+    "  entry add0(v : Int64) : Int64 do\n" ++
+    "    slots[0] := slots[0] + v\n" ++
+    "    return slots[0]\n" ++
+    "  view get0() : Int64 do\n" ++
+    "    return slots[0]\n"
+  let arrLoaded ← liftResult "load ArrInt64" (← session.selectProgramV1
+    arrSrc "<evm-arr-int64>" "Tests.EvmArrInt64" none)
+  let arrCompiled ← liftResult "compile ArrInt64" <|
+    Compiler.compileValidatedSourceV1 arrLoaded
+  let arrPlan ← liftResult "plan ArrInt64" <| planEvm arrCompiled
+  expect (arrPlan.storageLayout.size == 2)
+    s!"ArrInt64 must flatten to 2 slots, got {arrPlan.storageLayout.size}"
+  expect (arrPlan.storageLayout[0]!.name == "slots_0" &&
+      arrPlan.storageLayout[0]!.slot == 0 &&
+      arrPlan.storageLayout[0]!.byteWidth == 8)
+    "ArrInt64 slots_0 must occupy storage slot 0 (8-byte Int64)"
+  expect (arrPlan.storageLayout[1]!.name == "slots_1" &&
+      arrPlan.storageLayout[1]!.slot == 1 &&
+      arrPlan.storageLayout[1]!.byteWidth == 8)
+    "ArrInt64 slots_1 must occupy storage slot 1 (8-byte Int64)"
+  expect (arrPlan.entries.map (·.name) == #["set0", "add0", "get0"])
+    "ArrInt64 entry order"
+  expect (arrPlan.entries.map (·.resultKind) == #[.int64, .int64, .int64])
+    "ArrInt64 entries must be resultKind int64 (not uint64 alias)"
+  expect (arrPlan.entries[0]!.params.size == 1 && arrPlan.entries[0]!.params[0]!.isInt)
+    "ArrInt64 set0 param must be signed Int64"
+  match arrPlan.entries[0]!.body[0]? with
+  | some (Targets.Evm.Statement.storeAtomic ops) =>
+      expect (ops.size == 2) "ArrInt64 set0 storeAtomic must write 2 leaves"
+  | some (Targets.Evm.Statement.store s) =>
+      throw <| IO.userError
+        s!"ArrInt64 set0 must be storeAtomic for 2-leaf Array, got scalar store slot={s.slot}"
+  | _ => throw <| IO.userError "ArrInt64 set0 body[0] must be storeAtomic"
+  expect (arrPlan.entries[2]!.body == #[.returnValue (.storageLoad 0)])
+    "ArrInt64 get0 must return sload(0) via literal IndexGet"
+  match Targets.Evm.validatePlan arrPlan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"ArrInt64 plan must validate: {e.render}"
+  let arrOut ← liftResult "materialize ArrInt64" <|
+    materializeSelected TargetId.evm arrCompiled
+  let some arrYul := (MaterializedArtifactsV1.filesOf arrOut).find?
+      (·.path == "ArrInt64.yul") |
+    throw <| IO.userError "ArrInt64: missing ArrInt64.yul"
+  expect (arrYul.contents.contains "sstore(0," &&
+      (arrYul.contents.contains "sload(0)" || arrYul.contents.contains "pf_sload_u64(0)"))
+    "ArrInt64 Yul must sstore/sload slot 0"
+  expect (arrYul.contents.contains "signextend(")
+    "ArrInt64 Yul must sign-extend Int64 add0 (not unsigned UInt64 alias)"
+  let some arrAbi := (MaterializedArtifactsV1.filesOf arrOut).find?
+      (·.path.endsWith ".abi.json") |
+    throw <| IO.userError "ArrInt64: missing abi.json"
+  expect (arrAbi.contents.contains "\"type\":\"int64\"")
+    "ArrInt64 ABI must expose int64 (not uint64 alias)"
+  expect (!arrAbi.contents.contains "\"type\":\"uint64\"")
+    "ArrInt64 ABI must not alias Int64 as uint64"
+
+  -- Option Int64: Enum-shaped tag (unsigned) + payload (signed isInt path).
+  let optSrc :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptInt64 where\n" ++
+    "  state slot : Option Int64\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n" ++
+    "  entry setSome(v : Int64) : Int64 do\n" ++
+    "    slot := Option.some(v)\n" ++
+    "    return v\n" ++
+    "  entry clear() : Int64 do\n" ++
+    "    slot := Option.none()\n" ++
+    "    return 0\n" ++
+    "  view peek() : Int64 do\n" ++
+    "    match slot with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let optLoaded ← liftResult "load OptInt64" (← session.selectProgramV1
+    optSrc "<evm-opt-int64>" "Tests.EvmOptInt64" none)
+  let optCompiled ← liftResult "compile OptInt64" <|
+    Compiler.compileValidatedSourceV1 optLoaded
+  let optPlan ← liftResult "plan OptInt64" <| planEvm optCompiled
+  expect (optPlan.storageLayout.size == 2)
+    s!"OptInt64 must flatten to tag+payload, got {optPlan.storageLayout.size}"
+  expect (optPlan.storageLayout[0]!.name == "slot_tag" &&
+      optPlan.storageLayout[0]!.slot == 0 &&
+      optPlan.storageLayout[0]!.byteWidth == 8)
+    "OptInt64 tag leaf must be slot_tag at storage slot 0"
+  expect (optPlan.storageLayout[1]!.name == "slot_p0" &&
+      optPlan.storageLayout[1]!.slot == 1 &&
+      optPlan.storageLayout[1]!.byteWidth == 8)
+    "OptInt64 payload leaf must be slot_p0 at storage slot 1"
+  expect (optPlan.entries.map (·.resultKind) == #[.int64, .int64, .int64])
+    "OptInt64 entries must be resultKind int64"
+  expect (optPlan.entries[0]!.params[0]!.isInt)
+    "OptInt64 setSome param must be signed Int64"
+  match optPlan.entries[0]!.body[0]? with
+  | some (Targets.Evm.Statement.storeAtomic ops) =>
+      expect (ops.size == 2) "OptInt64 setSome storeAtomic must write 2 leaves"
+      expect (ops[0]!.slot == 0 && ops[0]!.value == .literal 1)
+        "OptInt64 setSome tag leaf must be literal 1"
+      expect (ops[1]!.slot == 1 && ops[1]!.value == .param 0)
+        "OptInt64 setSome payload leaf must be the Int64 param"
+  | _ => throw <| IO.userError "OptInt64 setSome body[0] must be storeAtomic"
+  let peekRepr := toString (repr optPlan.entries[2]!.body)
+  expect (peekRepr.contains "storageLoad 0" && peekRepr.contains "storageLoad 1")
+    s!"OptInt64 peek must sload tag+payload, body={peekRepr}"
+  match Targets.Evm.validatePlan optPlan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"OptInt64 plan must validate: {e.render}"
+  let optOut ← liftResult "materialize OptInt64" <|
+    materializeSelected TargetId.evm optCompiled
+  let some optYul := (MaterializedArtifactsV1.filesOf optOut).find?
+      (·.path == "OptInt64.yul") |
+    throw <| IO.userError "OptInt64: missing OptInt64.yul"
+  expect (optYul.contents.contains "sstore(0," && optYul.contents.contains "sstore(1,")
+    "OptInt64 Yul must sstore both tag and payload slots"
+  let some optAbi := (MaterializedArtifactsV1.filesOf optOut).find?
+      (·.path.endsWith ".abi.json") |
+    throw <| IO.userError "OptInt64: missing abi.json"
+  expect (optAbi.contents.contains "\"type\":\"int64\"")
+    "OptInt64 ABI must expose int64"
+
+  -- Hashed Map UInt64 Int64: 1 base slot, not a 24-leaf isInt table.
+  let mapSrc :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapInt64 where\n" ++
+    "  state m : Map UInt64 Int64\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n" ++
+    "  entry put(k : UInt64, v : Int64) : Int64 do\n" ++
+    "    m[k] := v\n" ++
+    "    match m[k] with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let mapLoaded ← liftResult "load MapInt64" (← session.selectProgramV1
+    mapSrc "<evm-map-int64>" "Tests.EvmMapInt64" none)
+  let mapCompiled ← liftResult "compile MapInt64" <|
+    Compiler.compileValidatedSourceV1 mapLoaded
+  let mapPlan ← liftResult "plan MapInt64" <| planEvm mapCompiled
+  expect (mapPlan.storageLayout.size == 1)
+    s!"MapInt64 hashed layout must be 1 Map base leaf (not 24), got {mapPlan.storageLayout.size}"
+  expect mapPlan.hashedMapStorage
+    "MapInt64 plan must enable hashedMapStorage (product default)"
+  expect (mapPlan.storageLayout[0]!.name == "m_base")
+    "MapInt64 hashed base leaf must be m_base"
+  expect (mapPlan.entries[0]!.resultKind == .int64)
+    "MapInt64 put resultKind must be int64"
+  expect (mapPlan.entries[0]!.params.size == 2 &&
+      !mapPlan.entries[0]!.params[0]!.isInt &&
+      mapPlan.entries[0]!.params[1]!.isInt)
+    "MapInt64 put must be (UInt64 key, Int64 value)"
+  match Targets.Evm.validatePlan mapPlan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"MapInt64 plan must validate: {e.render}"
+  let mapOut ← liftResult "materialize MapInt64" <|
+    materializeSelected TargetId.evm mapCompiled
+  let some mapYul := (MaterializedArtifactsV1.filesOf mapOut).find?
+      (·.path == "MapInt64.yul") |
+    throw <| IO.userError "MapInt64: missing MapInt64.yul"
+  expect (mapYul.contents.contains "function pf_hmap_u64_slot" ||
+      mapYul.contents.contains "function pf_hmap_u64_upsert" ||
+      mapYul.contents.contains "function pf_hmap_u64_lookup")
+    "MapInt64 Yul must emit pf_hmap_u64_* hashed helpers (not dense 24-leaf sstore)"
+  let some mapAbi := (MaterializedArtifactsV1.filesOf mapOut).find?
+      (·.path.endsWith ".abi.json") |
+    throw <| IO.userError "MapInt64: missing abi.json"
+  expect (mapAbi.contents.contains "\"type\":\"int64\"")
+    "MapInt64 ABI must expose int64 value"
+
+  -- FC: Array Int64 return (anonymousReturn still UInt64-only).
+  let arrRet :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrInt64Ret where\n" ++
+    "  state slots : Array Int64 2\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
+    "  view getArr() : Array Int64 2 do\n" ++
+    "    return slots\n"
+  let arrRetLoaded ← liftResult "load ArrInt64Ret" (← session.selectProgramV1
+    arrRet "<evm-arr-int64-ret>" "Tests.EvmArrInt64Ret" none)
+  let arrRetCompiled ← liftResult "compile ArrInt64Ret" <|
+    Compiler.compileValidatedSourceV1 arrRetLoaded
+  match planEvm arrRetCompiled with
+  | .ok _ => throw <| IO.userError "EVM Array Int64 return must fail closed"
+  | .error e =>
+      expect (e.render.contains "Array" || e.render.contains "UInt64" ||
+          e.render.contains "return" || e.render.contains "aggregate")
+        s!"Array Int64 return FC must cite Array/UInt64/return, got: {e.render}"
+
+  -- FC: Option Int64 return.
+  let optRet :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptInt64Ret where\n" ++
+    "  state slot : Option Int64\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n" ++
+    "  view getOpt() : Option Int64 do\n" ++
+    "    return slot\n"
+  let optRetLoaded ← liftResult "load OptInt64Ret" (← session.selectProgramV1
+    optRet "<evm-opt-int64-ret>" "Tests.EvmOptInt64Ret" none)
+  let optRetCompiled ← liftResult "compile OptInt64Ret" <|
+    Compiler.compileValidatedSourceV1 optRetLoaded
+  match planEvm optRetCompiled with
+  | .ok _ => throw <| IO.userError "EVM Option Int64 return must fail closed"
+  | .error e =>
+      expect (e.render.contains "Option" || e.render.contains "UInt64" ||
+          e.render.contains "return" || e.render.contains "payload")
+        s!"Option Int64 return FC must cite Option/UInt64/return, got: {e.render}"
+
+  -- FC: Int64-key Map.
+  let mapKey :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapInt64Key where\n" ++
+    "  state m : Map Int64 UInt64\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return 0\n"
+  let mapKeyLoaded ← liftResult "load MapInt64Key" (← session.selectProgramV1
+    mapKey "<evm-map-int64-key>" "Tests.EvmMapInt64Key" none)
+  let mapKeyCompiled ← liftResult "compile MapInt64Key" <|
+    Compiler.compileValidatedSourceV1 mapKeyLoaded
+  match planEvm mapKeyCompiled with
+  | .ok _ => throw <| IO.userError "EVM Map Int64 key must fail closed"
+  | .error e =>
+      expect (e.render.contains "Map" || e.render.contains "UInt64" ||
+          e.render.contains "key" || e.render.contains "shape")
+        s!"Map Int64-key FC must cite Map/UInt64/key, got: {e.render}"
+
 /-- BL-28: result-bearing external call lowers on EVM to real CALL +
     returndata read (iszero/returndatasize/UInt64 range guards). UInt64
     positive retained; Bool result stays fail closed (wide admit). -/
@@ -5386,6 +5640,7 @@ unsafe def run : IO Unit := do
   testAnonymousArrayUInt64Return
   testAnonymousOptionUInt64Return
   testOptionUInt64State
+  testInt64Containers
   testCallReturnEvm
   testCallReturnWideEvm
   testCallReturnNarrowEvm

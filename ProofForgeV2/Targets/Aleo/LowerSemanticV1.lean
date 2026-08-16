@@ -641,9 +641,10 @@ private def aleoMapPilotLeafCountV1 : Nat :=
 
 /-- Flatten a state type to (leaf name, isInt64, uintWidth) triples (preorder).
     UInt{8,16,32,64,128} → matching width leaf (0 for u64); Int64 → i64 leaf;
-    named Struct/Enum and Array UInt64 recurse as before; Map UInt64 UInt64 →
-    capacity-2 × occ/key/val leaves; **Bytes N → N UInt8 leaves**
-    (`<name>_<i>`, u8 mapping values). Nested containers fail closed. -/
+    named Struct/Enum recurse as before; Array UInt64 or Array Int64 → N
+    leaves (`isInt` follows the element); Map UInt64 UInt64 or Map UInt64
+    Int64 → capacity-2 × occ/key/val (only val may be `isInt`); **Bytes N →
+    N UInt8 leaves**. Nested / Int8 containers / Int64-key stay fail closed. -/
 private partial def flattenTypeLeafSpecsV1
     (typeDecls : Array TypeDeclV1) (types : AleoTypeClosureV1)
     (typeId : TypeIdV1) (namePrefix : String) :
@@ -711,28 +712,32 @@ private partial def flattenTypeLeafSpecsV1
   else if types.isContainer typeId then
     match typeDecls[typeId.toNat]? with
     | some { shape := .array elTid len, .. } =>
-        unless elTid == types.uint64TypeId do
+        unless elTid == types.uint64TypeId || types.int64TypeId == some elTid do
           planError "unsupported Aleo semantic shape: Array state element must be UInt64"
         let n := len.toNat
         unless n ≥ 1 do
           planError "unsupported Aleo semantic shape: Array state length must be ≥ 1"
+        let leafIsInt := types.int64TypeId == some elTid
         let mut out : Array (String × Bool × Nat) := #[]
         for i in [0:n] do
           let leafName := namePrefix ++ "_" ++ toString i
           unless isIdentifier leafName do
             planError s!"state name '{leafName}' is not a safe identifier"
-          out := out.push (leafName, false, 0)
+          out := out.push (leafName, leafIsInt, 0)
         pure out
     | some { shape := .map keyTid valTid, .. } =>
-        unless keyTid == types.uint64TypeId && valTid == types.uint64TypeId do
+        unless keyTid == types.uint64TypeId &&
+            (valTid == types.uint64TypeId || types.int64TypeId == some valTid) do
           planError "unsupported Aleo semantic shape: Map state admits only Map UInt64 UInt64"
+        let valIsInt := types.int64TypeId == some valTid
         let mut out : Array (String × Bool × Nat) := #[]
         for e in [0:aleoMapPilotCapacityV1] do
           for (_, tag) in #[(0, "occ"), (1, "key"), (2, "val")] do
             let leafName := namePrefix ++ "_" ++ toString e ++ "_" ++ tag
             unless isIdentifier leafName do
               planError s!"state name '{leafName}' is not a safe identifier"
-            out := out.push (leafName, false, 0)
+            let isInt := tag == "val" && valIsInt
+            out := out.push (leafName, isInt, 0)
         pure out
     | some { shape := .bytes len, .. } =>
         -- D4-E2 pattern: fixed Bytes N → N consecutive UInt8 leaves.
@@ -749,7 +754,7 @@ private partial def flattenTypeLeafSpecsV1
     | _ =>
         planError "unsupported Aleo semantic shape: container TypeId is not Array/Map/Bytes"
   else
-    planError "unsupported Aleo semantic shape: aggregate leaf must be UInt{8,16,32,64,128}, Int64, named Struct/Enum, Array UInt64, Map UInt64 UInt64, or Bytes N"
+        planError "unsupported Aleo semantic shape: aggregate leaf must be UInt{8,16,32,64,128}, Int64, named Struct/Enum, Array UInt64/Int64, Map UInt64 UInt64/Int64, or Bytes N"
 
 private def leafCountOfTypeV1
     (typeDecls : Array TypeDeclV1) (types : AleoTypeClosureV1)
@@ -818,14 +823,15 @@ private def arrayUInt64LeafCountV1
     return none
   match typeDecls[typeId.toNat]? with
   | some { shape := .array elTid len, .. } =>
-      unless elTid == types.uint64TypeId do
+      unless elTid == types.uint64TypeId || types.int64TypeId == some elTid do
         planError "unsupported Aleo semantic shape: Array state element must be UInt64"
       let n := len.toNat
       unless n ≥ 1 do
         planError "unsupported Aleo semantic shape: Array state length must be ≥ 1"
       pure (some n)
   | some { shape := .map keyTid valTid, .. } =>
-      unless keyTid == types.uint64TypeId && valTid == types.uint64TypeId do
+      unless keyTid == types.uint64TypeId &&
+          (valTid == types.uint64TypeId || types.int64TypeId == some valTid) do
         planError "unsupported Aleo semantic shape: Map state admits only Map UInt64 UInt64"
       pure (some aleoMapPilotLeafCountV1)
   | some { shape := .bytes len, .. } =>
@@ -847,9 +853,10 @@ private def isAnonymousOptionTypeIdV1
   | some { shape := .option _, name := none, .. } => true
   | _ => false
 
-/-- B-OPT-STATE: `Option UInt64` storage leaves mirror named 2-variant Enum —
-    `{prefix}_tag` + `{prefix}_p0` (tag 0=none / 1=some; payload zeroed on none). -/
-private def flattenOptionUInt64LeafSpecsV1 (namePrefix : String) :
+/-- B-OPT-STATE: `Option UInt64` or `Option Int64` storage leaves mirror named
+    2-variant Enum — `{prefix}_tag` + `{prefix}_p0` (tag 0=none / 1=some;
+    payload zeroed on none). Tag stays unsigned; payload `isInt` when Int64. -/
+private def flattenOptionUInt64LeafSpecsV1 (namePrefix : String) (payloadIsInt : Bool) :
     CompileResult (Array (String × Bool × Nat)) := do
   let tagName :=
     if namePrefix.isEmpty then "tag" else namePrefix ++ "_tag"
@@ -859,7 +866,7 @@ private def flattenOptionUInt64LeafSpecsV1 (namePrefix : String) :
     planError s!"state name '{tagName}' is not a safe identifier"
   unless isIdentifier pName do
     planError s!"state name '{pName}' is not a safe identifier"
-  pure #[(tagName, false, 0), (pName, false, 0)]
+  pure #[(tagName, false, 0), (pName, payloadIsInt, 0)]
 
 /-- Dense Map IndexGet → Option UInt64 as `[tag, payload]` (unrolled).
     Every selector is a typed ternary with a Bool condition and same-typed
@@ -962,20 +969,25 @@ private def makeStateLayoutV1
         fieldIsField := fieldIsField.push false
       stateLeaves := stateLeaves.push leaves
     else if isAnonymousOptionTypeIdV1 typeDecls state.typeId then do
-      -- B-OPT-STATE / BL-35: Option UInt64 → tag + payload (2 u64 mapping
-      -- leaves), same physical shape as a 1-payload Enum. Names follow Enum
-      -- convention (`name_tag` / `name_p0`). Default zero mappings =
-      -- Option.none; storeAggregate writes both leaves; none construct zeroes
-      -- payload (pin). Non-UInt64 Option payload fails closed above.
-      match typeDecls[state.typeId.toNat]? with
-      | some { shape := .option elTid, name := none, .. } =>
-          unless elTid == types.uint64TypeId do
+      -- B-OPT-STATE / BL-35: Option UInt64 or Option Int64 → tag + payload
+      -- (2 mapping leaves), same physical shape as a 1-payload Enum. Names
+      -- follow Enum convention (`name_tag` / `name_p0`). Tag stays unsigned;
+      -- payload is i64 when Int64. Default zero mappings = Option.none.
+      -- Int8/nested Option payload fails closed (contains-match needle).
+      let payloadIsInt ←
+        match typeDecls[state.typeId.toNat]? with
+        | some { shape := .option elTid, name := none, .. } =>
+            if elTid == types.uint64TypeId then
+              pure false
+            else if types.int64TypeId == some elTid then
+              pure true
+            else
+              planError
+                s!"unsupported Aleo semantic shape: Option state '{state.name}' requires UInt64 payload"
+        | _ =>
             planError
-              s!"unsupported Aleo semantic shape: Option state '{state.name}' requires UInt64 payload"
-      | _ =>
-          planError
-            s!"unsupported Aleo semantic shape: state '{state.name}' is not anonymous Option UInt64"
-      let leafSpecs ← flattenOptionUInt64LeafSpecsV1 state.name
+              s!"unsupported Aleo semantic shape: state '{state.name}' is not anonymous Option UInt64"
+      let leafSpecs ← flattenOptionUInt64LeafSpecsV1 state.name payloadIsInt
       if fieldNames.size + leafSpecs.size > maxStateLeafFields then
         planError "unsupported Aleo semantic shape: state leaf count exceeds Aleo profile limit"
       let mut leaves : Array Nat := #[]
@@ -1634,7 +1646,7 @@ private partial def lowerRegion
             if layout.types.isContainer typeId then
               let n ← match ← arrayUInt64LeafCountV1 layout.typeDecls layout.types typeId with
                 | some n => pure n
-                | none => planError "unsupported Aleo semantic shape: construct admits only Array UInt64 / Map UInt64 UInt64 on Aleo"
+                | none => planError "unsupported Aleo semantic shape: construct admits only Array UInt64/Int64 / Map UInt64 UInt64/Int64 on Aleo"
               unless ctorIdx == 0 do
                 planError "unsupported Aleo semantic shape: Array/Map construct ctorIdx must be 0"
               -- N-MAP-CONSTRUCT: nonempty Map construct (flattened kv pairs) is
@@ -1642,15 +1654,24 @@ private partial def lowerRegion
               let isMapConstruct := match layout.typeDecls[typeId.toNat]? with
                 | some { shape := .map _ _, .. } => true
                 | _ => false
+              let valIsInt :=
+                match layout.typeDecls[typeId.toNat]? with
+                | some { shape := .map _ valTid, .. } =>
+                    layout.types.int64TypeId == some valTid
+                | some { shape := .array elTid _, .. } =>
+                    layout.types.int64TypeId == some elTid
+                | _ => false
               if isMapConstruct && !argIds.isEmpty then
                 planError "unsupported Aleo semantic shape: nonempty Map construct is outside the Aleo pilot (build maps via IndexSet upsert)"
               -- Map.empty (ctor 0, 0 args) → dense zero leaves; Array
               -- construct takes exactly N scalar args.
               if n == aleoMapPilotLeafCountV1 && argIds.isEmpty then
                 let mut zeros : Array Expr := #[]
-                for _ in [0:n] do
-                  zeros := zeros.push (.literal 0)
-                env := envInsertVal env valueDef.valueId (mkAggregateVal zeros)
+                let mut flags : Array Bool := #[]
+                for _ in [0:aleoMapPilotCapacityV1] do
+                  zeros := zeros.push (.literal 0) |>.push (.literal 0) |>.push (.literal 0)
+                  flags := flags.push false |>.push false |>.push valIsInt
+                env := envInsertVal env valueDef.valueId (mkAggregateValInt zeros flags)
               else do
                 unless argIds.size == n do
                   planError "unsupported Aleo semantic shape: Array construct arity mismatch"
@@ -1661,19 +1682,22 @@ private partial def lowerRegion
                     | none => planError "unsupported Aleo semantic shape: construct references undefined arg"
                   unless !arg.isAggregate do
                     planError "unsupported Aleo semantic shape: Array construct args must be scalar UInt64"
-                  unless !arg.isIntScalar do
+                  unless arg.isIntScalar == valIsInt do
                     planError "unsupported Aleo semantic shape: Array UInt64 construct args must be unsigned"
                   leafExprs := leafExprs.push arg.expr
-                env := envInsertVal env valueDef.valueId (mkAggregateVal leafExprs)
+                env := envInsertVal env valueDef.valueId
+                  (mkAggregateValInt leafExprs (Array.replicate n valIsInt))
             else
               -- N-ANON-RESULT + B-OPT-STATE: Option UInt64 construct (none/some)
               -- for anonymous-result returns and Option state assignment;
               -- named Struct/Enum remains the other non-container path.
               match layout.typeDecls[typeId.toNat]? with
               | some { shape := .option elTid, name := none, .. } => do
-                  unless elTid == layout.types.uint64TypeId do
+                  unless elTid == layout.types.uint64TypeId ||
+                      layout.types.int64TypeId == some elTid do
                     planError
                       "unsupported Aleo semantic shape: Option construct requires UInt64 payload"
+                  let payloadIsInt := layout.types.int64TypeId == some elTid
                   match ctorIdx.toNat with
                   | 0 =>
                       -- Option.none → (tag=0, payload=0)
@@ -1681,7 +1705,8 @@ private partial def lowerRegion
                         planError
                           "unsupported Aleo semantic shape: Option.none construct takes no args"
                       env := envInsertVal env valueDef.valueId
-                        (mkAggregateVal #[.literal 0, .literal 0])
+                        (mkAggregateValInt #[.literal 0, .literal 0]
+                          #[false, payloadIsInt])
                   | 1 =>
                       -- Option.some(v) → (tag=1, payload=v)
                       unless argIds.size == 1 do
@@ -1695,17 +1720,18 @@ private partial def lowerRegion
                       unless !arg.isAggregate do
                         planError
                           "unsupported Aleo semantic shape: Option.some payload must be scalar"
-                      unless !arg.isIntScalar do
+                      unless arg.isIntScalar == payloadIsInt do
                         planError
                           "unsupported Aleo semantic shape: Option.some payload must be UInt64"
                       env := envInsertVal env valueDef.valueId
-                        (mkAggregateVal #[.literal 1, arg.expr])
+                        (mkAggregateValInt #[.literal 1, arg.expr]
+                          #[false, payloadIsInt])
                   | _ =>
                       planError
                         "unsupported Aleo semantic shape: Option construct ctorIdx must be 0 (none) or 1 (some)"
               | _ => do
                   unless layout.types.isNamedAggregate typeId do
-                    planError "unsupported Aleo semantic shape: construct admits only Array/Map UInt64, Option UInt64, or named Struct/Enum on Aleo"
+                    planError "unsupported Aleo semantic shape: construct admits only Array/Map UInt64/Int64, Option UInt64/Int64, or named Struct/Enum on Aleo"
                   let some decl := layout.typeDecls[typeId.toNat]? |
                     planError "unsupported Aleo semantic shape: construct TypeDecl missing"
                   match decl.shape with
@@ -1957,9 +1983,19 @@ private partial def lowerRegion
             unless !idx.isAggregate && !idx.isIntScalar do
               planError "unsupported Aleo semantic shape: IndexGet index must be scalar unsigned"
             if base.leafExprs.size == aleoMapPilotLeafCountV1 then
-              -- Dense Map IndexGet → Option UInt64 as `[tag, payload]`.
+              -- Dense Map IndexGet → Option UInt64/Int64 as `[tag, payload]`.
+              -- Payload signedness follows the map value leaf (val slots).
               let optLeaves ← mapLookupOptionLeavesV1 base.leafExprs idx.expr
-              env := envInsertVal env valueDef.valueId (mkAggregateVal optLeaves)
+              let valIsInt :=
+                match layout.typeDecls[valueDef.typeId.toNat]? with
+                | some { shape := .option elTid, .. } =>
+                    layout.types.int64TypeId == some elTid
+                | _ =>
+                  match base.leafIsInt? with
+                  | some flags => flags.getD 2 false
+                  | none => false
+              env := envInsertVal env valueDef.valueId
+                (mkAggregateValInt optLeaves #[false, valIsInt])
             else do
               let i ← literalIndexNatV1 idx
               let leaves := base.leafExprs
@@ -1998,10 +2034,18 @@ private partial def lowerRegion
               planError "unsupported Aleo semantic shape: IndexSet base must be an Array/Map aggregate"
             unless !val.isAggregate do
               planError "unsupported Aleo semantic shape: IndexSet value must be scalar"
-            unless !val.isIntScalar do
-              planError "unsupported Aleo semantic shape: IndexSet value must be unsigned"
             if base.leafExprs.size == aleoMapPilotLeafCountV1 then
               -- Dense Map upsert; revert when the map is full.
+              let valIsInt :=
+                match layout.typeDecls[valueDef.typeId.toNat]? with
+                | some { shape := .map _ valTid, .. } =>
+                    layout.types.int64TypeId == some valTid
+                | _ =>
+                  match base.leafIsInt? with
+                  | some flags => flags.getD 2 false
+                  | none => false
+              unless val.isIntScalar == valIsInt do
+                planError "unsupported Aleo semantic shape: IndexSet value must be unsigned"
               unless val.narrowUintWidth?.isNone do
                 planError "unsupported Aleo semantic shape: Map value must be UInt64 (not Bytes u8)"
               let (outLeaves0, okInsert) ←
@@ -2016,7 +2060,11 @@ private partial def lowerRegion
                     Expr.checkedAdd e (Expr.checkedMul gate (.literal 0))
                   else e
                 outLeaves := outLeaves.push e'
-              env := envInsertVal env valueDef.valueId (mkAggregateVal outLeaves)
+              let mut intFlags : Array Bool := #[]
+              for _ in [0:aleoMapPilotCapacityV1] do
+                intFlags := intFlags.push false |>.push false |>.push valIsInt
+              env := envInsertVal env valueDef.valueId
+                (mkAggregateValInt outLeaves intFlags)
             else do
               let i ← literalIndexNatV1 idx
               let leaves := base.leafExprs
@@ -2025,13 +2073,26 @@ private partial def lowerRegion
               let uintWidths := match base.leafUintWidth? with
                 | some f => f
                 | none => leaves.map (fun _ => (0 : Nat))
-              -- Bytes element stores need the u8 lane; Array UInt64 stays u64.
+              let intFlags := match base.leafIsInt? with
+                | some f => f
+                | none =>
+                  match layout.typeDecls[valueDef.typeId.toNat]? with
+                  | some { shape := .array elTid _, .. } =>
+                      let elIsInt := layout.types.int64TypeId == some elTid
+                      leaves.map (fun _ => elIsInt)
+                  | _ => leaves.map (fun _ => false)
+              -- Bytes element stores need the u8 lane; Array UInt64/Int64
+              -- stays the 8-byte lane matching the element signedness.
               let slotW := uintWidths.getD i 0
+              let slotIsInt := intFlags.getD i false
               if isNarrowUintWidth slotW then
                 unless val.narrowUintWidth? == some slotW do
                   planError s!"unsupported Aleo semantic shape: Bytes IndexSet value must be UInt{slotW}"
+              else if slotIsInt then
+                unless val.isIntScalar && val.narrowIntWidth?.isNone do
+                  planError "unsupported Aleo semantic shape: Array UInt64 IndexSet value must be unsigned UInt64"
               else
-                unless val.narrowUintWidth?.isNone do
+                unless !val.isIntScalar && val.narrowUintWidth?.isNone do
                   planError "unsupported Aleo semantic shape: Array UInt64 IndexSet value must be unsigned UInt64"
               let mut outLeaves : Array Expr := #[]
               for j in [0:leaves.size] do
@@ -2043,9 +2104,6 @@ private partial def lowerRegion
                   outLeaves := outLeaves.push e
               -- The rebuilt aggregate keeps the base's per-leaf lanes; the
               -- stored element's lane was checked against slot i above.
-              let intFlags := match base.leafIsInt? with
-                | some f => f
-                | none => leaves.map (fun _ => false)
               env := envInsertVal env valueDef.valueId
                 (mkAggregateValFlags outLeaves intFlags uintWidths)
     | .constant constantId => do

@@ -59,8 +59,10 @@ Tool Lock 成员。
 
 - UInt8/16/32/64/128/256 与 Int8/16/32/64 的受限 envelope；
 - exact Goldilocks Field、Bool、Unit；
-- named Struct/Enum、Array、Bytes、Principal identity、`Option UInt64` 与 dense Map cap-8
-  的受限 leaf lowering；
+- named Struct/Enum、Array UInt64/Int64、Bytes、Principal identity、`Option UInt64` /
+  `Option Int64` 与 dense Map cap-8（UInt64 key + UInt64/Int64 val）的受限 leaf
+  lowering（state 为 names-only Felt 叶；`isInt` 从 TypeId 在 IndexGet/construct 线程，
+  不是 storage ABI suffix；HashOut `Array UInt64 4` 保持 unsigned）；
 - checked arithmetic、比较、logical/bitwise/shift；
 - immutable let、assign、assert、if/match、bounded-for static unroll、bare revert；
 - literal-backed constants与 pure-function inline；
@@ -74,7 +76,8 @@ algorithms。支持结论以当前 Plan/DPN tests 为准，不由历史 source c
 以下仍拒绝或保持既有 PARTIAL 标签：
 
 - bn254/BLS12-377 Field；
-- nested Map、Map return、超出 aggregate-return cap；
+- nested Map、Map return、Int8 容器、Int64-key Map、Int64 container return、超出
+  aggregate-return cap；
 - result-bearing call、schedule、EVM-style ContextRead（`context.caller` / `blockHeight` / `unixTimeSeconds`）、Commit、nonempty invariant；
 - `pf.assets` bindings、UPS、network 与 deploy。
 - **已开放（非 EVM ContextRead）**：`call pf.context.userId|contractId|checkpointId|nonce|callerContractId|userPublicKeyHash|sessionProofTreeRoot()` → DPN ExecutionContext（见 `Examples/ContextProbe.lean`；HashOut 仅 limb0）。

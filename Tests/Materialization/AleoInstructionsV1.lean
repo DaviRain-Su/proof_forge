@@ -860,6 +860,181 @@ unsafe def testProductArrayMultiLeaf : IO Unit := do
   | none => throw <| IO.userError "Array encode→decode failed"
   | some p2 => expect (p2 == prog) "Array structural round-trip"
 
+/-- ALEO-INT64-CONTAINERS: Array Int64 2 → N×i64 mappings (not a UInt64 alias). -/
+unsafe def testProductArrayInt64MultiLeaf : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrInt64 where\n" ++
+    "  state slots : Array Int64 2\n" ++
+    "  init(a : Int64, b : Int64) do\n" ++
+    "    slots[0] := a\n" ++
+    "    slots[1] := b\n" ++
+    "  entry set0(v : Int64) : Int64 do\n" ++
+    "    slots[0] := v\n" ++
+    "    return v\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-int64-array>" "Tests.AleoArrInt64" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  let cap ← liftResult <|
+    resolveEngineeringRequirementsV1 selection compiled
+  let prog ← liftResult <| programFromCapabilityV1 cap
+  expect (prog.name == "arrint64.aleo") "ArrInt64 program name"
+  expect (countMappings prog == 3)
+    s!"Array Int64 2 must emit 2 state + guard, got {countMappings prog}"
+  expect (mappingValueBase prog "pf_state_0" == some .i64)
+    "ArrInt64 slots_0 must be i64.public"
+  expect (mappingValueBase prog "pf_state_1" == some .i64)
+    "ArrInt64 slots_1 must be i64.public"
+  expect (countSetsInFinalize prog "set0" ≥ 2)
+    s!"ArrInt64 set0 must store both leaves, got {countSetsInFinalize prog "set0"}"
+  let encoded := encodeProgram prog
+  match decodeProgram? encoded with
+  | none => throw <| IO.userError "ArrInt64 encode→decode failed"
+  | some p2 => expect (p2 == prog) "ArrInt64 structural round-trip"
+
+/-- ALEO-INT64-CONTAINERS: Option Int64 → unsigned tag + signed payload. -/
+unsafe def testProductOptionInt64StateMultiLeaf : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptInt64 where\n" ++
+    "  state slot : Option Int64\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n" ++
+    "  entry setSome(v : Int64) : Int64 do\n" ++
+    "    slot := Option.some(v)\n" ++
+    "    return v\n" ++
+    "  entry clear() : Int64 do\n" ++
+    "    slot := Option.none()\n" ++
+    "    return 0\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-int64-option>" "Tests.AleoOptInt64" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  let cap ← liftResult <|
+    resolveEngineeringRequirementsV1 selection compiled
+  let prog ← liftResult <| programFromCapabilityV1 cap
+  expect (prog.name == "optint64.aleo") "OptInt64 program name"
+  expect (countMappings prog == 3)
+    s!"Option Int64 must emit 2 state + guard mappings, got {countMappings prog}"
+  expect (mappingValueBase prog "pf_state_0" == some .u64)
+    "OptInt64 tag must stay u64.public"
+  expect (mappingValueBase prog "pf_state_1" == some .i64)
+    "OptInt64 payload must be i64.public"
+  expect (countSetsInFinalize prog "setSome" ≥ 2)
+    s!"setSome must store tag+payload, got {countSetsInFinalize prog "setSome"}"
+  expect (countSetsInFinalize prog "clear" ≥ 2)
+    s!"clear must store tag+payload, got {countSetsInFinalize prog "clear"}"
+  let encoded := encodeProgram prog
+  match decodeProgram? encoded with
+  | none => throw <| IO.userError "OptInt64 encode→decode failed"
+  | some p2 => expect (p2 == prog) "OptInt64 structural round-trip"
+
+/-- ALEO-INT64-CONTAINERS: Map UInt64 Int64 stays cap-2 / 6 leaves; only val is i64. -/
+unsafe def testProductMapInt64MiniMultiLeaf : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapInt64 where\n" ++
+    "  state m : Map UInt64 Int64\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n" ++
+    "  entry put(k : UInt64, v : Int64) : Int64 do\n" ++
+    "    m[k] := v\n" ++
+    "    return v\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-int64-map>" "Tests.AleoMapInt64" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  let cap ← liftResult <|
+    resolveEngineeringRequirementsV1 selection compiled
+  let prog ← liftResult <| programFromCapabilityV1 cap
+  expect (prog.name == "mapint64.aleo") "MapInt64 program name"
+  expect (countMappings prog == 7)
+    s!"MapInt64 cap-2 must emit 6 state + guard mappings, got {countMappings prog}"
+  for i in [0:6] do
+    expect (mappingNames prog |>.contains (mappingNameV1 i))
+      s!"missing mapping {mappingNameV1 i}"
+    let want : BaseTypeV1 := if i % 3 == 2 then .i64 else .u64
+    expect (mappingValueBase prog (mappingNameV1 i) == some want)
+      s!"MapInt64 {mappingNameV1 i} must be {if i % 3 == 2 then "i64" else "u64"} (val-only signed)"
+  expect (countSetsInFinalize prog "put" == 6)
+    s!"MapInt64 put must set 6 Map leaves, got {countSetsInFinalize prog "put"}"
+  let encoded := encodeProgram prog
+  match decodeProgram? encoded with
+  | none => throw <| IO.userError "MapInt64 encode→decode failed"
+  | some p2 => expect (p2 == prog) "MapInt64 structural round-trip"
+
+/-- ALEO-INT64-CONTAINERS: Int8 containers / Int64-key / Int64 container return stay FC. -/
+unsafe def testInt64ContainerFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let expectPlanNeedle (label source moduleName needle : String) : IO Unit := do
+    let parsed ← liftResult (← session.selectProgramV1
+      source s!"<aleo-int64-fc-{label}>" moduleName none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+    let selection ← liftResult <|
+      BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+    let cap ← liftResult <|
+      resolveEngineeringRequirementsV1 selection compiled
+    match planFromCapability cap with
+    | .ok _ =>
+        throw <| IO.userError s!"{label}: must planInvariant, got a Plan"
+    | .error e =>
+        expect (e.render.contains needle)
+          s!"{label}: expected `{needle}`, got: {e.render}"
+  expectPlanNeedle "ArrI8"
+    ("import ProofForgeV2\n" ++
+     "open ProofForgeV2.Language\n" ++
+     "program ArrI8 where\n" ++
+     "  state slots : Array Int8 2\n" ++
+     "  init() do\n" ++
+     "    slots[0] := 0\n" ++
+     "    slots[1] := 0\n" ++
+     "  entry set0(v : Int8) : Int8 do\n" ++
+     "    slots[0] := v\n" ++
+     "    return v\n")
+    "Tests.AleoArrI8" "Array state element must be UInt64"
+  expectPlanNeedle "OptI8"
+    ("import ProofForgeV2\n" ++
+     "open ProofForgeV2.Language\n" ++
+     "program OptI8 where\n" ++
+     "  state slot : Option Int8\n" ++
+     "  init() do\n" ++
+     "    slot := Option.none()\n" ++
+     "  view peek() : UInt64 do\n" ++
+     "    return 0\n")
+    "Tests.AleoOptI8" "requires UInt64 payload"
+  expectPlanNeedle "MapIntKey"
+    ("import ProofForgeV2\n" ++
+     "open ProofForgeV2.Language\n" ++
+     "program MapIntKey where\n" ++
+     "  state m : Map Int64 UInt64\n" ++
+     "  init() do\n" ++
+     "    m := Map.empty()\n" ++
+     "  entry put(k : Int64, v : UInt64) : UInt64 do\n" ++
+     "    m[k] := v\n" ++
+     "    return v\n")
+    "Tests.AleoMapIntKey" "Map state admits only Map UInt64 UInt64"
+  expectPlanNeedle "ArrInt64Ret"
+    ("import ProofForgeV2\n" ++
+     "open ProofForgeV2.Language\n" ++
+     "program ArrInt64Ret where\n" ++
+     "  state slots : Array Int64 2\n" ++
+     "  init() do\n" ++
+     "    slots[0] := 0\n" ++
+     "    slots[1] := 0\n" ++
+     "  view peek() : Array Int64 2 do\n" ++
+     "    return slots\n")
+    "Tests.AleoArrInt64Ret" "anonymous Array return requires UInt64 elements"
+
 /-- ALEO-IR-4: product NarrowBox (state-touching only; Final path) →
     u8/u16/u32 mappings + narrow arith. -/
 unsafe def testProductNarrowUintWidths : IO Unit := do
@@ -2557,6 +2732,10 @@ unsafe def run : IO Unit := do
   testProductOptionStateMultiLeaf
   testProductMapMiniMultiLeaf
   testProductArrayMultiLeaf
+  testProductArrayInt64MultiLeaf
+  testProductOptionInt64StateMultiLeaf
+  testProductMapInt64MiniMultiLeaf
+  testInt64ContainerFailClosed
   testProductNarrowUintWidths
   testProductUInt128
   testProductNarrowIntWidths

@@ -961,37 +961,43 @@ private def nearMapSlotsPerEntryV1 : Nat := 3
 private def nearMapPilotLeafCountV1 : Nat :=
   nearMapPilotCapacityV1 * nearMapSlotsPerEntryV1
 
-/-- Container leaf layout for NEAR KV flattening: `(leafCount, leafByteWidth)`.
-    Array: fixed `Array UInt64 N` → N×8-byte UInt64 leaves. Map: dense
-    capacity-8 occ/key/val → 24×8-byte leaves. Bytes: fixed `Bytes N` →
-    N×1-byte UInt8 leaves (byte-exact KV identity; element-wise IndexGet/
-    IndexSet). -/
+/-- Container leaf layout for NEAR KV flattening:
+    `(leafCount, leafByteWidth, leafIsInt)`.
+    Array: fixed `Array UInt64 N` or `Array Int64 N` → N×8-byte leaves
+    (`leafIsInt` only for Int64; not a packed array and not a UInt64 alias).
+    Map: dense capacity-8 occ/key/val → 24×8-byte leaves. Third Bool is
+    **value-is-Int64** for `Map UInt64 Int64` (occ/key stay unsigned; not a
+    UInt64-value alias); `Map UInt64 UInt64` keeps it false. Bytes: fixed
+    `Bytes N` → N×1-byte UInt8 leaves. Historical needles stay contains-match. -/
 private def containerLeafLayoutV1
     (typeDecls : Array TypeDeclV1) (types : NearTypeClosureV1)
-    (typeId : TypeIdV1) : CompileResult (Option (Nat × Nat)) := do
+    (typeId : TypeIdV1) : CompileResult (Option (Nat × Nat × Bool)) := do
   unless types.isContainer typeId do
     return none
   match typeDecls[typeId.toNat]? with
   | some { shape := .array elTid len, .. } =>
-      unless elTid == types.uint64TypeId do
+      unless elTid == types.uint64TypeId || types.int64TypeId == some elTid do
         throw <| .planInvariant .near
-          "unsupported NEAR semantic shape: Array state element must be UInt64"
+          "unsupported NEAR semantic shape: Array state element must be UInt64 or Int64"
       let n := len.toNat
       unless n ≥ 1 do
         throw <| .planInvariant .near
           "unsupported NEAR semantic shape: Array state length must be ≥ 1"
-      pure (some (n, 8))
+      let leafIsInt := types.int64TypeId == some elTid
+      pure (some (n, 8, leafIsInt))
   | some { shape := .map keyTid valTid, .. } =>
-      unless keyTid == types.uint64TypeId && valTid == types.uint64TypeId do
+      unless keyTid == types.uint64TypeId &&
+          (valTid == types.uint64TypeId || types.int64TypeId == some valTid) do
         throw <| .planInvariant .near
           "unsupported NEAR semantic shape: Map state admits only Map UInt64 UInt64"
-      pure (some (nearMapPilotLeafCountV1, 8))
+      let valIsInt := types.int64TypeId == some valTid
+      pure (some (nearMapPilotLeafCountV1, 8, valIsInt))
   | some { shape := .bytes len, .. } =>
       let n := len.toNat
       unless n ≥ 1 do
         throw <| .planInvariant .near
           "unsupported NEAR semantic shape: Bytes state length must be ≥ 1"
-      pure (some (n, 1))
+      pure (some (n, 1, false))
   | _ =>
       throw <| .planInvariant .near
         "unsupported NEAR semantic shape: container TypeId is not Array/Map/Bytes"
@@ -1127,16 +1133,22 @@ private def isAnonymousOptionTypeIdV1
   | some { shape := .option _, name := none, .. } => true
   | _ => false
 
-/-- B-OPT-STATE: admit only anonymous `Option UInt64` for state (tag+payload).
-    Non-UInt64 / nested / named Option stay fail closed. -/
+/-- B-OPT-STATE: admit anonymous `Option UInt64` or `Option Int64` state
+    (tag+payload). Returns `payloadIsInt` (false = UInt64, true = Int64).
+    Tag stays unsigned. Option Int8/16/32, nested, and named Option stay
+    fail closed. Historical needle `requires UInt64 payload` is a contains-match. -/
 private def requireOptionUInt64StateV1
     (typeDecls : Array TypeDeclV1) (types : NearTypeClosureV1)
-    (typeId : TypeIdV1) (stateName : String) : CompileResult Unit := do
+    (typeId : TypeIdV1) (stateName : String) : CompileResult Bool := do
   match typeDecls[typeId.toNat]? with
   | some { shape := .option elTid, name := none, .. } =>
-      unless elTid == types.uint64TypeId do
+      if elTid == types.uint64TypeId then
+        pure false
+      else if types.int64TypeId == some elTid then
+        pure true
+      else
         throw <| .planInvariant .near
-          s!"unsupported NEAR semantic shape: Option state '{stateName}' requires UInt64 payload"
+          s!"unsupported NEAR semantic shape: Option state '{stateName}' requires UInt64 payload or Int64 payload"
   | _ =>
       throw <| .planInvariant .near
         s!"unsupported NEAR semantic shape: state '{stateName}' is not anonymous Option UInt64"
@@ -1293,9 +1305,26 @@ private def scalarKindOfNamedLeafResultV1
     throw <| .planInvariant .near
       "unsupported NEAR semantic shape: named-aggregate scalar leaf must be UInt64 or Int64"
 
-/-- Dense Map IndexGet → Option UInt64 as `[tag, payload]`. -/
+/-- Select `chosen` vs `kept` with a 0/1 write/miss pair.
+    Unsigned mux uses checkedMul/Add. Signed mux uses Int64 range so
+    negative val leaves are not trapped as unsigned overflow. Occ/key
+    always pass `signed := false`. -/
+private def mapSelectLeafV1 (write miss chosen kept : Expr) (signed : Bool) : Expr :=
+  if signed then
+    Expr.signedCheckedAdd
+      (Expr.signedCheckedMul write chosen)
+      (Expr.signedCheckedMul miss kept)
+  else
+    Expr.checkedAdd
+      (Expr.checkedMul write chosen)
+      (Expr.checkedMul miss kept)
+
+/-- Dense Map IndexGet → Option as `[tag, payload]`. `valIsInt` is
+    TypeDecl `.map` value-is-Int64 (not `n == 24`): only the payload
+    word uses the signed select. Occ/key hit math stays unsigned. -/
 private def mapLookupOptionLeavesV1
-    (mapLeaves : Array Expr) (key : Expr) : CompileResult (Array Expr) := do
+    (mapLeaves : Array Expr) (key : Expr) (valIsInt : Bool) :
+    CompileResult (Array Expr) := do
   unless mapLeaves.size == nearMapPilotLeafCountV1 do
     throw <| .planInvariant .near
       "unsupported NEAR semantic shape: Map leaf count must match pilot capacity"
@@ -1312,13 +1341,14 @@ private def mapLookupOptionLeavesV1
     let hit := Expr.checkedMul occ (Expr.compare .eq k key)
     let miss := Expr.boolNot hit
     found := Expr.boolOr found hit
-    payload :=
-      Expr.checkedAdd (Expr.checkedMul hit v) (Expr.checkedMul miss payload)
+    payload := mapSelectLeafV1 hit miss v payload valIsInt
   pure #[Expr.checkedAdd found (.literal 0), payload]
 
-/-- Dense Map IndexSet upsert. Returns (newLeaves, okInsert). -/
+/-- Dense Map IndexSet upsert. Returns (newLeaves, okInsert).
+    `valIsInt` muxes only the val slot with signedChecked*; occ/key
+    stay unsigned checkedMul/Add. -/
 private def mapUpsertLeavesV1
-    (mapLeaves : Array Expr) (key value : Expr) :
+    (mapLeaves : Array Expr) (key value : Expr) (valIsInt : Bool) :
     CompileResult (Array Expr × Expr) := do
   unless mapLeaves.size == nearMapPilotLeafCountV1 do
     throw <| .planInvariant .near
@@ -1359,10 +1389,8 @@ private def mapUpsertLeavesV1
     let write := Expr.boolOr matchHit insertHere
     let miss := Expr.boolNot write
     let occ' := Expr.checkedAdd (Expr.boolOr occ write) (.literal 0)
-    let k' :=
-      Expr.checkedAdd (Expr.checkedMul write key) (Expr.checkedMul miss k)
-    let v' :=
-      Expr.checkedAdd (Expr.checkedMul write value) (Expr.checkedMul miss v)
+    let k' := mapSelectLeafV1 write miss key k false
+    let v' := mapSelectLeafV1 write miss value v valIsInt
     out := out.push occ' |>.push k' |>.push v'
   pure (out, okInsert)
 
@@ -1380,13 +1408,19 @@ private def makeStorageLayoutV1
     unless isIdentifier state.name do
       throw <| .planInvariant .near s!"state name '{state.name}' is not a safe identifier"
     match ← containerLeafLayoutV1 typeDecls types state.typeId with
-    | some (n, leafByteWidth) =>
-        -- Array/Map: N consecutive 8-byte UInt64 KV fields; Bytes: N
+    | some (n, leafByteWidth, leafIsInt) =>
+        -- Array: N consecutive 8-byte UInt64 or Int64 KV fields (`isInt`
+        -- selects signed store, not a UInt64 alias). Map cap-8: 24×8-byte
+        -- occ/key/val; `leafIsInt` is value-is-Int64 so only val slots
+        -- (`i % 3 == 2`) are signed — occ/key stay unsigned. Bytes: N
         -- consecutive 1-byte UInt8 KV fields. Physical names `name_0`..
         -- `name_{n-1}` keep layout markers deterministic.
-        -- Visibility: same N1 allowNonPublic as scalar state.
         if fields.size + n > maxStateFields then
           throw <| .planInvariant .near "state count is outside the profile limits"
+        let isMapState :=
+          match typeDecls[state.typeId.toNat]? with
+          | some { shape := .map .., .. } => true
+          | _ => false
         let mut leaves : Array Nat := #[]
         for i in [0:n] do
           let leafName := state.name ++ "_" ++ toString i
@@ -1395,12 +1429,18 @@ private def makeStorageLayoutV1
               s!"state name '{leafName}' is not a safe identifier"
           let fi := fields.size
           leaves := leaves.push fi
+          let slotIsInt :=
+            if isMapState then
+              leafIsInt && (i % 3 == 2)
+            else
+              leafIsInt
           fields := fields.push {
             sourceId := fi
             name := leafName
             key := stateKey fi
             byteWidth := leafByteWidth
             endianness := .little
+            isInt := slotIsInt
           }
         stateLeaves := stateLeaves.push leaves
     | none =>
@@ -1450,12 +1490,12 @@ private def makeStorageLayoutV1
             }
           stateLeaves := stateLeaves.push leaves
         else if isAnonymousOptionTypeIdV1 typeDecls state.typeId then
-          -- B-OPT-STATE / BL-30: Option UInt64 → tag + payload (2×8-byte KV
-          -- leaves), same physical shape as a 1-payload Enum. Names follow
-          -- Enum convention (`name_tag` / `name_p0`). Default zero fields =
-          -- Option.none; storeAtomic writes both leaves; none construct zeroes
-          -- payload (pin). Non-UInt64 Option payload fails closed above.
-          requireOptionUInt64StateV1 typeDecls types state.typeId state.name
+          -- B-OPT-STATE / BL-30: Option UInt64 or Int64 → tag + payload
+          -- (2×8-byte KV leaves). Tag is always unsigned; payload is signed
+          -- only for Int64 (not a UInt64 alias). Names follow Enum convention
+          -- (`name_tag` / `name_p0`). Default zero fields = Option.none.
+          let payloadIsInt ←
+            requireOptionUInt64StateV1 typeDecls types state.typeId state.name
           let tagName := state.name ++ "_tag"
           let pName := state.name ++ "_p0"
           unless isIdentifier tagName do
@@ -1467,7 +1507,7 @@ private def makeStorageLayoutV1
           if fields.size + 2 > maxStateFields then
             throw <| .planInvariant .near "state count is outside the profile limits"
           let mut leaves : Array Nat := #[]
-          for leafName in #[tagName, pName] do
+          for (leafName, leafIsInt) in #[(tagName, false), (pName, payloadIsInt)] do
             let fi := fields.size
             leaves := leaves.push fi
             fields := fields.push {
@@ -1476,6 +1516,7 @@ private def makeStorageLayoutV1
               key := stateKey fi
               byteWidth := 8
               endianness := .little
+              isInt := leafIsInt
             }
           stateLeaves := stateLeaves.push leaves
         else
@@ -1658,7 +1699,7 @@ private def makeParamsV1 (owner : String) (types : NearTypeClosureV1)
       -- IndexGet on the leaves is the only access — params are immutable).
       -- Array/Map params stay fail closed: no NEAR array-param ABI in this
       -- pilot (Bytes leaves are the only flattened container param surface).
-      let some (n, leafByteWidth) ←
+      let some (n, leafByteWidth, _leafIsInt) ←
         containerLeafLayoutV1 typeDecls types param.typeId |
         throw <| .planInvariant .near
           "unsupported NEAR semantic shape: container param is not Array/Map/Bytes"
@@ -2369,7 +2410,7 @@ private def lowerBlockInstructionsV1
               -- Legacy 1:1 without stateLeaves: physical index == stateId.
               pure #[stateId.toNat]
         if types.isContainer result.typeId then
-          let some (n, leafByteWidth) ←
+          let some (n, leafByteWidth, _leafIsInt) ←
             containerLeafLayoutV1 typeDecls types result.typeId |
             throw <| .planInvariant .near
               "unsupported NEAR semantic shape: container state load is not Array/Map/Bytes UInt64"
@@ -2405,8 +2446,8 @@ private def lowerBlockInstructionsV1
           let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
           values := ← appendResultValueV1 result.typeId values result value
         else if isAnonymousOptionTypeIdV1 typeDecls result.typeId then
-          -- B-OPT-STATE: Option UInt64 state load → 2-leaf aggregate (tag, payload).
-          requireOptionUInt64StateV1 typeDecls types result.typeId "load"
+          -- B-OPT-STATE: Option UInt64/Int64 state load → 2-leaf aggregate.
+          let _ ← requireOptionUInt64StateV1 typeDecls types result.typeId "load"
           unless leafIdxs.size == 2 do
             throw <| .planInvariant .near
               "unsupported NEAR semantic shape: Option state load leaf count mismatch"
@@ -2849,6 +2890,7 @@ private def lowerBlockInstructionsV1
               fieldIndex := fi
               value := leafExpr
               byteWidth := field.byteWidth
+              isInt := field.isInt
             }
           body := body.push (.storeAtomic storeLeaves)
           armReadables := promoteDominatingPureV1 blockEntry values armReadables
@@ -3196,7 +3238,7 @@ private def lowerBlockInstructionsV1
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: construct result typeId must match op typeId"
         match ← containerLeafLayoutV1 typeDecls types typeId with
-        | some (n, leafByteWidth) => do
+        | some (n, leafByteWidth, leafIsInt) => do
             unless leafByteWidth == 8 do
               throw <| .planInvariant .near
                 "unsupported NEAR semantic shape: Bytes construct is outside the NEAR pilot (Bytes values enter via state/params only)"
@@ -3227,9 +3269,10 @@ private def lowerBlockInstructionsV1
               let mut nodes : Nat := 0
               for argId in argIds do
                 let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
-                unless !arg.isAggregate && arg.kind == .uint64 do
+                let wantKind := if leafIsInt then NearValueKindV1.int64 else .uint64
+                unless !arg.isAggregate && arg.kind == wantKind do
                   throw <| .planInvariant .near
-                    "unsupported NEAR semantic shape: Array construct args must be scalar UInt64"
+                    "unsupported NEAR semantic shape: Array construct args must be scalar UInt64 or Int64 matching the array element"
                 leafExprs := leafExprs.push arg.expr
                 deps := deps.push argId
                 depth := Nat.max depth (arg.depth + 1)
@@ -3237,13 +3280,21 @@ private def lowerBlockInstructionsV1
               let value := mkAggregateValueV1 leafExprs deps depth (nodes + n)
               values := ← appendResultValueV1 result.typeId values result value
         | none => do
-            -- Option UInt64 construct (none/some) for anonymous-result returns;
-            -- named Struct/Enum construct remains the other non-container path.
+            -- Option UInt64/Int64 construct (none/some) for state assignment
+            -- and UInt64 anonymous-result returns; named Struct/Enum construct
+            -- remains the other non-container path. Option Int64 return stays
+            -- UInt64-only in `anonymousReturnLeafAbiV1`.
             match typeDecls[typeId.toNat]? with
             | some { shape := .option elTid, name := none, .. } => do
-                unless elTid == types.uint64TypeId do
+                unless elTid == types.uint64TypeId ||
+                    types.int64TypeId == some elTid do
                   throw <| .planInvariant .near
                     "unsupported NEAR semantic shape: Option construct requires UInt64 payload"
+                let wantKind :=
+                  if types.int64TypeId == some elTid then
+                    NearValueKindV1.int64
+                  else
+                    NearValueKindV1.uint64
                 match ctorIdx.toNat with
                 | 0 =>
                     -- Option.none → (tag=0, payload=0)
@@ -3261,9 +3312,9 @@ private def lowerBlockInstructionsV1
                     let some argId := argIds[0]? |
                       throw <| .planInvariant .near "Option.some construct arg missing"
                     let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
-                    unless !arg.isAggregate && arg.kind == .uint64 do
+                    unless !arg.isAggregate && arg.kind == wantKind do
                       throw <| .planInvariant .near
-                        "unsupported NEAR semantic shape: Option.some arg must be scalar UInt64"
+                        "unsupported NEAR semantic shape: Option.some arg must be scalar UInt64 or Int64 matching the Option payload"
                     let leaves : Array Expr := #[.literal 1, arg.expr]
                     let value := mkAggregateValueV1 leaves #[argId]
                       (arg.depth + 1) (arg.expandedNodes + 2)
@@ -3349,7 +3400,12 @@ private def lowerBlockInstructionsV1
             "unsupported NEAR semantic shape: IndexGet base must be an Array/Map/Bytes aggregate"
         let idx ← currentValueWithArmsV1 values blockEntry segmentStart armReadables idxId
         if base.leafExprs.size == nearMapPilotLeafCountV1 then
-          let optLeaves ← mapLookupOptionLeavesV1 base.leafExprs idx.expr
+          let valIsInt :=
+            match typeDecls[result.typeId.toNat]? with
+            | some { shape := .option elTid, .. } =>
+                types.int64TypeId == some elTid
+            | _ => false
+          let optLeaves ← mapLookupOptionLeavesV1 base.leafExprs idx.expr valIsInt
           let value := mkAggregateValueV1 optLeaves #[baseId, idxId]
             (Nat.max base.depth idx.depth + 1)
             (base.expandedNodes + idx.expandedNodes + 1)
@@ -3379,16 +3435,18 @@ private def lowerBlockInstructionsV1
               dependencies := #[baseId, idxId]
             }
           else
-            unless result.typeId == types.uint64TypeId do
+            let wantInt := types.int64TypeId == some result.typeId
+            unless result.typeId == types.uint64TypeId || wantInt do
               throw <| .planInvariant .near
-                "unsupported NEAR semantic shape: Array IndexGet result must be UInt64"
-            values := ← appendResultValueV1 result.typeId values result {
-              expr := leaf
-              kind := .uint64
-              depth := base.depth + 1
-              expandedNodes := base.expandedNodes + 1
-              dependencies := #[baseId, idxId]
-            }
+                "unsupported NEAR semantic shape: Array IndexGet result must be UInt64 or Int64"
+            values := ← appendResultValueV1 result.typeId values result
+              (attachSignedWidthV1 types result.typeId {
+                expr := leaf
+                kind := if wantInt then .int64 else .uint64
+                depth := base.depth + 1
+                expandedNodes := base.expandedNodes + 1
+                dependencies := #[baseId, idxId]
+              })
     | .indexSet baseId idxId valueId, some result => do
         let base ← currentValueWithArmsV1 values blockEntry segmentStart armReadables baseId
         unless base.isAggregate do
@@ -3401,13 +3459,19 @@ private def lowerBlockInstructionsV1
         let val ← currentValueWithArmsV1 values blockEntry segmentStart armReadables valueId
         unless !val.isAggregate do
           throw <| .planInvariant .near
-            "unsupported NEAR semantic shape: IndexSet value must be a scalar UInt8/UInt64"
+            "unsupported NEAR semantic shape: IndexSet value must be a scalar UInt8/UInt64/Int64"
         if base.leafExprs.size == nearMapPilotLeafCountV1 then
-          unless val.kind == .uint64 do
+          let wantInt :=
+            match typeDecls[result.typeId.toNat]? with
+            | some { shape := .map _ valTid, .. } =>
+                types.int64TypeId == some valTid
+            | _ => false
+          let wantKind := if wantInt then NearValueKindV1.int64 else .uint64
+          unless val.kind == wantKind do
             throw <| .planInvariant .near
-              "unsupported NEAR semantic shape: Map IndexSet value must be scalar UInt64"
+              "unsupported NEAR semantic shape: Map IndexSet value must be scalar UInt64 or Int64 matching the map value"
           let (outLeaves0, okInsert) ←
-            mapUpsertLeavesV1 base.leafExprs idx.expr val.expr
+            mapUpsertLeavesV1 base.leafExprs idx.expr val.expr wantInt
           let gate := Expr.checkedDiv (.literal 1) okInsert
           let mut outLeaves : Array Expr := #[]
           for i in [0:outLeaves0.size] do
@@ -3448,9 +3512,15 @@ private def lowerBlockInstructionsV1
               (leafByteWidth := 1)
             values := ← appendResultValueV1 result.typeId values result value
           else
-            unless val.kind == .uint64 do
+            let wantInt :=
+              match typeDecls[result.typeId.toNat]? with
+              | some { shape := .array elTid _, .. } =>
+                  types.int64TypeId == some elTid
+              | _ => false
+            unless (wantInt && val.kind == .int64) ||
+                (!wantInt && val.kind == .uint64) do
               throw <| .planInvariant .near
-                "unsupported NEAR semantic shape: Array IndexSet value must be scalar UInt64"
+                "unsupported NEAR semantic shape: Array IndexSet value must be scalar UInt64 or Int64 matching the array element"
             let mut outLeaves : Array Expr := #[]
             for j in [0:leaves.size] do
               if j == i then

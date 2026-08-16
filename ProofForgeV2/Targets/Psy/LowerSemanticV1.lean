@@ -48,12 +48,14 @@ PSY-SCALAR-ABI admits fixed Bytes 1..8 as N×UInt8 Felt leaves and
 Principal/String wire identity as len+8×UInt32 (max 32B payload; returns FC
 at 9 > B-RET cap 8). Array/Bytes IndexGet/IndexSet accept compile-time UInt literals or **runtime**
 UInt indices with exact `indexOutOfBounds` assert (PSY-INDEX-CAST).
-**PSY-CONTAINER-ABI** admits dense `Map UInt64 UInt64`
+**PSY-CONTAINER-ABI** admits dense `Map UInt64 UInt64` / `Map UInt64 Int64`
 state (cap-8 × occ/key/val = 24 Felt leaves; empty + IndexGet→Option +
 IndexSet upsert + atomic storeAggregate) and named Struct/Enum **params** as
-preorder multi-leaf Felt formals. Nested Map, Map return, Map non-UInt64
-K/V, and >8 aggregate return stay fail closed because no target-owned
-resource proof permits raising the B-RET cap.
+preorder multi-leaf Felt formals. Array/Option Int64 state is names-only
+(Felt leaves; `LoweredVal.isInt` is threaded from TypeId at IndexGet/
+construct, not a storage ABI suffix). Nested Map, Map return, Int64-key,
+Int8 containers, Int64 container return, and >8 aggregate return stay fail
+closed because no target-owned resource proof permits raising the B-RET cap.
 
 ## B-RET-ABI named Struct/Enum entry/view returns (2026-08-03)
 
@@ -76,12 +78,14 @@ the dense UInt64 pilot (PSY-CONTAINER-ABI), not a Map return.
 
 ## B-OPT-STATE Option UInt64 state (BL-36)
 
-Anonymous `Option UInt64` **state** is admitted as Enum-shaped 2-leaf Felt
-storage (`name_tag` + `name_p0`; `none=(0,0)`, `some=(1,v)`; none-assign
-zeroes payload). Default zero-init matches none. Reads go through the existing
-VariantTag/VariantPayload path (Option payload fallback when the base is not a
-named Enum). Non-UInt64 payload, nested Option, and Option params stay fail
-closed (mirrors Enum param policy).
+Anonymous `Option UInt64` / `Option Int64` **state** is admitted as Enum-shaped
+2-leaf Felt storage (`name_tag` + `name_p0`; `none=(0,0)`, `some=(1,v)`;
+none-assign zeroes payload). Default zero-init matches none. Reads go through
+the existing VariantTag/VariantPayload path (Option payload fallback when the
+base is not a named Enum). Int64 payload signedness is a value-kind
+(`LoweredVal.isInt` from TypeId), not a storage ABI suffix. Int8/nested
+Option, Option params, and Option Int64 return stay fail closed (mirrors
+Enum param policy).
 
 ## PSY-CONTEXT-COMMIT (evidence fail closed, 2026-08-08)
 
@@ -648,6 +652,11 @@ private def isInt64Type (data : SemanticProgramDataV1) (typeId : TypeIdV1) : Boo
   | some { shape := .int 64, .. } => true
   | _ => false
 
+/-- Admitted 64-bit word for Psy container element/payload/value (UInt64 or
+    Int64). Int8 and other widths stay fail closed at the historical needles. -/
+private def isUInt64OrInt64Tid (types : PsyTypeClosureV1) (tid : TypeIdV1) : Bool :=
+  tid == types.uint64TypeId || types.int64TypeId == some tid
+
 private def intWidthOfType
     (data : SemanticProgramDataV1) (typeId : TypeIdV1) : Option Nat :=
   match data.types[typeId.toNat]? with
@@ -706,8 +715,9 @@ private def isGoldilocksFieldType
   types.fieldTypeId == some typeId
 
 /-- Named Struct/Enum flatten to UInt{8,16,32,64}/Int64 leaves (preorder).
-    Array UInt64 N → N leaves; Map UInt64 UInt64 → dense cap-8 pilot;
-    Bytes 1..8 → N UInt8 leaves. Nested Map stays fail closed. -/
+    Array UInt64/Int64 N → N names-only leaves; Map UInt64 UInt64/Int64 →
+    dense cap-8 pilot; Bytes 1..8 → N UInt8 leaves. Nested Map stays fail
+    closed. Int64 is a value-kind, not a storage ABI suffix. -/
 private partial def flattenTypeLeafSpecsV1
     (typeDecls : Array TypeDeclV1) (types : PsyTypeClosureV1)
     (typeId : TypeIdV1) (namePrefix : String) :
@@ -769,7 +779,7 @@ private partial def flattenTypeLeafSpecsV1
   else if types.isContainer typeId then
     match typeDecls[typeId.toNat]? with
     | some { shape := .array elTid len, .. } =>
-        unless elTid == types.uint64TypeId do
+        unless isUInt64OrInt64Tid types elTid do
           planError "unsupported Psy semantic shape: Array state element must be UInt64"
         let n := len.toNat
         unless n ≥ 1 do
@@ -782,7 +792,7 @@ private partial def flattenTypeLeafSpecsV1
           out := out.push leafName
         pure out
     | some { shape := .map keyTid valTid, .. } =>
-        unless keyTid == types.uint64TypeId && valTid == types.uint64TypeId do
+        unless keyTid == types.uint64TypeId && isUInt64OrInt64Tid types valTid do
           planError "unsupported Psy semantic shape: Map state pilot requires UInt64 keys and values"
         let mut out : Array String := #[]
         for e in [0:psyMapPilotCapacityV1] do
@@ -991,7 +1001,7 @@ private def arrayUInt64LeafCountV1
     return none
   match typeDecls[typeId.toNat]? with
   | some { shape := .array elTid len, .. } =>
-      unless elTid == types.uint64TypeId do
+      unless isUInt64OrInt64Tid types elTid do
         planError "unsupported Psy semantic shape: Array state element must be UInt64"
       let n := len.toNat
       unless n ≥ 1 do
@@ -1008,7 +1018,7 @@ private def arrayUInt64LeafCountV1
   | _ =>
       planError "unsupported Psy semantic shape: container TypeId is not Array/Map/Bytes"
 
-/-- Dense Map UInt64 UInt64 pilot leaf count when `typeId` is that shape. -/
+/-- Dense Map UInt64 UInt64/Int64 pilot leaf count when `typeId` is that shape. -/
 private def mapUInt64LeafCountV1
     (typeDecls : Array TypeDeclV1) (types : PsyTypeClosureV1)
     (typeId : TypeIdV1) : CompileResult (Option Nat) := do
@@ -1016,7 +1026,7 @@ private def mapUInt64LeafCountV1
     return none
   match typeDecls[typeId.toNat]? with
   | some { shape := .map keyTid valTid, .. } =>
-      unless keyTid == types.uint64TypeId && valTid == types.uint64TypeId do
+      unless keyTid == types.uint64TypeId && isUInt64OrInt64Tid types valTid do
         planError "unsupported Psy semantic shape: Map pilot requires UInt64 keys and values"
       pure (some psyMapPilotLeafCountV1)
   | _ => pure none
@@ -1151,13 +1161,14 @@ private def makeStateLayoutV1
         fieldNames := fieldNames.push name
       stateLeaves := stateLeaves.push leaves
     else if isAnonymousOptionTypeIdV1 typeDecls state.typeId then
-      -- B-OPT-STATE / BL-36: Option UInt64 → tag + payload (2 Felt leaves),
-      -- same physical shape as a 1-payload Enum. Names follow Enum convention
-      -- (`name_tag` / `name_p0`). Default zero fields = Option.none; multi-leaf
-      -- store writes both leaves; none construct zeroes payload (pin).
+      -- B-OPT-STATE / BL-36: Option UInt64/Int64 → tag + payload (2 Felt
+      -- leaves), same physical shape as a 1-payload Enum. Names follow Enum
+      -- convention (`name_tag` / `name_p0`). Default zero fields = Option.none;
+      -- multi-leaf store writes both leaves; none construct zeroes payload.
+      -- Int64 signedness is threaded from TypeId, not a storage ABI suffix.
       match typeDecls[state.typeId.toNat]? with
       | some { shape := .option elTid, name := none, .. } =>
-          unless elTid == types.uint64TypeId do
+          unless isUInt64OrInt64Tid types elTid do
             planError
               s!"unsupported Psy semantic shape: Option state '{state.name}' requires UInt64 payload"
       | _ =>
@@ -2200,16 +2211,24 @@ private partial def lowerRegion
                     planError s!"unsupported Psy semantic shape: pf.crypto/context scalar result must be UInt64/Felt, got width {w}"
                   else pure ()
             let hashOut4? ← arrayUInt64LeafCountV1 layout.typeDecls layout.types valueDef.typeId
+            -- HashOut full ABI stays unsigned Array UInt64 4. Array Int64 4 is
+            -- a container, not a HashOut (isInt is a value-kind, not Poseidon).
+            let hashOutElIsUInt64 : Bool :=
+              match layout.typeDecls[valueDef.typeId.toNat]? with
+              | some { shape := .array elTid _, .. } =>
+                  elTid == layout.types.uint64TypeId
+              | _ => false
             let wantFullHashOut : Bool :=
               match hashOut4? with
-              | some 4 => true
-              | some n =>
+              | some 4 => hashOutElIsUInt64
+              | some _ =>
                   -- Non-4 Array is not a valid HashOut full ABI.
                   false  -- will error below if Array non-4 used with hash
               | none => false
             if let some n := hashOut4? then
-              unless n == 4 do
-                planError s!"unsupported Psy semantic shape: HashOut full ABI requires Array UInt64 4, got length {n}"
+              if hashOutElIsUInt64 then
+                unless n == 4 do
+                  planError s!"unsupported Psy semantic shape: HashOut full ABI requires Array UInt64 4, got length {n}"
             let mkHashOut4 (kind : Nat) (argExprs : Array Expr) : LoweredVal :=
               Id.run do
                 let mut leaves : Array Expr := #[]
@@ -2424,7 +2443,7 @@ private partial def lowerRegion
                     unless arg.isNarrow && arg.uintWidth == 8 do
                       planError "unsupported Psy semantic shape: Bytes construct args must be UInt8"
                   else
-                    unless !arg.isNarrow || arg.uintWidth == 0 || arg.uintWidth == 64 do
+                    unless !arg.isNarrow || arg.uintWidth == 0 || arg.uintWidth == 64 || arg.isInt do
                       planError "unsupported Psy semantic shape: Array construct args must be scalar UInt64"
                   leafExprs := leafExprs.push arg.expr
                 env := envInsertVal env valueDef.valueId (mkAggregateVal leafExprs)
@@ -2438,7 +2457,7 @@ private partial def lowerRegion
               -- non-container path. none zeroes payload (stale-payload pin).
               match layout.typeDecls[typeId.toNat]? with
               | some { shape := .option elTid, name := none, .. } => do
-                  unless elTid == layout.types.uint64TypeId do
+                  unless isUInt64OrInt64Tid layout.types elTid do
                     planError
                       "unsupported Psy semantic shape: Option construct requires UInt64 payload"
                   match ctorIdx.toNat with
@@ -2669,7 +2688,12 @@ private partial def lowerRegion
             else
               let some e0 := outLeaves[0]? |
                 planError "variantPayload scalar leaf missing"
-              env := envInsert env valueDef.valueId e0
+              -- Thread signedness from the payload TypeId (Option Int64 /
+              -- named Enum Int64 payload). Storage leaves stay names-only.
+              if isInt64Type data valueDef.typeId then
+                env := envInsertVal env valueDef.valueId (mkInt64Val e0)
+              else
+                env := envInsert env valueDef.valueId e0
     | .indexGet baseId idxId => do
         match instr.result with
         | none => planError "indexGet must produce a value"
@@ -2704,12 +2728,16 @@ private partial def lowerRegion
                     let g := indexOutOfBoundsGuardV1 idx.expr leaves.size
                     ls := { ls with stmts := ls.stmts.push g }
                     dynamicIndexGetExprV1 idx.expr leaves
-              -- Bytes elements are UInt8; Array UInt64 elements stay scalar Felt.
+              -- Bytes elements are UInt8; Array UInt64/Int64 elements stay
+              -- scalar Felt. Int64 signedness is threaded from TypeId.
               match uintWidthOfType data valueDef.typeId with
               | some 8 =>
                   env := envInsertNarrow env valueDef.valueId 8 leaf
               | _ =>
-                  env := envInsert env valueDef.valueId leaf
+                  if isInt64Type data valueDef.typeId then
+                    env := envInsertVal env valueDef.valueId (mkInt64Val leaf)
+                  else
+                    env := envInsert env valueDef.valueId leaf
     | .indexSet baseId idxId valueId => do
         match instr.result with
         | none => planError "indexSet must produce a value"

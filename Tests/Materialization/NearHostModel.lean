@@ -6478,6 +6478,222 @@ private unsafe def testOptionStateFailClosed
       "end ProofForgeV2.Examples\n")
     #["Option", "parameter", "param", "unsupported", "UInt"]
 
+private unsafe def compileNearPlan
+    (session : Language.Loader.ParserSession)
+    (sourceText moduleName label : String) :
+    IO (Compiler.CompiledSemanticV1 × Targets.Near.Plan) := do
+  let source ← liftResult (← session.selectProgramV1
+    sourceText s!"<near-{label}>" moduleName none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  pure (compiled, plan)
+
+private unsafe def expectNearPlanErrorContaining
+    (session : Language.Loader.ParserSession)
+    (label moduleName sourceText needle : String) : IO Unit := do
+  let source ← match ← session.selectProgramV1
+    sourceText s!"<near-{label}>" moduleName none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"{label} select: {e.render}"
+  match Compiler.compileValidatedSourceV1 source with
+  | .error _ => pure ()
+  | .ok compiled =>
+      let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+      let capability ← liftResult <|
+        Targets.resolveEngineeringRequirementsV1 selection compiled
+      match Targets.Near.planFromCapability capability with
+      | .error e =>
+          expect (e.render.contains needle)
+            s!"{label}: FC must contain '{needle}', got {e.render}"
+      | .ok _ =>
+          throw <| IO.userError s!"{label}: NEAR must fail closed"
+
+/-- Array Int64 2 state: N×8-byte signed leaves (not a UInt64 alias). -/
+private unsafe def testArrayInt64State
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ArrInt64 where\n" ++
+    "  state slots : Array Int64 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  entry set0(v : Int64) : Int64 do\n" ++
+    "    slots[0] := v\n" ++
+    "    return slots[0]\n\n" ++
+    "  view get() : Int64 do\n" ++
+    "    return slots[1]\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let (compiled, plan) ← compileNearPlan session sourceText
+    "Examples.ArrInt64" "arr-int64"
+  expect (plan.storage.fields.size == 2) "ArrInt64 fields.size==2"
+  expect (plan.storage.fields[0]!.name == "slots_0") "ArrInt64 slots_0"
+  expect (plan.storage.fields[1]!.name == "slots_1") "ArrInt64 slots_1"
+  expect (plan.storage.fields[0]!.byteWidth == 8) "ArrInt64 slots_0 byteWidth=8"
+  expect (plan.storage.fields[1]!.byteWidth == 8) "ArrInt64 slots_1 byteWidth=8"
+  expect plan.storage.fields[0]!.isInt "ArrInt64 slots_0 isInt"
+  expect plan.storage.fields[1]!.isInt "ArrInt64 slots_1 isInt"
+  let initAtomic := plan.initializer.body.any fun s =>
+    match s with
+    | .storeAtomic leaves =>
+        leaves.size == 2 && leaves.all (fun st => st.isInt && st.byteWidth == 8)
+    | _ => false
+  expect initAtomic "ArrInt64 init storeAtomic 2 signed 8-byte leaves"
+  let some set0 := plan.entries.find? (·.name == "set0") |
+    throw <| IO.userError "ArrInt64 missing set0"
+  expect (set0.resultKind == Targets.Near.MethodResultKind.int64)
+    "ArrInt64 entry result Int64"
+  let _ := compiled
+  IO.println "  ✓ NEAR Array Int64 2 as N×8-byte signed leaves"
+
+/-- Option Int64 state: unsigned tag + signed payload. -/
+private unsafe def testOptionInt64State
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program OptInt64 where\n" ++
+    "  state slot : Option Int64\n\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n\n" ++
+    "  entry setSome(v : Int64) : Int64 do\n" ++
+    "    slot := Option.some(v)\n" ++
+    "    return v\n\n" ++
+    "  entry clear() : Int64 do\n" ++
+    "    slot := Option.none()\n" ++
+    "    return 0\n\n" ++
+    "  view peek() : Int64 do\n" ++
+    "    match slot with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let (_, plan) ← compileNearPlan session sourceText
+    "Examples.OptInt64" "opt-int64"
+  expect (plan.storage.fields.size == 2)
+    s!"OptInt64: must flatten to tag+payload, got {plan.storage.fields.size}"
+  expect (plan.storage.fields.map (·.name) == #["slot_tag", "slot_p0"])
+    s!"OptInt64 leaf names, got {plan.storage.fields.map (·.name)}"
+  expect (!plan.storage.fields[0]!.isInt) "OptInt64 tag stays unsigned"
+  expect plan.storage.fields[1]!.isInt "OptInt64 p0 is signed Int64"
+  let some setSome := plan.entries.find? (·.name == "setSome") |
+    throw <| IO.userError "OptInt64 missing setSome"
+  let hasAtomic := setSome.body.any fun s =>
+    match s with
+    | .storeAtomic leaves =>
+        leaves.size == 2 && !leaves[0]!.isInt && leaves[1]!.isInt
+    | _ => false
+  expect hasAtomic "OptInt64 setSome storeAtomic tag unsigned + payload signed"
+  IO.println "  ✓ NEAR Option Int64 as unsigned tag + signed payload"
+
+/-- Map UInt64 Int64: 24 occ/key/val leaves; only val slots signed. -/
+private unsafe def testMapInt64State
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program MapInt64 where\n" ++
+    "  state m : Map UInt64 Int64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry put(k : UInt64, v : Int64) : Int64 do\n" ++
+    "    m[k] := v\n" ++
+    "    return v\n\n" ++
+    "  view get(k : UInt64) : Int64 do\n" ++
+    "    match m[k] with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let (_, plan) ← compileNearPlan session sourceText
+    "Examples.MapInt64" "map-int64"
+  expect (plan.storage.fields.size == 24)
+    s!"MapInt64: must flatten to 24 leaves, got {plan.storage.fields.size}"
+  for i in [0:24] do
+    let some field := plan.storage.fields[i]? |
+      throw <| IO.userError s!"MapInt64 missing field {i}"
+    expect (field.name == s!"m_{i}")
+      s!"MapInt64 field {i} name must be m_{i}, got {field.name}"
+    expect (field.byteWidth == 8) s!"MapInt64 m_{i} byteWidth=8"
+    expect (field.isInt == (i % 3 == 2))
+      s!"MapInt64 m_{i} isInt must be {i % 3 == 2} (val only)"
+  let some put := plan.entries.find? (·.name == "put") |
+    throw <| IO.userError "MapInt64 missing put"
+  let putAtomic := put.body.any fun s =>
+    match s with
+    | .storeAtomic leaves =>
+        leaves.size == 24 &&
+          (List.range 24).all (fun i =>
+            leaves[i]!.isInt == (i % 3 == 2))
+    | _ => false
+  expect putAtomic "MapInt64 put storeAtomic 24 leaves with val-only isInt"
+  IO.println "  ✓ NEAR Map UInt64 Int64 val-only signed leaves"
+
+/-- Array Int8 / Array Int64 return / Option Int8 / Map Int64 key stay FC. -/
+private unsafe def testInt64ContainerFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  expectNearPlanErrorContaining session "arr-i8" "Examples.ArrI8Near"
+    ("import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      "program ArrI8Near where\n" ++
+      "  state slots : Array Int8 2\n\n" ++
+      "  init() do\n" ++
+      "    slots[0] := 0\n" ++
+      "    slots[1] := 0\n\n" ++
+      "  entry set0(v : UInt64) : UInt64 do\n" ++
+      "    slots[0] := 0\n" ++
+      "    return v\n\n" ++
+      "end ProofForgeV2.Examples\n")
+    "Array state element must be UInt64"
+  expectNearPlanErrorContaining session "arr-int64-ret" "Examples.ArrInt64RetNear"
+    ("import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      "program ArrInt64RetNear where\n" ++
+      "  state slots : Array Int64 2\n\n" ++
+      "  init() do\n" ++
+      "    slots[0] := 0\n" ++
+      "    slots[1] := 0\n\n" ++
+      "  view get() : Array Int64 2 do\n" ++
+      "    return slots\n\n" ++
+      "end ProofForgeV2.Examples\n")
+    "anonymous Array return requires UInt64 elements"
+  expectNearPlanErrorContaining session "opt-i8" "Examples.OptI8Near"
+    ("import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      "program OptI8Near where\n" ++
+      "  state o : Option Int8\n\n" ++
+      "  init() do\n" ++
+      "    o := Option.none()\n\n" ++
+      "  view peek() : UInt64 do\n" ++
+      "    return 0\n\n" ++
+      "end ProofForgeV2.Examples\n")
+    "requires UInt64 payload"
+  expectNearPlanErrorContaining session "map-int-key" "Examples.MapIntKeyNear"
+    ("import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      "program MapIntKeyNear where\n" ++
+      "  state m : Map Int64 UInt64\n\n" ++
+      "  init() do\n" ++
+      "    m := Map.empty()\n\n" ++
+      "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+      "    return v\n\n" ++
+      "end ProofForgeV2.Examples\n")
+    "Map state admits only Map UInt64 UInt64"
+  IO.println "  ✓ NEAR Int8 containers / Int64 return / Int64-key Map stay fail closed"
+
 /-- N-ANON-RESULT (NEAR ABI): anonymous Option UInt64 none/some via construct
     + setReturnDataLeaves (tag,payload) = (0,0)/(1,v). -/
 private unsafe def testAnonymousOptionReturn
@@ -6762,6 +6978,10 @@ unsafe def run : IO Unit := do
   testNamedEnumProductPath session
   testOptionStateProductPath session
   testOptionStateFailClosed session
+  testArrayInt64State session
+  testOptionInt64State session
+  testMapInt64State session
+  testInt64ContainerFailClosed session
   testNamedStructAggregateReturn session
   testNamedEnumAggregateReturn session
   testAnonymousArrayReturn session

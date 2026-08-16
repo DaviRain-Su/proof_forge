@@ -718,35 +718,41 @@ private def solanaMapPrincipalLeafCountV1 : Nat :=
 private def isSolanaMapPrincipalLeafCountV1 (n : Nat) : Bool :=
   n == solanaMapPrincipalLeafCountV1
 
-/-- Container leaf layout: `(leafCount, leafByteWidth)`.
-    Array: fixed `Array UInt64 N` → N×8-byte UInt64 leaves.
-    Map: dense capacity-8 occ/key/val → 24×8-byte leaves (`Map UInt64 UInt64`),
-    or capacity-4×11 → 44×8-byte leaves (`Map Principal UInt64` E4 LP pilot).
-    Bytes: fixed `Bytes N` → N×1-byte UInt8 leaves (ABI pitch still 8 via
-    `slotPitchOfByteWidth`; element-wise IndexGet/IndexSet with literal index). -/
+/-- Container leaf layout: `(leafCount, leafByteWidth, leafIsInt)`.
+    Array: `Array UInt64 N` or `Array Int64 N` → N×8-byte leaves.
+    Map: dense capacity-8 occ/key/val → 24×8-byte leaves (`Map UInt64 UInt64`
+    or `Map UInt64 Int64`; third Bool is value-is-Int64), or capacity-4×11
+    → 44×8-byte leaves (`Map Principal UInt64` E4 LP pilot; always unsigned).
+    Bytes: fixed `Bytes N` → N×1-byte UInt8 leaves. Historical needles stay
+    contains-match. -/
 private def containerLeafLayoutV1
     (typeDecls : Array TypeDeclV1) (types : SolanaTypeClosureV1)
-    (typeId : TypeIdV1) : CompileResult (Option (Nat × Nat)) := do
+    (typeId : TypeIdV1) : CompileResult (Option (Nat × Nat × Bool)) := do
   unless types.isContainer typeId do
     return none
   match typeDecls[typeId.toNat]? with
   | some { shape := .array elTid len, .. } =>
-      unless elTid == types.uint64TypeId do
+      unless elTid == types.uint64TypeId || types.int64TypeId == some elTid do
         throw <| .planInvariant .solana
-          "unsupported Solana semantic shape: Array state element must be UInt64"
+          "unsupported Solana semantic shape: Array state element must be UInt64 or Int64"
       let n := len.toNat
       unless n ≥ 1 do
         throw <| .planInvariant .solana
           "unsupported Solana semantic shape: Array state length must be ≥ 1"
-      pure (some (n, 8))
+      let leafIsInt := types.int64TypeId == some elTid
+      pure (some (n, 8, leafIsInt))
   | some { shape := .map keyTid valTid, .. } =>
-      unless valTid == types.uint64TypeId do
+      let valIsInt := types.int64TypeId == some valTid
+      unless valTid == types.uint64TypeId || valIsInt do
         throw <| .planInvariant .solana
           "unsupported Solana semantic shape: Map state value must be UInt64"
       if keyTid == types.uint64TypeId then
-        pure (some (solanaMapPilotLeafCountV1, 8))
+        pure (some (solanaMapPilotLeafCountV1, 8, valIsInt))
       else if types.isPrincipal keyTid then
-        pure (some (solanaMapPrincipalLeafCountV1, 8))
+        unless valTid == types.uint64TypeId do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: Map state value must be UInt64"
+        pure (some (solanaMapPrincipalLeafCountV1, 8, false))
       else
         throw <| .planInvariant .solana
           "unsupported Solana semantic shape: Map state admits only Map UInt64 UInt64 or Map Principal UInt64"
@@ -755,7 +761,7 @@ private def containerLeafLayoutV1
       unless n ≥ 1 do
         throw <| .planInvariant .solana
           "unsupported Solana semantic shape: Bytes state length must be ≥ 1"
-      pure (some (n, 1))
+      pure (some (n, 1, false))
   | _ =>
       throw <| .planInvariant .solana
         "unsupported Solana semantic shape: container TypeId is not Array/Map/Bytes"
@@ -843,19 +849,22 @@ private def isAnonymousOptionTypeIdV1
   | some { shape := .option _, name := none, .. } => true
   | _ => false
 
-/-- Exact Map IndexGet result shape: anonymous `Option UInt64`. This separates
-    Map lookup from same-sized Array aggregates before inspecting key/layout. -/
+/-- Exact Map IndexGet result shape: anonymous `Option UInt64` or
+    `Option Int64`. This separates Map lookup from same-sized Array
+    aggregates before inspecting key/layout. -/
 private def isOptionUInt64TypeIdV1
     (typeDecls : Array TypeDeclV1) (types : SolanaTypeClosureV1)
     (typeId : TypeIdV1) : Bool :=
   match typeDecls[typeId.toNat]? with
   | some { shape := .option elTid, name := none, .. } =>
-      elTid == types.uint64TypeId
+      elTid == types.uint64TypeId || types.int64TypeId == some elTid
   | _ => false
 
-/-- B-OPT-STATE: `Option UInt64` storage leaves mirror named 2-variant Enum —
-    `{prefix}_tag` + `{prefix}_p0` (tag 0=none / 1=some; payload zeroed on none). -/
-private def flattenOptionUInt64LeafSpecsV1 (namePrefix : String) :
+/-- B-OPT-STATE: `Option UInt64` or `Option Int64` storage leaves mirror
+    named 2-variant Enum — `{prefix}_tag` + `{prefix}_p0` (tag 0=none /
+    1=some; payload zeroed on none). Tag stays unsigned. -/
+private def flattenOptionUInt64LeafSpecsV1 (namePrefix : String)
+    (payloadIsInt : Bool := false) :
     CompileResult (Array (String × Bool)) := do
   let tagName :=
     if namePrefix.isEmpty then "tag" else namePrefix ++ "_tag"
@@ -867,7 +876,7 @@ private def flattenOptionUInt64LeafSpecsV1 (namePrefix : String) :
   unless isIdentifier pName do
     throw <| .planInvariant .solana
       s!"state name '{pName}' is not a safe identifier"
-  pure #[(tagName, false), (pName, false)]
+  pure #[(tagName, false), (pName, payloadIsInt)]
 
 /-- B-RET-ABI: resolve a result TypeId into an aggregate `ResultKind`.
     Admitted:
@@ -979,9 +988,23 @@ private def enumPayloadLeafRangeV1
     start := start + n
   throw <| .planInvariant .solana "enum payload index out of range"
 
-/-- Dense Map IndexGet → Option UInt64 as `[tag, payload]`. -/
+/-- Select `chosen` vs `kept` with a 0/1 write/miss pair. Signed mux uses
+    Int64 range so negative val leaves are not trapped as unsigned overflow. -/
+private def mapSelectLeafV1 (write miss chosen kept : Expr) (signed : Bool) : Expr :=
+  if signed then
+    Expr.signedCheckedAdd
+      (Expr.signedCheckedMul write chosen)
+      (Expr.signedCheckedMul miss kept)
+  else
+    Expr.checkedAdd
+      (Expr.checkedMul write chosen)
+      (Expr.checkedMul miss kept)
+
+/-- Dense Map IndexGet → Option as `[tag, payload]`. `valIsInt` muxes only
+    the payload word. -/
 private def mapLookupOptionLeavesV1
-    (mapLeaves : Array Expr) (key : Expr) : CompileResult (Array Expr) := do
+    (mapLeaves : Array Expr) (key : Expr) (valIsInt : Bool) :
+    CompileResult (Array Expr) := do
   unless mapLeaves.size == solanaMapPilotLeafCountV1 do
     throw <| .planInvariant .solana
       "unsupported Solana semantic shape: Map leaf count must match pilot capacity"
@@ -998,13 +1021,13 @@ private def mapLookupOptionLeavesV1
     let hit := Expr.checkedMul occ (Expr.compare .eq k key)
     let miss := Expr.boolNot hit
     found := Expr.boolOr found hit
-    payload :=
-      Expr.checkedAdd (Expr.checkedMul hit v) (Expr.checkedMul miss payload)
+    payload := mapSelectLeafV1 hit miss v payload valIsInt
   pure #[Expr.checkedAdd found (.literal 0), payload]
 
-/-- Dense Map IndexSet upsert. Returns (newLeaves, okInsert). -/
+/-- Dense Map IndexSet upsert. Returns (newLeaves, okInsert).
+    `valIsInt` muxes only the val slot. -/
 private def mapUpsertLeavesV1
-    (mapLeaves : Array Expr) (key value : Expr) :
+    (mapLeaves : Array Expr) (key value : Expr) (valIsInt : Bool) :
     CompileResult (Array Expr × Expr) := do
   unless mapLeaves.size == solanaMapPilotLeafCountV1 do
     throw <| .planInvariant .solana
@@ -1045,10 +1068,8 @@ private def mapUpsertLeavesV1
     let write := Expr.boolOr matchHit insertHere
     let miss := Expr.boolNot write
     let occ' := Expr.checkedAdd (Expr.boolOr occ write) (.literal 0)
-    let k' :=
-      Expr.checkedAdd (Expr.checkedMul write key) (Expr.checkedMul miss k)
-    let v' :=
-      Expr.checkedAdd (Expr.checkedMul write value) (Expr.checkedMul miss v)
+    let k' := mapSelectLeafV1 write miss key k false
+    let v' := mapSelectLeafV1 write miss value v valIsInt
     out := out.push occ' |>.push k' |>.push v'
   pure (out, okInsert)
 
@@ -1084,7 +1105,8 @@ private def mapKeyShapeOfV1
     (typeId : TypeIdV1) : CompileResult (Option (Bool × Nat)) := do
   match typeDecls[typeId.toNat]? with
   | some { shape := .map keyTid valTid, .. } =>
-      unless valTid == types.uint64TypeId do
+      unless valTid == types.uint64TypeId ||
+          (keyTid == types.uint64TypeId && types.int64TypeId == some valTid) do
         throw <| .planInvariant .solana
           "unsupported Solana semantic shape: Map value must be UInt64"
       if keyTid == types.uint64TypeId then
@@ -1113,14 +1135,19 @@ private def makeStateAccountV1
     unless isIdentifier state.name do
       throw <| .planInvariant .solana s!"state name '{state.name}' is not a safe identifier"
     match ← containerLeafLayoutV1 typeDecls types state.typeId with
-    | some (n, leafByteWidth) =>
-        -- Array/Map: N consecutive 8-byte UInt64 slots; Bytes: N×UInt8 slots
-        -- (byteWidth 1, ABI pitch 8). Physical names `name_0`..`name_{n-1}`.
-        -- Visibility: same N1 allowNonPublic as scalar state.
+    | some (n, leafByteWidth, leafIsInt) =>
+        -- Array: N consecutive 8-byte UInt64 or Int64 slots. Map cap-8:
+        -- 24×8-byte occ/key/val; `leafIsInt` is value-is-Int64 so only val
+        -- slots (`i % 3 == 2`) are signed. Principal Map stays unsigned.
+        -- Bytes: N×UInt8 slots (byteWidth 1, ABI pitch 8).
         requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedOrContainerState
           solanaPlanErr types state (allowNonPublic := true)
         if fields.size + n > maxStateFields then
           throw <| .planInvariant .solana "state count is outside the profile limits"
+        let isMapU64 :=
+          match typeDecls[state.typeId.toNat]? with
+          | some { shape := .map keyTid _, .. } => keyTid == types.uint64TypeId
+          | _ => false
         let mut leaves : Array Nat := #[]
         for i in [0:n] do
           let leafName := state.name ++ "_" ++ toString i
@@ -1128,6 +1155,11 @@ private def makeStateAccountV1
             throw <| .planInvariant .solana
               s!"state name '{leafName}' is not a safe identifier"
           leaves := leaves.push fields.size
+          let slotIsInt :=
+            if isMapU64 then
+              leafIsInt && (i % 3 == 2)
+            else
+              leafIsInt
           fields := fields.push {
             sourceId := state.id.toNat
             name := leafName
@@ -1135,6 +1167,7 @@ private def makeStateAccountV1
             byteOffset := nextOffset
             byteWidth := leafByteWidth
             endianness := .little
+            isInt := slotIsInt
           }
           nextOffset := nextOffset + slotPitchOfByteWidth leafByteWidth
         stateLeaves := stateLeaves.push leaves
@@ -1189,11 +1222,13 @@ private def makeStateAccountV1
           -- names. none default via zeroAllFields; Option.none zeros payload.
           match typeDecls[state.typeId.toNat]? with
           | some { shape := .option elTid, .. } =>
-              unless elTid == types.uint64TypeId do
+              unless elTid == types.uint64TypeId ||
+                  types.int64TypeId == some elTid do
                 throw <| .planInvariant .solana
                   s!"unsupported Solana semantic shape: Option state '{state.name}' element must be UInt64"
+              let payloadIsInt := types.int64TypeId == some elTid
               -- N1: allowNonPublic like scalar/named/container state (no visibility gate).
-              let leafSpecs ← flattenOptionUInt64LeafSpecsV1 state.name
+              let leafSpecs ← flattenOptionUInt64LeafSpecsV1 state.name payloadIsInt
               if fields.size + leafSpecs.size > maxStateFields then
                 throw <| .planInvariant .solana "state count is outside the profile limits"
               let mut leaves : Array Nat := #[]
@@ -1386,7 +1421,7 @@ private def makeParamsV1 (owner : String) (types : SolanaTypeClosureV1)
     else if types.isContainer param.typeId then
       -- Bytes N param only: N×UInt8 instruction-data words (pitch 8). Array/Map
       -- params stay fail closed (no array-param ABI in this pilot).
-      let some (n, leafByteWidth) ←
+      let some (n, leafByteWidth, _leafIsInt) ←
         containerLeafLayoutV1 typeDecls types param.typeId |
         throw <| .planInvariant .solana
           "unsupported Solana semantic shape: container param is not Array/Map/Bytes"
@@ -2264,7 +2299,7 @@ private def lowerBlockInstructionsV1
     | .stateLoad stateId, some result =>
         let leafFields ← findStateLeafFieldsV1 account stateId
         if types.isContainer result.typeId then
-          let (n, leafByteWidth) ← match ← containerLeafLayoutV1 typeDecls types result.typeId with
+          let (n, leafByteWidth, _leafIsInt) ← match ← containerLeafLayoutV1 typeDecls types result.typeId with
             | some p => pure p
             | none =>
                 throw <| .planInvariant .solana
@@ -2307,7 +2342,8 @@ private def lowerBlockInstructionsV1
           -- B-OPT-STATE: Option UInt64 multi-leaf load (tag + payload).
           match typeDecls[result.typeId.toNat]? with
           | some { shape := .option elTid, .. } =>
-              unless elTid == types.uint64TypeId do
+              unless elTid == types.uint64TypeId ||
+                  types.int64TypeId == some elTid do
                 throw <| .planInvariant .solana
                   "unsupported Solana semantic shape: Option state load element must be UInt64"
           | _ =>
@@ -2830,7 +2866,7 @@ private def lowerBlockInstructionsV1
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: construct result typeId must match op typeId"
         if types.isContainer typeId then
-          let (n, leafByteWidth) ← match ← containerLeafLayoutV1 typeDecls types typeId with
+          let (n, leafByteWidth, leafIsInt) ← match ← containerLeafLayoutV1 typeDecls types typeId with
             | some p => pure p
             | none =>
                 throw <| .planInvariant .solana
@@ -2867,9 +2903,10 @@ private def lowerBlockInstructionsV1
             let mut nodes : Nat := 0
             for argId in argIds do
               let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
-              unless !arg.isBool && !arg.isInt && !arg.isAggregate && arg.bitWidth == 64 do
+              unless !arg.isBool && !arg.isAggregate && arg.bitWidth == 64 &&
+                  arg.isInt == leafIsInt do
                 throw <| .planInvariant .solana
-                  "unsupported Solana semantic shape: Array construct args must be scalar UInt64"
+                  "unsupported Solana semantic shape: Array construct args must be scalar UInt64 or Int64 matching the array element"
               leafExprs := leafExprs.push arg.expr
               deps := deps.push argId
               depth := Nat.max depth (arg.depth + 1)
@@ -2952,9 +2989,11 @@ private def lowerBlockInstructionsV1
           -- ctorIdx 0 = none → (0, 0); ctorIdx 1 = some → (1, v).
           match typeDecls[typeId.toNat]? with
           | some { shape := .option elTid, .. } => do
-              unless elTid == types.uint64TypeId do
+              unless elTid == types.uint64TypeId ||
+                  types.int64TypeId == some elTid do
                 throw <| .planInvariant .solana
                   "unsupported Solana semantic shape: Option construct element must be UInt64"
+              let wantInt := types.int64TypeId == some elTid
               if ctorIdx == 0 then
                 unless argIds.isEmpty do
                   throw <| .planInvariant .solana
@@ -2968,9 +3007,10 @@ private def lowerBlockInstructionsV1
                 let some argId := argIds[0]? |
                   throw <| .planInvariant .solana "Option.some arg missing"
                 let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
-                unless !arg.isBool && !arg.isInt && !arg.isAggregate && arg.bitWidth == 64 do
+                unless !arg.isBool && !arg.isAggregate && arg.bitWidth == 64 &&
+                    arg.isInt == wantInt do
                   throw <| .planInvariant .solana
-                    "unsupported Solana semantic shape: Option.some payload must be scalar UInt64"
+                    "unsupported Solana semantic shape: Option.some payload must be scalar UInt64 or Int64 matching the Option payload"
                 let value := mkAggregateValueV1 #[.literal 1, arg.expr] #[argId]
                   (arg.depth + 1) (arg.expandedNodes + 2)
                 values := ← appendResultValueV1 typeId values result value
@@ -3044,7 +3084,12 @@ private def lowerBlockInstructionsV1
             unless base.leafExprs.size == solanaMapPilotLeafCountV1 do
               throw <| .planInvariant .solana
                 "unsupported Solana semantic shape: Map UInt64 IndexGet base leaf count mismatch"
-            let optLeaves ← mapLookupOptionLeavesV1 base.leafExprs idx.expr
+            let valIsInt :=
+              match typeDecls[result.typeId.toNat]? with
+              | some { shape := .option elTid, .. } =>
+                  types.int64TypeId == some elTid
+              | _ => false
+            let optLeaves ← mapLookupOptionLeavesV1 base.leafExprs idx.expr valIsInt
             let value := mkAggregateValueV1 optLeaves #[baseId, idxId]
               (Nat.max base.depth idx.depth + 1)
               (base.expandedNodes + idx.expandedNodes + 1)
@@ -3057,9 +3102,10 @@ private def lowerBlockInstructionsV1
               "unsupported Solana semantic shape: Array IndexGet index out of range"
           let some leaf := leaves[i]? |
             throw <| .planInvariant .solana "Array IndexGet leaf missing"
-          unless result.typeId == types.uint64TypeId do
+          let wantInt := types.int64TypeId == some result.typeId
+          unless result.typeId == types.uint64TypeId || wantInt do
             throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: Array IndexGet result must be UInt64"
+              "unsupported Solana semantic shape: Array IndexGet result must be UInt64 or Int64"
           values := ← appendResultValueV1 result.typeId values result {
             expr := leaf
             depth := base.depth + 1
@@ -3067,7 +3113,7 @@ private def lowerBlockInstructionsV1
             dependencies := #[baseId, idxId]
             isBool := false
             isUInt32 := false
-            isInt := false
+            isInt := wantInt
             bitWidth := 64
           }
     | .indexSet baseId idxId valueId, some result => do
@@ -3082,7 +3128,7 @@ private def lowerBlockInstructionsV1
         let val ← currentValueWithArmsV1 values blockEntry segmentStart armReadables valueId
         unless !val.isBool && !val.isAggregate do
           throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: IndexSet value must be a scalar UInt8/UInt64"
+            "unsupported Solana semantic shape: IndexSet value must be a scalar UInt8/UInt64/Int64"
         if base.leafByteWidth == 1 then
           -- Bytes element write → scalar UInt8; rebuild aggregate.
           let i ← literalIndexNatV1 idx
@@ -3111,9 +3157,14 @@ private def lowerBlockInstructionsV1
             unless base.leafExprs.size == expectedLeaves do
               throw <| .planInvariant .solana
                 "unsupported Solana semantic shape: Map IndexSet base leaf count mismatch"
-            unless !val.isInt && val.bitWidth == 64 do
+            let wantInt :=
+              match typeDecls[result.typeId.toNat]? with
+              | some { shape := .map _ valTid, .. } =>
+                  types.int64TypeId == some valTid
+              | _ => false
+            unless val.bitWidth == 64 && val.isInt == wantInt do
               throw <| .planInvariant .solana
-                "unsupported Solana semantic shape: Map IndexSet value must be scalar UInt64"
+                "unsupported Solana semantic shape: Map IndexSet value must be scalar UInt64 or Int64 matching the map value"
             if isPrincipalKey then
               unless idx.isAggregate do
                 throw <| .planInvariant .solana
@@ -3144,7 +3195,7 @@ private def lowerBlockInstructionsV1
                 throw <| .planInvariant .solana
                   "unsupported Solana semantic shape: Map UInt64 IndexSet key must be scalar UInt64"
               let (outLeaves0, okInsert) ←
-                mapUpsertLeavesV1 base.leafExprs idx.expr val.expr
+                mapUpsertLeavesV1 base.leafExprs idx.expr val.expr wantInt
               -- Fail closed when the dense map is full. Gate only the first leaf
               -- so the large okInsert expression is not duplicated per slot.
               let gate := Expr.checkedDiv (.literal 1) okInsert
@@ -3162,9 +3213,14 @@ private def lowerBlockInstructionsV1
                 (base.expandedNodes + idx.expandedNodes + val.expandedNodes + 1)
               values := ← appendResultValueV1 result.typeId values result value
         | none => do
-          unless !val.isInt && val.bitWidth == 64 do
+          let wantInt :=
+            match typeDecls[result.typeId.toNat]? with
+            | some { shape := .array elTid _, .. } =>
+                types.int64TypeId == some elTid
+            | _ => false
+          unless val.bitWidth == 64 && val.isInt == wantInt do
             throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: Array IndexSet value must be scalar UInt64"
+              "unsupported Solana semantic shape: Array IndexSet value must be scalar UInt64 or Int64 matching the array element"
           let i ← literalIndexNatV1 idx
           let leaves := base.leafExprs
           unless i < leaves.size do

@@ -4111,6 +4111,189 @@ private unsafe def checkAnonymousReturnFailClosed : IO Unit := do
       "end ProofForgeV2.Examples\n")
     #["Option", "UInt64", "payload", "return", "unsupported", "anonymous", "Array"]
 
+/-- Compile a Noir plan from source (layout pins; construct/IndexGet/IndexSet
+    must lower or planFromCapability fails). -/
+private unsafe def compileNoirPlan
+    (sourceText moduleName path : String) : IO Targets.Noir.Plan := do
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult (← session.selectProgramV1 sourceText path moduleName none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  liftResult <| Targets.Noir.planFromCapability capability
+
+private unsafe def expectNoirPlanErrorContaining
+    (label moduleName sourceText needle : String) : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  match ← session.selectProgramV1 sourceText s!"<noir-{label}>" moduleName none with
+  | .error _ => pure ()
+  | .ok source =>
+    match Compiler.compileValidatedSourceV1 source with
+    | .error _ => pure ()
+    | .ok compiled =>
+      match resolveBuildSelectionV1 TargetId.noir none with
+      | .error _ => pure ()
+      | .ok selection =>
+        match Targets.resolveEngineeringRequirementsV1 selection compiled with
+        | .error _ => pure ()
+        | .ok cap =>
+          match Targets.Noir.planFromCapability cap with
+          | .error e =>
+              expect (e.render.contains needle)
+                s!"{label}: FC must contain '{needle}', got {e.render}"
+          | .ok _ =>
+              throw <| IO.userError s!"{label}: Noir must fail closed"
+
+/-- Array Int64 2: N×i64 public-input leaves (not a UInt64 alias). -/
+private unsafe def testArrInt64 : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ArrInt64 where\n" ++
+    "  state slots : Array Int64 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  entry set0(v : Int64) : Int64 do\n" ++
+    "    slots[0] := v\n" ++
+    "    return slots[0]\n\n" ++
+    "  view get() : Int64 do\n" ++
+    "    return slots[1]\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let plan ← compileNoirPlan sourceText "Examples.ArrInt64" "<noir-arr-int64>"
+  expect (plan.states.size == 2)
+    s!"ArrInt64: Array Int64 2 → 2 leaves, got {plan.states.size}"
+  expect (plan.states[0]!.name == "slots_0" && plan.states[0]!.inputType == .i64)
+    "ArrInt64 slots_0 must be inputType .i64"
+  expect (plan.states[1]!.name == "slots_1" && plan.states[1]!.inputType == .i64)
+    "ArrInt64 slots_1 must be inputType .i64"
+  IO.println "  ✓ Noir Array Int64 2 as N×i64 public-input leaves"
+
+/-- Option Int64: unsigned tag + signed payload. -/
+private unsafe def testOptInt64 : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program OptInt64 where\n" ++
+    "  state slot : Option Int64\n\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n\n" ++
+    "  entry set(v : Int64) : Int64 do\n" ++
+    "    slot := Option.some(v)\n" ++
+    "    return v\n\n" ++
+    "  entry clear() : Int64 do\n" ++
+    "    slot := Option.none()\n" ++
+    "    return 0\n\n" ++
+    "  view peek() : Int64 do\n" ++
+    "    match slot with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let plan ← compileNoirPlan sourceText "Examples.OptInt64" "<noir-opt-int64>"
+  expect (plan.states.size == 2)
+    s!"OptInt64: must flatten to tag+payload, got {plan.states.size}"
+  expect (plan.states[0]!.name == "slot_tag" && plan.states[0]!.inputType == .u64)
+    "OptInt64 slot_tag must stay inputType .u64"
+  expect (plan.states[1]!.name == "slot_p0" && plan.states[1]!.inputType == .i64)
+    "OptInt64 slot_p0 must be inputType .i64"
+  IO.println "  ✓ Noir Option Int64 as unsigned tag + signed payload"
+
+/-- Map UInt64 Int64: 24 occ/key/val leaves; only val slots .i64. -/
+private unsafe def testMapInt64 : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program MapInt64 where\n" ++
+    "  state m : Map UInt64 Int64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry put(k : UInt64, v : Int64) : Int64 do\n" ++
+    "    m[k] := v\n" ++
+    "    return v\n\n" ++
+    "  view get(k : UInt64) : Int64 do\n" ++
+    "    match m[k] with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let plan ← compileNoirPlan sourceText "Examples.MapInt64" "<noir-map-int64>"
+  expect (plan.states.size == 24)
+    s!"MapInt64: must flatten to 24 leaves, got {plan.states.size}"
+  for i in [0:24] do
+    let some field := plan.states[i]? |
+      throw <| IO.userError s!"MapInt64 missing field {i}"
+    expect (field.name == s!"m_{i}")
+      s!"MapInt64 field {i} name must be m_{i}, got {field.name}"
+    if i % 3 == 2 then
+      expect (field.inputType == .i64)
+        s!"MapInt64 m_{i} inputType must be .i64 (val slot)"
+    else
+      expect (field.inputType == .u64)
+        s!"MapInt64 m_{i} inputType must be .u64 (occ/key)"
+  IO.println "  ✓ Noir Map UInt64 Int64 val-only .i64 leaves"
+
+/-- Int8 containers / Int64-key Map / Array Int64 return stay FC. -/
+private unsafe def testInt64ContainerFailClosed : IO Unit := do
+  expectNoirPlanErrorContaining "arr-i8" "Examples.ArrI8Noir"
+    ("import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      "program ArrI8Noir where\n" ++
+      "  state slots : Array Int8 2\n\n" ++
+      "  init() do\n" ++
+      "    slots[0] := 0\n" ++
+      "    slots[1] := 0\n\n" ++
+      "  entry set0(v : UInt64) : UInt64 do\n" ++
+      "    slots[0] := 0\n" ++
+      "    return v\n\n" ++
+      "end ProofForgeV2.Examples\n")
+    "Array state element must be UInt64"
+  expectNoirPlanErrorContaining "opt-i8" "Examples.OptI8Noir"
+    ("import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      "program OptI8Noir where\n" ++
+      "  state o : Option Int8\n\n" ++
+      "  init() do\n" ++
+      "    o := Option.none()\n\n" ++
+      "  view peek() : UInt64 do\n" ++
+      "    return 0\n\n" ++
+      "end ProofForgeV2.Examples\n")
+    "requires UInt64 payload"
+  expectNoirPlanErrorContaining "map-int-key" "Examples.MapIntKeyNoir"
+    ("import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      "program MapIntKeyNoir where\n" ++
+      "  state m : Map Int64 UInt64\n\n" ++
+      "  init() do\n" ++
+      "    m := Map.empty()\n\n" ++
+      "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+      "    return v\n\n" ++
+      "end ProofForgeV2.Examples\n")
+    "Map state admits only Map UInt64 UInt64"
+  expectNoirPlanErrorContaining "arr-int64-ret" "Examples.ArrInt64RetNoir"
+    ("import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      "program ArrInt64RetNoir where\n" ++
+      "  state slots : Array Int64 2\n\n" ++
+      "  init() do\n" ++
+      "    slots[0] := 0\n" ++
+      "    slots[1] := 0\n\n" ++
+      "  view get() : Array Int64 2 do\n" ++
+      "    return slots\n\n" ++
+      "end ProofForgeV2.Examples\n")
+    "anonymous Array return requires UInt64 elements"
+  IO.println "  ✓ Noir Int8 containers / Int64-key Map / Array Int64 return stay fail closed"
+
 unsafe def run : IO Unit := do
   runCheckedSubFast
   runCompareAssertFast
@@ -4173,5 +4356,9 @@ unsafe def run : IO Unit := do
   checkBytesStateProduct
   checkOptionStateProduct
   checkOptionStateFailClosed
+  testArrInt64
+  testOptInt64
+  testMapInt64
+  testInt64ContainerFailClosed
 
 end Tests.Materialization.NoirRelationModel

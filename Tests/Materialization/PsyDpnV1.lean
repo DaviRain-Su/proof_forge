@@ -24,6 +24,9 @@
     * G5-AGG: Array UInt64 N / Principal wire-identity / Bytes 1..8 multi-leaf
       storeAggregate/returnAggregate → multi SlotSingle (physical leaf fieldIndex; cmd wire-resolved);
       product Plan→DPN; nested Map / Map return / Principal return stay FC
+    * T1-INT64-CONTAINERS: Array Int64 / Option Int64 / Map UInt64 Int64
+      product Plan→DPN (names-only leaves; isInt from TypeId). Int8
+      containers, Int64-key, Int64 container return, nested stay FC
     * DPN-5: Map UInt64 UInt64 cap-8 (24 occ/key/val leaves) product Plan→DPN
       with hand-built lookup Select + upsert storeAggregate
     * DPN-6: emit → events[] PARTIAL; void call → InvokeExternal PARTIAL;
@@ -714,6 +717,48 @@ unsafe def testOptionStateProductLower : IO Unit := do
   expect (slots == #[0, 1])
     s!"OptionState multi-leaf physical leaves 0,1, got {slots}"
 
+/-- T1: Option Int64 state — names-only tag+payload; isInt from TypeId. -/
+unsafe def testOptionInt64ProductLower : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptInt64 where\n" ++
+    "  state slot : Option Int64\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n" ++
+    "  entry setSome(v : Int64) : Int64 do\n" ++
+    "    slot := Option.some(v)\n" ++
+    "    return v\n" ++
+    "  view peek() : Int64 do\n" ++
+    "    match slot with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<dpn-opt-int64>" "Tests.DpnOptInt64" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let selection ← liftResult <| BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  let pkg ← liftResult <| packageFromCapabilityV1 cap
+  expect (pkg.size ≥ 3)
+    s!"OptInt64 must lower ≥3 methods, got {pkg.map (·.name)}"
+  expect (pkg.any fun f => f.name == "initialize") "OptInt64 initialize"
+  expect (pkg.any fun f => f.name == "setSome") "OptInt64 setSome"
+  expect (pkg.any fun f => f.name == "peek") "OptInt64 peek"
+  let some initDef := pkg.find? (·.name == "initialize") |
+    throw <| IO.userError "missing OptInt64 initialize"
+  let setCount := initDef.stateCommands.foldl (fun n c =>
+    match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
+  expect (setCount == 2)
+    s!"OptInt64 init must dual-leaf Set, got {setCount}"
+  let slots := setPhysicalSlotsV1 initDef
+  expect (slots == #[0, 1])
+    s!"OptInt64 multi-leaf physical leaves 0,1, got {slots}"
+  let some peekDef := pkg.find? (·.name == "peek") |
+    throw <| IO.userError "missing OptInt64 peek"
+  expect (peekDef.circuitOutputs.size ≥ 1) "OptInt64 peek returns Int64"
 
 /-- WideCounter product Plan→DPN includes mul/div/shift methods. -/
 unsafe def testWideCounterDpnWide : IO Unit := do
@@ -983,6 +1028,62 @@ unsafe def testMapMiniProductLower : IO Unit := do
   | some pkg2 =>
       expect (pkg2.size == pkg.size) "MapMini encode round-trip size"
       expect (pkg2.map (·.name) == pkg.map (·.name)) "MapMini encode round-trip names"
+
+/-- T1: Map UInt64 Int64 — cap-8 / 24 Felt leaves; mux stays .select. -/
+unsafe def testMapInt64ProductLower : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapInt64 where\n" ++
+    "  state m : Map UInt64 Int64\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n" ++
+    "  entry put(k : UInt64, v : Int64) : Int64 do\n" ++
+    "    m[k] := v\n" ++
+    "    return v\n" ++
+    "  view get(k : UInt64) : Int64 do\n" ++
+    "    match m[k] with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<dpn-map-int64>" "Tests.DpnMapInt64" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let selection ← liftResult <| BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  let pkg ← liftResult <| packageFromCapabilityV1 cap
+  expect (pkg.size ≥ 3)
+    s!"MapInt64 must lower ≥3 methods, got {pkg.map (·.name)}"
+  expect (pkg.any fun f => f.name == "initialize") "MapInt64 initialize"
+  expect (pkg.any fun f => f.name == "put") "MapInt64 put"
+  expect (pkg.any fun f => f.name == "get") "MapInt64 get"
+  let some initDef := pkg.find? (·.name == "initialize") |
+    throw <| IO.userError "missing MapInt64 initialize"
+  let initSets := initDef.stateCommands.foldl (fun n c =>
+    match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
+  expect (initSets == 24)
+    s!"MapInt64 init must 24-leaf Set (cap-8×3), got {initSets}"
+  let initSlots := setPhysicalSlotsV1 initDef
+  expect (initSlots.size == 24 && initSlots[0]! == 0 && initSlots[23]! == 23)
+    s!"MapInt64 init physical leaves 0..23, got first={initSlots[0]?} last={initSlots[23]?}"
+  let some putDef := pkg.find? (·.name == "put") |
+    throw <| IO.userError "missing MapInt64 put"
+  let putSets := putDef.stateCommands.foldl (fun n c =>
+    match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
+  expect (putSets == 24)
+    s!"MapInt64 put must storeAggregate 24 leaves, got {putSets}"
+  expect (putDef.assertions.any (fun a => a.message.contains "map full"))
+    s!"MapInt64 put must carry map-full assert, got {putDef.assertions.map (·.message)}"
+  expect (putDef.definitions.any (·.opType == .select))
+    "MapInt64 put upsert must use Select (width-agnostic mux)"
+  expect (putDef.circuitOutputs.size ≥ 1) "MapInt64 put returns Int64"
+  let some getDef := pkg.find? (·.name == "get") |
+    throw <| IO.userError "missing MapInt64 get"
+  expect (getDef.definitions.any (·.opType == .select))
+    "MapInt64 get must Select-merge the Option match"
+  expect (getDef.circuitOutputs.size ≥ 1) "MapInt64 get returns Int64"
 
 /-- DPN-5: Token (Map + supply) product Plan → DPN; proves multi-state Map+scalar. -/
 unsafe def testTokenMapProductLower : IO Unit := do
@@ -1257,6 +1358,120 @@ unsafe def testArrayProductLower : IO Unit := do
   | none => throw <| IO.userError "ArrayRet DPN package encode must parse"
   | some pkg2 =>
       expect (pkg2.map (·.name) == pkg.map (·.name)) "ArrayRet encode round-trip names"
+
+/-- T1: Array Int64 2 — names-only leaves; IndexGet threads isInt from TypeId. -/
+unsafe def testArrayInt64ProductLower : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrInt64 where\n" ++
+    "  state slots : Array Int64 2\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
+    "  entry set0(v : Int64) : Int64 do\n" ++
+    "    slots[0] := v\n" ++
+    "    return slots[0]\n" ++
+    "  view get() : Int64 do\n" ++
+    "    return slots[1]\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<dpn-arr-int64>" "Tests.DpnArrInt64" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let selection ← liftResult <| BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  let pkg ← liftResult <| packageFromCapabilityV1 cap
+  expect (pkg.size ≥ 3)
+    s!"ArrInt64 must lower ≥3 methods, got {pkg.map (·.name)}"
+  expect (pkg.any fun f => f.name == "initialize") "ArrInt64 initialize"
+  expect (pkg.any fun f => f.name == "set0") "ArrInt64 set0"
+  expect (pkg.any fun f => f.name == "get") "ArrInt64 get"
+  let some initDef := pkg.find? (·.name == "initialize") |
+    throw <| IO.userError "missing ArrInt64 initialize"
+  let initSets := initDef.stateCommands.foldl (fun n c =>
+    match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
+  expect (initSets ≥ 2)
+    s!"ArrInt64 init must multi-leaf Set (≥2), got {initSets}"
+  let initSlots := setPhysicalSlotsV1 initDef
+  expect (initSlots.all (fun s => s ≤ 1))
+    s!"ArrInt64 multi-leaf physical leaves in 0..1, got {initSlots}"
+  let some set0 := pkg.find? (·.name == "set0") |
+    throw <| IO.userError "missing ArrInt64 set0"
+  expect (set0.circuitOutputs.size ≥ 1) "ArrInt64 set0 returns Int64"
+  let some getDef := pkg.find? (·.name == "get") |
+    throw <| IO.userError "missing ArrInt64 get"
+  expect (getDef.circuitOutputs.size ≥ 1) "ArrInt64 get returns Int64"
+
+/-- T1 honesty: Int8 containers, Int64-key, Int64 container return, nested stay FC. -/
+unsafe def testInt64ContainerFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let expectFc (label needle source loc moduleName : String) : IO Unit := do
+    let parsed ← liftResult (← session.selectProgramV1 source loc moduleName none)
+    let compiled ← liftResult <| compileValidatedSourceV1 parsed
+    let selection ← liftResult <| BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
+    match resolveEngineeringRequirementsV1 selection compiled with
+    | .error e =>
+        expect (e.render.contains needle)
+          s!"{label}: resolve FC must contain '{needle}', got {e.render}"
+    | .ok cap =>
+        match packageFromCapabilityV1 cap with
+        | .error e =>
+            expect (e.render.contains needle)
+              s!"{label}: Plan/DPN FC must contain '{needle}', got {e.render}"
+        | .ok _ =>
+            throw <| IO.userError s!"{label}: expected fail closed"
+  expectFc "ArrI8" "Array state element must be UInt64"
+    ("import ProofForgeV2\n" ++
+     "open ProofForgeV2.Language\n" ++
+     "program ArrI8 where\n" ++
+     "  state slots : Array Int8 2\n" ++
+     "  init() do\n" ++
+     "    slots[0] := 0\n" ++
+     "    slots[1] := 0\n" ++
+     "  entry set0(v : UInt64) : UInt64 do\n" ++
+     "    return v\n")
+    "<dpn-arr-i8>" "Tests.DpnArrI8"
+  expectFc "OptI8" "requires UInt64 payload"
+    ("import ProofForgeV2\n" ++
+     "open ProofForgeV2.Language\n" ++
+     "program OptI8 where\n" ++
+     "  state o : Option Int8\n" ++
+     "  init() do\n" ++
+     "    o := Option.none()\n" ++
+     "  view peek() : UInt64 do\n" ++
+     "    return 0\n")
+    "<dpn-opt-i8>" "Tests.DpnOptI8"
+  expectFc "MapIntKey" "UInt64 keys and values"
+    ("import ProofForgeV2\n" ++
+     "open ProofForgeV2.Language\n" ++
+     "program MapIntKey where\n" ++
+     "  state m : Map Int64 UInt64\n" ++
+     "  init() do\n" ++
+     "    m := Map.empty()\n" ++
+     "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+     "    return v\n")
+    "<dpn-map-int-key>" "Tests.DpnMapIntKey"
+  expectFc "ArrInt64Ret" "anonymous Array return requires UInt64"
+    ("import ProofForgeV2\n" ++
+     "open ProofForgeV2.Language\n" ++
+     "program ArrInt64Ret where\n" ++
+     "  state slots : Array Int64 2\n" ++
+     "  init() do\n" ++
+     "    slots[0] := 0\n" ++
+     "    slots[1] := 0\n" ++
+     "  view get() : Array Int64 2 do\n" ++
+     "    return slots\n")
+    "<dpn-arr-int64-ret>" "Tests.DpnArrInt64Ret"
+  expectFc "NestedOpt" "requires UInt64 payload"
+    ("import ProofForgeV2\n" ++
+     "open ProofForgeV2.Language\n" ++
+     "program NestedOpt where\n" ++
+     "  state o : Option Option Int64\n" ++
+     "  init() do\n" ++
+     "    o := Option.none()\n" ++
+     "  view peek() : UInt64 do\n" ++
+     "    return 0\n")
+    "<dpn-nested-opt>" "Tests.DpnNestedOpt"
 
 /-- G5-AGG: product Bytes 4 Plan → multi-leaf DPN package. -/
 unsafe def testBytesProductLower : IO Unit := do
@@ -2645,17 +2860,21 @@ unsafe def run : IO Unit := do
   testWideDivBindRestoring
   testWideShiftBindBitWalk
   testOptionStateProductLower
+  testOptionInt64ProductLower
   testWideCounterDpnWide
   testWideCounter256DpnWide
   testMapLookupSelectOption
   testMapUpsertStoreAggregate
   testMapMiniProductLower
+  testMapInt64ProductLower
   testTokenMapProductLower
   testArrayTwoLeafStoreReturnAggregate
   testPrincipalNineLeafStoreAggregate
   testBytesFourLeafStoreReturnAggregate
   testStructDualLeafStoreAggregate
   testArrayProductLower
+  testArrayInt64ProductLower
+  testInt64ContainerFailClosed
   testBytesProductLower
   testPrincipalProductLower
   testStructPairProductLower

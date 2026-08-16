@@ -20,11 +20,13 @@ B-RET-ABI: named Struct/Enum entry/view returns are admitted via
 in preorder flatten order; Solidity tuple ABI with `components`).
 BL-18 / N-ANON-RESULT (EVM ABI): also admits anonymous `Array UInt64 N`
 (N ≤ 8 preorder leaves) and `Option UInt64` (tag + payload, 2 leaves).
-BL-31 / B-OPT-STATE: `state x : Option UInt64` is admitted as a 2-slot
-storage layout exactly matching a named 2-variant Enum (tag 0/1 + payload;
-payload zeroed on none). Read via existing VariantTag/VariantPayload match
-path. Option of non-UInt64, Option params, nested/Bytes/Map options stay
-fail-closed. Bytes / Map / non-UInt64 Array elements stay fail-closed.
+BL-31 / B-OPT-STATE: `state x : Option UInt64` or `Option Int64` is admitted
+as a 2-slot storage layout exactly matching a named 2-variant Enum (tag 0/1 +
+payload; payload zeroed on none). Int64 payload signedness lives on
+`LoweredValueV1.isInt` (tag stays unsigned). Read via existing
+VariantTag/VariantPayload match path. Option of other widths, Option params,
+nested/Bytes/Map options stay fail-closed. Bytes / Map / non-UInt Array
+elements stay fail-closed except Array Int64 (same 64-bit leaf width).
 
 ## ADR-0029 Phase B2 — `pf.assets` native binding
 
@@ -571,14 +573,15 @@ private def evmPlanErr (message : String) : CompileError :=
     `requirePublicUintAbiOrInt64OrField*` (T8b + N2b-EVM), **named aggregates
     admit UInt64/Int64 leaves only** via
     `requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamed*` with
-    `allowNonPublic := true` (N3), **Array state** flattens to contiguous
-    scalar slots (element UInt8/16/32/64/128/256), **Map UInt64 UInt64**
-    flattens to a dense pilot table (cap-8 × (occ,key,val) = 24 UInt64 leaves;
-    dynamic keys OK), **Map Principal UInt64** flattens to cap-4 ×
-    (occ + 9-leaf Principal key + val) = 44 UInt64 leaves (MiniAMM LP pilot;
-    leaf-wise key eq), and **Option UInt64 state** (BL-31) flattens to
-    tag+payload (2 UInt64 leaves; Enum-identical layout; none zeros payload).
-    Option of non-UInt64 / Option params / nested Option stay fail closed.
+    `allowNonPublic := true` (N3),     **Array state** flattens to contiguous
+    scalar slots (element UInt8/16/32/64/128/256 **or Int64**), **Map UInt64
+    UInt64** or **Map UInt64 Int64** uses the product hashed 1-slot path
+    (value signedness on `LoweredValueV1.isInt`, not a 24-leaf isInt table),
+    **Map Principal UInt64** stays UInt64-value (hashed 1-slot), and
+    **Option UInt64 or Option Int64 state** (BL-31) flattens to tag+payload
+    (2 leaves; Enum-identical layout; none zeros payload; Int64 payload
+    `isInt`). Option of other widths / Option params / nested Option stay
+    fail closed. Array/Option/Map Int64 **return** stay fail closed.
     non-64 Int fail closed.
     T9b admits UInt128/256 on scalar state/param/body/result. T10: Principal
     admitted as **storage identity only** (`pilotPrincipalPolicyAdmit`) —
@@ -878,10 +881,13 @@ private def aggregateResultKindOfV1
         throw <| .planInvariant .evm
           s!"{owner} does not return a named Struct/Enum or admitted anonymous Array/Option aggregate"
 
-/-- Container positive layout: fixed-length `Array UInt8/16/32/64 N` or
-    `Bytes N` (flattened as N×UInt8). Returns `(elementBitWidth, N)`.
-    Map is handled separately via `mapUInt64LeafCountV1` (I1). Non-UInt Array
-    elements fail closed. -/
+/-- Container positive layout: fixed-length `Array UInt8/16/32/64 N`,
+    `Array Int64 N`, or `Bytes N` (flattened as N×UInt8). Returns
+    `(elementBitWidth, N)`. Int64 uses width 64; signedness is recovered at
+    value sites via `int64TypeId`, not StorageBinding. Map is handled
+    separately via `mapUInt64LeafCountV1` (I1). Other signed / non-UInt
+    Array elements fail closed. Historical needle `must be UInt8/16/32/64`
+    is preserved as a contains-match. -/
 private def arrayScalarLeafLayoutV1
     (typeDecls : Array TypeDeclV1) (types : EvmTypeClosureV1)
     (typeId : TypeIdV1) : CompileResult (Option (Nat × Nat)) := do
@@ -896,8 +902,10 @@ private def arrayScalarLeafLayoutV1
                 s!"unsupported EVM semantic shape: Array element UInt{w} is not admitted"
             pure w
         | none =>
-            throw <| .planInvariant .evm
-              "unsupported EVM semantic shape: Array state element must be UInt8/16/32/64"
+            unless types.int64TypeId == some elTid do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: Array state element must be UInt8/16/32/64 or Int64"
+            pure 64
       let n := len.toNat
       unless n ≥ 1 do
         throw <| .planInvariant .evm
@@ -940,8 +948,10 @@ private def evmMapPrincipalSlotsPerEntryV1 : Nat :=
 private def evmMapPrincipalLeafCountV1 : Nat :=
   evmMapPrincipalCapacityV1 * evmMapPrincipalSlotsPerEntryV1
 
-/-- Map UInt64 UInt64 or Map Principal UInt64 leaf count for dense pilots.
-    Dynamic keys supported. Returns `none` when not an admitted Map shape. -/
+/-- Map UInt64 UInt64, Map UInt64 Int64, or Map Principal UInt64 leaf count.
+    Product hashed path is always 1 base slot (not a 24-leaf isInt table).
+    Int64 value signedness lives on `LoweredValueV1.isInt`. Dynamic keys
+    supported. Returns `none` when not an admitted Map shape. -/
 private def mapUInt64LeafCountV1
     (typeDecls : Array TypeDeclV1) (types : EvmTypeClosureV1)
     (_mapStaticKeys : Array UInt64) (typeId : TypeIdV1)
@@ -949,13 +959,17 @@ private def mapUInt64LeafCountV1
     CompileResult (Option Nat) := do
   match typeDecls[typeId.toNat]? with
   | some { shape := .map keyTid valTid, .. } =>
-      unless valTid == types.uint64TypeId do
+      unless valTid == types.uint64TypeId || types.int64TypeId == some valTid do
         throw <| .planInvariant .evm
-          "unsupported EVM semantic shape: Map state value must be UInt64"
+          "unsupported EVM semantic shape: Map state value must be UInt64 or Int64"
       if keyTid == types.uint64TypeId then
         -- Hashed profile: one base slot (entries at keccak256(key||base)).
+        -- Int64 values share this 1-slot path; do not invent 24 signed leaves.
         pure (some (if hashedMapStorage then 1 else evmMapPilotLeafCountV1))
       else if types.isPrincipal keyTid then
+        unless valTid == types.uint64TypeId do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: Map state value must be UInt64"
         pure (some (if hashedMapStorage then 1 else evmMapPrincipalLeafCountV1))
       else
         throw <| .planInvariant .evm
@@ -967,18 +981,45 @@ private def isEvmMapPrincipalLeafCountV1 (n : Nat) : Bool :=
   n == evmMapPrincipalLeafCountV1
 
 /-- BL-31 / B-OPT-STATE: admitted Option state leaf count.
-    `Option UInt64` → `some 2` (tag + payload, Enum 2-variant layout).
-    Non-Option → `none`. Option of non-UInt64 / nested → fail closed. -/
+    `Option UInt64` or `Option Int64` → `some 2` (tag + payload, Enum
+    2-variant layout). Int64 payload signedness is recovered at construct /
+    load / VariantPayload via `int64TypeId`. Non-Option → `none`.
+    Option of other widths / nested → fail closed. Historical needle
+    `admits only UInt64 payload` is preserved as a contains-match. -/
 private def optionUInt64StateLeafCountV1
     (typeDecls : Array TypeDeclV1) (types : EvmTypeClosureV1)
     (typeId : TypeIdV1) : CompileResult (Option Nat) := do
   match typeDecls[typeId.toNat]? with
   | some { shape := .option elTid, .. } => do
-      unless elTid == types.uint64TypeId do
+      unless elTid == types.uint64TypeId || types.int64TypeId == some elTid do
         throw <| .planInvariant .evm
-          "unsupported EVM semantic shape: Option state admits only UInt64 payload"
+          "unsupported EVM semantic shape: Option state admits only UInt64 payload or Int64 payload"
       pure (some 2)
   | _ => pure none
+
+/-- True when `typeId` is `Array Int64 N` (element signedness for value path). -/
+private def arrayElementIsIntV1
+    (typeDecls : Array TypeDeclV1) (types : EvmTypeClosureV1)
+    (typeId : TypeIdV1) : Bool :=
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .array elTid _, .. } => types.int64TypeId == some elTid
+  | _ => false
+
+/-- True when `typeId` is `Option Int64` (payload signedness; tag stays unsigned). -/
+private def optionPayloadIsIntV1
+    (typeDecls : Array TypeDeclV1) (types : EvmTypeClosureV1)
+    (typeId : TypeIdV1) : Bool :=
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .option elTid, .. } => types.int64TypeId == some elTid
+  | _ => false
+
+/-- True when `typeId` is `Map _ Int64` (hashed value path signedness). -/
+private def mapValueIsIntV1
+    (typeDecls : Array TypeDeclV1) (types : EvmTypeClosureV1)
+    (typeId : TypeIdV1) : Bool :=
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .map _ valTid, .. } => types.int64TypeId == some valTid
+  | _ => false
 
 /-- Detect contiguous storage-backed Map UInt64 (24×`storageLoad`). -/
 private def contiguousMapUInt64BaseV1 (leaves : Array Expr) : Option Nat := Id.run do
@@ -1353,9 +1394,10 @@ private def collectMapUInt64StaticKeysV1
             | some baseTid =>
                 match typeDecls[baseTid.toNat]? with
                 | some { shape := .map keyTid valTid, .. } => do
-                    unless valTid == types.uint64TypeId do
+                    unless valTid == types.uint64TypeId ||
+                        types.int64TypeId == some valTid do
                       throw <| .planInvariant .evm
-                        "unsupported EVM semantic shape: Map index value must be UInt64"
+                        "unsupported EVM semantic shape: Map index value must be UInt64 or Int64"
                     if keyTid == types.uint64TypeId then
                       -- Dense UInt64 pilot admits dynamic keys (Token params).
                       -- Literals are still collected for diagnostics/layout hints.
@@ -2781,28 +2823,32 @@ private def lowerBlockInstructionsV1
                 | none =>
                     throw <| .planInvariant .evm
                       "unsupported EVM semantic shape: container state load is not Array/Map/Bytes"
+          let elIsInt := arrayElementIsIntV1 layout.typeDecls types result.typeId
           let mut leafExprs : Array Expr := #[]
           let mut leafIsInt : Array Bool := #[]
           for i in [0:leaves.size] do
             let some slot := leaves[i]? |
               throw <| .planInvariant .evm "container state load slot missing"
             leafExprs := leafExprs.push (mkStorageLoadExpr bitWidth slot)
-            leafIsInt := leafIsInt.push false
+            -- Hashed Map base is a single unsigned slot; Array Int64 marks
+            -- every element leaf. Map value signedness is on the helper path.
+            leafIsInt := leafIsInt.push elIsInt
           let value := mkAggregateValueV1 leafExprs leafIsInt #[] 1 leaves.size
           values := ← appendResultValueV1 result.typeId values result value
         else if isOptionTypeIdV1 layout.typeDecls result.typeId then
-          -- BL-31: Option UInt64 state load → 2-leaf aggregate (tag, payload).
-          -- Payload element width was gated at layout to UInt64 only.
+          -- BL-31: Option UInt64/Int64 state load → 2-leaf aggregate (tag, payload).
+          -- Tag stays unsigned; Int64 payload sets leafIsInt on p0 only.
           unless leaves.size == 2 do
             throw <| .planInvariant .evm
               "unsupported EVM semantic shape: Option state load leaf count mismatch"
+          let payloadIsInt := optionPayloadIsIntV1 layout.typeDecls types result.typeId
           let mut leafExprs : Array Expr := #[]
           let mut leafIsInt : Array Bool := #[]
           for i in [0:leaves.size] do
             let some slot := leaves[i]? |
               throw <| .planInvariant .evm "Option state load slot missing"
             leafExprs := leafExprs.push (.storageLoad slot)
-            leafIsInt := leafIsInt.push false
+            leafIsInt := leafIsInt.push (i != 0 && payloadIsInt)
           let value := mkAggregateValueV1 leafExprs leafIsInt #[] 1 leaves.size
           values := ← appendResultValueV1 result.typeId values result value
         else if types.isNamedAggregate result.typeId || types.isString result.typeId ||
@@ -3430,6 +3476,7 @@ private def lowerBlockInstructionsV1
               unless argIds.size == n do
                 throw <| .planInvariant .evm
                   "unsupported EVM semantic shape: Array construct arity mismatch"
+              let elIsInt := arrayElementIsIntV1 layout.typeDecls types typeId
               let mut leafExprs : Array Expr := #[]
               let mut leafIsInt : Array Bool := #[]
               let mut deps : Array ValueIdV1 := #[]
@@ -3437,34 +3484,36 @@ private def lowerBlockInstructionsV1
               let mut nodes : Nat := 0
               for argId in argIds do
                 let arg ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
-                unless !arg.isBool && !arg.isInt && !arg.isField && !arg.isAggregate &&
+                unless !arg.isBool && arg.isInt == elIsInt && !arg.isField && !arg.isAggregate &&
                     arg.bitWidth == elBitWidth do
                   throw <| .planInvariant .evm
-                    s!"unsupported EVM semantic shape: Array construct args must be scalar UInt{elBitWidth}"
+                    s!"unsupported EVM semantic shape: Array construct args must be scalar UInt{elBitWidth} or matching Int64"
                 leafExprs := leafExprs.push arg.expr
-                leafIsInt := leafIsInt.push false
+                leafIsInt := leafIsInt.push elIsInt
                 deps := deps.push argId
                 depth := Nat.max depth (arg.depth + 1)
                 nodes := nodes + arg.expandedNodes
               let value := mkAggregateValueV1 leafExprs leafIsInt deps depth (nodes + n)
               values := ← appendResultValueV1 typeId values result value
         else if isOptionTypeIdV1 layout.typeDecls typeId then
-          -- BL-18: Option UInt64 construct → 2-leaf aggregate (tag, payload).
+          -- BL-18: Option UInt64/Int64 construct → 2-leaf aggregate (tag, payload).
           -- none = ctor 0 / (0,0); some = ctor 1 / (1,v). Mirrors Map IndexGet
-          -- Option intermediate layout so returns share returnAggregate ABI.
+          -- Option intermediate layout so UInt64 returns share returnAggregate ABI.
+          -- Option Int64 return stays fail closed at anonymousResultKind.
           let some { shape := .option elTid, .. } := layout.typeDecls[typeId.toNat]? |
             throw <| .planInvariant .evm
               "unsupported EVM semantic shape: Option construct TypeDecl missing"
-          unless elTid == uint64TypeId do
+          unless elTid == uint64TypeId || types.int64TypeId == some elTid do
             throw <| .planInvariant .evm
-              "unsupported EVM semantic shape: Option construct admits only UInt64 payload"
+              "unsupported EVM semantic shape: Option construct admits only UInt64 payload or Int64 payload"
+          let payloadIsInt := types.int64TypeId == some elTid
           match ctorIdx.toNat with
           | 0 => do
               unless argIds.isEmpty do
                 throw <| .planInvariant .evm
                   "unsupported EVM semantic shape: Option.none admits no arguments"
               let value := mkAggregateValueV1
-                #[.literal 0, .literal 0] #[false, false] #[] 1 2
+                #[.literal 0, .literal 0] #[false, payloadIsInt] #[] 1 2
               values := ← appendResultValueV1 typeId values result value
           | 1 => do
               unless argIds.size == 1 do
@@ -3473,12 +3522,12 @@ private def lowerBlockInstructionsV1
               let some argId := argIds[0]? |
                 throw <| .planInvariant .evm "Option.some arg missing"
               let arg ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
-              unless !arg.isBool && !arg.isInt && !arg.isField && !arg.isAggregate &&
-                  arg.bitWidth == 64 do
+              unless !arg.isBool && arg.isInt == payloadIsInt && !arg.isField &&
+                  !arg.isAggregate && arg.bitWidth == 64 do
                 throw <| .planInvariant .evm
-                  "unsupported EVM semantic shape: Option.some payload must be scalar UInt64"
+                  "unsupported EVM semantic shape: Option.some payload must be scalar UInt64 or Int64"
               let value := mkAggregateValueV1
-                #[.literal 1, arg.expr] #[false, false] #[argId]
+                #[.literal 1, arg.expr] #[false, payloadIsInt] #[argId]
                 (arg.depth + 1) (arg.expandedNodes + 2)
               values := ← appendResultValueV1 typeId values result value
           | _ =>
@@ -3775,10 +3824,17 @@ private def lowerBlockInstructionsV1
           throw <| .planInvariant .evm
             "unsupported EVM semantic shape: IndexGet base must be an Array/Map aggregate"
         let idx ← currentValueWithArmsV1 values paramCount segmentStart armReadables idxId
-        -- I1 Map IndexGet: result is Option V (not scalar UInt) → 2-leaf aggregate.
-        -- Array/Bytes IndexGet: result is scalar UInt element.
+        -- I1 Map IndexGet: result is Option V (not scalar UInt/Int) → 2-leaf aggregate.
+        -- Array/Bytes IndexGet: result is scalar UInt or Int64 element.
         -- Principal Map: key is 9-leaf Principal aggregate (not UInt).
-        match types.uintWidthOf result.typeId with
+        let arrayEl? : Option (Nat × Bool) :=
+          match types.uintWidthOf result.typeId with
+          | some w => some (w, false)
+          | none =>
+              match types.intWidthOf result.typeId with
+              | some w => some (w, true)
+              | none => none
+        match arrayEl? with
         | none =>
             if isEvmMapPrincipalLeafCountV1 base.leafExprs.size ||
                 (layout.hashedMapStorage && base.leafExprs.size == 1 && idx.isAggregate) then
@@ -3801,24 +3857,31 @@ private def lowerBlockInstructionsV1
                 throw <| .planInvariant .evm
                   "unsupported EVM semantic shape: IndexGet index must be unsigned integer"
               -- Map UInt64 → Option path (dense 24 leaves or hashed 1 base).
+              -- Int64 Map values mark the Option payload leaf isInt; tag stays unsigned.
               unless base.leafExprs.size == evmMapPilotLeafCountV1 ||
                   (layout.hashedMapStorage && base.leafExprs.size == 1) do
                 throw <| .planInvariant .evm
                   "unsupported EVM semantic shape: Map IndexGet base leaf count mismatch"
               let optLeaves ← mapLookupOptionLeavesV1 base.leafExprs idx.expr
                 layout.hashedMapStorage
+              let payloadIsInt := optionPayloadIsIntV1 layout.typeDecls types result.typeId
               let value := mkAggregateValueV1
-                optLeaves #[false, false] #[baseId, idxId]
+                optLeaves #[false, payloadIsInt] #[baseId, idxId]
                 (Nat.max base.depth idx.depth + 1)
                 (base.expandedNodes + idx.expandedNodes + 1)
               values := ← appendResultValueV1 result.typeId values result value
-        | some elBitWidth =>
+        | some (elBitWidth, elIsInt) =>
             unless !idx.isBool && !idx.isInt && !idx.isField && !idx.isAggregate do
               throw <| .planInvariant .evm
                 "unsupported EVM semantic shape: IndexGet index must be unsigned integer"
-            unless isEvmAbiUintWidth elBitWidth do
-              throw <| .planInvariant .evm
-                s!"unsupported EVM semantic shape: Array IndexGet result UInt{elBitWidth} is not admitted"
+            if elIsInt then
+              unless elBitWidth == 64 do
+                throw <| .planInvariant .evm
+                  s!"unsupported EVM semantic shape: Array IndexGet result Int{elBitWidth} is not admitted"
+            else
+              unless isEvmAbiUintWidth elBitWidth do
+                throw <| .planInvariant .evm
+                  s!"unsupported EVM semantic shape: Array IndexGet result UInt{elBitWidth} is not admitted"
             let leaves := base.leafExprs
             let valueExpr ← match idx.expr with
               | .literal n =>
@@ -3842,7 +3905,7 @@ private def lowerBlockInstructionsV1
               expandedNodes := base.expandedNodes + idx.expandedNodes + 1
               dependencies := #[baseId, idxId]
               isBool := false
-              isInt := false
+              isInt := elIsInt
               isField := false
               bitWidth := elBitWidth
             }
@@ -3856,18 +3919,20 @@ private def lowerBlockInstructionsV1
             "unsupported EVM semantic shape: IndexSet result must be Array/Map container"
         let idx ← currentValueWithArmsV1 values paramCount segmentStart armReadables idxId
         let val ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
-        unless !val.isBool && !val.isInt && !val.isField && !val.isAggregate do
+        unless !val.isBool && !val.isField && !val.isAggregate do
           throw <| .planInvariant .evm
-            "unsupported EVM semantic shape: IndexSet value must be scalar UInt"
+            "unsupported EVM semantic shape: IndexSet value must be scalar UInt or Int64"
         match ← mapUInt64LeafCountV1 layout.typeDecls types layout.mapStaticKeys result.typeId layout.hashedMapStorage with
         | some n =>
-            -- Dense Map IndexSet: dynamic key upsert; assert not full.
+            -- Dense/hashed Map IndexSet: dynamic key upsert; assert not full.
+            -- Hashed path stays 1 base leaf; Int64 signedness is on val.isInt.
             unless base.leafExprs.size == n do
               throw <| .planInvariant .evm
                 "unsupported EVM semantic shape: Map IndexSet base leaf count mismatch"
-            unless val.bitWidth == 64 do
+            let wantInt := mapValueIsIntV1 layout.typeDecls types result.typeId
+            unless val.bitWidth == 64 && val.isInt == wantInt do
               throw <| .planInvariant .evm
-                "unsupported EVM semantic shape: Map IndexSet value must be UInt64"
+                "unsupported EVM semantic shape: Map IndexSet value must be UInt64 or Int64 matching the map value"
             let (outLeaves0, okInsert) ←
               if isEvmMapPrincipalLeafCountV1 n ||
                   (layout.hashedMapStorage && n == 1 && idx.isAggregate) then
@@ -3931,12 +3996,13 @@ private def lowerBlockInstructionsV1
               | none =>
                   throw <| .planInvariant .evm
                     "unsupported EVM semantic shape: IndexSet result is not Array UInt"
+            let elIsInt := arrayElementIsIntV1 layout.typeDecls types result.typeId
             unless base.leafExprs.size == n do
               throw <| .planInvariant .evm
                 "unsupported EVM semantic shape: Array IndexSet base leaf count mismatch"
-            unless val.bitWidth == elBitWidth do
+            unless val.bitWidth == elBitWidth && val.isInt == elIsInt do
               throw <| .planInvariant .evm
-                s!"unsupported EVM semantic shape: Array IndexSet value width {val.bitWidth} must match element UInt{elBitWidth}"
+                s!"unsupported EVM semantic shape: Array IndexSet value width {val.bitWidth} must match element UInt{elBitWidth} or Int64"
             let leaves := base.leafExprs
             let mut outLeaves : Array Expr := #[]
             let mut outIsInt : Array Bool := #[]
@@ -3953,7 +4019,7 @@ private def lowerBlockInstructionsV1
                     let some e := leaves[j]? |
                       throw <| .planInvariant .evm "Array IndexSet leaf missing"
                     outLeaves := outLeaves.push e
-                  outIsInt := outIsInt.push false
+                  outIsInt := outIsInt.push elIsInt
             | _ =>
                 -- Runtime index: bounds-check once, then rebind every leaf via
                 -- arithmetic select `eq(idx,j) ? value : base[j]`.
@@ -3969,7 +4035,7 @@ private def lowerBlockInstructionsV1
                       (Expr.checkedMul isHit val.expr)
                       (Expr.checkedMul isMiss baseLeaf)
                   outLeaves := outLeaves.push chosen
-                  outIsInt := outIsInt.push false
+                  outIsInt := outIsInt.push elIsInt
             let value := mkAggregateValueV1 outLeaves outIsInt #[baseId, idxId, valueId]
               (Nat.max (Nat.max base.depth idx.depth) val.depth + 1)
               (base.expandedNodes + idx.expandedNodes + val.expandedNodes + 1)

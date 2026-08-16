@@ -39,15 +39,18 @@ auto-init 默认 0；CPI multi-role 仍走 `pf test`）；`pf verify -t solana` 
 - **legacy call/schedule fail closed**（#111）：旧 plan/elf profile 不声明 sync/async；
   static QualifiedName 不再经 SHA-256 冒充 program id；真实多账户/PDA/bump/CPI 仅经
   sole CPI rail + closed callee catalog；
-- **Map pilots（account-layout dense）**：`Map UInt64 UInt64` cap-8 与
-  `Map Principal UInt64` cap-4 在 Solana state account 上仍为 leaf 表布局（与 EVM hashed
-  默认不同——SVM 无 EVM 式 storage trie）；`storeAggregate` → structural CSE →
-  `storeStateMulti` 保证同一 StateStore 先 snapshot 再统一写。IndexGet → `Option UInt64`，
-  IndexSet 按 Map TypeId/key shape 分派。WideMul/WideDiv/PrincipalStore 工程钉测保留；
+- **Map pilots（account-layout dense）**：`Map UInt64 UInt64` 与 `Map UInt64 Int64` cap-8
+  （仅 val 槽 `isInt`）以及 `Map Principal UInt64` cap-4 在 Solana state account 上仍为
+  leaf 表布局（与 EVM hashed 默认不同——SVM 无 EVM 式 storage trie）；`storeAggregate` →
+  structural CSE → `storeStateMulti` 保证同一 StateStore 先 snapshot 再统一写。IndexGet →
+  `Option UInt64` 或 `Option Int64`，IndexSet 按 Map TypeId/key shape 分派。Int64-key Map
+  与 Map Principal Int64 仍 FC。WideMul/WideDiv/PrincipalStore 工程钉测保留；
 - **#113 V1 单 state-account 安全矩阵**：IR/SBPF `num_accounts==1` + non-dup `0xff` 先于固定偏移；
   Mollusk 负例 Custom(1)+完整 exact snapshot；manifest-bound ELF/Plan 字节；
-- **Option UInt64 state（BL-29）**：`slot_tag`/`slot_p0` 双 u64-LE leaf，`none` 清零 stale payload，
-  assign 走多叶原子 store；Option params、非 UInt64 payload与 nested Option 仍 fail-closed；
+- **Option UInt64/Int64 state（BL-29）**：`slot_tag`/`slot_p0` 双 8-byte leaf（tag unsigned；
+  Int64 payload `isInt`），`none` 清零 stale payload，assign 走多叶原子 store；Option params、
+  Int8/16/32 payload、Option Int64 return 与 nested Option 仍 fail-closed；
+- **Array Int64 N**：N×8-byte `isInt` 叶（不是 UInt64 别名）；Array Int8 与 Array Int64 return 仍 FC；
 - **≤8 叶聚合返回**：named Struct/Enum 与 anonymous Array/Option UInt64 经单次
   `sol_set_return_data` 发 N×8-byte LE；Map/Bytes/nested/非 UInt64元素返回仍 fail-closed。
 - **`pf.assets` native binding（ADR-0029 Phase B1，2026-08-05）**：`solana-sbpf-cpi-elf-v1`

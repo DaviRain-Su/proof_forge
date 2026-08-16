@@ -3,7 +3,7 @@ id: TARGET-NOIR
 title: Noir target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-08
+updated: 2026-08-16
 normative: true
 ---
 
@@ -40,10 +40,15 @@ Digest 在 Plan 边界派生（engineering identity，非 formal BuildIdentity�
 **工程已接线（摘）**：
 
 - Normalize 当前子集 + Field(bn254) 原生算术路径；UInt8/16/32/64 与窄 Int ABI/body；
-  named Struct/Enum construct/field/variant、Array UInt64、dense Map UInt64 cap-8 与 fixed Bytes N
-  aggregate state flatten；Map/aggregate StateStore 经 `storeAggregate` 两阶段 relation lowering固定
-  pre-state snapshot，`NoirRelationModel` 已覆盖 empty upsert；Bytes literal IndexGet/Set 已开，
-  Bytes construct/param/动态索引及 Option/String state 仍 FAIL-CLOSED；
+  named Struct/Enum construct/field/variant、Array UInt64 **或 Array Int64**、dense
+  Map UInt64 UInt64 **或 Map UInt64 Int64** cap-8 与 fixed Bytes N
+  aggregate state flatten（Int64 叶经 `inputType := .i64`，无 storage `isInt` bit；
+  Array 全叶 signed；Option tag `.u64` + payload `.i64`；Map 仅 val `i%3==2`）；
+  Map/aggregate StateStore 经 `storeAggregate` 两阶段 relation lowering固定
+  pre-state snapshot，`NoirRelationModel` 已覆盖 empty upsert + Int64 container
+  layout pins；Bytes literal IndexGet/Set 已开，
+  Bytes construct/param/动态索引、Int8 容器、Int64-key Map、Array/Option/Map Int64
+  return 与 nested 仍 FAIL-CLOSED；
 - call/schedule 持 capability（status/arg slot）；私有 state/params 走 private-witness 输入；
 - 产物：typed relation IR + Noir source packages；locked nargo 1.0.0-beta.26 对产品 Counter
   relation packages 执行 compile-only 工程验收。

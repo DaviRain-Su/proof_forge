@@ -4903,10 +4903,9 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "ArrBool" TargetId.openvm TargetKind.openvm
     arrBoolCompiled "Array element must be UInt64"
 
-  -- ArrInt: Array Int64 2 state. CosmWasm admits N×8-byte signed KV leaves;
-  -- TON admits N consecutive int64 c4 cells (isInt / loadInt). Other ten
-  -- stay named Array-element FC. Not opening Array-of-Int8 or
-  -- Array-of-UInt128. ArrBool / ArrayBox / MapInt / OptInt / MapBool stay.
+  -- ArrInt: Array Int64 2 state. EVM/Solana/NEAR/Noir/Aleo/Psy/CW admit
+  -- signed leaves; TON admits int64 cells. Envelope-4 stay named FC on
+  -- this mixed UInt64-param program. Not opening Array-of-Int8.
   let arrIntSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -4925,22 +4924,30 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"ArrInt select: {e.render}"
   let arrIntCompiled ← liftResult <| Compiler.compileValidatedSourceV1 arrIntV1
-  expectMaterializePlanInvariantV1 "ArrInt" TargetId.evm TargetKind.evm
-    arrIntCompiled "Array state element must be UInt8/16/32/64"
+  let arrIntEvmOut ← liftResult <| materializeSelected TargetId.evm arrIntCompiled
+  expect (!(MaterializedArtifactsV1.filesOf arrIntEvmOut).isEmpty)
+    "ArrInt: evm must materialize Array Int64 2"
   let arrIntOut ← liftResult <| materializeSelected TargetId.cosmwasm arrIntCompiled
   expect (!(MaterializedArtifactsV1.filesOf arrIntOut).isEmpty)
     "ArrInt: cosmwasm must materialize Array Int64 2"
   let arrIntTonOut ← liftResult <| materializeSelected TargetId.ton arrIntCompiled
   expect (!(MaterializedArtifactsV1.filesOf arrIntTonOut).isEmpty)
     "ArrInt: ton must materialize Array Int64 2"
-  for (target, kind) in #[
-      (TargetId.solana, TargetKind.solana),
-      (TargetId.near, TargetKind.near),
-      (TargetId.noir, TargetKind.noir),
-      (TargetId.aleo, TargetKind.aleo),
-      (TargetId.psy, TargetKind.psy)] do
-    expectMaterializePlanInvariantV1 "ArrInt" target kind arrIntCompiled
-      "Array state element must be UInt64"
+  let arrIntNearOut ← liftResult <| materializeSelected TargetId.near arrIntCompiled
+  expect (!(MaterializedArtifactsV1.filesOf arrIntNearOut).isEmpty)
+    "ArrInt: near must materialize Array Int64 2"
+  let arrIntSolOut ← liftResult <| materializeSelected TargetId.solana arrIntCompiled
+  expect (!(MaterializedArtifactsV1.filesOf arrIntSolOut).isEmpty)
+    "ArrInt: solana must materialize Array Int64 2"
+  let arrIntNoirOut ← liftResult <| materializeSelected TargetId.noir arrIntCompiled
+  expect (!(MaterializedArtifactsV1.filesOf arrIntNoirOut).isEmpty)
+    "ArrInt: noir must materialize Array Int64 2"
+  let arrIntAleoOut ← liftResult <| materializeSelected TargetId.aleo arrIntCompiled
+  expect (!(MaterializedArtifactsV1.filesOf arrIntAleoOut).isEmpty)
+    "ArrInt: aleo must materialize Array Int64 2"
+  let arrIntPsyOut ← liftResult <| materializeSelected TargetId.psy arrIntCompiled
+  expect (!(MaterializedArtifactsV1.filesOf arrIntPsyOut).isEmpty)
+    "ArrInt: psy must materialize Array Int64 2"
   expectMaterializePlanInvariantV1 "ArrInt" TargetId.quint TargetKind.quint
     arrIntCompiled "Array element must be UInt64"
   expectMaterializePlanInvariantV1 "ArrInt" TargetId.icp TargetKind.icp
@@ -5794,10 +5801,10 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "MapBool" TargetId.icp TargetKind.icp
     mapBoolCompiled "anonymous Map is outside the current container-state pilot"
 
-  -- MapInt: Map UInt64 Int64 state. CosmWasm+TON admit cap-8 occ/key
-  -- unsigned + val signed (not a UInt64-value alias). Other ten stay
-  -- named Map-value/pilot FC. Not opening Map-of-Int8, Int64-key, or
-  -- Map UInt128. MapBool / MapStr / MapMini / OptInt / OptBool stay.
+  -- MapInt: Map UInt64 Int64 state. EVM (hashed 1-slot) + Solana/NEAR/Noir/
+  -- Aleo/Psy/CW/TON admit unsigned key + signed val. Envelope-4 stay named
+  -- FC on this mixed UInt64-param program. Not opening Map-of-Int8,
+  -- Int64-key, or Map UInt128.
   let mapIntSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -5814,25 +5821,30 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"MapInt select: {e.render}"
   let mapIntCompiled ← liftResult <| Compiler.compileValidatedSourceV1 mapIntV1
-  for (target, kind) in #[
-      (TargetId.evm, TargetKind.evm),
-      (TargetId.solana, TargetKind.solana)] do
-    expectMaterializePlanInvariantV1 "MapInt" target kind mapIntCompiled
-      "Map state value must be UInt64"
+  let mapIntEvmOut ← liftResult <| materializeSelected TargetId.evm mapIntCompiled
+  expect (!(MaterializedArtifactsV1.filesOf mapIntEvmOut).isEmpty)
+    "MapInt: evm must materialize Map UInt64 Int64"
+  let mapIntSolOut ← liftResult <| materializeSelected TargetId.solana mapIntCompiled
+  expect (!(MaterializedArtifactsV1.filesOf mapIntSolOut).isEmpty)
+    "MapInt: solana must materialize Map UInt64 Int64"
   let mapIntCwOut ← liftResult <| materializeSelected TargetId.cosmwasm mapIntCompiled
   expect (!(MaterializedArtifactsV1.filesOf mapIntCwOut).isEmpty)
     "MapInt: cosmwasm must materialize Map UInt64 Int64"
   let mapIntTonOut ← liftResult <| materializeSelected TargetId.ton mapIntCompiled
   expect (!(MaterializedArtifactsV1.filesOf mapIntTonOut).isEmpty)
     "MapInt: ton must materialize Map UInt64 Int64"
-  for (target, kind) in #[
-      (TargetId.near, TargetKind.near),
-      (TargetId.noir, TargetKind.noir),
-      (TargetId.aleo, TargetKind.aleo)] do
-    expectMaterializePlanInvariantV1 "MapInt" target kind mapIntCompiled
-      "Map state admits only Map UInt64 UInt64"
-  expectMaterializePlanInvariantV1 "MapInt" TargetId.psy TargetKind.psy
-    mapIntCompiled "Map state pilot requires UInt64 keys and values"
+  let mapIntNearOut ← liftResult <| materializeSelected TargetId.near mapIntCompiled
+  expect (!(MaterializedArtifactsV1.filesOf mapIntNearOut).isEmpty)
+    "MapInt: near must materialize Map UInt64 Int64"
+  let mapIntNoirOut ← liftResult <| materializeSelected TargetId.noir mapIntCompiled
+  expect (!(MaterializedArtifactsV1.filesOf mapIntNoirOut).isEmpty)
+    "MapInt: noir must materialize Map UInt64 Int64"
+  let mapIntAleoOut ← liftResult <| materializeSelected TargetId.aleo mapIntCompiled
+  expect (!(MaterializedArtifactsV1.filesOf mapIntAleoOut).isEmpty)
+    "MapInt: aleo must materialize Map UInt64 Int64"
+  let mapIntPsyOut ← liftResult <| materializeSelected TargetId.psy mapIntCompiled
+  expect (!(MaterializedArtifactsV1.filesOf mapIntPsyOut).isEmpty)
+    "MapInt: psy must materialize Map UInt64 Int64"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -6973,13 +6985,10 @@ unsafe def runRemainingNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "OptBool" TargetId.icp TargetKind.icp
     optBoolCompiled "anonymous Option is outside the current container-state pilot"
 
-  -- OptInt: Option Int64 state. CosmWasm admits unsigned tag + signed
-  -- payload (same 2-leaf flatten as Option UInt64; not a UInt64 alias).
-  -- TON admits tag unsigned uint64 cell + signed int64 payload cell.
-  -- Other ten stay named Option-payload FC. Quint/Soroban/OpenVM
-  -- admit Option type so they fail on payload. ICP stays Option-pilot.
-  -- Not opening Option-of-Int8 or Option-of-UInt128. OptBool / OptBox /
-  -- MapBool / ArrBool / BoolPredicate stay.
+  -- OptInt: Option Int64 state. EVM/Solana/NEAR/Noir/Aleo/Psy/CW admit
+  -- unsigned tag + signed payload. TON admits tag uint64 + signed int64
+  -- cells. Envelope-4 stay named FC on this mixed UInt64-param program.
+  -- ICP stays Option-pilot. Not opening Option-of-Int8 or Option-of-UInt128.
   let optIntSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -6997,23 +7006,30 @@ unsafe def runRemainingNeedles : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"OptInt select: {e.render}"
   let optIntCompiled ← liftResult <| Compiler.compileValidatedSourceV1 optIntV1
-  expectMaterializePlanInvariantV1 "OptInt" TargetId.evm TargetKind.evm
-    optIntCompiled "Option state admits only UInt64 payload"
-  expectMaterializePlanInvariantV1 "OptInt" TargetId.solana TargetKind.solana
-    optIntCompiled "Option state 'o' element must be UInt64"
+  let optIntEvmOut ← liftResult <| materializeSelected TargetId.evm optIntCompiled
+  expect (!(MaterializedArtifactsV1.filesOf optIntEvmOut).isEmpty)
+    "OptInt: evm must materialize Option Int64"
+  let optIntSolOut ← liftResult <| materializeSelected TargetId.solana optIntCompiled
+  expect (!(MaterializedArtifactsV1.filesOf optIntSolOut).isEmpty)
+    "OptInt: solana must materialize Option Int64"
   let optIntOut ← liftResult <| materializeSelected TargetId.cosmwasm optIntCompiled
   expect (!(MaterializedArtifactsV1.filesOf optIntOut).isEmpty)
     "OptInt: cosmwasm must materialize Option Int64"
   let optIntTonOut ← liftResult <| materializeSelected TargetId.ton optIntCompiled
   expect (!(MaterializedArtifactsV1.filesOf optIntTonOut).isEmpty)
     "OptInt: ton must materialize Option Int64"
-  for (target, kind) in #[
-      (TargetId.near, TargetKind.near),
-      (TargetId.noir, TargetKind.noir),
-      (TargetId.aleo, TargetKind.aleo),
-      (TargetId.psy, TargetKind.psy)] do
-    expectMaterializePlanInvariantV1 "OptInt" target kind optIntCompiled
-      "Option state 'o' requires UInt64 payload"
+  let optIntNearOut ← liftResult <| materializeSelected TargetId.near optIntCompiled
+  expect (!(MaterializedArtifactsV1.filesOf optIntNearOut).isEmpty)
+    "OptInt: near must materialize Option Int64"
+  let optIntNoirOut ← liftResult <| materializeSelected TargetId.noir optIntCompiled
+  expect (!(MaterializedArtifactsV1.filesOf optIntNoirOut).isEmpty)
+    "OptInt: noir must materialize Option Int64"
+  let optIntAleoOut ← liftResult <| materializeSelected TargetId.aleo optIntCompiled
+  expect (!(MaterializedArtifactsV1.filesOf optIntAleoOut).isEmpty)
+    "OptInt: aleo must materialize Option Int64"
+  let optIntPsyOut ← liftResult <| materializeSelected TargetId.psy optIntCompiled
+  expect (!(MaterializedArtifactsV1.filesOf optIntPsyOut).isEmpty)
+    "OptInt: psy must materialize Option Int64"
   expectMaterializePlanInvariantV1 "OptInt" TargetId.quint TargetKind.quint
     optIntCompiled "Option element must be UInt64"
   expectMaterializePlanInvariantV1 "OptInt" TargetId.soroban TargetKind.soroban
