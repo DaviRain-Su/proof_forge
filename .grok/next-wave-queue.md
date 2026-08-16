@@ -28,7 +28,7 @@ Goal: lift envelope-4 toward mid-tier (CW/TON/Aleo/Psy), then mid-tier toward th
 | TON-I8-32 | main | TON Int8/16/32 ABI (`intN` cell + `loadInt` + signed width guards); WideInt8/16/32 admit | **committed** `143e2b64a` |
 | TON-U128 | main | TON UInt128 as one `uint128` cell / `loadUint(128)` / int257 width guard; WideUInt eight-target admit | **committed** `0bad420fe` + pin `93468d20b` |
 | ALEO-COMPUTED-VIEWS | main | Aleo state-reading views as off-chain query descriptors (`kind=computed`); never Final returns | **committed** `8aa426d6d` + pin `67b642c36` |
-| FC-SUBJECT | main | FieldComparison Subject sibling APIs: `bodyEncodeOkV1` + `referenceAdmissionV1`. No second step machine | **committed** (this commit) |
+| FC-SUBJECT | main | FieldComparison Subject sibling APIs: `bodyEncodeOkV1` + `referenceAdmissionV1`. No second step machine | **committed** `56c9e36d1` |
 | FC-PRESERVE | main | Rewrite `FieldComparisonPreservationV1` against current PreservationABI (ordinals 0/1 only; ordinal 2 unprovable at all-zero init). No `sorry` | **pending** (stale draft deleted; does not compile on HEAD) |
 
 **File lock:** workers must not edit `Tests/Materialization/Targets.lean` or another target's tree. `FieldComparison*` is a main-agent serial slice (`FC-PRESERVE`), not a parallel leaf. Main agent integrates WideInt64 / OptInt / ArrInt / MapInt needles after each leaf lands.
