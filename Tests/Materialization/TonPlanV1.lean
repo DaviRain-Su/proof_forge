@@ -20,7 +20,11 @@
   B-CTX-OPEN context.unixTimeSeconds → Plan blockUnixTimeSeconds / Tolk
   blockchain.now() (entry+view; caller/unknown FC), Array Int64 N as N
   consecutive int64 c4 cells (isInt / loadInt; not a UInt64 alias and not
-  CosmWasm Regions), and explicit fail-closed boundaries (sync call,
+  CosmWasm Regions; Array Int64 24 stays uniformly isInt), dense Map
+  UInt64 Int64 cap-8 as 24-leaf occ/key unsigned uint64 cells + val signed
+  int64/loadInt with signedChecked* val mux (not a UInt64-value alias;
+  Map Int8 / Map UInt128 / Map Int64 return stay FC), and explicit
+  fail-closed boundaries (sync call,
   Int128/256, Array Int64 return, Array/Map/Option of Int8/16/32 and
   UInt128/256, UInt128/256 shifts/bitwise, Map/Bytes returns, N>8,
   nested/narrow-element containers, Option params, invariants,
@@ -724,6 +728,46 @@ private unsafe def testArrayInt64State
   expect (abi.contains "\"returns\":\"int64\"") "ArrInt64 ABI returns int64"
   IO.println "  ✓ Array Int64 2 as N×int64 c4 cells"
 
+/-- Array Int64 24 must stay 24 uniform signed cells. Map val-only isInt
+    is TypeDecl `.map`, not `n == 24`; this N is the Map flatten width so
+    a count-keyed layout would silently mark occ/key unsigned. Init writes
+    only the pad scalar — IndexGet/IndexSet still use size==24 as a Map
+    proxy (pre-existing), so this pin is layout-only. -/
+private unsafe def testArrayInt64x24Layout
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "ArrInt64x24" <|
+    "  state slots : Array Int64 24\n" ++
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry ping(v : Int64) : Int64 do\n" ++
+    "    return v\n\n" ++
+    "  view get() : Int64 do\n" ++
+    "    return 0\n"
+  let compiled ← compileSource session src "Examples.ArrInt64x24"
+    "<ton-arr-int64-24>"
+  let plan ← liftResult <| planTon compiled
+  expect (plan.storage.fields.size == 25)
+    s!"ArrInt64x24: 24 array leaves + pad, got {plan.storage.fields.size}"
+  for i in [0:24] do
+    let some field := plan.storage.fields[i]? |
+      throw <| IO.userError s!"ArrInt64x24 missing field {i}"
+    expect (field.name == s!"slots_{i}")
+      s!"ArrInt64x24 field {i} name must be slots_{i}, got {field.name}"
+    expect (field.byteWidth == 8) s!"ArrInt64x24 slots_{i} byteWidth=8"
+    expect field.isInt
+      s!"ArrInt64x24 slots_{i} must stay isInt (not Map occ/key/val mix)"
+    expect (layoutFieldTypeSuffix field.byteWidth field.isInt == "i64-le")
+      s!"ArrInt64x24 slots_{i} ABI suffix must be i64-le"
+  let some pad := plan.storage.fields[24]? |
+    throw <| IO.userError "ArrInt64x24 missing pad"
+  expect (pad.name == "pad" && !pad.isInt && pad.byteWidth == 8)
+    "ArrInt64x24 pad stays unsigned u64-le"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"ArrInt64x24 plan must validate: {e.render}"
+  IO.println "  ✓ Array Int64 24 stays 24 uniform signed cells"
+
 /-- Array Int8 / Array UInt128 stay fail closed on the historical element
     needle (`Array state element must be UInt64` is a contains-match).
     Anonymous `Array Int64 2` return stays fail closed on the existing
@@ -769,6 +813,215 @@ private unsafe def testArrayInt64ElementFc
     "anonymous Array return requires UInt64 elements"
     (planTon arrInt64RetCompiled)
   IO.println "  ✓ Array Int8 / Array UInt128 / Array Int64 return stay fail closed"
+
+/-- 0/1 word select that preserves a signed Int64 payload (no uint64
+    range). Matches mapSelectLeafV1 `signed := true`. -/
+private def isSignedWordSelect : Expr → Bool
+  | .signedCheckedAdd (.signedCheckedMul _ _) (.signedCheckedMul _ _) => true
+  | _ => false
+
+/-- 0/1 word select that attaches uint64RangeCheck. Occ/key stay on this
+    form; val slots of Map UInt64 Int64 must not. -/
+private def isUnsignedWordSelect : Expr → Bool
+  | .checkedAdd (.checkedMul _ _) (.checkedMul _ _) => true
+  | _ => false
+
+private def storeAtomicLeaves (body : Array Statement) : Option (Array Store) :=
+  body.findSome? fun s =>
+    match s with
+    | .storeAtomic leaves => some leaves
+    | _ => none
+
+/-- Collect Plan exprs so get's match payload mux is visible. -/
+private partial def statementExprs : Statement → Array Expr
+  | .store op => #[op.value]
+  | .storeAtomic leaves => leaves.map (·.value)
+  | .returnValue v => #[v]
+  | .returnAggregate leaves _ => leaves
+  | .returnNone => #[]
+  | .assert c => #[c]
+  | .emitEvent _ args => args
+  | .revertError _ args => args
+  | .ifThenElse c t e =>
+      #[c] ++ t.flatMap statementExprs ++ e.flatMap statementExprs
+  | .switchOn s cases d =>
+      #[s] ++ cases.flatMap (fun (_, b) => b.flatMap statementExprs) ++
+        d.flatMap statementExprs
+  | .forLoop _ initial cond upd _ body =>
+      #[initial, cond, upd] ++ body.flatMap statementExprs
+  | .promiseAccount _ _ args => args
+
+private def expectMapInt64ValMux
+    (label : String) (leaves : Array Store) : IO Unit := do
+  expect (leaves.size == 24) s!"{label}: storeAtomic must write 24 leaves"
+  for i in [0:24] do
+    let some st := leaves[i]? |
+      throw <| IO.userError s!"{label}: missing store leaf {i}"
+    expect (st.byteWidth == 8) s!"{label}: leaf {i} byteWidth=8"
+    if i % 3 == 2 then
+      expect (isSignedWordSelect st.value)
+        s!"{label}: val slot {i} must be signedCheckedMul/Add (not uint64 mux)"
+      expect (!isUnsignedWordSelect st.value)
+        s!"{label}: val slot {i} must not use unsigned checkedMul/Add"
+    else if i % 3 == 1 then
+      expect (isUnsignedWordSelect st.value)
+        s!"{label}: key slot {i} must stay unsigned checkedMul/Add"
+      expect (!isSignedWordSelect st.value)
+        s!"{label}: key slot {i} must not use signedChecked*"
+
+/-- TON-MAP-INT: Map UInt64 Int64 state = cap-8 24-leaf occ/key/val flatten.
+    occ/key stay unsigned uint64 cells; only val slots (`i % 3 == 2`) are
+    signed int64/loadInt and signedChecked* mux — not a UInt64-value
+    alias. put(v) + putNeg(-1) pin the loadInt and negative-literal
+    val lanes. get match returns Int64; anonymous Map Int64 return stays FC. -/
+private unsafe def testMapInt64State
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "MapInt64" <|
+    "  state m : Map UInt64 Int64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry put(k : UInt64, v : Int64) : Int64 do\n" ++
+    "    m[k] := v\n" ++
+    "    return v\n\n" ++
+    "  entry putNeg(k : UInt64) : Int64 do\n" ++
+    "    m[k] := -1\n" ++
+    "    return -1\n\n" ++
+    "  view get(k : UInt64) : Int64 do\n" ++
+    "    match m[k] with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let compiled ← compileSource session source "Examples.MapInt64"
+    "<ton-map-int64>"
+  let plan ← liftResult <| planTon compiled
+  expect (plan.storage.fields.size == 24)
+    s!"MapInt64: Map UInt64 Int64 must flatten to 24 leaves, got {plan.storage.fields.size}"
+  for i in [0:24] do
+    let some field := plan.storage.fields[i]? |
+      throw <| IO.userError s!"MapInt64 missing field {i}"
+    expect (field.name == s!"m_{i}")
+      s!"MapInt64 field {i} name must be m_{i}, got {field.name}"
+    expect (field.byteWidth == 8)
+      s!"MapInt64 m_{i} byteWidth=8"
+    expect (field.isInt == (i % 3 == 2))
+      s!"MapInt64 m_{i} isInt must be {i % 3 == 2} (val only)"
+    let wantSuffix := if i % 3 == 2 then "i64-le" else "u64-le"
+    expect (layoutFieldTypeSuffix field.byteWidth field.isInt == wantSuffix)
+      s!"MapInt64 m_{i} ABI suffix must be {wantSuffix}"
+  let mapAtomic (body : Array Statement) : Bool :=
+    body.any fun s =>
+      match s with
+      | .storeAtomic leaves =>
+          leaves.size == 24 && leaves.all (fun st => st.byteWidth == 8)
+      | _ => false
+  expect (mapAtomic plan.initializer.body)
+    "MapInt64 init empty must storeAtomic 24×8"
+  let some put := plan.entries.find? (·.name == "put") |
+    throw <| IO.userError "MapInt64 missing put"
+  expect (put.resultKind == MethodResultKind.int64) "MapInt64 put result Int64"
+  let some putLeaves := storeAtomicLeaves put.body |
+    throw <| IO.userError "MapInt64 put must storeAtomic 24×8"
+  expectMapInt64ValMux "MapInt64 put" putLeaves
+  -- loadInt param is the write operand of every val-slot signed select.
+  let putValIsParam := (List.range 8).all fun e =>
+    match putLeaves[e * 3 + 2]? with
+    | some st =>
+        match st.value with
+        | .signedCheckedAdd (.signedCheckedMul _ (.param _)) _ => true
+        | _ => false
+    | none => false
+  expect putValIsParam
+    "MapInt64 put val mux write operand must be the Int64 param (loadInt)"
+  let some putNeg := plan.entries.find? (·.name == "putNeg") |
+    throw <| IO.userError "MapInt64 missing putNeg"
+  expect (putNeg.resultKind == MethodResultKind.int64) "MapInt64 putNeg result Int64"
+  let some putNegLeaves := storeAtomicLeaves putNeg.body |
+    throw <| IO.userError "MapInt64 putNeg must storeAtomic 24×8"
+  expectMapInt64ValMux "MapInt64 putNeg" putNegLeaves
+  -- `-1` folds to two's-complement UInt64 bits on the signed val lane.
+  let negOne : UInt64 := (0 : UInt64) - 1
+  let putNegWritesMinusOne := (List.range 8).all fun e =>
+    match putNegLeaves[e * 3 + 2]? with
+    | some st =>
+        match st.value with
+        | .signedCheckedAdd (.signedCheckedMul _ (.literal v)) _ => v == negOne
+        | _ => false
+    | none => false
+  expect putNegWritesMinusOne
+    "MapInt64 putNeg val mux must write the folded Int64 -1 literal"
+  let some get := plan.entries.find? (·.name == "get") |
+    throw <| IO.userError "MapInt64 missing get"
+  expect (get.mode == .view && get.resultKind == MethodResultKind.int64)
+    "MapInt64 get must be view Int64 (not Map return)"
+  let getExprs := get.body.flatMap statementExprs
+  expect (getExprs.any isSignedWordSelect)
+    "MapInt64 get payload mux must be signedCheckedMul/Add"
+  expect (!getExprs.any isUnsignedWordSelect)
+    "MapInt64 get payload must not use unsigned val mux"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"MapInt64 plan must validate: {e.render}"
+  let files ← liftResult <| filesTon compiled
+  let tolk ← findFile files "MapInt64.tolk"
+  expect (tolk.contains "m_0: uint64") "MapInt64 Tolk m_0: uint64"
+  expect (tolk.contains "m_1: uint64") "MapInt64 Tolk m_1: uint64"
+  expect (tolk.contains "m_2: int64") "MapInt64 Tolk m_2: int64"
+  expect (tolk.contains "m_23: int64") "MapInt64 Tolk m_23: int64"
+  expect (!tolk.contains "m_2: uint64")
+    "MapInt64 Tolk must not alias m_2 as uint64"
+  expect (tolk.contains "body.loadInt(64)") "MapInt64 param loadInt(64)"
+  expect (tolk.contains "-(1 << 63)")
+    "MapInt64 val mux must emit int64 range, not only (1 << 64)"
+  let abi ← findFile files "MapInt64.ton-abi.json"
+  expect (abi.contains "{\"name\":\"m_0\",\"type\":\"uint64\"}")
+    s!"MapInt64 ABI occ m_0 must be uint64, got: {abi}"
+  expect (abi.contains "{\"name\":\"m_1\",\"type\":\"uint64\"}")
+    s!"MapInt64 ABI key m_1 must be uint64, got: {abi}"
+  expect (abi.contains "{\"name\":\"m_2\",\"type\":\"int64\"}")
+    s!"MapInt64 ABI val m_2 must be int64 (not a UInt64 alias), got: {abi}"
+  expect (abi.contains "{\"name\":\"m_23\",\"type\":\"int64\"}")
+    s!"MapInt64 ABI last val m_23 must be int64, got: {abi}"
+  expect (abi.contains "\"returns\":\"int64\"") "MapInt64 ABI returns int64"
+  IO.println "  ✓ Map UInt64 Int64 state cap-8 occ/key unsigned + val signed mux"
+
+/-- Map Int8-value / Map UInt128-value stay fail closed on the historical
+    Map-U64-U64 needle (`Map state admits only Map UInt64 UInt64` is a
+    contains-match). Anonymous `Map UInt64 Int64` return stays fail closed
+    on the existing Ton B-RET Map needle (TON does not admit Map return). -/
+private unsafe def testMapInt64ElementFc
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let mapI8 := wrapProgram "MapI8Ton" <|
+    "  state m : Map UInt64 Int8\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    return v\n"
+  let mapI8Compiled ← compileSource session mapI8 "Examples.MapI8Ton" "<ton-map-i8>"
+  expectPlanErrorContaining "MapI8" "Map state admits only Map UInt64 UInt64"
+    (planTon mapI8Compiled)
+  let mapU128 := wrapProgram "MapU128Ton" <|
+    "  state m : Map UInt64 UInt128\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    return v\n"
+  let mapU128Compiled ← compileSource session mapU128 "Examples.MapU128Ton"
+    "<ton-map-u128>"
+  expectPlanErrorContaining "MapU128" "Map state admits only Map UInt64 UInt64"
+    (planTon mapU128Compiled)
+  let mapInt64Ret := wrapProgram "MapInt64RetTon" <|
+    "  state m : Map UInt64 Int64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  view dump() : Map UInt64 Int64 do\n" ++
+    "    return m\n"
+  let mapInt64RetCompiled ← compileSource session mapInt64Ret
+    "Examples.MapInt64RetTon" "<ton-map-int64-ret>"
+  expectPlanErrorContaining "MapInt64Ret"
+    "anonymous Map return is outside the Ton B-RET ABI"
+    (planTon mapInt64RetCompiled)
+  IO.println "  ✓ Map Int8 / Map UInt128 / Map Int64 return stay fail closed"
 
 /-- BL-14: UInt128 state/param/body as one uint128 cell + loadUint(128). -/
 private unsafe def testUint128Abi
@@ -2421,7 +2674,10 @@ unsafe def run : IO Unit := do
   testNarrowInt16Int32 session
   testSignedContainerFc session
   testArrayInt64State session
+  testArrayInt64x24Layout session
   testArrayInt64ElementFc session
+  testMapInt64State session
+  testMapInt64ElementFc session
   testUint128Abi session
   testUint128WideLiteral session
   testUint128ShiftFc session

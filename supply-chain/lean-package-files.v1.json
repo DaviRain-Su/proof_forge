@@ -1546,9 +1546,9 @@
       "sha256": "c350f35bc461b4bee5ac0c2451bc3c6474b5b1e09bb9dba6580238a836028229"
     },
     {
-      "bytes": 199713,
+      "bytes": 202584,
       "path": "ProofForgeV2/Targets/Ton/LowerSemanticV1.lean",
-      "sha256": "d7d5c823878bce1fcb91d14f62bacc0fc9996c5944ebcf64e963ce1fcf054fae"
+      "sha256": "a624a5984ab3faa5899c061937635a5970202b1c69b20dd2e9ebf80243b7eb8b"
     },
     {
       "bytes": 16846,

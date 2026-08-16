@@ -5797,8 +5797,8 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "MapBool" TargetId.icp TargetKind.icp
     mapBoolCompiled "anonymous Map is outside the current container-state pilot"
 
-  -- MapInt: Map UInt64 Int64 state. CosmWasm admits cap-8 occ/key
-  -- unsigned + val signed (not a UInt64-value alias). Other eleven stay
+  -- MapInt: Map UInt64 Int64 state. CosmWasm+TON admit cap-8 occ/key
+  -- unsigned + val signed (not a UInt64-value alias). Other ten stay
   -- named Map-value/pilot FC. Not opening Map-of-Int8, Int64-key, or
   -- Map UInt128. MapBool / MapStr / MapMini / OptInt / OptBool stay.
   let mapIntSource :=
@@ -5825,11 +5825,13 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   let mapIntCwOut ← liftResult <| materializeSelected TargetId.cosmwasm mapIntCompiled
   expect (!(MaterializedArtifactsV1.filesOf mapIntCwOut).isEmpty)
     "MapInt: cosmwasm must materialize Map UInt64 Int64"
+  let mapIntTonOut ← liftResult <| materializeSelected TargetId.ton mapIntCompiled
+  expect (!(MaterializedArtifactsV1.filesOf mapIntTonOut).isEmpty)
+    "MapInt: ton must materialize Map UInt64 Int64"
   for (target, kind) in #[
       (TargetId.near, TargetKind.near),
       (TargetId.noir, TargetKind.noir),
-      (TargetId.aleo, TargetKind.aleo),
-      (TargetId.ton, TargetKind.ton)] do
+      (TargetId.aleo, TargetKind.aleo)] do
     expectMaterializePlanInvariantV1 "MapInt" target kind mapIntCompiled
       "Map state admits only Map UInt64 UInt64"
   expectMaterializePlanInvariantV1 "MapInt" TargetId.psy TargetKind.psy

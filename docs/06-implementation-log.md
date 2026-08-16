@@ -16725,3 +16725,24 @@ normative: false
   Int64 return 仍 `anonymous Map return requires Map UInt64 UInt64`。
   Targets MapInt 仅 CosmWasm files-nonempty。Int64-key / Map UInt128 /
   TON/Aleo 未开。**不**声称 wasmd / formal / runtime / hermetic / release。
+
+## 2026-08-16 — TON-MAP-INT TON Map UInt64 Int64 cap-8 state（engineering）
+
+- TON `containerLeafLayoutV1` Map 臂现接纳 `Map UInt64 UInt64` 或
+  `Map UInt64 Int64`。第三 Bool 是 value-is-Int64，不是 24 叶统一 signed
+  旗。`makeStorageLayoutV1` 按 TypeDecl `.map`（**不是** leaf count 24）
+  仅把 `i % 3 == 2` 的 val 槽标 `isInt` / Tolk `int64` / `loadInt`；occ/key
+  保持无符号 uint64 cell。`Array Int64 24` 仍是 24 个均匀 signed cell。
+  IndexSet 在 Map value TypeId 为 Int64 时接受 `.int64`；**仅 val 槽**
+  经 `signedCheckedMul`/`signedCheckedAdd` 选择（occ/key 仍走无符号
+  checkedMul/Add，避免 `loadInt` 负值撞上 `0 <= dest < (1 << 64)`）。
+  空 construct 仍是 24 个零字面量。`anonymousReturnLeafAbiV1` Map 臂仍
+  `anonymous Map return is outside the Ton B-RET ABI`。不是 UInt64-value
+  别名，也不是 CosmWasm Regions。
+- `TonPlanV1` 钉 `MapInt64` 24 叶 mixed isInt + val 槽 signedChecked*
+  mux + `putNeg` `m[k] := -1` + `Array Int64 24` 均匀 `isInt=true` +
+  Focus；Map Int8 / Map UInt128 仍走
+  `Map state admits only Map UInt64 UInt64` contains-match；匿名 Map
+  Int64 return 仍 `anonymous Map return is outside the Ton B-RET ABI`。
+  Targets MapInt CosmWasm+TON files-nonempty。Int64-key / Map UInt128 /
+  CW/Aleo 未改。**不**声称 sandbox / formal / runtime / hermetic / release。

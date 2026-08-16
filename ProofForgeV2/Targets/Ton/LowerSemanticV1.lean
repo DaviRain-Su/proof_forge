@@ -803,8 +803,11 @@ private def nearMapPilotLeafCountV1 : Nat :=
     Array: fixed `Array UInt64 N` or `Array Int64 N` → N×8-byte cells
     (`leafIsInt` only for Int64; not a packed array, not a UInt64 alias,
     and not CosmWasm Regions). Map: dense capacity-8 occ/key/val →
-    24×8-byte unsigned leaves. Bytes: fixed `Bytes N` → N×1-byte UInt8
-    leaves (byte-exact KV identity; element-wise IndexGet/IndexSet). -/
+    24×8-byte cells. Third Bool is **value-is-Int64** for
+    `Map UInt64 Int64` (occ/key stay unsigned uint64 cells; not a
+    UInt64-value alias); `Map UInt64 UInt64` keeps it false. Bytes:
+    fixed `Bytes N` → N×1-byte UInt8 leaves (byte-exact KV identity;
+    element-wise IndexGet/IndexSet). -/
 private def containerLeafLayoutV1
     (typeDecls : Array TypeDeclV1) (types : TonTypeClosureV1)
     (typeId : TypeIdV1) : CompileResult (Option (Nat × Nat × Bool)) := do
@@ -824,10 +827,15 @@ private def containerLeafLayoutV1
       let leafIsInt := types.int64TypeId == some elTid
       pure (some (n, 8, leafIsInt))
   | some { shape := .map keyTid valTid, .. } =>
-      unless keyTid == types.uint64TypeId && valTid == types.uint64TypeId do
+      -- Historical needle stays a contains-match so MapInt8 / MapU128 /
+      -- Int64-key / other value shapes stay fail closed. Third Bool is
+      -- value-is-Int64, not a uniform 24-leaf signed flag.
+      unless keyTid == types.uint64TypeId &&
+          (valTid == types.uint64TypeId || types.int64TypeId == some valTid) do
         throw <| .planInvariant .ton
           "unsupported Ton semantic shape: Map state admits only Map UInt64 UInt64"
-      pure (some (nearMapPilotLeafCountV1, 8, false))
+      let valIsInt := types.int64TypeId == some valTid
+      pure (some (nearMapPilotLeafCountV1, 8, valIsInt))
   | some { shape := .bytes len, .. } =>
       let n := len.toNat
       unless n ≥ 1 do
@@ -1124,9 +1132,26 @@ private def scalarKindOfNamedLeafResultV1
     throw <| .planInvariant .ton
       "unsupported Ton semantic shape: named-aggregate scalar leaf must be UInt64 or Int64"
 
-/-- Dense Map IndexGet → Option UInt64 as `[tag, payload]`. -/
+/-- Select `chosen` vs `kept` with a 0/1 write/miss pair.
+    Unsigned mux attaches `uint64RangeCheck` (`0 <= dest < 1<<64`) and
+    traps `loadInt` negatives. Signed mux uses Int64 range. Occ/key
+    always pass `signed := false`. -/
+private def mapSelectLeafV1 (write miss chosen kept : Expr) (signed : Bool) : Expr :=
+  if signed then
+    Expr.signedCheckedAdd
+      (Expr.signedCheckedMul write chosen)
+      (Expr.signedCheckedMul miss kept)
+  else
+    Expr.checkedAdd
+      (Expr.checkedMul write chosen)
+      (Expr.checkedMul miss kept)
+
+/-- Dense Map IndexGet → Option as `[tag, payload]`. `valIsInt` is
+    TypeDecl `.map` value-is-Int64 (not `n == 24`): only the payload
+    word uses the signed select. Occ/key hit math stays unsigned. -/
 private def mapLookupOptionLeavesV1
-    (mapLeaves : Array Expr) (key : Expr) : CompileResult (Array Expr) := do
+    (mapLeaves : Array Expr) (key : Expr) (valIsInt : Bool) :
+    CompileResult (Array Expr) := do
   unless mapLeaves.size == nearMapPilotLeafCountV1 do
     throw <| .planInvariant .ton
       "unsupported Ton semantic shape: Map leaf count must match pilot capacity"
@@ -1143,13 +1168,14 @@ private def mapLookupOptionLeavesV1
     let hit := Expr.checkedMul occ (Expr.compare .eq k key)
     let miss := Expr.boolNot hit
     found := Expr.boolOr found hit
-    payload :=
-      Expr.checkedAdd (Expr.checkedMul hit v) (Expr.checkedMul miss payload)
+    payload := mapSelectLeafV1 hit miss v payload valIsInt
   pure #[Expr.checkedAdd found (.literal 0), payload]
 
-/-- Dense Map IndexSet upsert. Returns (newLeaves, okInsert). -/
+/-- Dense Map IndexSet upsert. Returns (newLeaves, okInsert).
+    `valIsInt` muxes only the val slot with signedChecked*; occ/key
+    stay unsigned checkedMul/Add. -/
 private def mapUpsertLeavesV1
-    (mapLeaves : Array Expr) (key value : Expr) :
+    (mapLeaves : Array Expr) (key value : Expr) (valIsInt : Bool) :
     CompileResult (Array Expr × Expr) := do
   unless mapLeaves.size == nearMapPilotLeafCountV1 do
     throw <| .planInvariant .ton
@@ -1190,10 +1216,8 @@ private def mapUpsertLeavesV1
     let write := Expr.boolOr matchHit insertHere
     let miss := Expr.boolNot write
     let occ' := Expr.checkedAdd (Expr.boolOr occ write) (.literal 0)
-    let k' :=
-      Expr.checkedAdd (Expr.checkedMul write key) (Expr.checkedMul miss k)
-    let v' :=
-      Expr.checkedAdd (Expr.checkedMul write value) (Expr.checkedMul miss v)
+    let k' := mapSelectLeafV1 write miss key k false
+    let v' := mapSelectLeafV1 write miss value v valIsInt
     out := out.push occ' |>.push k' |>.push v'
   pure (out, okInsert)
 
@@ -1213,12 +1237,20 @@ private def makeStorageLayoutV1
     match ← containerLeafLayoutV1 typeDecls types state.typeId with
     | some (n, leafByteWidth, leafIsInt) =>
         -- Array: N consecutive 8-byte UInt64 or Int64 c4 cells (`isInt`
-        -- selects Tolk `int64` / `loadInt`, not a UInt64 alias). Map:
-        -- 24×8-byte unsigned. Bytes: N consecutive 1-byte UInt8 cells.
-        -- Physical names `name_0`..`name_{n-1}` keep layout markers
-        -- deterministic. Visibility: same N1 allowNonPublic as scalar state.
+        -- selects Tolk `int64` / `loadInt`, not a UInt64 alias). Map
+        -- cap-8: 24×8-byte occ/key/val; `leafIsInt` is value-is-Int64 so
+        -- only val slots (`i % 3 == 2`) are int64/loadInt — occ/key stay
+        -- unsigned (not a UInt64-value alias). Bytes: N consecutive
+        -- 1-byte UInt8 cells. Physical names `name_0`..`name_{n-1}` keep
+        -- layout markers deterministic. Visibility: same N1 allowNonPublic
+        -- as scalar state. Signedness follows TypeDecl shape, never leaf
+        -- count: Array Int64 24 stays 24 uniform int64 cells.
         if fields.size + n > maxStateFields then
           throw <| .planInvariant .ton "state count is outside the profile limits"
+        let isMapState :=
+          match typeDecls[state.typeId.toNat]? with
+          | some { shape := .map .., .. } => true
+          | _ => false
         let mut leaves : Array Nat := #[]
         for i in [0:n] do
           let leafName := state.name ++ "_" ++ toString i
@@ -1227,13 +1259,20 @@ private def makeStorageLayoutV1
               s!"state name '{leafName}' is not a safe identifier"
           let fi := fields.size
           leaves := leaves.push fi
+          -- Map: val signed only when value-is-Int64. Array/Bytes keep a
+          -- uniform `leafIsInt` even when N happens to be 24.
+          let slotIsInt :=
+            if isMapState then
+              leafIsInt && (i % 3 == 2)
+            else
+              leafIsInt
           fields := fields.push {
             sourceId := fi
             name := leafName
             key := stateKey fi
             byteWidth := leafByteWidth
             endianness := .little
-            isInt := leafIsInt
+            isInt := slotIsInt
           }
         stateLeaves := stateLeaves.push leaves
     | none =>
@@ -2903,7 +2942,14 @@ private def lowerBlockInstructionsV1
             "unsupported Ton semantic shape: IndexGet base must be an Array/Map/Bytes aggregate"
         let idx ← currentValueWithArmsV1 values blockEntry segmentStart armReadables idxId
         if base.leafExprs.size == nearMapPilotLeafCountV1 then
-          let optLeaves ← mapLookupOptionLeavesV1 base.leafExprs idx.expr
+          -- Payload signedness follows Option element TypeId (Map value),
+          -- not n==24. Occ/key hit math stays unsigned inside lookup.
+          let valIsInt :=
+            match typeDecls[result.typeId.toNat]? with
+            | some { shape := .option elTid, .. } =>
+                types.int64TypeId == some elTid
+            | _ => false
+          let optLeaves ← mapLookupOptionLeavesV1 base.leafExprs idx.expr valIsInt
           let value := mkAggregateValueV1 optLeaves #[baseId, idxId]
             (Nat.max base.depth idx.depth + 1)
             (base.expandedNodes + idx.expandedNodes + 1)
@@ -2960,11 +3006,21 @@ private def lowerBlockInstructionsV1
           throw <| .planInvariant .ton
             "unsupported Ton semantic shape: IndexSet value must be a scalar UInt8/UInt64/Int64"
         if base.leafExprs.size == nearMapPilotLeafCountV1 then
-          unless val.kind == .uint64 do
+          -- Map UInt64 UInt64 keeps unsigned val mux; Map UInt64 Int64
+          -- accepts Int64 and muxes only the val slot with signedChecked*
+          -- (occ/key stay unsigned). Branch on TypeDecl `.map` valTid,
+          -- not n==24 — Array Int64 24 is not a Map.
+          let wantInt :=
+            match typeDecls[result.typeId.toNat]? with
+            | some { shape := .map _ valTid, .. } =>
+                types.int64TypeId == some valTid
+            | _ => false
+          let wantKind := if wantInt then TonValueKindV1.int64 else .uint64
+          unless val.kind == wantKind do
             throw <| .planInvariant .ton
-              "unsupported Ton semantic shape: Map IndexSet value must be scalar UInt64"
+              "unsupported Ton semantic shape: Map IndexSet value must be scalar UInt64 or Int64 matching the map value"
           let (outLeaves0, okInsert) ←
-            mapUpsertLeavesV1 base.leafExprs idx.expr val.expr
+            mapUpsertLeavesV1 base.leafExprs idx.expr val.expr wantInt
           let gate := Expr.checkedDiv (.literal 1) okInsert
           let mut outLeaves : Array Expr := #[]
           for i in [0:outLeaves0.size] do

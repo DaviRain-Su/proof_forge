@@ -42,15 +42,21 @@ stub、body=`op32 · query_id=0 · UInt64 args`；仅 init/mutate，view/pureFn 
 `(1 << 256)`；越界加/乘先由 TVM ADD/MUL 溢出）**，不是 CosmWasm 式 lo/hi
 或 4-limb；Int128/256 仍 FC；UInt128/256 的 Array/Map/Option 与 shl/shr/bitwise 仍
 FC）；named Struct/Enum、`Array UInt64 N` 与 `Array Int64 N`、dense
-`Map UInt64 UInt64` cap-8 与
+`Map UInt64 UInt64` cap-8、dense `Map UInt64 Int64` cap-8 与
 fixed `Bytes N` state 已 flatten 到 c4。**Array Int64 N** 是 N 个连续
 `int64` c4 cell（`isInt` / `loadInt`），flatten 与 Array UInt64 相同；**不是**
-UInt64 位别名，也**不是** CosmWasm Regions。**Option Int64 state** 是 Enum 形
+UInt64 位别名，也**不是** CosmWasm Regions。**dense Map UInt64 Int64** 是
+cap-8 24 叶 occ/key/val flatten：occ/key 保持无符号 uint64 cell，仅 val 叶
+为有符号 int64 cell / `loadInt`，put/get 仅对 val 槽走
+`signedCheckedMul`/`signedCheckedAdd`（负 `loadInt` 不经过
+`0 <= dest < (1 << 64)`）；**不是** CosmWasm Regions，也**不是**
+UInt64-value 别名。**Option Int64 state** 是 Enum 形
 双叶：`name_tag` 无符号 uint64 cell + `name_p0` 有符号 int64 cell / `loadInt`；
 flatten 与 Option UInt64 相同；**不是** UInt64 别名，也**不是** CosmWasm
 Regions。named Struct/Enum 以及 anonymous
 `Array UInt64 N`（1..8）/`Option UInt64` **view** 返回已开多栈 get-method。entry
-aggregate、Array Int64 return、Array Int8、Array UInt128、Map of Int、
+aggregate、Array Int64 return、Array Int8、Array UInt128、Map Int8 /
+Map UInt128 / Map Int64 return / Int64-key、
 Option Int8/16/32、Option UInt128、Option Int64 return、
 Map/Bytes/nested/非 admitted 元素与 target pureFn aggregate仍 fail closed；
 Field/Principal/String、ContextRead/Commit、nonempty invariants/constants、masterchain/library/
@@ -282,7 +288,7 @@ Tolk compile (结构/ABI)                    ✅ 工程
 - schedule 的真实 destination/address binding、非零 value 经济与 callback/`query_id` 往返；当前仅
   fixed hash destination stub + value=0 + fixed send-mode。
 - Int128/256、Array/Map/Option of UInt128/256、UInt128/256 shifts/bitwise、entry aggregate return、
-  Map/Bytes return、Map of Int、Option Int8/16/32、Option Int64 return、Field/Principal/String interface、ContextRead/Commit、
+  Map/Bytes return、Map Int8 / Map UInt128 / Map Int64 return / Int64-key、Option Int8/16/32、Option Int64 return、Field/Principal/String interface、ContextRead/Commit、
   nonempty invariants/constants、masterchain/library/extra currencies。
 - FunC/Tact 默认发射、手写 TVM 汇编产品路径。
 - formal Reference 差分、主网 deploy 证据。
