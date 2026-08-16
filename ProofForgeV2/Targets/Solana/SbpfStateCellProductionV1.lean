@@ -8,6 +8,7 @@ import ProofForgeV2.Targets.Solana.EmitSbpfAsmV1
 import ProofForgeV2.Targets.Solana.ProductionCompositionV1
 import ProofForgeV2.Targets.Solana.ProductionMethodV1
 import ProofForgeV2.Targets.Solana.SbpfHandlerJoinV1
+import ProofForgeV2.Targets.Solana.SbpfStateCellTypedV1
 
 /-!
 # Solana StateCell production subject

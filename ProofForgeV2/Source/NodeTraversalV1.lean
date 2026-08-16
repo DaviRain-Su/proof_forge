@@ -40,7 +40,6 @@ private structure WorkItemV1 where
   path : NormalizedSyntacticPathV1
 
 private def maxNodeVisitsV1 : Nat := 100000
-private def maxPathEdgesV1 : Nat := 255
 
 private def fail (detail : String) : Except String α :=
   .error detail
@@ -61,7 +60,7 @@ def childPathV1
     (path : NormalizedSyntacticPathV1)
     (parentTag fieldTag : String) (index : Nat) :
     Except String NormalizedSyntacticPathV1 := do
-  if path.size >= maxPathEdgesV1 then
+  if path.size >= 255 then
     return ← depthError
   if index >= UInt32.size then
     return ← nodeError

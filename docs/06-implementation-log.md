@@ -16553,3 +16553,23 @@ normative: false
   `checkProgramTypedResultV1` acceptance、`encodeCarrierV1`、`CompiledSemanticV1` identity mint、Solana
   Plan/IR lowering、6580-byte emitter equation、103-block SHA或unconditional `get`；下一刀继续
   `SOL-0048-D5-GET-EMITTER-CERTIFICATE`的compiler gate，而不是生成proof-only compiler/hash。
+
+## 2026-08-16 — StateCell production name-resolution and call-graph certificates
+
+- 唯一production名字解析器的reachable `partial`递归已改为100001节点fuel的总函数；该上限直接覆盖
+  validated source的100000节点约束，fuel耗尽发internal draft并fail closed。声明表构建与body解析使用
+  同一production source-list driver及逐item step，产品入口本身调用这些边界；没有增加第二套resolver、
+  proof-only checker或按合约名分支。
+- 真实`program StateCell`四个声明分别闭合表构建和名字解析等式，再组合成公开的
+  `stateCellNameResolutionSuccessV1`。production CallGraph的expression/place/pattern/statement/body collector
+  也改为同样的有界总递归，顶层edge walk改为结构List driver。真实四个item均由authoritative
+  site-bearing collector重放，随后闭合empty edge graph、adjacency、Tarjan/SCC与cycle drafts；没有因为
+  StateCell恰好没有`fn`而添加跳过分析的特例。
+- `NodeTraversalV1.childPathV1`直接使用既有255-edge常量值，移除仅阻止kernel reduction的private opaque
+  间接层；path语义、diagnostic顺序和runtime结果不变。CallGraph/Check/DiagnosticLocations回归通过，
+  新StateCell Typed证书由Lean kernel编译；禁止项扫描保持无`native_decide`、`Lean.ofReduceBool`、
+  `run_tac`、`sorry`、用户axiom或`unsafe theorem`。
+- 准确边界：Typed gate目前已闭合resolution与call graph两个production phase，尚未闭合TypeCheck、
+  EffectCheck、BoundCheck、DisclosureCheck、AuthorityCustodyCheck及ContextExtensionCheck，因此还不能宣称
+  `checkProgramTypedResultV1`整体通过，也尚未mint `CompiledSemanticV1` identity。下一处确定阻塞是
+  production `TypeCheckV1`中StateCell reachable的kernel-opaque recursive walkers。

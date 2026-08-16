@@ -106,37 +106,39 @@ def directOrFail
   childOrFail parent parentTag fieldTag 0
 
 mutual
-  partial def collectExprEdges (tables : TypedDeclTablesV1) (scope : CollectorScope)
-      (exprPath : NormalizedSyntacticPathV1) : ExprV1 → CollectorM Unit
-    | .literal _ => pure ()
-    | .place p => do
+  def collectExprEdgesFuelV1 (tables : TypedDeclTablesV1) (scope : CollectorScope)
+      (exprPath : NormalizedSyntacticPathV1) : Nat → ExprV1 → CollectorM Unit
+    | 0, _ =>
+        emitPathError "call graph collection exceeds the validated source node bound"
+    | _ + 1, .literal _ => pure ()
+    | fuel + 1, .place p => do
         match ← directOrFail exprPath "Expr.Place" "place" with
         | none => pure ()
-        | some pp => collectPlaceEdges tables scope pp p
-    | .constructor _ args => do
+        | some pp => collectPlaceEdgesFuelV1 tables scope pp fuel p
+    | fuel + 1, .constructor _ args => do
         for (arg, i) in args.zipIdx do
           match ← childOrFail exprPath "Expr.Constructor" "args" i with
           | none => pure ()
-          | some ap => collectExprEdges tables scope ap arg
-    | .unary _ e => do
+          | some ap => collectExprEdgesFuelV1 tables scope ap fuel arg
+    | fuel + 1, .unary _ e => do
         match ← directOrFail exprPath "Expr.Unary" "operand" with
         | none => pure ()
-        | some op => collectExprEdges tables scope op e
-    | .binary _ lhs rhs => do
+        | some op => collectExprEdgesFuelV1 tables scope op fuel e
+    | fuel + 1, .binary _ lhs rhs => do
         match ← directOrFail exprPath "Expr.Binary" "lhs" with
         | none => pure ()
-        | some lp => collectExprEdges tables scope lp lhs
+        | some lp => collectExprEdgesFuelV1 tables scope lp fuel lhs
         match ← directOrFail exprPath "Expr.Binary" "rhs" with
         | none => pure ()
-        | some rp => collectExprEdges tables scope rp rhs
-    | .localCall callee args => do
+        | some rp => collectExprEdgesFuelV1 tables scope rp fuel rhs
+    | fuel + 1, .localCall callee args => do
         if let some calleeOrdinal := resolveCalleeFn tables scope callee then
           emitEdge calleeOrdinal exprPath
         for (arg, i) in args.zipIdx do
           match ← childOrFail exprPath "Expr.LocalCall" "args" i with
           | none => pure ()
-          | some ap => collectExprEdges tables scope ap arg
-    | .externalCall call => do
+          | some ap => collectExprEdgesFuelV1 tables scope ap fuel arg
+    | fuel + 1, .externalCall call => do
         -- N-CALL-RET: external callee is a qualified name, not a local fn:
         -- no call-graph edge, only walk args.
         match ← directOrFail exprPath "Expr.ExternalCall" "call" with
@@ -145,160 +147,211 @@ mutual
             for (arg, i) in call.args.zipIdx do
               match ← childOrFail cp "ExternalCallExpr" "args" i with
               | none => pure ()
-              | some ap => collectExprEdges tables scope ap arg
-    | .match_ scrutinee arms => do
+              | some ap => collectExprEdgesFuelV1 tables scope ap fuel arg
+    | fuel + 1, .match_ scrutinee arms => do
         match ← directOrFail exprPath "Expr.Match" "scrutinee" with
         | none => pure ()
-        | some sp => collectExprEdges tables scope sp scrutinee
+        | some sp => collectExprEdgesFuelV1 tables scope sp fuel scrutinee
         for (arm, i) in arms.zipIdx do
           match ← childOrFail exprPath "Expr.Match" "arms" i with
           | none => pure ()
           | some armPath => do
-              let binders := collectPatternBinders arm.pattern
+              let binders ← collectPatternBindersFuelV1 fuel arm.pattern
               match ← directOrFail armPath "ExprMatchArm" "value" with
               | none => pure ()
               | some vp =>
-                  collectExprEdges tables { scope with locals := binders ++ scope.locals }
-                    vp arm.value
+                  collectExprEdgesFuelV1 tables
+                    { scope with locals := binders ++ scope.locals }
+                    vp fuel arm.value
 
-  partial def collectPlaceEdges (tables : TypedDeclTablesV1) (scope : CollectorScope)
-      (placePath : NormalizedSyntacticPathV1) : PlaceV1 → CollectorM Unit
-    | .name _ => pure ()
-    | .field base _ => do
+  def collectPlaceEdgesFuelV1 (tables : TypedDeclTablesV1) (scope : CollectorScope)
+      (placePath : NormalizedSyntacticPathV1) : Nat → PlaceV1 → CollectorM Unit
+    | 0, _ =>
+        emitPathError "call graph collection exceeds the validated source node bound"
+    | _ + 1, .name _ => pure ()
+    | fuel + 1, .field base _ => do
         match ← directOrFail placePath "Place.Field" "base" with
         | none => pure ()
-        | some bp => collectPlaceEdges tables scope bp base
-    | .index base idx => do
+        | some bp => collectPlaceEdgesFuelV1 tables scope bp fuel base
+    | fuel + 1, .index base idx => do
         match ← directOrFail placePath "Place.Index" "base" with
         | none => pure ()
-        | some bp => collectPlaceEdges tables scope bp base
+        | some bp => collectPlaceEdgesFuelV1 tables scope bp fuel base
         match ← directOrFail placePath "Place.Index" "index" with
         | none => pure ()
-        | some ip => collectExprEdges tables scope ip idx
+        | some ip => collectExprEdgesFuelV1 tables scope ip fuel idx
 
-  partial def collectPatternBinders : PatternV1 → List SourceNameComponentV1
-    | PatternV1.wildcard | PatternV1.literal _ => []
-    | PatternV1.bind name => [name]
-    | PatternV1.constructor _ args =>
-        args.foldl (fun acc p => acc ++ collectPatternBinders p) []
+  def collectPatternBindersFuelV1 :
+      Nat → PatternV1 → CollectorM (List SourceNameComponentV1)
+    | 0, _ => do
+        emitPathError "call graph collection exceeds the validated source node bound"
+        pure []
+    | _ + 1, PatternV1.wildcard | _ + 1, PatternV1.literal _ => pure []
+    | _ + 1, PatternV1.bind name => pure [name]
+    | fuel + 1, PatternV1.constructor _ args => do
+        let mut acc : List SourceNameComponentV1 := []
+        for pattern in args do
+          let binders ← collectPatternBindersFuelV1 fuel pattern
+          acc := acc ++ binders
+        pure acc
 
-  partial def collectBlockEdges (tables : TypedDeclTablesV1) (scope : CollectorScope)
-      (blockPath : NormalizedSyntacticPathV1) (block : BlockV1) : CollectorM Unit :=
-    collectStmtsEdges tables scope blockPath block.statements.toList 0
+  def collectBlockEdgesFuelV1 (tables : TypedDeclTablesV1) (scope : CollectorScope)
+      (blockPath : NormalizedSyntacticPathV1) : Nat → BlockV1 → CollectorM Unit
+    | 0, _ =>
+        emitPathError "call graph collection exceeds the validated source node bound"
+    | fuel + 1, block =>
+        collectStmtsEdgesFuelV1 tables scope blockPath fuel block.statements.toList 0
 
-  partial def collectStmtsEdges (tables : TypedDeclTablesV1) (scope : CollectorScope)
+  def collectStmtsEdgesFuelV1 (tables : TypedDeclTablesV1) (scope : CollectorScope)
       (blockPath : NormalizedSyntacticPathV1) :
-      List StmtV1 → Nat → CollectorM Unit
-    | [], _ => pure ()
-    | stmt :: rest, idx => do
+      Nat → List StmtV1 → Nat → CollectorM Unit
+    | 0, _, _ =>
+        emitPathError "call graph collection exceeds the validated source node bound"
+    | _ + 1, [], _ => pure ()
+    | fuel + 1, stmt :: rest, idx => do
         match ← childOrFail blockPath "Block" "statements" idx with
         | none => pure ()
         | some stmtPath => do
-            let added ← collectStmtEdges tables scope stmtPath stmt
-            collectStmtsEdges tables { scope with locals := added ++ scope.locals }
-              blockPath rest (idx + 1)
+            let added ← collectStmtEdgesFuelV1 tables scope stmtPath fuel stmt
+            collectStmtsEdgesFuelV1 tables
+              { scope with locals := added ++ scope.locals }
+              blockPath fuel rest (idx + 1)
 
-  partial def collectStmtEdges (tables : TypedDeclTablesV1) (scope : CollectorScope)
+  def collectStmtEdgesFuelV1 (tables : TypedDeclTablesV1) (scope : CollectorScope)
       (stmtPath : NormalizedSyntacticPathV1) :
-      StmtV1 → CollectorM (List SourceNameComponentV1)
-    | .let_ name _ value => do
+      Nat → StmtV1 → CollectorM (List SourceNameComponentV1)
+    | 0, _ => do
+        emitPathError "call graph collection exceeds the validated source node bound"
+        pure []
+    | fuel + 1, .let_ name _ value => do
         match ← directOrFail stmtPath "Stmt.Let" "value" with
         | none => pure ()
-        | some vp => collectExprEdges tables scope vp value
+        | some vp => collectExprEdgesFuelV1 tables scope vp fuel value
         pure [name]
-    | .assign target value => do
+    | fuel + 1, .assign target value => do
         match ← directOrFail stmtPath "Stmt.Assign" "target" with
         | none => pure ()
-        | some tp => collectPlaceEdges tables scope tp target
+        | some tp => collectPlaceEdgesFuelV1 tables scope tp fuel target
         match ← directOrFail stmtPath "Stmt.Assign" "value" with
         | none => pure ()
-        | some vp => collectExprEdges tables scope vp value
+        | some vp => collectExprEdgesFuelV1 tables scope vp fuel value
         pure []
-    | .if_ condition thenBlock elseBlock? => do
+    | fuel + 1, .if_ condition thenBlock elseBlock? => do
         match ← directOrFail stmtPath "Stmt.If" "condition" with
         | none => pure ()
-        | some cp => collectExprEdges tables scope cp condition
+        | some cp => collectExprEdgesFuelV1 tables scope cp fuel condition
         match ← directOrFail stmtPath "Stmt.If" "thenBlock" with
         | none => pure ()
-        | some tp => collectBlockEdges tables scope tp thenBlock
+        | some tp => collectBlockEdgesFuelV1 tables scope tp fuel thenBlock
         match elseBlock? with
         | none => pure ()
         | some eb =>
             match ← directOrFail stmtPath "Stmt.If" "elseBlock" with
             | none => pure ()
-            | some ep => collectBlockEdges tables scope ep eb
+            | some ep => collectBlockEdgesFuelV1 tables scope ep fuel eb
         pure []
-    | .match_ scrutinee arms => do
+    | fuel + 1, .match_ scrutinee arms => do
         match ← directOrFail stmtPath "Stmt.Match" "scrutinee" with
         | none => pure ()
-        | some sp => collectExprEdges tables scope sp scrutinee
+        | some sp => collectExprEdgesFuelV1 tables scope sp fuel scrutinee
         for (arm, i) in arms.zipIdx do
           match ← childOrFail stmtPath "Stmt.Match" "arms" i with
           | none => pure ()
           | some armPath => do
-              let binders := collectPatternBinders arm.pattern
+              let binders ← collectPatternBindersFuelV1 fuel arm.pattern
               match ← directOrFail armPath "StmtMatchArm" "body" with
               | none => pure ()
               | some bp =>
-                  collectBlockEdges tables { scope with locals := binders ++ scope.locals }
-                    bp arm.body
+                  collectBlockEdgesFuelV1 tables
+                    { scope with locals := binders ++ scope.locals }
+                    bp fuel arm.body
         pure []
-    | .for_ binder start endExclusive _ body => do
+    | fuel + 1, .for_ binder start endExclusive _ body => do
         match ← directOrFail stmtPath "Stmt.For" "start" with
         | none => pure ()
-        | some sp => collectExprEdges tables scope sp start
+        | some sp => collectExprEdgesFuelV1 tables scope sp fuel start
         match ← directOrFail stmtPath "Stmt.For" "endExclusive" with
         | none => pure ()
-        | some ep => collectExprEdges tables scope ep endExclusive
+        | some ep => collectExprEdgesFuelV1 tables scope ep fuel endExclusive
         match ← directOrFail stmtPath "Stmt.For" "body" with
         | none => pure ()
         | some bp =>
-            collectBlockEdges tables { scope with locals := binder :: scope.locals } bp body
+            collectBlockEdgesFuelV1 tables
+              { scope with locals := binder :: scope.locals } bp fuel body
         pure []
-    | .assert_ condition _ => do
+    | fuel + 1, .assert_ condition _ => do
         match ← directOrFail stmtPath "Stmt.Assert" "condition" with
         | none => pure ()
-        | some cp => collectExprEdges tables scope cp condition
+        | some cp => collectExprEdgesFuelV1 tables scope cp fuel condition
         pure []
-    | .revert _ args => do
+    | fuel + 1, .revert _ args => do
         for (arg, i) in args.zipIdx do
           match ← childOrFail stmtPath "Stmt.Revert" "args" i with
           | none => pure ()
-          | some ap => collectExprEdges tables scope ap arg
+          | some ap => collectExprEdgesFuelV1 tables scope ap fuel arg
         pure []
-    | .emit _ args => do
+    | fuel + 1, .emit _ args => do
         for (arg, i) in args.zipIdx do
           match ← childOrFail stmtPath "Stmt.Emit" "args" i with
           | none => pure ()
-          | some ap => collectExprEdges tables scope ap arg
+          | some ap => collectExprEdgesFuelV1 tables scope ap fuel arg
         pure []
-    | .return_ value? => do
+    | fuel + 1, .return_ value? => do
         match value? with
         | none => pure ()
         | some value =>
             match ← directOrFail stmtPath "Stmt.Return" "value" with
             | none => pure ()
-            | some vp => collectExprEdges tables scope vp value
+            | some vp => collectExprEdgesFuelV1 tables scope vp fuel value
         pure []
-    | .call externalCall => do
+    | fuel + 1, .call externalCall => do
         match ← directOrFail stmtPath "Stmt.Call" "call" with
         | none => pure ()
         | some cp =>
             for (arg, i) in externalCall.args.zipIdx do
               match ← childOrFail cp "ExternalCallExpr" "args" i with
               | none => pure ()
-              | some ap => collectExprEdges tables scope ap arg
+              | some ap => collectExprEdgesFuelV1 tables scope ap fuel arg
         pure []
-    | .schedule externalCall => do
+    | fuel + 1, .schedule externalCall => do
         match ← directOrFail stmtPath "Stmt.Schedule" "call" with
         | none => pure ()
         | some cp =>
             for (arg, i) in externalCall.args.zipIdx do
               match ← childOrFail cp "ExternalCallExpr" "args" i with
               | none => pure ()
-              | some ap => collectExprEdges tables scope ap arg
+              | some ap => collectExprEdgesFuelV1 tables scope ap fuel arg
         pure []
 end
+
+/-- Total production wrappers over the sole site-bearing call-edge collector.
+    Validated source admits at most 100000 nodes; impossible exhaustion emits a
+    fail-closed internal draft through the same authoritative analysis. -/
+def collectExprEdges (tables : TypedDeclTablesV1) (scope : CollectorScope)
+    (exprPath : NormalizedSyntacticPathV1) (expr : ExprV1) : CollectorM Unit :=
+  collectExprEdgesFuelV1 tables scope exprPath 100001 expr
+
+def collectPlaceEdges (tables : TypedDeclTablesV1) (scope : CollectorScope)
+    (placePath : NormalizedSyntacticPathV1) (place : PlaceV1) : CollectorM Unit :=
+  collectPlaceEdgesFuelV1 tables scope placePath 100001 place
+
+def collectPatternBinders (pattern : PatternV1) : List SourceNameComponentV1 :=
+  let st : CollectorState := { callerOrdinal? := none, edges := #[], pathErrors := #[] }
+  ((collectPatternBindersFuelV1 100001 pattern).run st).1
+
+def collectBlockEdges (tables : TypedDeclTablesV1) (scope : CollectorScope)
+    (blockPath : NormalizedSyntacticPathV1) (block : BlockV1) : CollectorM Unit :=
+  collectBlockEdgesFuelV1 tables scope blockPath 100001 block
+
+def collectStmtsEdges (tables : TypedDeclTablesV1) (scope : CollectorScope)
+    (blockPath : NormalizedSyntacticPathV1)
+    (statements : List StmtV1) (index : Nat) : CollectorM Unit :=
+  collectStmtsEdgesFuelV1 tables scope blockPath 100001 statements index
+
+def collectStmtEdges (tables : TypedDeclTablesV1) (scope : CollectorScope)
+    (stmtPath : NormalizedSyntacticPathV1) (stmt : StmtV1) :
+    CollectorM (List SourceNameComponentV1) :=
+  collectStmtEdgesFuelV1 tables scope stmtPath 100001 stmt
 
 /-- Collect edges from one top-level item with its Program.items path. -/
 def collectItemEdges (tables : TypedDeclTablesV1)
@@ -320,16 +373,26 @@ def collectItemEdges (tables : TypedDeclTablesV1)
   | .view decl => runWith none decl.params decl.body "body" "ViewDecl"
   | _ => pure ()
 
+/-- Process one source item in the sole production site-bearing edge walk. -/
+def collectProgramItemEdgesV1 (tables : TypedDeclTablesV1)
+    (item : ProgramItemV1) (itemIndex : Nat) : CollectorM Unit := do
+  match programItemPathV1 itemIndex with
+  | .error detail => emitPathError detail
+  | .ok itemPath => collectItemEdges tables itemPath item
+
+/-- Structural source-list driver for the sole production call-edge walk. -/
+def collectProgramItemsEdgesV1 (tables : TypedDeclTablesV1) :
+    List (ProgramItemV1 × Nat) → CollectorM Unit
+  | [] => pure ()
+  | (item, itemIndex) :: items => do
+      collectProgramItemEdgesV1 tables item itemIndex
+      collectProgramItemsEdgesV1 tables items
+
 /-- Single site-bearing edge walk. -/
 def collectFnCallEdgesV1 (program : ProgramV1) (tables : TypedDeclTablesV1) :
     CollectorState :=
   let st : CollectorState := { callerOrdinal? := none, edges := #[], pathErrors := #[] }
-  let action : CollectorM Unit := do
-    for (item, itemIndex) in program.items.zipIdx do
-      match programItemPathV1 itemIndex with
-      | .error detail => emitPathError detail
-      | .ok itemPath => collectItemEdges tables itemPath item
-  (action.run st).2
+  ((collectProgramItemsEdgesV1 tables program.items.zipIdx.toList).run st).2
 
 /-- Projection: ordinal pairs only (BoundCheck/EffectCheck consumers). -/
 def buildFnCallEdges (program : ProgramV1) (tables : TypedDeclTablesV1) :

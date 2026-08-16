@@ -230,23 +230,34 @@ def resolveValueName (tables : TypedDeclTablesV1) (scope : Scope)
     else
       emitLocated (unknownNameDiagnosticDraft name "value") sitePath #[]
 
-partial def resolvePattern (tables : TypedDeclTablesV1)
+def resolvePatternFuelV1 (tables : TypedDeclTablesV1)
     (patternPath : NormalizedSyntacticPathV1) :
-    PatternV1 → M (List SourceNameComponentV1)
-  | .wildcard | .literal _ => pure []
-  | .bind name => pure [name]
-  | .constructor ctor args => do
+    Nat → PatternV1 → M (List SourceNameComponentV1)
+  | 0, _ => do
+      emit (pathInternalDraft "name resolution exceeds the validated source node bound")
+      pure []
+  | _ + 1, .wildcard | _ + 1, .literal _ => pure []
+  | _ + 1, .bind name => pure [name]
+  | fuel + 1, .constructor ctor args => do
       resolveConstructorName tables patternPath ctor
       let mut acc : List SourceNameComponentV1 := []
       for (p, i) in args.zipIdx do
         match ← childOrInternal patternPath "Pattern.Constructor" "args" i with
         | none => pure ()
         | some ap =>
-            let bs ← resolvePattern tables ap p
+            let bs ← resolvePatternFuelV1 tables ap fuel p
             acc := acc ++ bs
       pure acc
 
-partial def resolveType (tables : TypedDeclTablesV1)
+/-- Total production pattern resolver. Validated source traversal admits at
+    most 100000 nodes, so one extra fuel unit covers every recursive descent;
+    an impossible exhaustion still emits a fail-closed internal draft. -/
+def resolvePattern (tables : TypedDeclTablesV1)
+    (patternPath : NormalizedSyntacticPathV1) (pattern : PatternV1) :
+    M (List SourceNameComponentV1) :=
+  resolvePatternFuelV1 tables patternPath 100001 pattern
+
+def resolveType (tables : TypedDeclTablesV1)
     (typePath : NormalizedSyntacticPathV1) : TypeV1 → M Unit
   | .named name => do
       let struct? := tables.struct.find? name
@@ -300,33 +311,37 @@ def resolveLocalCall (tables : TypedDeclTablesV1) (scope : Scope)
         emitLocated (unknownNameDiagnosticDraft callee "function") sitePath #[]
 
 mutual
-  partial def resolvePlace (tables : TypedDeclTablesV1) (scope : Scope)
-      (placePath : NormalizedSyntacticPathV1) : PlaceV1 → M Unit
-    | .name n => resolveValueName tables scope placePath n
-    | .field base field => do
+  def resolvePlaceFuelV1 (tables : TypedDeclTablesV1) (scope : Scope)
+      (placePath : NormalizedSyntacticPathV1) : Nat → PlaceV1 → M Unit
+    | 0, _ =>
+        emit (pathInternalDraft "name resolution exceeds the validated source node bound")
+    | _ + 1, .name n => resolveValueName tables scope placePath n
+    | fuel + 1, .field base field => do
         -- N5/N-2: ContextRead surfaces are not value-name roots; skip base
         -- resolution for exact `context.unixTimeSeconds` / `context.caller`.
         if isContextReadPlaceV1 (.field base field) then pure ()
         else
           match ← directOrInternal placePath "Place.Field" "base" with
           | none => pure ()
-          | some bp => resolvePlace tables scope bp base
-    | .index base idx => do
+          | some bp => resolvePlaceFuelV1 tables scope bp fuel base
+    | fuel + 1, .index base idx => do
         match ← directOrInternal placePath "Place.Index" "base" with
         | none => pure ()
-        | some bp => resolvePlace tables scope bp base
+        | some bp => resolvePlaceFuelV1 tables scope bp fuel base
         match ← directOrInternal placePath "Place.Index" "index" with
         | none => pure ()
-        | some ip => resolveExpr tables scope ip idx
+        | some ip => resolveExprFuelV1 tables scope ip fuel idx
 
-  partial def resolveExpr (tables : TypedDeclTablesV1) (scope : Scope)
-      (exprPath : NormalizedSyntacticPathV1) : ExprV1 → M Unit
-    | .literal _ => pure ()
-    | .place p => do
+  def resolveExprFuelV1 (tables : TypedDeclTablesV1) (scope : Scope)
+      (exprPath : NormalizedSyntacticPathV1) : Nat → ExprV1 → M Unit
+    | 0, _ =>
+        emit (pathInternalDraft "name resolution exceeds the validated source node bound")
+    | _ + 1, .literal _ => pure ()
+    | fuel + 1, .place p => do
         match ← directOrInternal exprPath "Expr.Place" "place" with
         | none => pure ()
-        | some pp => resolvePlace tables scope pp p
-    | .constructor ctor args => do
+        | some pp => resolvePlaceFuelV1 tables scope pp fuel p
+    | fuel + 1, .constructor ctor args => do
         -- ADR-0030 E2: env-read catalog QNs are not struct/enum constructors;
         -- skip `resolveConstructorName` (TypeCheck validates arg shape +
         -- extension declaration). Still walk args for place/name resolution.
@@ -336,28 +351,28 @@ mutual
         for (arg, i) in args.zipIdx do
           match ← childOrInternal exprPath "Expr.Constructor" "args" i with
           | none => pure ()
-          | some ap => resolveExpr tables scope ap arg
-    | .unary _ e => do
+          | some ap => resolveExprFuelV1 tables scope ap fuel arg
+    | fuel + 1, .unary _ e => do
         match ← directOrInternal exprPath "Expr.Unary" "operand" with
         | none => pure ()
-        | some op => resolveExpr tables scope op e
-    | .binary _ lhs rhs => do
+        | some op => resolveExprFuelV1 tables scope op fuel e
+    | fuel + 1, .binary _ lhs rhs => do
         match ← directOrInternal exprPath "Expr.Binary" "lhs" with
         | none => pure ()
-        | some lp => resolveExpr tables scope lp lhs
+        | some lp => resolveExprFuelV1 tables scope lp fuel lhs
         match ← directOrInternal exprPath "Expr.Binary" "rhs" with
         | none => pure ()
-        | some rp => resolveExpr tables scope rp rhs
-    | .localCall callee args => do
+        | some rp => resolveExprFuelV1 tables scope rp fuel rhs
+    | fuel + 1, .localCall callee args => do
         resolveLocalCall tables scope exprPath callee
         for (arg, i) in args.zipIdx do
           match ← childOrInternal exprPath "Expr.LocalCall" "args" i with
           | none => pure ()
-          | some ap => resolveExpr tables scope ap arg
-    | .match_ scrutinee arms => do
+          | some ap => resolveExprFuelV1 tables scope ap fuel arg
+    | fuel + 1, .match_ scrutinee arms => do
         match ← directOrInternal exprPath "Expr.Match" "scrutinee" with
         | none => pure ()
-        | some sp => resolveExpr tables scope sp scrutinee
+        | some sp => resolveExprFuelV1 tables scope sp fuel scrutinee
         for (arm, i) in arms.zipIdx do
           match ← childOrInternal exprPath "Expr.Match" "arms" i with
           | none => pure ()
@@ -365,40 +380,51 @@ mutual
               match ← directOrInternal armPath "ExprMatchArm" "pattern" with
               | none => pure ()
               | some pp => do
-                  let binders ← resolvePattern tables pp arm.pattern
+                  let binders ← resolvePatternFuelV1 tables pp fuel arm.pattern
                   match ← directOrInternal armPath "ExprMatchArm" "value" with
                   | none => pure ()
                   | some vp =>
-                      resolveExpr tables { scope with locals := binders ++ scope.locals } vp arm.value
-    | .externalCall call => do
+                      resolveExprFuelV1 tables
+                        { scope with locals := binders ++ scope.locals }
+                        vp fuel arm.value
+    | fuel + 1, .externalCall call => do
         match ← directOrInternal exprPath "Expr.ExternalCall" "call" with
         | none => pure ()
         | some cp =>
             for (arg, i) in call.args.zipIdx do
               match ← childOrInternal cp "ExternalCallExpr" "args" i with
               | none => pure ()
-              | some ap => resolveExpr tables scope ap arg
+              | some ap => resolveExprFuelV1 tables scope ap fuel arg
 
-  partial def resolveBlock (tables : TypedDeclTablesV1) (scope : Scope)
-      (blockPath : NormalizedSyntacticPathV1) (block : BlockV1) : M Unit := do
-    resolveStmts tables scope blockPath block.statements.toList 0
+  def resolveBlockFuelV1 (tables : TypedDeclTablesV1) (scope : Scope)
+      (blockPath : NormalizedSyntacticPathV1) : Nat → BlockV1 → M Unit
+    | 0, _ =>
+        emit (pathInternalDraft "name resolution exceeds the validated source node bound")
+    | fuel + 1, block =>
+        resolveStmtsFuelV1 tables scope blockPath fuel block.statements.toList 0
 
-  partial def resolveStmts (tables : TypedDeclTablesV1) (scope : Scope)
+  def resolveStmtsFuelV1 (tables : TypedDeclTablesV1) (scope : Scope)
       (blockPath : NormalizedSyntacticPathV1) :
-      List StmtV1 → Nat → M Unit
-    | [], _ => pure ()
-    | stmt :: rest, idx => do
+      Nat → List StmtV1 → Nat → M Unit
+    | 0, _, _ =>
+        emit (pathInternalDraft "name resolution exceeds the validated source node bound")
+    | _ + 1, [], _ => pure ()
+    | fuel + 1, stmt :: rest, idx => do
         match ← childOrInternal blockPath "Block" "statements" idx with
         | none => pure ()
         | some stmtPath => do
-            let added ← resolveStmt tables scope stmtPath stmt
-            resolveStmts tables { scope with locals := added ++ scope.locals }
-              blockPath rest (idx + 1)
+            let added ← resolveStmtFuelV1 tables scope stmtPath fuel stmt
+            resolveStmtsFuelV1 tables
+              { scope with locals := added ++ scope.locals }
+              blockPath fuel rest (idx + 1)
 
-  partial def resolveStmt (tables : TypedDeclTablesV1) (scope : Scope)
+  def resolveStmtFuelV1 (tables : TypedDeclTablesV1) (scope : Scope)
       (stmtPath : NormalizedSyntacticPathV1) :
-      StmtV1 → M (List SourceNameComponentV1)
-    | .let_ name typeAnn value => do
+      Nat → StmtV1 → M (List SourceNameComponentV1)
+    | 0, _ => do
+        emit (pathInternalDraft "name resolution exceeds the validated source node bound")
+        pure []
+    | fuel + 1, .let_ name typeAnn value => do
         match typeAnn with
         | none => pure ()
         | some ty =>
@@ -407,34 +433,34 @@ mutual
             | some tp => resolveType tables tp ty
         match ← directOrInternal stmtPath "Stmt.Let" "value" with
         | none => pure ()
-        | some vp => resolveExpr tables scope vp value
+        | some vp => resolveExprFuelV1 tables scope vp fuel value
         pure [name]
-    | .assign target value => do
+    | fuel + 1, .assign target value => do
         match ← directOrInternal stmtPath "Stmt.Assign" "target" with
         | none => pure ()
-        | some tp => resolvePlace tables scope tp target
+        | some tp => resolvePlaceFuelV1 tables scope tp fuel target
         match ← directOrInternal stmtPath "Stmt.Assign" "value" with
         | none => pure ()
-        | some vp => resolveExpr tables scope vp value
+        | some vp => resolveExprFuelV1 tables scope vp fuel value
         pure []
-    | .if_ condition thenBlock elseBlock => do
+    | fuel + 1, .if_ condition thenBlock elseBlock => do
         match ← directOrInternal stmtPath "Stmt.If" "condition" with
         | none => pure ()
-        | some cp => resolveExpr tables scope cp condition
+        | some cp => resolveExprFuelV1 tables scope cp fuel condition
         match ← directOrInternal stmtPath "Stmt.If" "thenBlock" with
         | none => pure ()
-        | some tp => resolveBlock tables scope tp thenBlock
+        | some tp => resolveBlockFuelV1 tables scope tp fuel thenBlock
         match elseBlock with
         | none => pure ()
         | some eb =>
             match ← directOrInternal stmtPath "Stmt.If" "elseBlock" with
             | none => pure ()
-            | some ep => resolveBlock tables scope ep eb
+            | some ep => resolveBlockFuelV1 tables scope ep fuel eb
         pure []
-    | .match_ scrutinee arms => do
+    | fuel + 1, .match_ scrutinee arms => do
         match ← directOrInternal stmtPath "Stmt.Match" "scrutinee" with
         | none => pure ()
-        | some sp => resolveExpr tables scope sp scrutinee
+        | some sp => resolveExprFuelV1 tables scope sp fuel scrutinee
         for (arm, i) in arms.zipIdx do
           match ← childOrInternal stmtPath "Stmt.Match" "arms" i with
           | none => pure ()
@@ -442,78 +468,104 @@ mutual
               match ← directOrInternal armPath "StmtMatchArm" "pattern" with
               | none => pure ()
               | some pp => do
-                  let binders ← resolvePattern tables pp arm.pattern
+                  let binders ← resolvePatternFuelV1 tables pp fuel arm.pattern
                   match ← directOrInternal armPath "StmtMatchArm" "body" with
                   | none => pure ()
                   | some bp =>
-                      resolveBlock tables { scope with locals := binders ++ scope.locals }
-                        bp arm.body
+                      resolveBlockFuelV1 tables
+                        { scope with locals := binders ++ scope.locals }
+                        bp fuel arm.body
         pure []
-    | .for_ binder start endExclusive _ body => do
+    | fuel + 1, .for_ binder start endExclusive _ body => do
         match ← directOrInternal stmtPath "Stmt.For" "start" with
         | none => pure ()
-        | some sp => resolveExpr tables scope sp start
+        | some sp => resolveExprFuelV1 tables scope sp fuel start
         match ← directOrInternal stmtPath "Stmt.For" "endExclusive" with
         | none => pure ()
-        | some ep => resolveExpr tables scope ep endExclusive
+        | some ep => resolveExprFuelV1 tables scope ep fuel endExclusive
         match ← directOrInternal stmtPath "Stmt.For" "body" with
         | none => pure ()
         | some bp =>
-            resolveBlock tables { scope with locals := binder :: scope.locals } bp body
+            resolveBlockFuelV1 tables
+              { scope with locals := binder :: scope.locals } bp fuel body
         pure []
-    | .assert_ condition error? => do
+    | fuel + 1, .assert_ condition error? => do
         match ← directOrInternal stmtPath "Stmt.Assert" "condition" with
         | none => pure ()
-        | some cp => resolveExpr tables scope cp condition
+        | some cp => resolveExprFuelV1 tables scope cp fuel condition
         match error? with
         | none => pure ()
         | some error =>
             if (tables.error.find? error |>.isNone) then
               emitLocated (unknownNameDiagnosticDraft error "error") stmtPath #[]
         pure []
-    | .revert error args => do
+    | fuel + 1, .revert error args => do
         if (tables.error.find? error |>.isNone) then
           emitLocated (unknownNameDiagnosticDraft error "error") stmtPath #[]
         for (arg, i) in args.zipIdx do
           match ← childOrInternal stmtPath "Stmt.Revert" "args" i with
           | none => pure ()
-          | some ap => resolveExpr tables scope ap arg
+          | some ap => resolveExprFuelV1 tables scope ap fuel arg
         pure []
-    | .emit event args => do
+    | fuel + 1, .emit event args => do
         if (tables.event.find? event |>.isNone) then
           emitLocated (unknownNameDiagnosticDraft event "event") stmtPath #[]
         for (arg, i) in args.zipIdx do
           match ← childOrInternal stmtPath "Stmt.Emit" "args" i with
           | none => pure ()
-          | some ap => resolveExpr tables scope ap arg
+          | some ap => resolveExprFuelV1 tables scope ap fuel arg
         pure []
-    | .return_ value? => do
+    | fuel + 1, .return_ value? => do
         match value? with
         | none => pure ()
         | some value =>
             match ← directOrInternal stmtPath "Stmt.Return" "value" with
             | none => pure ()
-            | some vp => resolveExpr tables scope vp value
+            | some vp => resolveExprFuelV1 tables scope vp fuel value
         pure []
-    | .call externalCall => do
+    | fuel + 1, .call externalCall => do
         match ← directOrInternal stmtPath "Stmt.Call" "call" with
         | none => pure ()
         | some cp =>
             for (arg, i) in externalCall.args.zipIdx do
               match ← childOrInternal cp "ExternalCallExpr" "args" i with
               | none => pure ()
-              | some ap => resolveExpr tables scope ap arg
+              | some ap => resolveExprFuelV1 tables scope ap fuel arg
         pure []
-    | .schedule externalCall => do
+    | fuel + 1, .schedule externalCall => do
         match ← directOrInternal stmtPath "Stmt.Schedule" "call" with
         | none => pure ()
         | some cp =>
             for (arg, i) in externalCall.args.zipIdx do
               match ← childOrInternal cp "ExternalCallExpr" "args" i with
               | none => pure ()
-              | some ap => resolveExpr tables scope ap arg
+              | some ap => resolveExprFuelV1 tables scope ap fuel arg
         pure []
 end
+
+/-- Total production wrappers over the single fuelled mutual resolver. The
+    validated source node bound makes exhaustion unreachable for valid input. -/
+def resolvePlace (tables : TypedDeclTablesV1) (scope : Scope)
+    (placePath : NormalizedSyntacticPathV1) (place : PlaceV1) : M Unit :=
+  resolvePlaceFuelV1 tables scope placePath 100001 place
+
+def resolveExpr (tables : TypedDeclTablesV1) (scope : Scope)
+    (exprPath : NormalizedSyntacticPathV1) (expr : ExprV1) : M Unit :=
+  resolveExprFuelV1 tables scope exprPath 100001 expr
+
+def resolveBlock (tables : TypedDeclTablesV1) (scope : Scope)
+    (blockPath : NormalizedSyntacticPathV1) (block : BlockV1) : M Unit :=
+  resolveBlockFuelV1 tables scope blockPath 100001 block
+
+def resolveStmts (tables : TypedDeclTablesV1) (scope : Scope)
+    (blockPath : NormalizedSyntacticPathV1)
+    (statements : List StmtV1) (index : Nat) : M Unit :=
+  resolveStmtsFuelV1 tables scope blockPath 100001 statements index
+
+def resolveStmt (tables : TypedDeclTablesV1) (scope : Scope)
+    (stmtPath : NormalizedSyntacticPathV1) (stmt : StmtV1) :
+    M (List SourceNameComponentV1) :=
+  resolveStmtFuelV1 tables scope stmtPath 100001 stmt
 
 def mkBaseScope (params : Array ParamV1) : Scope :=
   { locals := [], params := params.map (·.name) }
@@ -638,13 +690,26 @@ def emptyTables : TypedDeclTablesV1 :=
     view := .empty, fn := .empty, invariant := .empty, extensionReq := .empty,
     proof := .empty, itemIndices := emptyDeclItemIndicesV1 }
 
-def buildTables (program : ProgramV1) : M TypedDeclTablesV1 := do
-  let mut tables := emptyTables
-  for (item, itemIndex) in program.items.zipIdx do
-    match programItemPathV1 itemIndex with
-    | .error detail => emit (pathInternalDraft detail)
-    | .ok itemPath =>
-        match item with
+/-- Stateful source-list driver shared by both production name-resolution
+    passes. Exposing this boundary lets kernel proofs replay one real source
+    item at a time without introducing a second table builder or body walker. -/
+def foldProgramItemsV1
+    (step : α → ProgramItemV1 → Nat → M α) :
+    List (ProgramItemV1 × Nat) → α → M α
+  | [], acc => pure acc
+  | (item, itemIndex) :: items, acc => do
+      let next ← step acc item itemIndex
+      foldProgramItemsV1 step items next
+
+/-- Process one source item in the sole production declaration-table pass. -/
+def buildTableItemV1
+    (initial : TypedDeclTablesV1) (item : ProgramItemV1) (itemIndex : Nat) :
+    M TypedDeclTablesV1 := do
+  let mut tables := initial
+  match programItemPathV1 itemIndex with
+  | .error detail => emit (pathInternalDraft detail)
+  | .ok itemPath =>
+      match item with
         | .state d =>
             if tables.state.find? d.name |>.isSome then
               let firstRelated :=
@@ -865,6 +930,11 @@ def buildTables (program : ProgramV1) : M TypedDeclTablesV1 := do
             }
   pure tables
 
+/-- Sole production declaration-table pass, implemented by the item step above
+    in exact source order. -/
+def buildTables (program : ProgramV1) : M TypedDeclTablesV1 :=
+  foldProgramItemsV1 buildTableItemV1 program.items.zipIdx.toList emptyTables
+
 /-- Additive draft-bearing resolution result (B7b1). -/
 structure NameResolutionDraftResultV1 where
   tables : TypedDeclTablesV1
@@ -872,16 +942,26 @@ structure NameResolutionDraftResultV1 where
   ok : Bool
 deriving Repr
 
+/-- Process one source item in the sole production resolution-body walk. -/
+def resolveProgramItemV1
+    (tables : TypedDeclTablesV1) (_ : Unit)
+    (item : ProgramItemV1) (itemIndex : Nat) : M Unit := do
+  match programItemPathV1 itemIndex with
+  | .error detail => emit (pathInternalDraft detail)
+  | .ok itemPath => resolveItem tables itemPath item
+
+/-- Sole production resolution-body pass, using the same source-list driver as
+    declaration-table construction. -/
+def resolveProgramItemsV1
+    (tables : TypedDeclTablesV1) (items : List (ProgramItemV1 × Nat)) : M Unit :=
+  foldProgramItemsV1 (resolveProgramItemV1 tables) items ()
+
 /-- Path-threaded resolution authority: declaration tables + body walk with
     canonical paths on every resolution diagnostic draft. -/
 def resolveProgramDraftsV1 (source : ValidatedSourceV1) : NameResolutionDraftResultV1 :=
   let (tables, s1) := (buildTables source.program).run {}
-  let walk : M Unit := do
-    for (item, itemIndex) in source.program.items.zipIdx do
-      match programItemPathV1 itemIndex with
-      | .error detail => emit (pathInternalDraft detail)
-      | .ok itemPath => resolveItem tables itemPath item
-  let (_, s2) := walk.run s1
+  let (_, s2) :=
+    (resolveProgramItemsV1 tables source.program.items.zipIdx.toList).run s1
   { tables := tables
     drafts := s2.drafts
     ok := s2.drafts.isEmpty }
