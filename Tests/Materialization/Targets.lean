@@ -1119,8 +1119,8 @@ private unsafe def testBranchingSemanticPlans : IO Unit := do
       applyNr.contents.contains "== 0")
     "branching Noir source must render the switch as an else-if chain"
   -- Extra eight from probe; BranchFlow if/match lighthouse. Aleo/Psy/CW/TON
-  -- plus envelope-4 (T9a/T9b if-diamond + switchOn) admit. LoopSum /
-  -- irreducible CFG / arm call·emit stay fail closed. Existing four
+  -- plus envelope-4 (T9a/T9b if-diamond + switchOn) admit. LoopSum is
+  -- T9c. Irreducible CFG / arm call·emit stay fail closed. Existing four
   -- Plan/IR/file pins unchanged.
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
       TargetId.aleo, TargetId.psy, TargetId.cosmwasm, TargetId.ton,
@@ -1865,20 +1865,14 @@ private unsafe def testForLoopSemanticPlans : IO Unit := do
   expect (addUpNr.contents.contains "if " && addUpNr.contents.contains "assert(false)")
     "for-loop Noir source must render unrolled predicated ifs with the bound guard"
   -- Extra eight from probe; LoopSum bounded-for lighthouse. Psy/Aleo/CW/TON
-  -- admit. Quint/Soroban/OpenVM/ICP stay on the single-block envelope.
-  -- Not opening multi-block/for; existing four Plan/IR pins unchanged.
+  -- plus envelope-4 (T9c counted forLoop) admit. Irreducible CFG / arm
+  -- call·emit stay fail closed. Existing four Plan/IR/file pins unchanged.
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
-      TargetId.psy, TargetId.aleo, TargetId.cosmwasm, TargetId.ton] do
+      TargetId.psy, TargetId.aleo, TargetId.cosmwasm, TargetId.ton,
+      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp] do
     let out ← liftResult <| materializeSelected target compiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"LoopSum: {target} must materialize"
-  for (target, kind) in #[
-      (TargetId.quint, TargetKind.quint),
-      (TargetId.soroban, TargetKind.soroban),
-      (TargetId.openvm, TargetKind.openvm),
-      (TargetId.icp, TargetKind.icp)] do
-    expectMaterializePlanInvariantV1 "LoopSum" target kind compiled
-      "exactly one block"
 
 /-- ProgramV1 BitLogic source text for the Wave H shift/bitwise/logical leaf. -/
 private def bitLogicSourceTextV1 : String :=

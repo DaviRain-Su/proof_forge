@@ -101,7 +101,8 @@ Wasm host / TVM Stack-Account / ZK circuit / zkVM / ZK application chain，也�
 
 - 执行宿主是 **Quint 模型**（`executionHost=quint-model`），不是 EVM/SVM/Wasm/TVM。
 - Q0 物化 single-block 直块，以及 T9a/T9b **if-diamond / `Term.switch`**（`.qnt` flatten
-  为 `ite`）；不降低 `loopBounds` / bounded-for、不可约 CFG 或臂内 call·emit·revert。
+  为 `ite`）与 T9c **`forLoop`**（`.qnt` 带计数器的 `for`，超过 `bounded N` 记 failure，
+  不是无限 `while`）；不降低不可约 CFG 或臂内 call·emit·revert。
 - `commit=relation-external`：模型关系与外部观测/提交叙述分离；本 profile **不**
   产链上 commit 证明。
 
@@ -164,7 +165,7 @@ Wasm host / TVM Stack-Account / ZK circuit / zkVM / ZK application chain，也�
 - multi-width `UInt`/`Int`、`Field`、`Principal`、`String`、Bytes、nested Option/Map、Option/Map param/return、Option-of-non-UInt64、Map-of-non-UInt64
 - named Struct/Enum、nonempty constants、非 zero-param public-Bool/read-only Q0 invariants
 - checked/fallible view（Q0 不发明 view outcome ABI）
-- `loopBounds` / bounded-for、不可约 CFG、非 loop block-param/phi、缺 default 的 switch、臂内 call·emit·typed revert
+- 不可约 CFG、非 loop block-param/phi、缺 default 的 switch、臂内 call·emit·typed revert
 - `emit` / nonzero-payload `revert` / `call` / `schedule` / ContextRead / Commit
 - 小域近似、blocked-action 失败掩盖
 - ITF / MBT / verify / Apalache 作为 **本 profile** 产品步骤
