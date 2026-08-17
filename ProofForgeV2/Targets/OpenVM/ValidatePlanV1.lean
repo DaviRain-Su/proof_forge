@@ -206,6 +206,17 @@ private partial def validateBodyStatements
         remaining ←
           validateBodyStatements owner resultKind paramCount stateCount remaining
             signed elseBody
+    | .switchOn scrut cases defaultBody =>
+        remaining ←
+          validateExpr scrut numeric "switch scrutinee" paramCount stateCount remaining
+            signed
+        for (_, caseBody) in cases do
+          remaining ←
+            validateBodyStatements owner resultKind paramCount stateCount remaining
+              signed caseBody
+        remaining ←
+          validateBodyStatements owner resultKind paramCount stateCount remaining
+            signed defaultBody
     | .returnValue e =>
         unless resultKind == .uint64 || resultKind == .int64 || resultKind == .bool do
           planError s!"OpenVM {owner} Unit/aggregate result must not return a scalar"

@@ -683,10 +683,41 @@ unsafe def testFailClosedMultiblock : IO Unit := do
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
-    "program Branch where\n" ++
+    "program LoopSum where\n" ++
+    "  state acc : UInt64\n" ++
+    "  init() do\n" ++
+    "    acc := 0\n" ++
+    "  entry sum(n : UInt64, limit : UInt64) : UInt64 do\n" ++
+    "    for i in n ..< limit bounded 8 do\n" ++
+    "      acc := acc + i\n" ++
+    "    return acc\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<openvm-loop>" "Tests.OpenVmLoop" none)
+  match Compiler.compileValidatedSourceV1 parsed with
+  | .error _ => pure ()
+  | .ok compiled =>
+      match planOpenVm compiled with
+      | .error (.planInvariant .openvm msg) =>
+          expect (msg.contains "one block" || msg.contains "multi-block")
+            s!"bounded-for must fail closed, got: {msg}"
+      | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
+      | .ok _ => throw <| IO.userError "bounded-for must fail closed at OpenVM plan"
+
+unsafe def testBranchFlow : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BranchFlow where\n" ++
     "  state count : UInt64\n" ++
     "  init(initial : UInt64) do\n" ++
     "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    if count > 0 then\n" ++
+    "      count := count + delta\n" ++
+    "    else\n" ++
+    "      count := delta\n" ++
+    "    return count\n" ++
     "  entry apply(choice : UInt64) : UInt64 do\n" ++
     "    match choice with\n" ++
     "    | 0 => do\n" ++
@@ -695,18 +726,57 @@ unsafe def testFailClosedMultiblock : IO Unit := do
     "      count := count + 1\n" ++
     "    | other => do\n" ++
     "      count := other\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
     "    return count\n"
   let parsed ← liftResult (← session.selectProgramV1
-    source "<openvm-match>" "Tests.OpenVmMatch" none)
-  match Compiler.compileValidatedSourceV1 parsed with
-  | .error _ => pure ()
-  | .ok compiled =>
-      match planOpenVm compiled with
-      | .error (.planInvariant .openvm msg) =>
-          expect (msg.contains "one block" || msg.contains "multi-block")
-            s!"match/switch must fail closed, got: {msg}"
-      | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
-      | .ok _ => throw <| IO.userError "match/switch must fail closed at OpenVM plan"
+    source "<openvm-branch-flow>" "Tests.OpenVmBranchFlow" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planOpenVm compiled
+  let some apply := plan.entries.find? (·.name == "apply") |
+    throw <| IO.userError "BranchFlow: missing apply"
+  let hasSwitch :=
+    apply.body.any fun s =>
+      match s with
+      | .switchOn _ cases _ =>
+          cases.any (fun (v, _) => v == 0) && cases.any (fun (v, _) => v == 1)
+      | _ => false
+  expect hasSwitch "BranchFlow apply must lower match to switchOn"
+  liftResult <| Targets.OpenVM.validatePlan plan
+  IO.println "  ✓ BranchFlow if + integer match"
+
+unsafe def testMaybeMatch : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MaybeMatch where\n" ++
+    "  state slot : Option UInt64\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n" ++
+    "  entry take() : UInt64 do\n" ++
+    "    match slot with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return 0\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<openvm-maybe-match>" "Tests.OpenVmMaybeMatch" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planOpenVm compiled
+  let some take := plan.entries.find? (·.name == "take") |
+    throw <| IO.userError "MaybeMatch: missing take"
+  let hasSwitch :=
+    take.body.any fun s =>
+      match s with
+      | .switchOn _ cases _ =>
+          cases.any (fun (v, _) => v == 0) || cases.any (fun (v, _) => v == 1)
+      | _ => false
+  expect hasSwitch "MaybeMatch take must switch on the Option tag leaf"
+  liftResult <| Targets.OpenVM.validatePlan plan
+  IO.println "  ✓ MaybeMatch Option tag switch"
 
 unsafe def testIfFlow : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -1674,6 +1744,8 @@ unsafe def run : IO Unit := do
   testFailClosedBitNot
   testFailClosedMultiblock
   testIfFlow
+  testBranchFlow
+  testMaybeMatch
   testFailClosedConstant
   testFailClosedPrivateState
   testInt64Cell

@@ -219,6 +219,14 @@ private partial def emitPlanStatements
         let t ← emitPlanStatements plan params thenBody
         let e ← emitPlanStatements plan params elseBody
         out := out.push (.ifThenElse c t e)
+    | .switchOn scrut cases defaultBody =>
+        let folded : Array Statement :=
+          cases.foldr
+            (fun (v, body) acc =>
+              #[.ifThenElse (.compare .eq scrut (.litU64 v)) body acc])
+            defaultBody
+        let sw ← emitPlanStatements plan params folded
+        out := out ++ sw
     | .returnValue e =>
         let re ← lowerExprToRExpr plan params e
         out := out.push (.tail (.okValue re))
