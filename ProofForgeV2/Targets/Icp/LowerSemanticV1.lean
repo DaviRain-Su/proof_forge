@@ -28,8 +28,10 @@ Narrow ICP-2 Counter/StateCell target leaf (ADR-0047). Envelope:
   Array IndexGet/Set/construct with a compile-time index
 * zero pureFn, zero invariants, zero constants/events/errors
 * zero `emit` / `call` (`Op.ExternalCall`) / `schedule` / `Op.Commit`;
-  `Op.ContextRead` admits only `context.unixTimeSeconds` (`ic0.time` ns÷10⁹);
-  other keys stay named fail-closed. The ICP-1 async advertise
+  `Op.ContextRead` admits `context.unixTimeSeconds` (`ic0.time` ns÷10⁹)
+  on init/entry/query and `context.caller` (`ic0.msg_caller_*`) on
+  init/entry only (query/view named FC `ICP-VIEW-CALLER`); other keys stay
+  named fail-closed. The ICP-1 async advertise
   (`effect.asynchronous-workflow`) stays a resolver-level advertisement
   only — no ICP-2 Plan shape realizes it
 
@@ -65,11 +67,10 @@ private def qnJoined (qn : ProofForgeV2.Core.Common.QualifiedName) : String :=
 private def isPfCryptoCalleeV1 (qn : String) : Bool :=
   qn.startsWith "pf.crypto."
 
-/-- ADR-0031 S4 residual after CAP-1a: these UInt64 catalog keys still have
-    no ICP host. `unixTimeSeconds` is bound separately to `ic0.time`.
-    `context.caller` / `context.self` are Principal; ICP-2 rejects Principal
-    params/results at type closure, so those keys stay on the generic
-    ContextRead envelope below. -/
+/-- ADR-0031 S4 residual after CAP-1a/CAP-1b: these UInt64 catalog keys still
+    have no ICP host. `unixTimeSeconds` binds `ic0.time`; `context.caller`
+    binds `ic0.msg_caller_*` on init/entry (view named-FC). `context.self`
+    stays on the generic ContextRead envelope. -/
 private def isUnboundUInt64ContextKey
     (key : ProofForgeV2.Core.Common.SchemaId) : Bool :=
   key == blockHeightContextKeyV1 ||
@@ -92,6 +93,20 @@ inductive Expr where
   | stateLoad (fieldIndex : Nat)
   /-- CAP-1a: `ic0.time` nanoseconds, truncated to whole Unix seconds. -/
   | unixTimeSeconds
+  /-- CAP-1b: length leaf of `context.caller` Principal
+      (`u32le(L)||principal-bytes` → leaf0 = L). Init/entry only. -/
+  | callerPrincipalLen
+  /-- CAP-1b: one LE body word of `context.caller` Principal.
+      `wordIndex ∈ 0..7` indexes the 8×UInt64 LE body leaves. -/
+  | callerPrincipalWord (wordIndex : Nat)
+  /-- CAP-1b: length leaf of a Candid `principal` argument. -/
+  | paramPrincipalLen (index : Nat)
+  /-- CAP-1b: one LE body word of a Candid `principal` argument. -/
+  | paramPrincipalWord (index wordIndex : Nat)
+  /-- CAP-1b: leaf-wise `==` of two 9-leaf Principal wires → Bool 0/1. -/
+  | principalEq (lhs rhs : Array Expr)
+  /-- CAP-1b: leaf-wise `!=` of two 9-leaf Principal wires → Bool 0/1. -/
+  | principalNe (lhs rhs : Array Expr)
   | checkedAdd (lhs rhs : Expr)
   | checkedSub (lhs rhs : Expr)
   | checkedMul (lhs rhs : Expr)
@@ -103,6 +118,12 @@ inductive Expr where
   | boolAnd (lhs rhs : Expr)
   | boolOr (lhs rhs : Expr)
   | boolNot (operand : Expr)
+  deriving BEq, Inhabited, Repr
+
+/-- Candid/Plan parameter sort. Integer width follows `Plan.signedNumeric`. -/
+inductive ParamKind where
+  | integer
+  | principal
   deriving BEq, Inhabited, Repr
 
 /-- Method body statement. `returnNone` is the explicit Unit terminator
@@ -145,6 +166,8 @@ structure Method where
   mode : MethodMode
   resultKind : ResultKind
   body : Array Statement
+  /-- Parallel to `params`. Default empty is only legal for zero-param methods. -/
+  paramKinds : Array ParamKind := #[]
   deriving BEq, Inhabited, Repr
 
 /-- Target-owned ICP Plan. Digests + artifact name only; no Semantic carrier.
@@ -231,9 +254,15 @@ private def mapSlotsPerEntryV1 : Nat := 3
 private def mapPilotLeafCountV1 : Nat :=
   mapPilotCapacityV1 * mapSlotsPerEntryV1
 
-private def principalDataWordCountV1 : Nat := 8
-private def principalMaxPayloadBytesV1 : Nat := 64
-private def principalLeafCountV1 : Nat := 1 + principalDataWordCountV1
+/-- CAP-1b: ICP Principal max payload is the System API bound (29 bytes).
+    Leaf layout matches the NEAR/CW S1 9-word envelope (len + 8×UInt64 body)
+    so unused tail words stay 0. Not an account-id alias. -/
+def icpPrincipalMaxPayloadBytesV1 : Nat := 29
+def icpPrincipalDataWordCountV1 : Nat := 8
+def icpPrincipalLeafCountV1 : Nat := 9
+private def principalDataWordCountV1 : Nat := icpPrincipalDataWordCountV1
+private def principalMaxPayloadBytesV1 : Nat := icpPrincipalMaxPayloadBytesV1
+private def principalLeafCountV1 : Nat := icpPrincipalLeafCountV1
 
 private def flattenPrincipalLeafNamesV1 (namePrefix : String) :
     CompileResult (Array String) := do
@@ -726,6 +755,22 @@ private def mkArrayLeaves (leaves : Array Expr) : LoweredValue :=
 private def mkPrincipalLeaves (leaves : Array Expr) : LoweredValue :=
   { expr := leaves[0]?.getD (.literal 0), leaves, isPrincipal := true }
 
+private def mkCallerPrincipalV1 : CompileResult LoweredValue := do
+  let mut leaves : Array Expr := #[.callerPrincipalLen]
+  for i in [0:principalDataWordCountV1] do
+    leaves := leaves.push (.callerPrincipalWord i)
+  unless leaves.size == principalLeafCountV1 do
+    planError "unsupported ICP semantic shape: caller Principal leaf count must be 9"
+  pure (mkPrincipalLeaves leaves)
+
+private def mkParamPrincipalV1 (index : Nat) : CompileResult LoweredValue := do
+  let mut leaves : Array Expr := #[.paramPrincipalLen index]
+  for i in [0:principalDataWordCountV1] do
+    leaves := leaves.push (.paramPrincipalWord index i)
+  unless leaves.size == principalLeafCountV1 do
+    planError "unsupported ICP semantic shape: param Principal leaf count must be 9"
+  pure (mkPrincipalLeaves leaves)
+
 private def mkOptionLeaves (leaves : Array Expr) : LoweredValue :=
   { expr := leaves[0]?.getD (.literal 0), leaves, isOption := true }
 
@@ -866,7 +911,12 @@ private def bumpOp (acc : BodyAccum) : CompileResult BodyAccum := do
   pure { acc with opCount := acc.opCount + 1 }
 
 private partial def exprNodes : Expr → Nat
-  | .literal _ | .param _ | .stateLoad _ | .unixTimeSeconds => 1
+  | .literal _ | .param _ | .stateLoad _ | .unixTimeSeconds
+  | .callerPrincipalLen | .callerPrincipalWord _
+  | .paramPrincipalLen _ | .paramPrincipalWord .. => 1
+  | .principalEq lhs rhs | .principalNe lhs rhs =>
+      1 + (lhs.foldl (fun acc e => acc + exprNodes e) 0) +
+        (rhs.foldl (fun acc e => acc + exprNodes e) 0)
   | .checkedAdd lhs rhs | .checkedSub lhs rhs
   | .checkedMul lhs rhs | .checkedDiv lhs rhs | .checkedMod lhs rhs
   | .compare _ lhs rhs | .boolAnd lhs rhs | .boolOr lhs rhs =>
@@ -934,9 +984,8 @@ private def lowerBinary (op : BinaryOpV1) (lhs rhs : Expr) : CompileResult Expr 
     branching, no async continuations — StateCell shape only). -/
 private partial def lowerInstructions
     (data : SemanticProgramDataV1) (types : IcpTypeClosureV1)
-    (layout : StateLayout) (allowStateWrite : Bool) (signedNumeric : Bool)
-    (callable : CallableV1)
-    (acc0 : BodyAccum) :
+    (layout : StateLayout) (mode : MethodMode) (allowStateWrite : Bool)
+    (signedNumeric : Bool) (callable : CallableV1) (acc0 : BodyAccum) :
     CompileResult (BodyAccum × Option LoweredValue) := do
   unless callable.blocks.size == 1 do
     planError
@@ -1029,19 +1078,27 @@ private partial def lowerInstructions
         let rv ← match envLookup acc.env rhs with
           | some v => pure v
           | none => planError "unsupported ICP semantic shape: binary rhs undefined"
-        if isPrincipalValue lv && isPrincipalValue rv then
+        if isPrincipalValue lv || isPrincipalValue rv then
+          unless isPrincipalValue lv && isPrincipalValue rv do
+            planError
+              "unsupported ICP semantic shape: Principal comparison requires two Principal operands"
           unless op == .eq || op == .ne do
-            planError "unsupported ICP semantic shape: Principal comparison only supports eq/ne"
-          let mut accEq : Expr :=
-            .compare .eq lv.leaves[0]! rv.leaves[0]!
-          for i in [1:principalLeafCountV1] do
-            accEq := .checkedMul accEq (.compare .eq lv.leaves[i]! rv.leaves[i]!)
+            planError
+              "unsupported ICP semantic shape: Principal admits only == / != (CAP-1b identity compare)"
+          unless lv.leaves.size == principalLeafCountV1 &&
+              rv.leaves.size == principalLeafCountV1 do
+            planError "unsupported ICP semantic shape: Principal comparison leaf count mismatch"
           let e :=
-            if op == .ne then .compare .eq accEq (.literal 0) else accEq
+            if op == .eq then Expr.principalEq lv.leaves rv.leaves
+            else Expr.principalNe lv.leaves rv.leaves
           let e ← checkedExprNodes "principal comparison" e
           match instr.result with
           | none => planError "unsupported ICP semantic shape: binary must produce a value"
-          | some vd => acc := { acc with env := envInsert acc.env vd.valueId (mkScalar e) }
+          | some vd =>
+              unless isBoolType types vd.typeId do
+                planError
+                  "unsupported ICP semantic shape: Principal comparison result must be Bool"
+              acc := { acc with env := envInsert acc.env vd.valueId (mkScalar e) }
         else
           let le ← requireScalar lv "binary lhs"
           let re ← requireScalar rv "binary rhs"
@@ -1054,7 +1111,20 @@ private partial def lowerInstructions
         | none =>
             planError "unsupported ICP semantic shape: ContextRead must produce a value"
         | some vd =>
-            if key == unixTimeSecondsContextKeyV1 then
+            if key == callerContextKeyV1 then
+              -- CAP-1b ICP-VIEW-CALLER: ic0.msg_caller is available on
+              -- canister_query, but this profile keeps query/view fail-closed
+              -- for S1 consistency with NEAR predecessor_account_id and
+              -- CosmWasm MessageInfo.sender (no query sender).
+              if mode == .query then
+                planError
+                  "unsupported ICP semantic shape: ContextRead context.caller is forbidden in query/view (CAP-1b ICP-VIEW-CALLER: S1 consistency with NEAR/CosmWasm; ic0.msg_caller exists on queries but this profile keeps query fail-closed)"
+              unless isPrincipalType types vd.typeId do
+                planError
+                  "unsupported ICP semantic shape: ContextRead context.caller result must be Principal"
+              let v ← mkCallerPrincipalV1
+              acc := { acc with env := envInsert acc.env vd.valueId v }
+            else if key == unixTimeSecondsContextKeyV1 then
               unless isUInt64Type types vd.typeId do
                 planError
                   "unsupported ICP semantic shape: ContextRead unix-time-seconds result must be UInt64"
@@ -1063,7 +1133,7 @@ private partial def lowerInstructions
               planError
                 s!"unsupported ICP semantic shape: ContextRead '{key.value}' has no Icp host binding (blockHeight/attachedValue/chainId stay fail closed)"
             else
-              -- caller/self remain on this generic envelope (Principal first).
+              -- context.self remains on this generic envelope.
               planError
                 "unsupported ICP semantic shape: Op.ContextRead is outside the ICP-2 envelope"
     | .commit .. =>
@@ -1339,9 +1409,10 @@ private partial def lowerInstructions
 
 private def seedParamEnv (typeDecls : Array TypeDeclV1) (types : IcpTypeClosureV1)
     (owner : String) (callable : CallableV1) :
-    CompileResult (ValueEnv × Array String) := do
+    CompileResult (ValueEnv × Array String × Array ParamKind) := do
   let mut env : ValueEnv := { entries := #[] }
   let mut names : Array String := #[]
+  let mut kinds : Array ParamKind := #[]
   let mut i : Nat := 0
   for p in callable.params do
     unless isIdentifier p.name do
@@ -1355,37 +1426,38 @@ private def seedParamEnv (typeDecls : Array TypeDeclV1) (types : IcpTypeClosureV
       let mut leafExprs : Array Expr := #[]
       for leafName in leafSpecs do
         names := names.push leafName
+        kinds := kinds.push .integer
         leafExprs := leafExprs.push (.param i)
         i := i + 1
       env := envInsert env p.valueId (mkNamedLeaves leafExprs)
     else if isPrincipalType types p.typeId then
       unless p.visibility == .public_ do
-        planError s!"parameter '{p.name}' in {owner} is not public"
-      let leafSpecs ← flattenPrincipalLeafNamesV1 p.name
-      let mut leafExprs : Array Expr := #[]
-      for leafName in leafSpecs do
-        names := names.push leafName
-        leafExprs := leafExprs.push (.param i)
-        i := i + 1
-      env := envInsert env p.valueId (mkPrincipalLeaves leafExprs)
+        planError s!"parameter '{p.name}' in {owner} must be public Principal"
+      let v ← mkParamPrincipalV1 i
+      env := envInsert env p.valueId v
+      names := names.push p.name
+      kinds := kinds.push .principal
+      i := i + 1
     else
       requirePublicUInt64OrInt64Param icpPlanErr types owner p
       env := envInsert env p.valueId (mkScalar (.param i))
       names := names.push p.name
+      kinds := kinds.push .integer
       i := i + 1
   unless names.size ≤ maxParams do
     planError s!"{owner} parameter count exceeds limit"
   if hasDuplicates names then
     planError s!"{owner} parameter names must be unique"
-  pure (env, names)
+  pure (env, names, kinds)
 
 private def lowerCallableBody
     (data : SemanticProgramDataV1) (types : IcpTypeClosureV1)
-    (layout : StateLayout) (allowStateWrite seedZeroState : Bool)
+    (layout : StateLayout) (mode : MethodMode)
+    (allowStateWrite seedZeroState : Bool)
     (signedNumeric : Bool)
     (owner : String) (callable : CallableV1) :
-    CompileResult (Array String × Array Statement × Option LoweredValue) := do
-  let (env0, paramNames) ← seedParamEnv data.types types owner callable
+    CompileResult (Array String × Array ParamKind × Array Statement × Option LoweredValue) := do
+  let (env0, paramNames, paramKinds) ← seedParamEnv data.types types owner callable
   let mut overlay0 : StateOverlay := { entries := #[] }
   if seedZeroState then
     for st in data.logicalState do
@@ -1421,14 +1493,14 @@ private def lowerCallableBody
           (mkArrayLeaves (phys.map (fun _ => .literal 0)))
   let acc0 := emptyBodyAccum env0 overlay0
   let (acc, ret?) ←
-    lowerInstructions data types layout allowStateWrite signedNumeric callable acc0
+    lowerInstructions data types layout mode allowStateWrite signedNumeric callable acc0
   let mut stores := acc.asserts.map (fun c => Statement.assert c)
   stores := stores ++ overlayFinalStores layout acc.overlay
   let ret? := ret?.map (fun v =>
     { v with
       expr := rewriteReturnThroughOverlay layout acc.overlay v.expr
       leaves := v.leaves.map (rewriteReturnThroughOverlay layout acc.overlay) })
-  pure (paramNames, stores, ret?)
+  pure (paramNames, paramKinds, stores, ret?)
 
 private def resultKindOf
     (data : SemanticProgramDataV1) (types : IcpTypeClosureV1)
@@ -1439,7 +1511,7 @@ private def resultKindOf
   else if isInt64Type types typeId then pure .int64
   else if isUInt64Type types typeId then pure .uint64
   else if isPrincipalType types typeId then
-    planError s!"{owner} Principal return is outside ICP-2"
+    planError s!"{owner} Principal result stays fail closed on ICP-2 (CAP-1b admits caller/param/state identity + ==/!= only; no Candid principal reply)"
   else if allowViewAggregate then
     match data.types[typeId.toNat]? with
     | some { shape := .bytes len, name := none, .. } => do
@@ -1524,14 +1596,14 @@ private def makePlanFromSemanticDataV1
           planError "unsupported ICP semantic shape: initializer result must be public"
         for p in callable.params do
           signed? ← noteIntegerDomain types p.typeId signed? s!"initializer parameter '{p.name}'"
-        let (params, stores, ret?) ←
-          lowerCallableBody data types layout (allowStateWrite := true)
+        let (params, paramKinds, stores, ret?) ←
+          lowerCallableBody data types layout .initialize (allowStateWrite := true)
             (seedZeroState := true) signedNumeric "initializer" callable
         unless ret?.isNone do
           planError "unsupported ICP semantic shape: initializer must return Unit"
         initializer? := some {
           name := "init", params, mode := .initialize, resultKind := .unit
-          body := stores
+          body := stores, paramKinds
         }
     | .entry => do
         let name ← match callable.name with
@@ -1549,8 +1621,8 @@ private def makePlanFromSemanticDataV1
         for p in callable.params do
           signed? ←
             noteIntegerDomain types p.typeId signed? s!"entry '{name}' parameter '{p.name}'"
-        let (params, stores, ret?) ←
-          lowerCallableBody data types layout (allowStateWrite := true)
+        let (params, paramKinds, stores, ret?) ←
+          lowerCallableBody data types layout .mutate (allowStateWrite := true)
             (seedZeroState := false) signedNumeric s!"entry '{name}'" callable
         let body ← match rk, ret? with
           | .unit, none => pure stores
@@ -1570,7 +1642,7 @@ private def makePlanFromSemanticDataV1
           | .aggregate _, none =>
               planError s!"entry '{name}' aggregate return is missing"
         entries := entries.push {
-          name, params, mode := .mutate, resultKind := rk, body
+          name, params, mode := .mutate, resultKind := rk, body, paramKinds
         }
     | .view => do
         let name ← match callable.name with
@@ -1590,8 +1662,8 @@ private def makePlanFromSemanticDataV1
         for p in callable.params do
           signed? ←
             noteIntegerDomain types p.typeId signed? s!"view '{name}' parameter '{p.name}'"
-        let (params, stores, ret?) ←
-          lowerCallableBody data types layout (allowStateWrite := false)
+        let (params, paramKinds, stores, ret?) ←
+          lowerCallableBody data types layout .query (allowStateWrite := false)
             (seedZeroState := false) signedNumeric s!"view '{name}'" callable
         unless stores.isEmpty do
           planError s!"view '{name}' cannot write state"
@@ -1611,7 +1683,8 @@ private def makePlanFromSemanticDataV1
           | .unit =>
               planError s!"view '{name}' result must be UInt64, Int64, Bool, or a view-only aggregate"
         views := views.push {
-          name, params, mode := .query, resultKind := rk, body
+          name, params, mode := .query, resultKind := rk, body,
+          paramKinds
         }
   let initializer ← match initializer? with
     | some m => pure m

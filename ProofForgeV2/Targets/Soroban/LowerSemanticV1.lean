@@ -32,14 +32,22 @@ Language subset (fail closed otherwise):
 - Array UInt64 N state flatten (N=1..8); Option UInt64 2-leaf state
   (construct none/some); Map UInt64 UInt64 cap-8 flatten (`Map.empty`
   + IndexSet); UInt32 admitted only as the Normalize Array-index intern
-  (not a state/param width)
+  (not a state/param width); UInt256 admitted only as
+  `pf.crypto.sha256` operand/result plumbing (4×u64 LE limbs)
 - init/entry/view/pureFn; single-block only
 - literal, state load/store, checked UInt64/Int64 arith (+-*/%), compare,
   bool and/or/not, ite mux, pureCall inline ≤ 64, bare assert,
   zero-payload revert
 - REJECT: nonempty invariants, constants, events, call/schedule,
-  ContextRead/Commit, Int8/16/32 state/params, Bytes, nonempty Map
-  construct, Array/Option/Map return/params, Field/Principal/String, emit
+  residual ContextRead (`caller`/`self`/`attachedValue`/`chainId`),
+  Commit, Int8/16/32 state/params, Bytes, nonempty Map construct,
+  Array/Option/Map return/params, Field/Principal/String, emit,
+  UInt256 state/param/result/arith, `pf.crypto.keccak256` and sibling QNs
+  CAP-3 admits `context.unixTimeSeconds` / `context.blockHeight` as
+  source-only `env.ledger()` reads on init/entry/view (every S0
+  contract fn already receives `env: Env`; ledger is invocation-wide).
+  CAP-4 admits exact `pf.crypto.sha256` on init/entry as
+  `env.crypto().sha256` over Semantic UInt256 LE valueBytes.
 -/
 
 namespace ProofForgeV2.Targets.Soroban
@@ -63,21 +71,27 @@ private def qnJoined (qn : ProofForgeV2.Core.Common.QualifiedName) : String :=
   String.intercalate "."
     (ProofForgeV2.Core.Common.NonEmptyArray.toArray qn.components).toList
 
-/-- ADR-0031 S5: Soroban has no sha256 or keccak256 host. Any `pf.crypto.*`
-    QN stays fail closed instead of the generic S0 op catch-all. -/
+/-- CAP-4 / CAP-D-SOR-LEDGER: reserve the whole `pf.crypto.*` namespace.
+    Only the exact sha256 leaf is admitted; keccak256 and siblings keep
+    the named host-binding fail-closed diagnostic. -/
 private def isPfCryptoCalleeV1 (qn : String) : Bool :=
   qn.startsWith "pf.crypto."
 
-/-- ADR-0031 S4: Soroban has no unixTime/blockHeight/attachedValue/chainId
-    host. Named UInt64 catalog keys stay fail closed with a key-named
-    diagnostic. `context.caller` / `context.self` are Principal; S0 rejects
-    Principal at type closure, so those keys stay on the generic ContextRead
-    envelope below. -/
-private def isNamedUInt64ContextKey
+private def isPfCryptoSha256CalleeV1 (qn : String) : Bool :=
+  qn == "pf.crypto.sha256"
+
+private def uint256PlumbingFc (owner : String) : String :=
+  s!"unsupported Soroban semantic shape: UInt256 is admitted only as pf.crypto.sha256 operand/result plumbing ({owner} stay fail closed)"
+
+/-- ADR-0031 S4 residual after CAP-3 / CAP-D-SOR-LEDGER: attachedValue and
+    chainId still have no Soroban host. `unixTimeSeconds` binds
+    `env.ledger().timestamp()`; `blockHeight` binds `env.ledger().sequence()`
+    (u32 widened to u64 in emitted Rust). `context.caller` / `context.self`
+    are Principal; S0 rejects Principal at type closure, so those keys stay
+    on the generic ContextRead envelope below. -/
+private def isUnboundUInt64ContextKey
     (key : ProofForgeV2.Core.Common.SchemaId) : Bool :=
-  key == unixTimeSecondsContextKeyV1 ||
-    key == blockHeightContextKeyV1 ||
-    key == attachedValueContextKeyV1 ||
+  key == attachedValueContextKeyV1 ||
     key == chainIdContextKeyV1
 
 -- ---------------------------------------------------------------------------
@@ -119,6 +133,16 @@ inductive Expr where
   | litBool (value : Bool)
   | param (index : Nat)
   | stateLoad (fieldIndex : Nat)
+  /-- CAP-3: `env.ledger().timestamp()` — u64 Unix seconds. Admitted on
+      init/entry/view (and inlined pureFn) because every S0 contract fn
+      receives `env: Env` and ledger reads are invocation-wide. -/
+  | unixTimeSeconds
+  /-- CAP-3: `env.ledger().sequence()` — u32 ledger sequence, widened to
+      u64 in emitted Rust (`u64::from`). Same invocation policy. -/
+  | blockHeight
+  /-- CAP-4: one LE u64 limb of a recorded `pf.crypto.sha256` site.
+      `limbIndex` is 0=low .. 3=high, matching Semantic UInt256 valueBytes. -/
+  | sha256Limb (siteIndex limbIndex : Nat)
   | arith (op : ArithOp) (lhs rhs : Expr)
   | compare (op : ComparisonOp) (lhs rhs : Expr)
   | boolAnd (lhs rhs : Expr)
@@ -143,6 +167,17 @@ structure TypedExpr where
   isPrincipal : Bool := false
   /-- True when `leaves` is a named Struct/Enum flatten. -/
   isNamed : Bool := false
+  /-- True when `leaves` is CAP-4 UInt256 sha256 plumbing (4 LE u64 limbs). -/
+  isUInt256 : Bool := false
+  deriving BEq, Inhabited, Repr
+
+/-- CAP-4: one `pf.crypto.sha256` host site. Inputs are the four Semantic
+    UInt256 little-endian u64 limbs (valueBytes[0..8) .. [24..32)). -/
+structure Sha256Site where
+  input0 : Expr
+  input1 : Expr
+  input2 : Expr
+  input3 : Expr
   deriving BEq, Inhabited, Repr
 
 structure Check where
@@ -168,6 +203,8 @@ structure PlanInit where
   name : String
   params : Array String
   stores : Array (Nat × Expr)
+  /-- CAP-4: sha256 sites emitted before init stores. -/
+  sha256Sites : Array Sha256Site := #[]
   deriving BEq, Inhabited, Repr
 
 structure PlanEntry where
@@ -181,6 +218,8 @@ structure PlanEntry where
   leaves : Array Expr := #[]
   leafIsInt : Array Bool := #[]
   terminalRevert : Bool
+  /-- CAP-4: sha256 sites emitted before checks/stores/result. -/
+  sha256Sites : Array Sha256Site := #[]
   deriving BEq, Inhabited, Repr
 
 structure PlanView where
@@ -213,14 +252,14 @@ private def sorobanTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "Soroban"
   uint32DuplicateDetail := "expected at most one anonymous UInt32 type"
   badIntegerWidthDetail :=
-    "only anonymous UInt64/Int64 widths are supported"
+    "only anonymous UInt64/Int64 widths are supported (plus UInt256 sha256 plumbing)"
   unsupportedShapeDetail :=
-    "only anonymous UInt64, Int64, UInt8 (Bytes element), Bool, Unit, named Struct/Enum UInt64/Int64 leaf flatten (return stays fail closed), Array UInt64 N state flatten, Option UInt64 2-leaf state, Map UInt64 UInt64 cap-8 flatten, Bytes N (N UInt64 low-8 leaves), and Principal 9-leaf identity (owner_len+w0..w7, not address) are supported (narrow Int/Field/aggregates fail closed)"
+    "only anonymous UInt64, Int64, UInt8 (Bytes element), Bool, Unit, named Struct/Enum UInt64/Int64 leaf flatten (return stays fail closed), Array UInt64 N state flatten, Option UInt64 2-leaf state, Map UInt64 UInt64 cap-8 flatten, Bytes N (N UInt64 low-8 leaves), Principal 9-leaf identity (owner_len+w0..w7, not address), and UInt256 sha256 plumbing are supported (narrow Int/Field/aggregates fail closed)"
 
 /-- UInt32 is interned by Normalize for Array index literals only.
     State/params stay UInt64 or Int64 via the public-slot require helpers. -/
 private def pilotUintWidthPolicyU64U32Index : PilotUintWidthPolicy where
-  admittedWidths := #[64, 32, 8]
+  admittedWidths := #[64, 32, 8, 256]
 
 private abbrev SorobanTypeClosureV1 := PilotTypeClosureV1
 
@@ -286,6 +325,9 @@ private def isUInt8Type (types : SorobanTypeClosureV1) (typeId : TypeIdV1) : Boo
 private def isPrincipalType (types : SorobanTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   types.principalTypeId == some typeId
 
+private def isUInt256Type (types : SorobanTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  types.uintTypeIdAt 256 == some typeId
+
 /-- Dense Map UInt64 UInt64 pilot: cap-8 × (occ, key, val) = 24 UInt64 leaves. -/
 private def mapPilotCapacityV1 : Nat := 8
 private def mapSlotsPerEntryV1 : Nat := 3
@@ -348,10 +390,21 @@ private def isPrincipalValue (v : TypedExpr) : Bool :=
   v.isPrincipal && v.leaves.size == principalLeafCountV1
 
 private def isArrayValue (v : TypedExpr) : Bool :=
-  isAggregateValue v && !v.isOption && !v.isMap && !v.isPrincipal && !v.isNamed
+  isAggregateValue v && !v.isOption && !v.isMap && !v.isPrincipal && !v.isNamed && !v.isUInt256
 
 private def isNamedValue (v : TypedExpr) : Bool :=
   v.isNamed && !v.leaves.isEmpty
+
+private def mkUInt256Leaves (leaves : Array Expr) (nodes : Nat) : TypedExpr :=
+  { ty := .uint64
+    expr := leaves[0]?.getD (.litU64 0)
+    expandedNodes := nodes
+    leaves
+    isOption := false
+    isMap := false
+    isPrincipal := false
+    isNamed := false
+    isUInt256 := true }
 
 private def isMapValue (v : TypedExpr) : Bool :=
   v.isMap && v.leaves.size == mapPilotLeafCountV1
@@ -823,6 +876,8 @@ private def makeStateLayoutV1
           isMapOf := isMapOf.push false
           isNamedOf := isNamedOf.push false
       | none =>
+          if isUInt256Type types st.typeId then
+            planError (uint256PlumbingFc "state")
           requirePublicUInt64OrInt64State sorobanPlanErr types st
           if states.size + 1 > maxStateFields then
             planError "unsupported Soroban semantic shape: state field count exceeds limit"
@@ -927,10 +982,11 @@ private structure BodyAccum where
   overlay : StateOverlay
   checks : Array Check
   opCount : Nat
+  sha256Sites : Array Sha256Site := #[]
   deriving Inhabited
 
 private def emptyBodyAccum (env : ValueEnv) (overlay : StateOverlay) : BodyAccum :=
-  { env, overlay, checks := #[], opCount := 0 }
+  { env, overlay, checks := #[], opCount := 0, sha256Sites := #[] }
 
 private def pushCheck (acc : BodyAccum) (ck : Check) : CompileResult BodyAccum := do
   if acc.checks.size + 1 > maxBodyChecks then
@@ -944,6 +1000,9 @@ private def bumpOp (acc : BodyAccum) : CompileResult BodyAccum := do
 
 private def requireTy (v : TypedExpr) (ty : ExprType) (what : String) :
     CompileResult Expr := do
+  if v.isUInt256 then
+    planError
+      s!"unsupported Soroban semantic shape: {what} cannot be a UInt256 (UInt256 is sha256 plumbing only)"
   if isAggregateValue v then
     planError s!"unsupported Soroban semantic shape: {what} cannot be an Array/Option/Map aggregate"
   unless v.ty == ty do
@@ -981,8 +1040,17 @@ private def lowerLiteral
   else if isPrincipalType types typeId then
     let leaves ← decodePrincipalLiteralLeavesV1 valueBytes
     pure (mkPrincipalLeaves leaves leaves.size)
+  else if isUInt256Type types typeId then
+    let n ← decodeUIntWideLiteralLe sorobanPlanErr "Soroban" 256 valueBytes
+    let b : Nat := 18446744073709551616
+    let leaves : Array Expr :=
+      #[.litU64 (UInt64.ofNat (n % b)),
+        .litU64 (UInt64.ofNat ((n / b) % b)),
+        .litU64 (UInt64.ofNat ((n / (b * b)) % b)),
+        .litU64 (UInt64.ofNat ((n / (b * b * b)) % b))]
+    pure (mkUInt256Leaves leaves 4)
   else
-    planError "unsupported Soroban semantic shape: literal type is outside UInt64/Int64/UInt32/UInt8/Bool/Principal"
+    planError "unsupported Soroban semantic shape: literal type is outside UInt64/Int64/UInt32/UInt8/Bool/Principal/UInt256"
 
 private def signedRangeCond (e : Expr) : Expr :=
   .boolAnd
@@ -1176,6 +1244,8 @@ private def resultKindOf
     planError s!"{owner} Option return is outside S0"
   else if types.isNamedAggregate typeId then
     planError s!"{owner} named Struct/Enum return is outside S0"
+  else if isUInt256Type types typeId then
+    planError (uint256PlumbingFc "result")
   else if types.isContainer typeId then
     planError
       s!"{owner} Array/Map return is outside S0 (only Array/Map UInt64 state flattens; no Vec/HashMap)"
@@ -1359,24 +1429,88 @@ private partial def lowerInstructions
         if forbidChecks then
           planError "unsupported Soroban semantic shape: initializer cannot contain fallible checks"
         acc ← pushCheck acc { kind := .assertion, condition := c }
-    | .externalCall _effectId callee _args => do
+    | .externalCall _effectId callee argIds => do
         let qn := qnJoined callee
         if isPfCryptoCalleeV1 qn then
-          planError
-            s!"unsupported Soroban semantic shape: pf.crypto QN '{qn}' has no Soroban host binding (sha256/keccak256 and siblings stay fail closed)"
-        planError "unsupported Soroban semantic shape: op is outside S0"
+          unless isPfCryptoSha256CalleeV1 qn do
+            planError
+              s!"unsupported Soroban semantic shape: pf.crypto QN '{qn}' has no Soroban host binding (sha256/keccak256 and siblings stay fail closed)"
+          if callable.kind == .view || callable.kind == .pureFn then
+            planError
+              "unsupported Soroban semantic shape: view/pureFn must not call pf.crypto.sha256"
+          if numericTy == .int64 then
+            planError
+              "unsupported Soroban semantic shape: signedNumeric Int64 programs cannot carry pf.crypto.sha256 (UInt256 plumbing is unsigned)"
+          match instr.result with
+          | none =>
+              planError
+                "unsupported Soroban semantic shape: pf.crypto.sha256 requires exactly one UInt256 argument and UInt256 result"
+          | some vd =>
+              unless argIds.size == 1 && isUInt256Type types vd.typeId do
+                planError
+                  "unsupported Soroban semantic shape: pf.crypto.sha256 requires exactly one UInt256 argument and UInt256 result"
+              let some argId := argIds[0]? |
+                planError
+                  "unsupported Soroban semantic shape: pf.crypto.sha256 UInt256 argument is missing"
+              let root ← match envLookup acc.env argId with
+                | some v => pure v
+                | none =>
+                    planError
+                      "unsupported Soroban semantic shape: pf.crypto.sha256 argument is undefined"
+              unless root.isUInt256 && root.leaves.size == 4 do
+                planError
+                  "unsupported Soroban semantic shape: pf.crypto.sha256 requires exactly one UInt256 argument and UInt256 result"
+              let some in0 := root.leaves[0]? |
+                planError "unsupported Soroban semantic shape: pf.crypto.sha256 limb 0 missing"
+              let some in1 := root.leaves[1]? |
+                planError "unsupported Soroban semantic shape: pf.crypto.sha256 limb 1 missing"
+              let some in2 := root.leaves[2]? |
+                planError "unsupported Soroban semantic shape: pf.crypto.sha256 limb 2 missing"
+              let some in3 := root.leaves[3]? |
+                planError "unsupported Soroban semantic shape: pf.crypto.sha256 limb 3 missing"
+              let siteIdx := acc.sha256Sites.size
+              acc := { acc with
+                sha256Sites := acc.sha256Sites.push {
+                  input0 := in0, input1 := in1, input2 := in2, input3 := in3
+                } }
+              let leaves : Array Expr :=
+                #[.sha256Limb siteIdx 0, .sha256Limb siteIdx 1,
+                  .sha256Limb siteIdx 2, .sha256Limb siteIdx 3]
+              acc := { acc with
+                env := envInsert acc.env vd.valueId (mkUInt256Leaves leaves 4) }
+        else
+          planError "unsupported Soroban semantic shape: op is outside S0"
     | .schedule _effectId callee _args => do
         let qn := qnJoined callee
         if isPfCryptoCalleeV1 qn then
           planError
             s!"unsupported Soroban semantic shape: pf.crypto QN '{qn}' has no Soroban host binding (sha256/keccak256 and siblings stay fail closed)"
         planError "unsupported Soroban semantic shape: op is outside S0"
-    | .contextRead key =>
-        if isNamedUInt64ContextKey key then
-          planError
-            s!"unsupported Soroban semantic shape: ContextRead '{key.value}' has no Soroban host binding (unixTimeSeconds/blockHeight/attachedValue/chainId stay fail closed)"
-        -- caller/self remain on this generic envelope (Principal rejected first).
-        planError "unsupported Soroban semantic shape: op is outside S0"
+    | .contextRead key => do
+        match instr.result with
+        | none =>
+            planError "unsupported Soroban semantic shape: ContextRead must produce a value"
+        | some vd =>
+            if key == unixTimeSecondsContextKeyV1 then
+              unless isUInt64Type types vd.typeId do
+                planError
+                  "unsupported Soroban semantic shape: ContextRead unix-time-seconds result must be UInt64"
+              let v : TypedExpr :=
+                { ty := .uint64, expr := .unixTimeSeconds, expandedNodes := 1 }
+              acc := { acc with env := envInsert acc.env vd.valueId v }
+            else if key == blockHeightContextKeyV1 then
+              unless isUInt64Type types vd.typeId do
+                planError
+                  "unsupported Soroban semantic shape: ContextRead block-height result must be UInt64"
+              let v : TypedExpr :=
+                { ty := .uint64, expr := .blockHeight, expandedNodes := 1 }
+              acc := { acc with env := envInsert acc.env vd.valueId v }
+            else if isUnboundUInt64ContextKey key then
+              planError
+                s!"unsupported Soroban semantic shape: ContextRead '{key.value}' has no Soroban host binding (attachedValue/chainId stay fail closed)"
+            else
+              -- caller/self remain on this generic envelope (Principal rejected first).
+              planError "unsupported Soroban semantic shape: op is outside S0"
     | .envRead key _args =>
         if key == .nativeVaultBalance then
           planError
@@ -1677,6 +1811,8 @@ private def seedParamEnv
     if isAnonymousOptionTypeIdV1 typeDecls p.typeId then
       planError
         "unsupported Soroban semantic shape: Option params are outside S0"
+    if isUInt256Type types p.typeId then
+      planError (uint256PlumbingFc "param")
     if types.isNamedAggregate p.typeId then
       let leafSpecs ← flattenNamedLeafSpecsV1 typeDecls types p.typeId p.name
       let mut leafExprs : Array Expr := #[]
@@ -1717,7 +1853,7 @@ private def lowerCallableBody
     (allowStateRead allowStateWrite forbidChecks initialStateDefaults : Bool) :
     CompileResult
       (Array String × Array Check × Array (Nat × Expr) ×
-        Option TypedExpr × Bool) := do
+        Option TypedExpr × Bool × Array Sha256Site) := do
   let (env0, paramNames) ← seedParamEnv data.types types callable
   let mut overlay0 : StateOverlay := { entries := #[] }
   if initialStateDefaults then
@@ -1758,7 +1894,7 @@ private def lowerCallableBody
     lowerInstructions data types idx callable numericTy layout
       allowStateRead allowStateWrite forbidChecks 0 acc0
   let stores := overlayFinalStores acc.overlay layout
-  pure (paramNames, acc.checks, stores, ret?, endedRevert)
+  pure (paramNames, acc.checks, stores, ret?, endedRevert, acc.sha256Sites)
 
 private def makePlanFromSemanticDataV1
     (data : SemanticProgramDataV1) (programName : String)
@@ -1815,10 +1951,12 @@ private def makePlanFromSemanticDataV1
           signedNumeric false
         unless callable.result.visibility == .public_ do
           planError s!"pureFn '{name}' result must be public"
-        let (_params, _checks, stores, ret?, endedRevert) ←
+        let (_params, _checks, stores, ret?, endedRevert, sha256Sites) ←
           lowerCallableBody data types idx callable numericTy layout
             (allowStateRead := false) (allowStateWrite := false) (forbidChecks := false)
             (initialStateDefaults := false)
+        unless sha256Sites.isEmpty do
+          planError s!"pureFn '{name}' must not call pf.crypto.sha256"
         unless stores.isEmpty do
           planError s!"pureFn '{name}' cannot write state"
         match rk, ret?, endedRevert with
@@ -1852,7 +1990,7 @@ private def makePlanFromSemanticDataV1
           planError "unsupported Soroban semantic shape: initializer result must be Unit"
         unless callable.result.visibility == .public_ do
           planError "unsupported Soroban semantic shape: initializer result must be public"
-        let (params, checks, stores, ret?, endedRevert) ←
+        let (params, checks, stores, ret?, endedRevert, sha256Sites) ←
           lowerCallableBody data types idx callable numericTy layout
             (allowStateRead := true) (allowStateWrite := true) (forbidChecks := true)
             (initialStateDefaults := true)
@@ -1862,7 +2000,7 @@ private def makePlanFromSemanticDataV1
           planError "unsupported Soroban semantic shape: initializer cannot contain fallible checks"
         unless ret?.isNone do
           planError "unsupported Soroban semantic shape: initializer must return Unit"
-        initializer := some { name, params, stores }
+        initializer := some { name, params, stores, sha256Sites }
     | .entry => do
         let name ← match callable.name with
           | some n => pure n
@@ -1873,7 +2011,7 @@ private def makePlanFromSemanticDataV1
           signedNumeric true
         unless callable.result.visibility == .public_ do
           planError s!"entry '{name}' result must be public"
-        let (params, checks, stores, ret?, endedRevert) ←
+        let (params, checks, stores, ret?, endedRevert, sha256Sites) ←
           lowerCallableBody data types idx callable numericTy layout
             (allowStateRead := true) (allowStateWrite := true) (forbidChecks := false)
             (initialStateDefaults := false)
@@ -1921,7 +2059,7 @@ private def makePlanFromSemanticDataV1
               planError s!"entry '{name}' aggregate return is missing"
         entries := entries.push {
           name, params, resultKind := rk, checks, stores
-          result?, leaves, leafIsInt, terminalRevert := endedRevert
+          result?, leaves, leafIsInt, terminalRevert := endedRevert, sha256Sites
         }
     | .view => do
         let name ← match callable.name with
@@ -1935,7 +2073,7 @@ private def makePlanFromSemanticDataV1
           planError s!"view '{name}' result must be UInt64, Int64, Bool, or a view-only aggregate"
         unless callable.result.visibility == .public_ do
           planError s!"view '{name}' result must be public"
-        let (params, checks, stores, ret?, endedRevert) ←
+        let (params, checks, stores, ret?, endedRevert, sha256Sites) ←
           lowerCallableBody data types idx callable numericTy layout
             (allowStateRead := true) (allowStateWrite := false) (forbidChecks := false)
             (initialStateDefaults := false)
@@ -1943,6 +2081,8 @@ private def makePlanFromSemanticDataV1
           planError s!"view '{name}' cannot revert"
         unless stores.isEmpty do
           planError s!"view '{name}' cannot write state"
+        unless sha256Sites.isEmpty do
+          planError s!"view '{name}' must not call pf.crypto.sha256"
         unless checks.isEmpty do
           planError s!"view '{name}' cannot contain assert/revert/fallible checks (pure def only)"
         let tv ← match ret? with

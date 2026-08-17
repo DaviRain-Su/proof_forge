@@ -43,7 +43,8 @@ private def isSafeIdent (name : String) : Bool :=
 
 private partial def inferExprType
     (e : Expr) (what : String)
-    (paramCount stateCount fuel : Nat) (signed : Bool) :
+    (paramCount stateCount fuel : Nat) (signed : Bool)
+    (sha256SiteCount : Nat) :
     CompileResult (ExprType × Nat) := do
   if fuel == 0 then
     planError s!"Soroban plan {what} expression exhausted type-check fuel"
@@ -52,6 +53,16 @@ private partial def inferExprType
   match e with
   | .litU64 _ => pure (numeric, remaining)
   | .litBool _ => pure (.bool, remaining)
+  | .unixTimeSeconds | .blockHeight =>
+      -- CAP-3: Semantic result is UInt64 even on signedNumeric programs.
+      pure (.uint64, remaining)
+  | .sha256Limb siteIndex limbIndex =>
+      unless siteIndex < sha256SiteCount do
+        planError s!"Soroban plan {what} references unknown sha256 site {siteIndex}"
+      unless limbIndex < 4 do
+        planError s!"Soroban plan {what} sha256 limb index must be 0..3"
+      -- CAP-4: each limb is an unsigned u64 word of the Semantic LE digest.
+      pure (.uint64, remaining)
   | .param index =>
       unless index < paramCount do
         planError s!"Soroban plan {what} references unknown parameter {index}"
@@ -62,17 +73,17 @@ private partial def inferExprType
       pure (numeric, remaining)
   | .arith _ lhs rhs => do
       let (lhsTy, remaining) ←
-        inferExprType lhs what paramCount stateCount remaining signed
+        inferExprType lhs what paramCount stateCount remaining signed sha256SiteCount
       let (rhsTy, remaining) ←
-        inferExprType rhs what paramCount stateCount remaining signed
+        inferExprType rhs what paramCount stateCount remaining signed sha256SiteCount
       unless lhsTy == numeric && rhsTy == numeric do
         planError s!"Soroban plan {what} arithmetic operands must match the numeric domain"
       pure (numeric, remaining)
   | .compare op lhs rhs => do
       let (lhsTy, remaining) ←
-        inferExprType lhs what paramCount stateCount remaining signed
+        inferExprType lhs what paramCount stateCount remaining signed sha256SiteCount
       let (rhsTy, remaining) ←
-        inferExprType rhs what paramCount stateCount remaining signed
+        inferExprType rhs what paramCount stateCount remaining signed sha256SiteCount
       match op with
       | .eq | .ne =>
           unless lhsTy == rhsTy && (lhsTy == .uint64 || lhsTy == .int64 || lhsTy == .bool) do
@@ -83,34 +94,35 @@ private partial def inferExprType
       pure (.bool, remaining)
   | .boolAnd lhs rhs | .boolOr lhs rhs => do
       let (lhsTy, remaining) ←
-        inferExprType lhs what paramCount stateCount remaining signed
+        inferExprType lhs what paramCount stateCount remaining signed sha256SiteCount
       let (rhsTy, remaining) ←
-        inferExprType rhs what paramCount stateCount remaining signed
+        inferExprType rhs what paramCount stateCount remaining signed sha256SiteCount
       unless lhsTy == .bool && rhsTy == .bool do
         planError s!"Soroban plan {what} logical operands must be Bool"
       pure (.bool, remaining)
   | .boolNot operand => do
       let (operandTy, remaining) ←
-        inferExprType operand what paramCount stateCount remaining signed
+        inferExprType operand what paramCount stateCount remaining signed sha256SiteCount
       unless operandTy == .bool do
         planError s!"Soroban plan {what} logical-not operand must be Bool"
       pure (.bool, remaining)
   | .ite cond t e => do
       let (condTy, remaining) ←
-        inferExprType cond what paramCount stateCount remaining signed
+        inferExprType cond what paramCount stateCount remaining signed sha256SiteCount
       unless condTy == .bool do
         planError s!"Soroban plan {what} ite condition must be Bool"
       let (tTy, remaining) ←
-        inferExprType t what paramCount stateCount remaining signed
+        inferExprType t what paramCount stateCount remaining signed sha256SiteCount
       let (eTy, remaining) ←
-        inferExprType e what paramCount stateCount remaining signed
+        inferExprType e what paramCount stateCount remaining signed sha256SiteCount
       unless tTy == eTy do
         planError s!"Soroban plan {what} ite branches must share a type"
       pure (tTy, remaining)
 
 private def validateExpr
     (e : Expr) (expected : ExprType) (what : String)
-    (paramCount stateCount remaining0 : Nat) (signed : Bool) : CompileResult Nat := do
+    (paramCount stateCount remaining0 : Nat) (signed : Bool)
+    (sha256SiteCount : Nat) : CompileResult Nat := do
   let mut stack : Array (Expr × Nat) := #[(e, 1)]
   let mut remaining := remaining0
   let mut localNodes : Nat := 0
@@ -126,7 +138,8 @@ private def validateExpr
     if depth > maxExprDepth then
       planError s!"Soroban plan {what} expression exceeds depth limit"
     match current with
-    | .litU64 _ | .litBool _ | .param _ | .stateLoad _ =>
+    | .litU64 _ | .litBool _ | .param _ | .stateLoad _
+    | .unixTimeSeconds | .blockHeight | .sha256Limb _ _ =>
         pure ()
     | .arith op lhs rhs =>
         match op with
@@ -155,19 +168,21 @@ private def validateExpr
         stack := stack.push (t, depth + 1)
         stack := stack.push (cond, depth + 1)
   let (actual, _) ←
-    inferExprType e what paramCount stateCount maxExprNodes signed
+    inferExprType e what paramCount stateCount maxExprNodes signed sha256SiteCount
   unless actual == expected do
     planError s!"Soroban plan {what} expression type does not match its use site"
   pure remaining
 
 private def validateCheck
-    (ck : Check) (paramCount stateCount remaining : Nat) (signed : Bool) :
+    (ck : Check) (paramCount stateCount remaining : Nat) (signed : Bool)
+    (sha256SiteCount : Nat) :
     CompileResult Nat :=
   validateExpr ck.condition .bool "check condition" paramCount stateCount remaining signed
+    sha256SiteCount
 
 private def validateStores
     (stores : Array (Nat × Expr)) (stateCount paramCount remaining0 : Nat)
-    (signed : Bool) : CompileResult Nat := do
+    (signed : Bool) (sha256SiteCount : Nat) : CompileResult Nat := do
   unless stores.size ≤ maxStores do
     planError "Soroban plan store count exceeds limit"
   let mut seen : Array Nat := #[]
@@ -181,6 +196,26 @@ private def validateStores
     seen := seen.push fi
     remaining ←
       validateExpr e numeric "store value" paramCount stateCount remaining signed
+        sha256SiteCount
+  pure remaining
+
+private def validateSha256Sites
+    (sites : Array Sha256Site) (paramCount stateCount remaining0 : Nat)
+    (signed : Bool) : CompileResult Nat := do
+  let mut remaining := remaining0
+  for site in sites do
+    remaining ←
+      validateExpr site.input0 .uint64 "sha256 limb 0" paramCount stateCount remaining
+        signed sites.size
+    remaining ←
+      validateExpr site.input1 .uint64 "sha256 limb 1" paramCount stateCount remaining
+        signed sites.size
+    remaining ←
+      validateExpr site.input2 .uint64 "sha256 limb 2" paramCount stateCount remaining
+        signed sites.size
+    remaining ←
+      validateExpr site.input3 .uint64 "sha256 limb 3" paramCount stateCount remaining
+        signed sites.size
   pure remaining
 
 private def validateParams (params : Array String) : CompileResult Unit := do
@@ -235,7 +270,11 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
         planError s!"Soroban initializer '{init.name}' is not a safe identifier"
       validateParams init.params
       exprBudget ←
+        validateSha256Sites init.sha256Sites init.params.size plan.states.size
+          exprBudget signed
+      exprBudget ←
         validateStores init.stores plan.states.size init.params.size exprBudget signed
+          init.sha256Sites.size
   let mut entryNames : Array String := #[]
   for ent in plan.entries do
     unless isSafeIdent ent.name do
@@ -246,11 +285,16 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     validateParams ent.params
     unless ent.checks.size ≤ maxChecks do
       planError "Soroban entry check count exceeds limit"
+    exprBudget ←
+      validateSha256Sites ent.sha256Sites ent.params.size plan.states.size
+        exprBudget signed
     for ck in ent.checks do
       exprBudget ←
         validateCheck ck ent.params.size plan.states.size exprBudget signed
+          ent.sha256Sites.size
     exprBudget ←
       validateStores ent.stores plan.states.size ent.params.size exprBudget signed
+        ent.sha256Sites.size
     let terminalMarkerCount := ent.checks.foldl
       (fun n ck => if isTerminalRevertKind ck.kind then n + 1 else n) 0
     if ent.terminalRevert then
@@ -271,12 +315,15 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     | .uint64, some e, false =>
         exprBudget ←
           validateExpr e .uint64 "entry result" ent.params.size plan.states.size exprBudget signed
+            ent.sha256Sites.size
     | .int64, some e, false =>
         exprBudget ←
           validateExpr e .int64 "entry result" ent.params.size plan.states.size exprBudget signed
+            ent.sha256Sites.size
     | .bool, some e, false =>
         exprBudget ←
           validateExpr e .bool "entry result" ent.params.size plan.states.size exprBudget signed
+            ent.sha256Sites.size
     | .uint64, some _, true | .int64, some _, true | .bool, some _, true =>
         planError s!"Soroban entry '{ent.name}' terminal revert must not carry a result expression"
     | .uint64, none, true | .int64, none, true | .bool, none, true => pure ()
@@ -299,6 +346,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
           let ty := if isInt then ExprType.int64 else ExprType.uint64
           exprBudget ←
             validateExpr leaf ty "entry aggregate leaf" ent.params.size plan.states.size exprBudget signed
+              ent.sha256Sites.size
     | .aggregate _, _, true =>
         planError s!"Soroban entry '{ent.name}' terminal revert must not carry an aggregate return"
     | .aggregate _, none, false =>
@@ -318,16 +366,19 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
           planError s!"Soroban view '{v.name}' scalar result must not carry aggregate leaves"
         exprBudget ←
           validateExpr v.value .uint64 "view value" v.params.size plan.states.size exprBudget signed
+            0
     | .int64 =>
         unless v.leaves.isEmpty && v.leafIsInt.isEmpty do
           planError s!"Soroban view '{v.name}' scalar result must not carry aggregate leaves"
         exprBudget ←
           validateExpr v.value .int64 "view value" v.params.size plan.states.size exprBudget signed
+            0
     | .bool =>
         unless v.leaves.isEmpty && v.leafIsInt.isEmpty do
           planError s!"Soroban view '{v.name}' scalar result must not carry aggregate leaves"
         exprBudget ←
           validateExpr v.value .bool "view value" v.params.size plan.states.size exprBudget signed
+            0
     | .aggregate n =>
         unless 1 ≤ n && n ≤ 8 do
           planError s!"Soroban view '{v.name}' aggregate return must have 1..8 leaves"
@@ -345,6 +396,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
           let ty := if isInt then ExprType.int64 else ExprType.uint64
           exprBudget ←
             validateExpr e ty "view aggregate leaf" v.params.size plan.states.size exprBudget signed
+            0
   pure ()
 
 end ProofForgeV2.Targets.Soroban

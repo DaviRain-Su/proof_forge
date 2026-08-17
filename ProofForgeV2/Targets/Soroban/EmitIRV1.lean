@@ -42,6 +42,16 @@ inductive RExpr where
   | checkedArith (method : String) (receiver arg : RExpr) (panicMsg : String)
   | storageGet (key : String)
   | storageSet (key : String) (value : RExpr)
+  /-- CAP-3: `env.ledger().timestamp()` (u64 Unix seconds). -/
+  | ledgerTimestamp
+  /-- CAP-3: `u64::from(env.ledger().sequence())` (u32 → u64). -/
+  | ledgerSequence
+  /-- CAP-4: 32-byte `soroban_sdk::Bytes` from four Semantic UInt256 LE limbs. -/
+  | bytesFromU64LimbsLe (l0 l1 l2 l3 : RExpr)
+  /-- CAP-4: `env.crypto().sha256(&bytes)`. -/
+  | cryptoSha256 (bytes : RExpr)
+  /-- CAP-4: one LE u64 limb of a `Hash<32>` / `BytesN<32>` digest. -/
+  | u64LimbFromHashLe (hash : RExpr) (limbIndex : Nat)
   | ifExpr (cond thenE elseE : RExpr)
   | panic (msg : String)
   | unit
@@ -131,6 +141,12 @@ private partial def lowerExpr
       | none => do
           let key ← stateKey plan fi
           pure (.storageGet key)
+  | .unixTimeSeconds => pure .ledgerTimestamp
+  | .blockHeight => pure .ledgerSequence
+  | .sha256Limb siteIndex limbIndex =>
+      unless limbIndex < 4 do
+        planError "Soroban IR sha256 limb index must be 0..3"
+      pure (.name s!"pf_sha256_{siteIndex}_l{limbIndex}")
   | .arith op l r => do
       let rl ← lowerExpr plan params stateLocals l
       let rr ← lowerExpr plan params stateLocals r
@@ -227,6 +243,31 @@ private def emitStores
     stmts := stmts.push (.expr (.storageSet key re))
   pure stmts
 
+/-- CAP-4: emit each sha256 site as Bytes←4×u64 LE, `env.crypto().sha256`,
+    then four LE result limbs. Limb packing is always unsigned. -/
+private def emitSha256Sites
+    (plan : Plan) (params : Array String) (stateLocals : Array String)
+    (sites : Array Sha256Site) :
+    CompileResult (Array RStatement) := do
+  let unsignedPlan := { plan with signedNumeric := false }
+  let mut stmts : Array RStatement := #[]
+  for i in [0:sites.size] do
+    let some site := sites[i]? |
+      planError "Soroban IR sha256 site index out of range"
+    let r0 ← lowerExpr unsignedPlan params stateLocals site.input0
+    let r1 ← lowerExpr unsignedPlan params stateLocals site.input1
+    let r2 ← lowerExpr unsignedPlan params stateLocals site.input2
+    let r3 ← lowerExpr unsignedPlan params stateLocals site.input3
+    let bytesName := s!"pf_sha256_{i}_bytes"
+    let digestName := s!"pf_sha256_{i}_digest"
+    stmts := stmts.push (.letBind bytesName (.bytesFromU64LimbsLe r0 r1 r2 r3))
+    stmts := stmts.push (.letBind digestName (.cryptoSha256 (.name bytesName)))
+    for limb in [0:4] do
+      stmts := stmts.push
+        (.letBind s!"pf_sha256_{i}_l{limb}"
+          (.u64LimbFromHashLe (.name digestName) limb))
+  pure stmts
+
 private def resultTypeStr (rk : ResultKind) (leafIsInt : Array Bool) : Option String :=
   match rk with
   | .unit => none
@@ -249,12 +290,13 @@ private def lower (plan : Plan) : CompileResult IR := do
       let mut fnParams : Array (String × String) := #[("env", "Env")]
       for p in init.params do
         fnParams := fnParams.push (p, numericTy)
+      let shaStmts ← emitSha256Sites plan init.params #[] init.sha256Sites
       let storeStmts ← emitStores plan init.params #[] init.stores
       fns := fns.push {
         name := "init"
         params := fnParams
         returnType := none
-        body := storeStmts
+        body := shaStmts ++ storeStmts
       }
   | none => pure ()
   -- Entries
@@ -274,6 +316,8 @@ private def lower (plan : Plan) : CompileResult IR := do
           body := body.push (.letBind localName (.storageGet key))
           stateLocals := stateLocals.push localName
       | none => pure ()
+    let shaStmts ← emitSha256Sites plan ent.params stateLocals ent.sha256Sites
+    body := body ++ shaStmts
     let checkStmts ← emitAssertChecks plan ent.params stateLocals ent.checks
     body := body ++ checkStmts
     let storeStmts ← emitStores plan ent.params stateLocals ent.stores
@@ -365,6 +409,40 @@ private partial def renderExpr (signed : Bool) : RExpr → String
       s!"env.storage().instance().get(&symbol_short!(\"{key}\")).unwrap_or({zero})"
   | .storageSet key value =>
       s!"env.storage().instance().set(&symbol_short!(\"{key}\"), &{renderExpr signed value})"
+  | .ledgerTimestamp =>
+      "env.ledger().timestamp()"
+  | .ledgerSequence =>
+      "u64::from(env.ledger().sequence())"
+  | .bytesFromU64LimbsLe l0 l1 l2 l3 =>
+      -- Semantic UInt256 valueBytes are 32-byte little-endian. Each limb
+      -- is one LE u64; concatenating limb0..limb3 reconstructs the wire
+      -- bytes that `pf.crypto.sha256` hashes (not EVM mstore big-endian).
+      let e0 := renderExpr signed l0
+      let e1 := renderExpr signed l1
+      let e2 := renderExpr signed l2
+      let e3 := renderExpr signed l3
+      "{\n" ++
+      s!"            let l0 = ({e0}).to_le_bytes();\n" ++
+      s!"            let l1 = ({e1}).to_le_bytes();\n" ++
+      s!"            let l2 = ({e2}).to_le_bytes();\n" ++
+      s!"            let l3 = ({e3}).to_le_bytes();\n" ++
+      "            soroban_sdk::Bytes::from_array(&env, &[\n" ++
+      "                l0[0], l0[1], l0[2], l0[3], l0[4], l0[5], l0[6], l0[7],\n" ++
+      "                l1[0], l1[1], l1[2], l1[3], l1[4], l1[5], l1[6], l1[7],\n" ++
+      "                l2[0], l2[1], l2[2], l2[3], l2[4], l2[5], l2[6], l2[7],\n" ++
+      "                l3[0], l3[1], l3[2], l3[3], l3[4], l3[5], l3[6], l3[7],\n" ++
+      "            ])\n" ++
+      "        }"
+  | .cryptoSha256 bytes =>
+      -- Host returns Hash<32>; to_array() is the 32-byte digest, still
+      -- Semantic-LE when split back into four u64 limbs.
+      s!"env.crypto().sha256(&{renderExpr signed bytes}).to_array()"
+  | .u64LimbFromHashLe hash limbIndex =>
+      let base := limbIndex * 8
+      let h := renderExpr signed hash
+      "u64::from_le_bytes([" ++
+        s!"{h}[{base}], {h}[{base + 1}], {h}[{base + 2}], {h}[{base + 3}], " ++
+        s!"{h}[{base + 4}], {h}[{base + 5}], {h}[{base + 6}], {h}[{base + 7}]])"
   | .ifExpr cond thenE elseE =>
       s!"if {renderExpr signed cond} \{ {renderExpr signed thenE} } else \{ {renderExpr signed elseE} }"
   | .panic msg => s!"panic!(\"{msg}\")"

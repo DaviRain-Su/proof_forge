@@ -39,7 +39,12 @@ private def isSafeIdent (name : String) : Bool :=
   isAsciiIdentifier maxIdentifierBytes name && !isReserved name
 
 private partial def exprNodeCount : Expr → Nat
-  | .literal _ | .param _ | .stateLoad _ | .unixTimeSeconds => 1
+  | .literal _ | .param _ | .stateLoad _ | .unixTimeSeconds
+  | .callerPrincipalLen | .callerPrincipalWord _
+  | .paramPrincipalLen _ | .paramPrincipalWord .. => 1
+  | .principalEq lhs rhs | .principalNe lhs rhs =>
+      1 + (lhs.foldl (fun acc e => acc + exprNodeCount e) 0) +
+        (rhs.foldl (fun acc e => acc + exprNodeCount e) 0)
   | .checkedAdd lhs rhs | .checkedSub lhs rhs
   | .checkedMul lhs rhs | .checkedDiv lhs rhs | .checkedMod lhs rhs
   | .compare _ lhs rhs | .boolAnd lhs rhs | .boolOr lhs rhs =>
@@ -68,10 +73,28 @@ private def validateExpr
     if depth > maxExprDepth then
       planError s!"ICP plan {what} expression exceeds depth limit"
     match current with
-    | .literal _ | .unixTimeSeconds => pure ()
+    | .literal _ | .unixTimeSeconds | .callerPrincipalLen => pure ()
+    | .callerPrincipalWord wordIndex =>
+        unless wordIndex < icpPrincipalDataWordCountV1 do
+          planError s!"ICP plan {what} callerPrincipalWord {wordIndex} is out of range"
     | .param index =>
         unless index < paramCount do
           planError s!"ICP plan {what} references unknown parameter {index}"
+    | .paramPrincipalLen index =>
+        unless index < paramCount do
+          planError s!"ICP plan {what} references unknown Principal parameter {index}"
+    | .paramPrincipalWord index wordIndex =>
+        unless index < paramCount do
+          planError s!"ICP plan {what} references unknown Principal parameter {index}"
+        unless wordIndex < icpPrincipalDataWordCountV1 do
+          planError s!"ICP plan {what} paramPrincipalWord {wordIndex} is out of range"
+    | .principalEq lhs rhs | .principalNe lhs rhs =>
+        unless lhs.size == icpPrincipalLeafCountV1 && rhs.size == icpPrincipalLeafCountV1 do
+          planError s!"ICP plan {what} Principal compare must have 9+9 leaves"
+        for e in lhs do
+          stack := stack.push (e, depth + 1)
+        for e in rhs do
+          stack := stack.push (e, depth + 1)
     | .stateLoad fieldIndex =>
         unless fieldIndex < stateCount do
           planError s!"ICP plan {what} references unknown state field {fieldIndex}"
@@ -90,9 +113,13 @@ private def validateExpr
     planError s!"ICP plan {what} expression exceeds {maxExprNodes} nodes"
   pure remaining
 
-private def validateParams (owner : String) (params : Array String) : CompileResult Unit := do
+private def validateParams
+    (owner : String) (params : Array String) (paramKinds : Array ParamKind) :
+    CompileResult Unit := do
   unless params.size ≤ maxParams do
     planError s!"ICP {owner} parameter count exceeds limit"
+  unless paramKinds.size == params.size do
+    planError s!"ICP {owner} paramKinds length must match params"
   let mut seen : Array String := #[]
   for p in params do
     unless isSafeIdent p do
@@ -192,7 +219,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     planError "ICP initializer must carry MethodMode.initialize"
   unless plan.initializer.resultKind == .unit do
     planError "ICP initializer result must be Unit"
-  validateParams "initializer" plan.initializer.params
+  validateParams "initializer" plan.initializer.params plan.initializer.paramKinds
   exprBudget ←
     validateBody "initializer" .initialize .unit (allowStores := true)
       plan.initializer.params.size plan.states.size exprBudget plan.initializer.body
@@ -210,7 +237,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
         unless 1 ≤ n && n ≤ 8 do
           planError s!"ICP entry '{ent.name}' aggregate return must have 1..8 leaves"
     | .unit | .uint64 | .int64 | .bool => pure ()
-    validateParams s!"entry '{ent.name}'" ent.params
+    validateParams s!"entry '{ent.name}'" ent.params ent.paramKinds
     exprBudget ←
       validateBody s!"entry '{ent.name}'" .mutate ent.resultKind (allowStores := true)
         ent.params.size plan.states.size exprBudget ent.body
@@ -225,7 +252,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     unless v.resultKind == .uint64 || v.resultKind == .int64 || v.resultKind == .bool ||
         (match v.resultKind with | .aggregate n => 1 ≤ n && n ≤ 8 | _ => false) do
       planError s!"ICP view '{v.name}' result must be UInt64, Int64, Bool, or a view-only aggregate"
-    validateParams s!"view '{v.name}'" v.params
+    validateParams s!"view '{v.name}'" v.params v.paramKinds
     exprBudget ←
       validateBody s!"view '{v.name}'" .query v.resultKind (allowStores := false)
         v.params.size plan.states.size exprBudget v.body

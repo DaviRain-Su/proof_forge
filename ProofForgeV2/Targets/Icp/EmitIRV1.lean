@@ -44,6 +44,10 @@ inductive Operation where
   | literal (destination : Nat) (value : UInt64)
   | stateLoad (destination fieldIndex : Nat)
   | unixTimeSeconds (destination : Nat)
+  /-- CAP-1b: `ic0.msg_caller_size` → dest (UInt64 length leaf). -/
+  | callerPrincipalLen (destination : Nat)
+  /-- CAP-1b: body word `wordIndex` of the caller Principal wire. -/
+  | callerPrincipalWord (destination wordIndex : Nat)
   | checkedAdd (destination lhs rhs : Nat)
   | checkedSub (destination lhs rhs : Nat)
   | checkedMul (destination lhs rhs : Nat)
@@ -55,6 +59,9 @@ inductive Operation where
   | boolNot (destination operand : Nat)
   | ite (destination cond t e : Nat)
   | assertTrue (condition : Nat)
+  /-- CAP-1b: AND of 9 i64 equalities (lhsTemps/rhsTemps length 9). -/
+  | principalEq (destination : Nat) (lhsTemps rhsTemps : Array Nat)
+  | principalNe (destination : Nat) (lhsTemps rhsTemps : Array Nat)
   | storeState (fieldIndex value : Nat)
   deriving BEq, Inhabited, Repr
 
@@ -63,12 +70,42 @@ structure MethodIR where
   mode : MethodMode
   resultKind : ResultKind
   paramCount : Nat
+  paramKinds : Array ParamKind
   tempCount : Nat
   operations : Array Operation
   result? : Option Nat
   /-- Aggregate reply temps (Candid positional tuple). Empty for scalars. -/
   resultTemps : Array Nat := #[]
   deriving BEq, Inhabited, Repr
+
+/-- Physical temp layout: each integer param occupies 1 temp; each Principal
+    param occupies 9 consecutive temps (len + 8 body words). -/
+private structure ParamLayout where
+  kinds : Array ParamKind
+  bases : Array Nat
+  nextTemp : Nat
+  deriving Inhabited
+
+private def makeParamLayout (kinds : Array ParamKind) : ParamLayout :=
+  Id.run do
+    let mut bases : Array Nat := #[]
+    let mut t : Nat := 0
+    for k in kinds do
+      bases := bases.push t
+      t := t + match k with
+        | .integer => 1
+        | .principal => icpPrincipalLeafCountV1
+    { kinds, bases, nextTemp := t }
+
+private def paramTemp
+    (layout : ParamLayout) (index : Nat) : Nat :=
+  match layout.bases[index]? with
+  | some b => b
+  | none => index
+
+private def paramPrincipalTemp
+    (layout : ParamLayout) (index wordIndex : Nat) : Nat :=
+  paramTemp layout index + wordIndex
 
 structure IR where
   sourcePlan : Plan
@@ -88,88 +125,109 @@ private structure LoweredExpr where
   next : Nat
   deriving Inhabited
 
-private partial def lowerExpr (next : Nat) : Expr → LoweredExpr
+mutual
+private partial def lowerExpr (layout : ParamLayout) (next : Nat) : Expr → LoweredExpr
   | .literal value => { operations := #[.literal next value], value := next, next := next + 1 }
-  | .param index => { operations := #[], value := index, next := next }
+  | .param index => { operations := #[], value := paramTemp layout index, next := next }
   | .stateLoad fieldIndex =>
       { operations := #[.stateLoad next fieldIndex], value := next, next := next + 1 }
   | .unixTimeSeconds =>
       { operations := #[.unixTimeSeconds next], value := next, next := next + 1 }
+  | .callerPrincipalLen =>
+      { operations := #[.callerPrincipalLen next], value := next, next := next + 1 }
+  | .callerPrincipalWord wordIndex =>
+      {
+        operations := #[.callerPrincipalWord next wordIndex]
+        value := next
+        next := next + 1
+      }
+  | .paramPrincipalLen index =>
+      { operations := #[], value := paramPrincipalTemp layout index 0, next := next }
+  | .paramPrincipalWord index wordIndex =>
+      {
+        operations := #[]
+        value := paramPrincipalTemp layout index (wordIndex + 1)
+        next := next
+      }
+  | .principalEq lhs rhs =>
+      lowerPrincipalCompare layout next false lhs rhs
+  | .principalNe lhs rhs =>
+      lowerPrincipalCompare layout next true lhs rhs
   | .checkedAdd lhs rhs =>
-      let l := lowerExpr next lhs
-      let r := lowerExpr l.next rhs
+      let l := lowerExpr layout next lhs
+      let r := lowerExpr layout l.next rhs
       {
         operations := l.operations ++ r.operations ++ #[.checkedAdd r.next l.value r.value]
         value := r.next
         next := r.next + 1
       }
   | .checkedSub lhs rhs =>
-      let l := lowerExpr next lhs
-      let r := lowerExpr l.next rhs
+      let l := lowerExpr layout next lhs
+      let r := lowerExpr layout l.next rhs
       {
         operations := l.operations ++ r.operations ++ #[.checkedSub r.next l.value r.value]
         value := r.next
         next := r.next + 1
       }
   | .checkedMul lhs rhs =>
-      let l := lowerExpr next lhs
-      let r := lowerExpr l.next rhs
+      let l := lowerExpr layout next lhs
+      let r := lowerExpr layout l.next rhs
       {
         operations := l.operations ++ r.operations ++ #[.checkedMul r.next l.value r.value]
         value := r.next
         next := r.next + 1
       }
   | .checkedDiv lhs rhs =>
-      let l := lowerExpr next lhs
-      let r := lowerExpr l.next rhs
+      let l := lowerExpr layout next lhs
+      let r := lowerExpr layout l.next rhs
       {
         operations := l.operations ++ r.operations ++ #[.checkedDiv r.next l.value r.value]
         value := r.next
         next := r.next + 1
       }
   | .checkedMod lhs rhs =>
-      let l := lowerExpr next lhs
-      let r := lowerExpr l.next rhs
+      let l := lowerExpr layout next lhs
+      let r := lowerExpr layout l.next rhs
       {
         operations := l.operations ++ r.operations ++ #[.checkedMod r.next l.value r.value]
         value := r.next
         next := r.next + 1
       }
   | .compare op lhs rhs =>
-      let l := lowerExpr next lhs
-      let r := lowerExpr l.next rhs
+      let l := lowerExpr layout next lhs
+      let r := lowerExpr layout l.next rhs
       {
         operations := l.operations ++ r.operations ++ #[.compare r.next op l.value r.value]
         value := r.next
         next := r.next + 1
       }
   | .boolAnd lhs rhs =>
-      let l := lowerExpr next lhs
-      let r := lowerExpr l.next rhs
+      let l := lowerExpr layout next lhs
+      let r := lowerExpr layout l.next rhs
       {
         operations := l.operations ++ r.operations ++ #[.boolAnd r.next l.value r.value]
         value := r.next
         next := r.next + 1
       }
   | .boolOr lhs rhs =>
-      let l := lowerExpr next lhs
-      let r := lowerExpr l.next rhs
+      let l := lowerExpr layout next lhs
+      let r := lowerExpr layout l.next rhs
       {
         operations := l.operations ++ r.operations ++ #[.boolOr r.next l.value r.value]
         value := r.next
         next := r.next + 1
       }
   | .boolNot operand =>
-      let o := lowerExpr next operand
+      let o := lowerExpr layout next operand
       {
         operations := o.operations ++ #[.boolNot o.next o.value]
         value := o.next
         next := o.next + 1
       }
   | .ite cond t e =>
-      let c := lowerExpr next cond
-      let tv := lowerExpr c.next t
-      let ev := lowerExpr tv.next e
+      let c := lowerExpr layout next cond
+      let tv := lowerExpr layout c.next t
+      let ev := lowerExpr layout tv.next e
       {
         operations :=
           c.operations ++ tv.operations ++ ev.operations ++
@@ -178,30 +236,58 @@ private partial def lowerExpr (next : Nat) : Expr → LoweredExpr
         next := ev.next + 1
       }
 
-private def lowerBody (paramCount : Nat) (body : Array Statement) :
+private partial def lowerPrincipalCompare
+    (layout : ParamLayout) (next : Nat) (negate : Bool)
+    (lhs rhs : Array Expr) : LoweredExpr :=
+  Id.run do
+    let mut ops : Array Operation := #[]
+    let mut n := next
+    let mut lhsTemps : Array Nat := #[]
+    let mut rhsTemps : Array Nat := #[]
+    for e in lhs do
+      let lv := lowerExpr layout n e
+      ops := ops ++ lv.operations
+      lhsTemps := lhsTemps.push lv.value
+      n := lv.next
+    for e in rhs do
+      let lv := lowerExpr layout n e
+      ops := ops ++ lv.operations
+      rhsTemps := rhsTemps.push lv.value
+      n := lv.next
+    let op :=
+      if negate then Operation.principalNe n lhsTemps rhsTemps
+      else Operation.principalEq n lhsTemps rhsTemps
+    {
+      operations := ops.push op
+      value := n
+      next := n + 1
+    }
+end
+
+private def lowerBody (layout : ParamLayout) (body : Array Statement) :
     Array Operation × Option Nat × Array Nat × Nat := Id.run do
   let mut ops : Array Operation := #[]
-  let mut next := paramCount
+  let mut next := layout.nextTemp
   let mut result? : Option Nat := none
   let mut resultTemps : Array Nat := #[]
   for stmt in body do
     match stmt with
     | .assert condition =>
-        let lv := lowerExpr next condition
+        let lv := lowerExpr layout next condition
         ops := ops ++ lv.operations ++ #[.assertTrue lv.value]
         next := lv.next
     | .store fieldIndex value =>
-        let lv := lowerExpr next value
+        let lv := lowerExpr layout next value
         ops := ops ++ lv.operations ++ #[.storeState fieldIndex lv.value]
         next := lv.next
     | .returnValue value =>
-        let lv := lowerExpr next value
+        let lv := lowerExpr layout next value
         ops := ops ++ lv.operations
         result? := some lv.value
         next := lv.next
     | .returnAggregate leaves =>
         for e in leaves do
-          let lv := lowerExpr next e
+          let lv := lowerExpr layout next e
           ops := ops ++ lv.operations
           resultTemps := resultTemps.push lv.value
           next := lv.next
@@ -210,12 +296,14 @@ private def lowerBody (paramCount : Nat) (body : Array Statement) :
   pure (ops, result?, resultTemps, next)
 
 private def lowerMethod (m : Method) : MethodIR :=
-  let (ops, result?, resultTemps, tempCount) := lowerBody m.params.size m.body
+  let layout := makeParamLayout m.paramKinds
+  let (ops, result?, resultTemps, tempCount) := lowerBody layout m.body
   {
     name := m.name
     mode := m.mode
     resultKind := m.resultKind
     paramCount := m.params.size
+    paramKinds := m.paramKinds
     tempCount
     operations := ops
     result?
@@ -241,7 +329,12 @@ private def lower (plan : Plan) : CompileResult IR := do
     512-byte argument scratch and 512-byte reply scratch are generous. -/
 private def argBufOffset : Nat := 0
 private def argBufCap : Nat := 512
+/-- CAP-1b: scratch for `u32le(len)‖principal-bytes` (4+64). -/
+private def callerScratchOffset : Nat := 1024
+private def paramScratchOffset : Nat := 1152
 private def replyBufOffset : Nat := 4096
+/-- Candid `principal` primitive (SLEB128 `-24`, single byte `0x68`). -/
+private def candidPrincipalOpcode : Nat := 104
 
 /-- Candid primitive type opcode for `nat64` (SLEB128 `-8`, single byte
     `0x78`) and `int64` (SLEB128 `-7`, `0x79`). A given Plan is homogeneous:
@@ -337,6 +430,63 @@ private def renderSignedSubTrap (destination lhs rhs : Nat) : String :=
   s!"                                     (i64.shr_s (local.get $t{destination}) (i64.const 63))))))\n" ++
   s!"      (then unreachable))\n"
 
+private def renderPrincipalCompare
+    (destination : Nat) (negate : Bool) (lhsTemps rhsTemps : Array Nat) : String :=
+  Id.run do
+    let mut out := s!"    (local.set $t{destination} (i64.const 1))\n"
+    let n := min lhsTemps.size rhsTemps.size
+    for i in [0:n] do
+      let l := lhsTemps[i]!
+      let r := rhsTemps[i]!
+      out := out ++
+        s!"    (local.set $t{destination} (i64.and (local.get $t{destination})\n" ++
+        s!"      (i64.extend_i32_u (i64.eq (local.get $t{l}) (local.get $t{r})))))\n"
+    if negate then
+      out := out ++
+        s!"    (local.set $t{destination} (i64.xor (local.get $t{destination}) (i64.const 1)))\n"
+    pure out
+
+/-- Zero 72 bytes at `$dst`, write ADR-0025 `u32le(len)` at `$dst`, copy
+    `len` caller bytes to `$dst+4` via `ic0.msg_caller_copy`. Traps if
+    `len = 0` or `len > 29`. Returns length as i64. -/
+private def callerHelperWat : String :=
+  "  ;; CAP-1b: context.caller Principal wire is ADR-0025-class u32le(len)||bytes\n" ++
+  "  ;; (ic0.msg_caller_size / ic0.msg_caller_copy; max 29). Not an account-id.\n" ++
+  "  (func $pf_load_msg_caller (param $dst i32) (result i64)\n" ++
+  "    (local $len i32)\n" ++
+  "    (local.set $len (call $ic0_msg_caller_size))\n" ++
+  "    (if (i32.eqz (local.get $len)) (then unreachable))\n" ++
+  s!"    (if (i32.gt_u (local.get $len) (i32.const {icpPrincipalMaxPayloadBytesV1})) (then unreachable))\n" ++
+  "    (call $pf_zero_principal_scratch (local.get $dst))\n" ++
+  "    (i32.store (local.get $dst) (local.get $len))\n" ++
+  "    (call $ic0_msg_caller_copy (i32.add (local.get $dst) (i32.const 4)) (i32.const 0) (local.get $len))\n" ++
+  "    (i64.extend_i32_u (local.get $len))\n" ++
+  "  )\n"
+
+/-- Candid principal value: tag `0x01` + LEB128(len) + bytes. Writes the
+    same ADR-0025 scratch layout as `$pf_load_msg_caller`. -/
+private def principalDecodeHelperWat : String :=
+  "  (func $pf_decode_candid_principal (param $dst i32) (result i64)\n" ++
+  "    (local $len i32) (local $i i32)\n" ++
+  "    (if (i32.ne (call $pf_read_byte) (i32.const 1)) (then unreachable))\n" ++
+  "    (local.set $len (i32.wrap_i64 (call $pf_leb_read)))\n" ++
+  "    (if (i32.eqz (local.get $len)) (then unreachable))\n" ++
+  s!"    (if (i32.gt_u (local.get $len) (i32.const {icpPrincipalMaxPayloadBytesV1})) (then unreachable))\n" ++
+  "    (call $pf_zero_principal_scratch (local.get $dst))\n" ++
+  "    (i32.store (local.get $dst) (local.get $len))\n" ++
+  "    (local.set $i (i32.const 0))\n" ++
+  "    (block $done\n" ++
+  "      (loop $copy\n" ++
+  "        (br_if $done (i32.ge_u (local.get $i) (local.get $len)))\n" ++
+  "        (i32.store8 (i32.add (i32.add (local.get $dst) (i32.const 4)) (local.get $i))\n" ++
+  "          (call $pf_read_byte))\n" ++
+  "        (local.set $i (i32.add (local.get $i) (i32.const 1)))\n" ++
+  "        (br $copy)\n" ++
+  "      )\n" ++
+  "    )\n" ++
+  "    (i64.extend_i32_u (local.get $len))\n" ++
+  "  )\n"
+
 private def renderOperation (signed : Bool) : Operation → String
   | .literal destination value =>
       s!"    (local.set $t{destination} (i64.const {value.toNat}))\n"
@@ -345,6 +495,15 @@ private def renderOperation (signed : Bool) : Operation → String
   | .unixTimeSeconds destination =>
       -- CAP-1a: ic0.time is nanoseconds; catalog key is whole Unix seconds.
       s!"    (local.set $t{destination} (i64.div_u (call $ic0_time) (i64.const 1000000000)))\n"
+  | .callerPrincipalLen destination =>
+      s!"    (local.set $t{destination} (call $pf_load_msg_caller (i32.const {callerScratchOffset})))\n"
+  | .callerPrincipalWord destination wordIndex =>
+      s!"    (drop (call $pf_load_msg_caller (i32.const {callerScratchOffset})))\n" ++
+      s!"    (local.set $t{destination} (i64.load offset={4 + wordIndex * 8} (i32.const {callerScratchOffset})))\n"
+  | .principalEq destination lhsTemps rhsTemps =>
+      renderPrincipalCompare destination false lhsTemps rhsTemps
+  | .principalNe destination lhsTemps rhsTemps =>
+      renderPrincipalCompare destination true lhsTemps rhsTemps
   | .checkedAdd destination lhs rhs =>
       if signed then
         renderSignedAddTrap destination lhs rhs
@@ -416,12 +575,14 @@ private def renderLocals (tempCount : Nat) : String :=
     "    " ++ String.intercalate " " names ++ "\n"
 
 /-- Copy the incoming Candid message into the argument scratch buffer,
-    validate the "DIDL" magic + empty type table + exact integer×paramCount
-    argument-type sequence, then decode the values into `t0..t{paramCount-1}`
-    in order. -/
-private def renderArgDecodePrologue (signed : Bool) (paramCount : Nat) : String :=
+    validate the "DIDL" magic + empty type table + exact per-param opcode
+    sequence, then decode integer values into one temp each and Principal
+    values into 9 consecutive temps (len + 8 body words). -/
+private def renderArgDecodePrologue
+    (signed : Bool) (layout : ParamLayout) : String :=
   Id.run do
-  let opcode := candidIntOpcode signed
+  let intOpcode := candidIntOpcode signed
+  let paramCount := layout.kinds.size
   let mut out := ""
   out := out ++
     s!"    (if (i32.gt_u (call $ic0_msg_arg_data_size) (i32.const {argBufCap})) (then unreachable))\n"
@@ -432,15 +593,29 @@ private def renderArgDecodePrologue (signed : Bool) (paramCount : Nat) : String 
   out := out ++ "    (if (i64.ne (call $pf_leb_read) (i64.const 0)) (then unreachable))\n"
   out := out ++
     s!"    (if (i64.ne (call $pf_leb_read) (i64.const {paramCount})) (then unreachable))\n"
-  for _ in [0:paramCount] do
+  for k in layout.kinds do
+    let opcode :=
+      match k with
+      | .integer => intOpcode
+      | .principal => candidPrincipalOpcode
     out := out ++
       s!"    (if (i32.ne (call $pf_read_byte) (i32.const {opcode})) (then unreachable))\n"
   for i in [0:paramCount] do
-    -- Candid nat64/int64 values are little-endian 8 bytes (not LEB128).
-    out := out ++
-      s!"    (local.set $t{i} (i64.load (global.get $pf_cursor)))\n"
-    out := out ++
-      "    (global.set $pf_cursor (i32.add (global.get $pf_cursor) (i32.const 8)))\n"
+    match layout.kinds[i]? with
+    | some .principal =>
+        let base := paramTemp layout i
+        out := out ++
+          s!"    (local.set $t{base} (call $pf_decode_candid_principal (i32.const {paramScratchOffset})))\n"
+        for w in [0:icpPrincipalDataWordCountV1] do
+          out := out ++
+            s!"    (local.set $t{base + 1 + w} (i64.load offset={4 + w * 8} (i32.const {paramScratchOffset})))\n"
+    | _ =>
+        let t := paramTemp layout i
+        -- Candid nat64/int64 values are little-endian 8 bytes (not LEB128).
+        out := out ++
+          s!"    (local.set $t{t} (i64.load (global.get $pf_cursor)))\n"
+        out := out ++
+          "    (global.set $pf_cursor (i32.add (global.get $pf_cursor) (i32.const 8)))\n"
   pure out
 
 /-- Encode the Candid reply ("DIDL" + empty type table + 0/1 integer result)
@@ -492,7 +667,7 @@ private def renderMethodFunc
   Id.run do
     let mut out := s!"  (func {funcName}\n"
     out := out ++ renderLocals m.tempCount
-    out := out ++ renderArgDecodePrologue signed m.paramCount
+    out := out ++ renderArgDecodePrologue signed (makeParamLayout m.paramKinds)
     for op in m.operations do
       out := out ++ renderOperation signed op
     if emitReply then
@@ -509,6 +684,25 @@ private def irUsesUnixTime (ir : IR) : Bool :=
   methodUsesUnixTime ir.initializer ||
     ir.entries.any methodUsesUnixTime ||
     ir.views.any methodUsesUnixTime
+
+private def methodUsesCaller (m : MethodIR) : Bool :=
+  m.operations.any fun
+    | .callerPrincipalLen _ => true
+    | .callerPrincipalWord .. => true
+    | _ => false
+
+private def irUsesCaller (ir : IR) : Bool :=
+  methodUsesCaller ir.initializer ||
+    ir.entries.any methodUsesCaller ||
+    ir.views.any methodUsesCaller
+
+private def methodUsesPrincipalParam (m : MethodIR) : Bool :=
+  m.paramKinds.any (· == .principal)
+
+private def irUsesPrincipalParam (ir : IR) : Bool :=
+  methodUsesPrincipalParam ir.initializer ||
+    ir.entries.any methodUsesPrincipalParam ||
+    ir.views.any methodUsesPrincipalParam
 
 private def renderStateGlobals (states : Array StateField) : String := Id.run do
   let mut out := ""
@@ -545,11 +739,33 @@ private def renderModule (ir : IR) : String := Id.run do
   if irUsesUnixTime ir then
     out := out ++
       "  (import \"ic0\" \"time\" (func $ic0_time (result i64)))\n"
+  if irUsesCaller ir then
+    out := out ++
+      "  (import \"ic0\" \"msg_caller_size\" (func $ic0_msg_caller_size (result i32)))\n"
+    out := out ++
+      "  (import \"ic0\" \"msg_caller_copy\" (func $ic0_msg_caller_copy (param i32 i32 i32)))\n"
   out := out ++ "  (memory (export \"memory\") 1)\n"
   out := out ++ "  (global $pf_cursor (mut i32) (i32.const 0))\n"
   out := out ++ "  (global $pf_reply_len (mut i32) (i32.const 0))\n"
   out := out ++ renderStateGlobals ir.sourcePlan.states
   out := out ++ preludeWat
+  if irUsesCaller ir || irUsesPrincipalParam ir then
+    out := out ++
+      "  (func $pf_zero_principal_scratch (param $dst i32)\n" ++
+      "    (i64.store offset=0 (local.get $dst) (i64.const 0))\n" ++
+      "    (i64.store offset=8 (local.get $dst) (i64.const 0))\n" ++
+      "    (i64.store offset=16 (local.get $dst) (i64.const 0))\n" ++
+      "    (i64.store offset=24 (local.get $dst) (i64.const 0))\n" ++
+      "    (i64.store offset=32 (local.get $dst) (i64.const 0))\n" ++
+      "    (i64.store offset=40 (local.get $dst) (i64.const 0))\n" ++
+      "    (i64.store offset=48 (local.get $dst) (i64.const 0))\n" ++
+      "    (i64.store offset=56 (local.get $dst) (i64.const 0))\n" ++
+      "    (i64.store offset=64 (local.get $dst) (i64.const 0))\n" ++
+      "  )\n"
+  if irUsesCaller ir then
+    out := out ++ callerHelperWat
+  if irUsesPrincipalParam ir then
+    out := out ++ principalDecodeHelperWat
   out := out ++ renderMethodFunc ir.signedNumeric ir.initializer "$canister_init" false
   out := out ++ "  (export \"canister_init\" (func $canister_init))\n"
   for ent in ir.entries do
@@ -567,14 +783,19 @@ private def renderModule (ir : IR) : String := Id.run do
 -- Candid `.did` renderer
 -- ---------------------------------------------------------------------------
 
-private def intArgList (signed : Bool) (paramCount : Nat) : String :=
-  String.intercalate ", " (List.replicate paramCount (candidIntName signed))
+private def candidArgName (signed : Bool) : ParamKind → String
+  | .integer => candidIntName signed
+  | .principal => "principal"
+
+private def candidArgList (signed : Bool) (kinds : Array ParamKind) : String :=
+  String.intercalate ", " (kinds.toList.map (candidArgName signed))
 
 private def renderCandidService (ir : IR) : String := Id.run do
   let signed := ir.signedNumeric
   let mut out := "service : "
   if !ir.sourcePlan.initializer.params.isEmpty then
-    out := out ++ s!"({intArgList signed ir.sourcePlan.initializer.params.size}) "
+    out := out ++
+      s!"({candidArgList signed ir.sourcePlan.initializer.paramKinds}) "
   out := out ++ "{\n"
   for ent in ir.entries do
     let resultStr : String := match ent.resultKind with
@@ -585,7 +806,7 @@ private def renderCandidService (ir : IR) : String := Id.run do
       | .aggregate n =>
           String.intercalate ", " (List.replicate n (candidIntName signed))
     out := out ++
-      s!"  {ent.name} : ({intArgList signed ent.paramCount}) -> ({resultStr});\n"
+      s!"  {ent.name} : ({candidArgList signed ent.paramKinds}) -> ({resultStr});\n"
   for v in ir.views do
     let viewRet := match v.resultKind with
       | .bool => "bool"
@@ -594,7 +815,7 @@ private def renderCandidService (ir : IR) : String := Id.run do
           String.intercalate ", " (List.replicate n (candidIntName signed))
       | _ => candidIntName signed
     out := out ++
-      s!"  {v.name} : ({intArgList signed v.paramCount}) -> ({viewRet}) query;\n"
+      s!"  {v.name} : ({candidArgList signed v.paramKinds}) -> ({viewRet}) query;\n"
   out := out ++ "}\n"
   pure out
 

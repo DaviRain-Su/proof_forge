@@ -717,19 +717,8 @@ private unsafe def testPointBoxFlatten
   expect (!wat.contains "variant") "no Candid variant in wat"
   expect (!did.contains "variant") "no Candid variant in did"
   IO.println "  ✓ PointBox named Struct flatten (two i64 globals; no Candid record)"
-  let retSrc := wrapProgram "PointRet" <|
-    "  struct Point where\n" ++
-    "    x : UInt64\n" ++
-    "    y : UInt64\n" ++
-    "  state p : Point\n\n" ++
-    "  init() do\n" ++
-    "    p := Point.new(0, 0)\n\n" ++
-    "  entry peek() : Point do\n" ++
-    "    return p\n"
-  let retCompiled ← compileSource session retSrc "Examples.PointRet" "<icp-point-ret>"
-  expectPlanErrorContaining "named Struct return" "named Struct/Enum return"
-    (planIcp retCompiled)
-  IO.println "  ✓ named Struct return fail closed"
+  -- Named Struct/Enum returns are covered by T6 view/entry aggregate pins below
+  -- (`testPointViewRet` / `testPairRetEntry`); do not pin a stale entry-FC here.
 
 /-- MaybeMark: named Enum flattens to tag+payload i64 globals. No Candid variant. -/
 private unsafe def testMaybeMarkFlatten
@@ -1315,8 +1304,12 @@ private unsafe def testPrincipalIdentityLeaves
   let did ← findFile files "PrincipalMix.did"
   expect (wat.contains "(global $g_state_0 (mut i64)") "wat global 0"
   expect (wat.contains "(global $g_state_8 (mut i64)") "wat global 8"
-  expect (!wat.contains "principal") "no Candid principal in wat"
-  expect (!did.contains "principal") "no Candid principal in did"
+  -- CAP-1b: Principal *params* are Candid `principal` (decode into 9-leaf
+  -- identity); state remains nine i64 globals (not a Candid principal cell).
+  expect (did.contains "principal")
+    "PrincipalMix .did must use Candid principal for Principal params"
+  expect (wat.contains "pf_decode_candid_principal")
+    "PrincipalMix wat must decode Candid principal params"
   let retSrc := wrapProgram "PrincipalReturn" <|
     "  state owner : Principal\n\n" ++
     "  init(initial : Principal) do\n" ++
@@ -1327,7 +1320,7 @@ private unsafe def testPrincipalIdentityLeaves
     "Examples.PrincipalReturn" "<icp-principal-ret>"
   expectPlanErrorContaining "PrincipalReturn" "Principal"
     (planFromCompiledSemanticV1 compiledRet)
-  IO.println "  ✓ Principal 9-leaf identity (nine i64 globals; no Candid principal)"
+  IO.println "  ✓ Principal 9-leaf state + Candid principal params (CAP-1b)"
 
 /-- Dense Map UInt64 UInt64 flattens to 24 i64 globals (cap-8 × occ/key/val).
     No Candid `vec`/`record`/`map`. Cap-8 overflow is a Plan assert. -/
