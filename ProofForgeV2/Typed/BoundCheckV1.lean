@@ -155,6 +155,7 @@ structure LoopWalkState where
       a For currently being entered until its body walk). -/
   ancestors : Array NormalizedSyntacticPathV1
   drafts : Array TypedDiagnosticDraftV1
+  analysisComplete : Bool
 
 abbrev LoopWalkM := StateM LoopWalkState
 
@@ -179,6 +180,18 @@ def emitPathError (detail : String) : LoopWalkM Unit :=
   modify fun s =>
     { s with drafts := s.drafts.push (pathInternalDraft detail) }
 
+/-- Fuel exhaustion is an internal, fail-closed outcome. Keep one stable draft
+    even if an enclosing list resumes after a nested walk exhausts its fuel. -/
+def emitFuelExhausted : LoopWalkM Unit :=
+  modify fun s =>
+    if s.analysisComplete then
+      { s with
+        drafts := s.drafts.push
+          (pathInternalDraft "bound loop walk: traversal fuel exhausted")
+        analysisComplete := false }
+    else
+      s
+
 def childOrFail
     (parent : NormalizedSyntacticPathV1)
     (parentTag fieldTag : String) (index : Nat) :
@@ -195,121 +208,64 @@ def directOrFail
   childOrFail parent parentTag fieldTag 0
 
 mutual
-  /-- Walk expression subtrees only to reach nested statement-free structure.
-      Bound products are statement-level; expressions do not introduce `for`. -/
-  partial def walkExpr (_label : CallableLabel) : ExprV1 → LoopWalkM Unit
-    | .literal _ => pure ()
-    | .place p => walkPlace p
-    | .constructor _ args => args.forM (walkExpr _label)
-    | .unary _ e => walkExpr _label e
-    | .binary _ lhs rhs => do
-        walkExpr _label lhs
-        walkExpr _label rhs
-    | .localCall _ args => args.forM (walkExpr _label)
-    | .externalCall call => call.args.forM (walkExpr _label)
-    | .match_ scrutinee arms => do
-        walkExpr _label scrutinee
-        for arm in arms do
-          walkExpr _label arm.value
-
-  partial def walkPlace : PlaceV1 → LoopWalkM Unit
-    | .name _ => pure ()
-    | .field base _ => walkPlace base
-    | .index base idx => do
-        walkPlace base
-        walkExpr { kindLabel := "", name := "" } idx
-
-  partial def walkBlock
+  /-- Bounded-total block walk. Validated source admits at most 100000 nodes;
+      production wrappers provide one additional unit of fuel. -/
+  def walkBlockFuelV1
       (label : CallableLabel)
       (callablePath? : Option NormalizedSyntacticPathV1)
-      (blockPath? : Option NormalizedSyntacticPathV1)
-      (block : BlockV1) : LoopWalkM Unit :=
-    match blockPath? with
-    | none =>
-        -- Body-only projection: still check products, no path evidence.
-        block.statements.forM (walkStmtUnpathed label callablePath?)
-    | some blockPath =>
-        walkStmts label callablePath? blockPath block.statements.toList 0
+      (blockPath? : Option NormalizedSyntacticPathV1) :
+      Nat → BlockV1 → LoopWalkM Unit
+    | 0, _ => emitFuelExhausted
+    | fuel + 1, block =>
+        walkStmtsFuelV1 label callablePath? blockPath? fuel
+          block.statements.toList 0
 
-  partial def walkStmts
+  def walkStmtsFuelV1
       (label : CallableLabel)
       (callablePath? : Option NormalizedSyntacticPathV1)
-      (blockPath : NormalizedSyntacticPathV1) :
-      List StmtV1 → Nat → LoopWalkM Unit
-    | [], _ => pure ()
-    | stmt :: rest, idx => do
-        match ← childOrFail blockPath "Block" "statements" idx with
-        | none => pure ()
-        | some stmtPath => walkStmt label callablePath? (some stmtPath) stmt
-        walkStmts label callablePath? blockPath rest (idx + 1)
+      (blockPath? : Option NormalizedSyntacticPathV1) :
+      Nat → List StmtV1 → Nat → LoopWalkM Unit
+    | _, [], _ => pure ()
+    | 0, _ :: _, _ => emitFuelExhausted
+    | fuel + 1, stmt :: rest, idx => do
+        let stmtPath? ← match blockPath? with
+          | none => pure none
+          | some blockPath => childOrFail blockPath "Block" "statements" idx
+        walkStmtFuelV1 label callablePath? stmtPath? fuel stmt
+        walkStmtsFuelV1 label callablePath? blockPath? fuel rest (idx + 1)
 
-  /-- Statement walk without path (legacy body-only erase projection). -/
-  partial def walkStmtUnpathed
-      (label : CallableLabel)
-      (callablePath? : Option NormalizedSyntacticPathV1) :
-      StmtV1 → LoopWalkM Unit
-    | .let_ _ _ value => walkExpr label value
-    | .assign target value => do
-        walkPlace target
-        walkExpr label value
-    | .if_ condition thenBlock elseBlock? => do
-        walkExpr label condition
-        walkBlock label callablePath? none thenBlock
-        elseBlock?.forM (walkBlock label callablePath? none)
-    | .match_ scrutinee arms => do
-        walkExpr label scrutinee
-        for arm in arms do
-          walkBlock label callablePath? none arm.body
-    | .for_ _binder start endExclusive bound body => do
-        walkExpr label start
-        walkExpr label endExclusive
-        let s ← get
-        match mulUInt32Checked s.product bound with
-        | none =>
-            emitLoopOverflowDraft label bound callablePath? none
-            walkBlock label callablePath? none body
-        | some p' =>
-            modify fun s' => { s' with product := p' }
-            walkBlock label callablePath? none body
-            modify fun s' => { s' with product := s.product }
-    | .assert_ condition _ => walkExpr label condition
-    | .revert _ args => args.forM (walkExpr label)
-    | .emit _ args => args.forM (walkExpr label)
-    | .return_ value? => value?.forM (walkExpr label)
-    | .call externalCall | .schedule externalCall =>
-        externalCall.args.forM (walkExpr label)
-
-  partial def walkStmt
+  /-- Only statement structure can contain loops. Expression and place
+      subtrees are intentionally not traversed because they cannot affect the
+      bound-product result. -/
+  def walkStmtFuelV1
       (label : CallableLabel)
       (callablePath? : Option NormalizedSyntacticPathV1)
-      (stmtPath? : Option NormalizedSyntacticPathV1) :
-      StmtV1 → LoopWalkM Unit
-    | .let_ _ _ value => walkExpr label value
-    | .assign target value => do
-        walkPlace target
-        walkExpr label value
-    | .if_ condition thenBlock elseBlock? => do
-        walkExpr label condition
+      (stmtPath? : Option NormalizedSyntacticPathV1) : Nat → StmtV1 → LoopWalkM Unit
+    | 0, _ => emitFuelExhausted
+    | _fuel + 1, .let_ _ _ _ => pure ()
+    | _fuel + 1, .assign _ _ => pure ()
+    | fuel + 1, .if_ _ thenBlock elseBlock? => do
         match stmtPath? with
         | none =>
-            walkBlock label callablePath? none thenBlock
-            elseBlock?.forM (walkBlock label callablePath? none)
+            walkBlockFuelV1 label callablePath? none fuel thenBlock
+            match elseBlock? with
+            | none => pure ()
+            | some eb => walkBlockFuelV1 label callablePath? none fuel eb
         | some stmtPath => do
             match ← directOrFail stmtPath "Stmt.If" "thenBlock" with
             | none => pure ()
-            | some tp => walkBlock label callablePath? (some tp) thenBlock
+            | some tp => walkBlockFuelV1 label callablePath? (some tp) fuel thenBlock
             match elseBlock? with
             | none => pure ()
             | some eb =>
                 match ← directOrFail stmtPath "Stmt.If" "elseBlock" with
                 | none => pure ()
-                | some ep => walkBlock label callablePath? (some ep) eb
-    | .match_ scrutinee arms => do
-        walkExpr label scrutinee
+                | some ep => walkBlockFuelV1 label callablePath? (some ep) fuel eb
+    | fuel + 1, .match_ _ arms => do
         match stmtPath? with
         | none =>
             for arm in arms do
-              walkBlock label callablePath? none arm.body
+              walkBlockFuelV1 label callablePath? none fuel arm.body
         | some stmtPath =>
             for (arm, i) in arms.zipIdx do
               match ← childOrFail stmtPath "Stmt.Match" "arms" i with
@@ -317,10 +273,9 @@ mutual
               | some armPath =>
                   match ← directOrFail armPath "StmtMatchArm" "body" with
                   | none => pure ()
-                  | some bp => walkBlock label callablePath? (some bp) arm.body
-    | .for_ _binder start endExclusive bound body => do
-        walkExpr label start
-        walkExpr label endExclusive
+                  | some bp =>
+                      walkBlockFuelV1 label callablePath? (some bp) fuel arm.body
+    | fuel + 1, .for_ _ _ _ bound body => do
         let s ← get
         let savedProduct := s.product
         let savedAncestors := s.ancestors
@@ -333,20 +288,20 @@ mutual
             -- level is already reported.  Push this For as an active ancestor
             -- for nested overflow related evidence.
             match forPath? with
-            | none => walkBlock label callablePath? none body
+            | none => walkBlockFuelV1 label callablePath? none fuel body
             | some forPath => do
                 match ← directOrFail forPath "Stmt.For" "body" with
                 | none => pure ()
                 | some bp => do
                     modify fun s' => { s' with ancestors := s'.ancestors.push forPath }
-                    walkBlock label callablePath? (some bp) body
+                    walkBlockFuelV1 label callablePath? (some bp) fuel body
                     modify fun s' =>
                       { s' with product := savedProduct, ancestors := savedAncestors }
         | some p' =>
             match forPath? with
             | none => do
                 modify fun s' => { s' with product := p' }
-                walkBlock label callablePath? none body
+                walkBlockFuelV1 label callablePath? none fuel body
                 modify fun s' => { s' with product := savedProduct }
             | some forPath => do
                 match ← directOrFail forPath "Stmt.For" "body" with
@@ -356,64 +311,116 @@ mutual
                       { s' with
                         product := p'
                         ancestors := s'.ancestors.push forPath }
-                    walkBlock label callablePath? (some bp) body
+                    walkBlockFuelV1 label callablePath? (some bp) fuel body
                     modify fun s' =>
                       { s' with product := savedProduct, ancestors := savedAncestors }
-    | .assert_ condition _ => walkExpr label condition
-    | .revert _ args => args.forM (walkExpr label)
-    | .emit _ args => args.forM (walkExpr label)
-    | .return_ value? => value?.forM (walkExpr label)
-    | .call externalCall | .schedule externalCall =>
-        externalCall.args.forM (walkExpr label)
+    | _fuel + 1, .assert_ _ _ => pure ()
+    | _fuel + 1, .revert _ _ => pure ()
+    | _fuel + 1, .emit _ _ => pure ()
+    | _fuel + 1, .return_ _ => pure ()
+    | _fuel + 1, .call _ => pure ()
+    | _fuel + 1, .schedule _ => pure ()
 end
+
+/-- Production bounded-total wrapper. -/
+def walkBlock
+    (label : CallableLabel)
+    (callablePath? : Option NormalizedSyntacticPathV1)
+    (blockPath? : Option NormalizedSyntacticPathV1)
+    (block : BlockV1) : LoopWalkM Unit :=
+  walkBlockFuelV1 label callablePath? blockPath? 100001 block
+
+/-- Result of one bounded loop-product body walk. -/
+structure LoopBodyDraftResultV1 where
+  drafts : Array TypedDiagnosticDraftV1
+  analysisComplete : Bool
+  deriving Repr, Inhabited
 
 /-- Collect loop-product overflow drafts for one callable body.
 
     When `callablePath?`/`bodyPath?` are `none`, drafts are unlocated (legacy
     body-only projection).  When paths are present, overflow drafts carry
     primary=Stmt.For and related=callable+ancestor Fors. -/
+def checkLoopBoundsInBodyDraftResultV1
+    (label : CallableLabel)
+    (callablePath? : Option NormalizedSyntacticPathV1)
+    (bodyPath? : Option NormalizedSyntacticPathV1)
+    (body : BlockV1) : LoopBodyDraftResultV1 :=
+  let init : LoopWalkState :=
+    { product := 1, ancestors := #[], drafts := #[], analysisComplete := true }
+  let (_, st) := (walkBlock label callablePath? bodyPath? body).run init
+  { drafts := st.drafts, analysisComplete := st.analysisComplete }
+
+/-- Draft-only compatibility projection of the authoritative bounded walk. -/
 def checkLoopBoundsInBodyDrafts
     (label : CallableLabel)
     (callablePath? : Option NormalizedSyntacticPathV1)
     (bodyPath? : Option NormalizedSyntacticPathV1)
     (body : BlockV1) : Array TypedDiagnosticDraftV1 :=
-  let init : LoopWalkState := { product := 1, ancestors := #[], drafts := #[] }
-  let (_, st) := (walkBlock label callablePath? bodyPath? body).run init
-  st.drafts
+  (checkLoopBoundsInBodyDraftResultV1 label callablePath? bodyPath? body).drafts
 
 /-- Collect loop-product overflow diagnostics for one callable body. -/
 def checkLoopBoundsInBody (label : CallableLabel) (body : BlockV1) :
     Array DiagnosticV1 :=
   eraseArray (checkLoopBoundsInBodyDrafts label none none body)
 
-/-- Collect loop-product drafts for every init/entry/view/fn body in program
-    source order (path-threaded). -/
+/-- Result of the bounded-total loop walk over all callable bodies. -/
+structure LoopProgramDraftResultV1 where
+  drafts : Array TypedDiagnosticDraftV1
+  analysisComplete : Bool
+  deriving Repr, Inhabited
+
+def collectLoopProductItemDraftResultV1
+    (item : ProgramItemV1) (itemIndex : Nat) : LoopProgramDraftResultV1 :=
+  let empty : LoopProgramDraftResultV1 :=
+    { drafts := #[], analysisComplete := true }
+  let pathFailure (detail : String) : LoopProgramDraftResultV1 :=
+    { drafts := #[pathInternalDraft detail], analysisComplete := true }
+  let run (itemPath : NormalizedSyntacticPathV1) (label : CallableLabel)
+      (parentTag : String) (body : BlockV1) :=
+    match directChildPathV1 itemPath parentTag "body" with
+    | .error detail => pathFailure detail
+    | .ok bodyPath =>
+        let result := checkLoopBoundsInBodyDraftResultV1 label
+          (some itemPath) (some bodyPath) body
+        { drafts := result.drafts
+          analysisComplete := result.analysisComplete }
+  match programItemPathV1 itemIndex with
+  | .error detail => pathFailure detail
+  | .ok itemPath =>
+      match item with
+      | .fn decl =>
+          run itemPath { kindLabel := "fn", name := decl.name.raw }
+            "FnDecl" decl.body
+      | .entry decl =>
+          run itemPath { kindLabel := "entry", name := decl.name.raw }
+            "EntryDecl" decl.body
+      | .view decl =>
+          run itemPath { kindLabel := "view", name := decl.name.raw }
+            "ViewDecl" decl.body
+      | .init decl =>
+          run itemPath { kindLabel := "init", name := "init" }
+            "InitDecl" decl.body
+      | _ => empty
+
+def collectLoopProductItemsDraftResultV1 :
+    List (ProgramItemV1 × Nat) → LoopProgramDraftResultV1
+  | [] => { drafts := #[], analysisComplete := true }
+  | (item, itemIndex) :: rest =>
+      let head := collectLoopProductItemDraftResultV1 item itemIndex
+      let tail := collectLoopProductItemsDraftResultV1 rest
+      { drafts := head.drafts ++ tail.drafts
+        analysisComplete := head.analysisComplete && tail.analysisComplete }
+
+/-- Collect loop-product drafts and completion state for every callable body in
+    source order through one structurally recursive production fold. -/
+def collectLoopProductDraftResultV1 (program : ProgramV1) :
+    LoopProgramDraftResultV1 :=
+  collectLoopProductItemsDraftResultV1 program.items.zipIdx.toList
+
+/-- Draft-only compatibility projection of the authoritative program walk. -/
 def collectLoopProductDrafts (program : ProgramV1) : Array TypedDiagnosticDraftV1 :=
-  program.items.zipIdx.foldl (init := #[]) fun acc (item, itemIndex) =>
-    match programItemPathV1 itemIndex with
-    | .error detail => acc.push (pathInternalDraft detail)
-    | .ok itemPath =>
-        let run (label : CallableLabel) (parentTag : String) (body : BlockV1) :=
-          let bodyPath? :=
-            match directChildPathV1 itemPath parentTag "body" with
-            | .ok bp => some bp
-            | .error _ => none
-          let pathErrs : Array TypedDiagnosticDraftV1 :=
-            match directChildPathV1 itemPath parentTag "body" with
-            | .error detail => #[pathInternalDraft detail]
-            | .ok _ => #[]
-          acc ++ pathErrs ++
-            checkLoopBoundsInBodyDrafts label (some itemPath) bodyPath? body
-        match item with
-        | .fn decl =>
-            run { kindLabel := "fn", name := decl.name.raw } "FnDecl" decl.body
-        | .entry decl =>
-            run { kindLabel := "entry", name := decl.name.raw } "EntryDecl" decl.body
-        | .view decl =>
-            run { kindLabel := "view", name := decl.name.raw } "ViewDecl" decl.body
-        | .init decl =>
-            run { kindLabel := "init", name := "init" } "InitDecl" decl.body
-        | _ => acc
+  (collectLoopProductDraftResultV1 program).drafts
 
 /-- Collect loop-product diagnostics for every init/entry/view/fn body in
     program source order. -/
@@ -472,17 +479,18 @@ def checkBoundsDraftsV1 (program : ProgramV1) (tables : TypedDeclTablesV1) :
     incompleteBoundDraftResult
   else
     let cycleDrafts := collectCycleDrafts program tables
-    let loopDrafts := collectLoopProductDrafts program
-    let drafts := cycleDrafts ++ loopDrafts
+    let loopRes := collectLoopProductDraftResultV1 program
+    let drafts := cycleDrafts ++ loopRes.drafts
     { drafts := drafts
-      ok := drafts.isEmpty
-      analysisComplete := true }
+      ok := loopRes.analysisComplete && drafts.isEmpty
+      analysisComplete := loopRes.analysisComplete }
 
 /-- Check ProgramV1 recursion cycles and nested for-bound products.
 
     When `tables.fn` has duplicate keys, returns `analysisComplete = false` and
-    does not invent edges or loop diagnostics.  Otherwise always runs cycle
-    then loop-product collection (phase order). -/
+    does not invent edges or loop diagnostics. Fuel exhaustion in the bounded
+    loop walk also forces an incomplete, non-success result. Otherwise always
+    runs cycle then loop-product collection (phase order). -/
 def checkBoundsV1 (program : ProgramV1) (tables : TypedDeclTablesV1) :
     BoundCheckResultV1 :=
   let r := checkBoundsDraftsV1 program tables

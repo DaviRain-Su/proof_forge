@@ -16813,3 +16813,24 @@ normative: false
   与 return / N=9 负例。Targets.lean 的 ArrInt/OptInt 夹具仍是 Int64 容器
   + UInt64 entry，envelope-4 继续走错域针。**不**声称 formal / hermetic /
   runtime parity。
+## 2026-08-16 — complete StateCell production Typed certificate
+
+- 唯一production TypeCheck、EffectCheck、BoundCheck、DisclosureCheck与ContextExtensionCheck中
+  StateCell可达的递归walk全部改为validated-source上限覆盖的bounded-total traversal；fuel耗尽不再被
+  投影为空结果，而是由production result传播`analysisComplete = false`并强制`ok = false`。类型、effect、
+  loop bound、visibility flow、pattern binder与context surface的原检查顺序和diagnostic保持fail closed；
+  没有增加第二套checker或proof-only walk。
+- 真实`program StateCell`四个source item分别闭合上述五个production phase的exact result；既有
+  AuthorityCustodyCheck也在同一真实tables上闭合。`stateCellTypedCheckDraftSuccessV1`把这些结果与已认证
+  的name resolution和call graph通过唯一`checkProgramTypedDraftResultV1`组合，最终
+  `stateCellTypedCheckSuccessV1`证明任意该source的canonical binding都得到exact空diagnostics、
+  `ok = true`和`analysisComplete = true`。没有提供expected AST、按contract name分支或runtime Boolean。
+- 删除EffectCheck中会把pattern-walk exhaustion静默投影成空binder list的未使用wrapper；
+  ContextExtension对外暴露的wrapper仍直接调用同一个production bounded walk并保留`Option Bool`完成态。
+  禁止项扫描保持无`native_decide`、`Lean.ofReduceBool`、`run_tac`、`sorry`、用户axiom或
+  `unsafe theorem`。
+- Verification：TypeCheck/Effect/Bound/Disclosure/Context及完整Check focused suites、diagnostic-location
+  suite、`ProofForgeV2.Targets.Solana.SbpfStateCellTypedV1` kernel build和组合direct runner全部通过。
+  准确边界提升为Source canonical binding→完整production Typed acceptance→
+  `SemanticProgramDataV1` lowering均已闭合；尚未闭合`encodeCarrierV1`、`CompiledSemanticV1` identity
+  mint、Solana Plan/IR lowering、6580-byte emitter equation、103-block SHA或unconditional `get`。

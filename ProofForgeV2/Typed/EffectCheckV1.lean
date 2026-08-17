@@ -276,35 +276,59 @@ def directOrFail
   childOrFail parent parentTag fieldTag 0
 
 mutual
-  partial def collectExpr (tables : TypedDeclTablesV1) (scope : EffectScope)
-      (exprPath? : Option NormalizedSyntacticPathV1) : ExprV1 → CollectorM Unit
-    | .literal _ => pure ()
-    | .place p => do
+  def collectPatternBindersFuelV1 :
+      Nat → PatternV1 → Except String (List SourceNameComponentV1)
+    | 0, _ => .error
+        "effect pattern collection exceeds the validated source node bound"
+    | _ + 1, PatternV1.wildcard | _ + 1, PatternV1.literal _ => .ok []
+    | _ + 1, PatternV1.bind name => .ok [name]
+    | fuel + 1, PatternV1.constructor _ args =>
+        collectPatternBinderListFuelV1 fuel args.toList
+
+  def collectPatternBinderListFuelV1 :
+      Nat → List PatternV1 → Except String (List SourceNameComponentV1)
+    | 0, _ => .error
+        "effect pattern collection exceeds the validated source node bound"
+    | _ + 1, [] => .ok []
+    | fuel + 1, pattern :: patterns => do
+        let head ← collectPatternBindersFuelV1 fuel pattern
+        let tail ← collectPatternBinderListFuelV1 fuel patterns
+        pure (head ++ tail)
+end
+
+mutual
+  def collectExprFuelV1 (tables : TypedDeclTablesV1) (scope : EffectScope)
+      (exprPath? : Option NormalizedSyntacticPathV1) :
+      Nat → ExprV1 → CollectorM Unit
+    | 0, _ => emitPathError
+        "effect expression collection exceeds the validated source node bound"
+    | _ + 1, .literal _ => pure ()
+    | fuel + 1, .place p => do
         let pp? ← match exprPath? with
           | none => pure none
           | some ep => directOrFail ep "Expr.Place" "place"
-        collectPlace tables scope pp? p
-    | .constructor _ args => do
+        collectPlaceFuelV1 tables scope pp? fuel p
+    | fuel + 1, .constructor _ args => do
         for (arg, i) in args.zipIdx do
           let ap? ← match exprPath? with
             | none => pure none
             | some ep => childOrFail ep "Expr.Constructor" "args" i
-          collectExpr tables scope ap? arg
-    | .unary _ e => do
+          collectExprFuelV1 tables scope ap? fuel arg
+    | fuel + 1, .unary _ e => do
         let op? ← match exprPath? with
           | none => pure none
           | some ep => directOrFail ep "Expr.Unary" "operand"
-        collectExpr tables scope op? e
-    | .binary _ lhs rhs => do
+        collectExprFuelV1 tables scope op? fuel e
+    | fuel + 1, .binary _ lhs rhs => do
         let lp? ← match exprPath? with
           | none => pure none
           | some ep => directOrFail ep "Expr.Binary" "lhs"
-        collectExpr tables scope lp? lhs
+        collectExprFuelV1 tables scope lp? fuel lhs
         let rp? ← match exprPath? with
           | none => pure none
           | some ep => directOrFail ep "Expr.Binary" "rhs"
-        collectExpr tables scope rp? rhs
-    | .localCall callee args => do
+        collectExprFuelV1 tables scope rp? fuel rhs
+    | fuel + 1, .localCall callee args => do
         if let some ordinal := resolveCalleeFn tables scope callee then
           match exprPath? with
           | some ep => emitCallSite ordinal ep
@@ -313,244 +337,299 @@ mutual
           let ap? ← match exprPath? with
             | none => pure none
             | some ep => childOrFail ep "Expr.LocalCall" "args" i
-          collectExpr tables scope ap? arg
-    | .externalCall call => do
+          collectExprFuelV1 tables scope ap? fuel arg
+    | fuel + 1, .externalCall call => do
         -- N-CALL-RET: value-position sync call contributes the same
         -- synchronous-call effect as statement call.
         match exprPath? with
         | none =>
-            call.args.forM (collectExpr tables scope none)
+            call.args.forM (collectExprFuelV1 tables scope none fuel)
             emitEffect .externalCallSync
         | some ep => do
             match ← directOrFail ep "Expr.ExternalCall" "call" with
             | none =>
-                call.args.forM (collectExpr tables scope none)
+                call.args.forM (collectExprFuelV1 tables scope none fuel)
             | some cp =>
                 for (arg, i) in call.args.zipIdx do
                   match ← childOrFail cp "ExternalCallExpr" "args" i with
-                  | none => collectExpr tables scope none arg
-                  | some ap => collectExpr tables scope (some ap) arg
+                  | none => collectExprFuelV1 tables scope none fuel arg
+                  | some ap => collectExprFuelV1 tables scope (some ap) fuel arg
             emitOccurrence .externalCallSync ep
-    | .match_ scrutinee arms => do
+    | fuel + 1, .match_ scrutinee arms => do
         let sp? ← match exprPath? with
           | none => pure none
           | some ep => directOrFail ep "Expr.Match" "scrutinee"
-        collectExpr tables scope sp? scrutinee
+        collectExprFuelV1 tables scope sp? fuel scrutinee
         for (arm, i) in arms.zipIdx do
-          let binders := collectPatternBinders arm.pattern
+          let binders ← match collectPatternBindersFuelV1 fuel arm.pattern with
+            | .ok binders => pure binders
+            | .error detail => do
+                emitPathError detail
+                pure []
           let vp? ← match exprPath? with
             | none => pure none
             | some ep => do
                 match ← childOrFail ep "Expr.Match" "arms" i with
                 | none => pure none
                 | some armPath => directOrFail armPath "ExprMatchArm" "value"
-          collectExpr tables { scope with locals := binders ++ scope.locals } vp? arm.value
+          collectExprFuelV1 tables
+            { scope with locals := binders ++ scope.locals } vp? fuel arm.value
 
-  partial def collectPlace (tables : TypedDeclTablesV1) (scope : EffectScope)
-      (placePath? : Option NormalizedSyntacticPathV1) : PlaceV1 → CollectorM Unit
-    | .name n => do
+  def collectPlaceFuelV1 (tables : TypedDeclTablesV1) (scope : EffectScope)
+      (placePath? : Option NormalizedSyntacticPathV1) :
+      Nat → PlaceV1 → CollectorM Unit
+    | 0, _ => emitPathError
+        "effect place collection exceeds the validated source node bound"
+    | _ + 1, .name n => do
         if resolvesToState tables scope n then
           match placePath? with
           | some pp => emitOccurrence .stateRead pp
           | none => emitEffect .stateRead
-    | .field base _ => do
+    | fuel + 1, .field base _ => do
         let bp? ← match placePath? with
           | none => pure none
           | some pp => directOrFail pp "Place.Field" "base"
-        collectPlace tables scope bp? base
-    | .index base idx => do
+        collectPlaceFuelV1 tables scope bp? fuel base
+    | fuel + 1, .index base idx => do
         let bp? ← match placePath? with
           | none => pure none
           | some pp => directOrFail pp "Place.Index" "base"
-        collectPlace tables scope bp? base
+        collectPlaceFuelV1 tables scope bp? fuel base
         let ip? ← match placePath? with
           | none => pure none
           | some pp => directOrFail pp "Place.Index" "index"
-        collectExpr tables scope ip? idx
+        collectExprFuelV1 tables scope ip? fuel idx
 
-  partial def collectPatternBinders : PatternV1 → List SourceNameComponentV1
-    | PatternV1.wildcard | PatternV1.literal _ => []
-    | PatternV1.bind name => [name]
-    | PatternV1.constructor _ args =>
-        args.foldl (fun acc p => acc ++ collectPatternBinders p) []
-
-  partial def collectBlock (tables : TypedDeclTablesV1) (scope : EffectScope)
-      (blockPath? : Option NormalizedSyntacticPathV1) (block : BlockV1) :
-      CollectorM Unit :=
-    collectStmts tables scope blockPath? block.statements.toList 0
-
-  partial def collectStmts (tables : TypedDeclTablesV1) (scope : EffectScope)
+  def collectBlockFuelV1 (tables : TypedDeclTablesV1) (scope : EffectScope)
       (blockPath? : Option NormalizedSyntacticPathV1) :
-      List StmtV1 → Nat → CollectorM Unit
-    | [], _ => pure ()
-    | stmt :: rest, idx => do
+      Nat → BlockV1 → CollectorM Unit
+    | 0, _ => emitPathError
+        "effect block collection exceeds the validated source node bound"
+    | fuel + 1, block =>
+        collectStmtsFuelV1 tables scope blockPath? fuel
+          block.statements.toList 0
+
+  def collectStmtsFuelV1 (tables : TypedDeclTablesV1) (scope : EffectScope)
+      (blockPath? : Option NormalizedSyntacticPathV1) :
+      Nat → List StmtV1 → Nat → CollectorM Unit
+    | 0, _, _ => emitPathError
+        "effect statement-list collection exceeds the validated source node bound"
+    | _ + 1, [], _ => pure ()
+    | fuel + 1, stmt :: rest, idx => do
         let stmtPath? ← match blockPath? with
           | none => pure none
           | some bp => childOrFail bp "Block" "statements" idx
-        let added ← collectStmt tables scope stmtPath? stmt
-        collectStmts tables { scope with locals := added ++ scope.locals }
-          blockPath? rest (idx + 1)
+        let added ← collectStmtFuelV1 tables scope stmtPath? fuel stmt
+        collectStmtsFuelV1 tables
+          { scope with locals := added ++ scope.locals }
+          blockPath? fuel rest (idx + 1)
 
-  partial def collectStmt (tables : TypedDeclTablesV1) (scope : EffectScope)
+  def collectStmtFuelV1 (tables : TypedDeclTablesV1) (scope : EffectScope)
       (stmtPath? : Option NormalizedSyntacticPathV1) :
-      StmtV1 → CollectorM (List SourceNameComponentV1)
-    | .let_ name _ value => do
+      Nat → StmtV1 → CollectorM (List SourceNameComponentV1)
+    | 0, _ => do
+        emitPathError
+          "effect statement collection exceeds the validated source node bound"
+        pure []
+    | fuel + 1, .let_ name _ value => do
         let vp? ← match stmtPath? with
           | none => pure none
           | some sp => directOrFail sp "Stmt.Let" "value"
-        collectExpr tables scope vp? value
+        collectExprFuelV1 tables scope vp? fuel value
         pure [name]
-    | .assign target value => do
+    | fuel + 1, .assign target value => do
         let tp? ← match stmtPath? with
           | none => pure none
           | some sp => directOrFail sp "Stmt.Assign" "target"
-        collectPlaceTarget tables scope tp? target
+        collectPlaceTargetFuelV1 tables scope tp? fuel target
         let vp? ← match stmtPath? with
           | none => pure none
           | some sp => directOrFail sp "Stmt.Assign" "value"
-        collectExpr tables scope vp? value
+        collectExprFuelV1 tables scope vp? fuel value
         pure []
-    | .if_ condition thenBlock elseBlock? => do
+    | fuel + 1, .if_ condition thenBlock elseBlock? => do
         let cp? ← match stmtPath? with
           | none => pure none
           | some sp => directOrFail sp "Stmt.If" "condition"
-        collectExpr tables scope cp? condition
+        collectExprFuelV1 tables scope cp? fuel condition
         let tp? ← match stmtPath? with
           | none => pure none
           | some sp => directOrFail sp "Stmt.If" "thenBlock"
-        collectBlock tables scope tp? thenBlock
+        collectBlockFuelV1 tables scope tp? fuel thenBlock
         match elseBlock? with
         | none => pure ()
         | some eb => do
             let ep? ← match stmtPath? with
               | none => pure none
               | some sp => directOrFail sp "Stmt.If" "elseBlock"
-            collectBlock tables scope ep? eb
+            collectBlockFuelV1 tables scope ep? fuel eb
         pure []
-    | .match_ scrutinee arms => do
+    | fuel + 1, .match_ scrutinee arms => do
         let sp? ← match stmtPath? with
           | none => pure none
           | some sp => directOrFail sp "Stmt.Match" "scrutinee"
-        collectExpr tables scope sp? scrutinee
+        collectExprFuelV1 tables scope sp? fuel scrutinee
         for (arm, i) in arms.zipIdx do
-          let binders := collectPatternBinders arm.pattern
+          let binders ← match collectPatternBindersFuelV1 fuel arm.pattern with
+            | .ok binders => pure binders
+            | .error detail => do
+                emitPathError detail
+                pure []
           let bp? ← match stmtPath? with
             | none => pure none
             | some sp => do
                 match ← childOrFail sp "Stmt.Match" "arms" i with
                 | none => pure none
                 | some armPath => directOrFail armPath "StmtMatchArm" "body"
-          collectBlock tables { scope with locals := binders ++ scope.locals } bp? arm.body
+          collectBlockFuelV1 tables
+            { scope with locals := binders ++ scope.locals } bp? fuel arm.body
         pure []
-    | .for_ binder start endExclusive _ body => do
+    | fuel + 1, .for_ binder start endExclusive _ body => do
         let sp? ← match stmtPath? with
           | none => pure none
           | some sp => directOrFail sp "Stmt.For" "start"
-        collectExpr tables scope sp? start
+        collectExprFuelV1 tables scope sp? fuel start
         let ep? ← match stmtPath? with
           | none => pure none
           | some sp => directOrFail sp "Stmt.For" "endExclusive"
-        collectExpr tables scope ep? endExclusive
+        collectExprFuelV1 tables scope ep? fuel endExclusive
         let bp? ← match stmtPath? with
           | none => pure none
           | some sp => directOrFail sp "Stmt.For" "body"
-        collectBlock tables { scope with locals := binder :: scope.locals } bp? body
+        collectBlockFuelV1 tables
+          { scope with locals := binder :: scope.locals } bp? fuel body
         pure []
-    | .assert_ condition _ => do
+    | fuel + 1, .assert_ condition _ => do
         let cp? ← match stmtPath? with
           | none => pure none
           | some sp => directOrFail sp "Stmt.Assert" "condition"
-        collectExpr tables scope cp? condition
+        collectExprFuelV1 tables scope cp? fuel condition
         match stmtPath? with
         | some sp => emitOccurrence .failureRevert sp
         | none => emitEffect .failureRevert
         pure []
-    | .revert _ args => do
+    | fuel + 1, .revert _ args => do
         for (arg, i) in args.zipIdx do
           let ap? ← match stmtPath? with
             | none => pure none
             | some sp => childOrFail sp "Stmt.Revert" "args" i
-          collectExpr tables scope ap? arg
+          collectExprFuelV1 tables scope ap? fuel arg
         match stmtPath? with
         | some sp => emitOccurrence .failureRevert sp
         | none => emitEffect .failureRevert
         pure []
-    | .emit _ args => do
+    | fuel + 1, .emit _ args => do
         for (arg, i) in args.zipIdx do
           let ap? ← match stmtPath? with
             | none => pure none
             | some sp => childOrFail sp "Stmt.Emit" "args" i
-          collectExpr tables scope ap? arg
+          collectExprFuelV1 tables scope ap? fuel arg
         match stmtPath? with
         | some sp => emitOccurrence .eventEmit sp
         | none => emitEffect .eventEmit
         pure []
-    | .return_ value? => do
+    | fuel + 1, .return_ value? => do
         match value? with
         | none => pure ()
         | some value => do
             let vp? ← match stmtPath? with
               | none => pure none
               | some sp => directOrFail sp "Stmt.Return" "value"
-            collectExpr tables scope vp? value
+            collectExprFuelV1 tables scope vp? fuel value
         pure []
-    | .call externalCall => do
+    | fuel + 1, .call externalCall => do
         match stmtPath? with
         | none =>
-            externalCall.args.forM (collectExpr tables scope none)
+            externalCall.args.forM (collectExprFuelV1 tables scope none fuel)
             emitEffect .externalCallSync
         | some sp => do
             match ← directOrFail sp "Stmt.Call" "call" with
             | none =>
-                externalCall.args.forM (collectExpr tables scope none)
+                externalCall.args.forM (collectExprFuelV1 tables scope none fuel)
             | some cp =>
                 for (arg, i) in externalCall.args.zipIdx do
                   match ← childOrFail cp "ExternalCallExpr" "args" i with
-                  | none => collectExpr tables scope none arg
-                  | some ap => collectExpr tables scope (some ap) arg
+                  | none => collectExprFuelV1 tables scope none fuel arg
+                  | some ap => collectExprFuelV1 tables scope (some ap) fuel arg
             emitOccurrence .externalCallSync sp
         pure []
-    | .schedule externalCall => do
+    | fuel + 1, .schedule externalCall => do
         match stmtPath? with
         | none =>
-            externalCall.args.forM (collectExpr tables scope none)
+            externalCall.args.forM (collectExprFuelV1 tables scope none fuel)
             emitEffect .workflowSchedule
         | some sp => do
             match ← directOrFail sp "Stmt.Schedule" "call" with
             | none =>
-                externalCall.args.forM (collectExpr tables scope none)
+                externalCall.args.forM (collectExprFuelV1 tables scope none fuel)
             | some cp =>
                 for (arg, i) in externalCall.args.zipIdx do
                   match ← childOrFail cp "ExternalCallExpr" "args" i with
-                  | none => collectExpr tables scope none arg
-                  | some ap => collectExpr tables scope (some ap) arg
+                  | none => collectExprFuelV1 tables scope none fuel arg
+                  | some ap => collectExprFuelV1 tables scope (some ap) fuel arg
             emitOccurrence .workflowSchedule sp
         pure []
 
   /-- Walk an assignment target: root state is a write; field/index chains on
       state are still writes; index sub-expressions are ordinary reads/calls. -/
-  partial def collectPlaceTarget (tables : TypedDeclTablesV1) (scope : EffectScope)
-      (placePath? : Option NormalizedSyntacticPathV1) : PlaceV1 → CollectorM Unit
-    | .name n => do
+  def collectPlaceTargetFuelV1 (tables : TypedDeclTablesV1)
+      (scope : EffectScope) (placePath? : Option NormalizedSyntacticPathV1) :
+      Nat → PlaceV1 → CollectorM Unit
+    | 0, _ => emitPathError
+        "effect assignment-target collection exceeds the validated source node bound"
+    | _ + 1, .name n => do
         if resolvesToState tables scope n then
           match placePath? with
           | some pp => emitOccurrence .stateWrite pp
           | none => emitEffect .stateWrite
-    | .field base _ => do
+    | fuel + 1, .field base _ => do
         let bp? ← match placePath? with
           | none => pure none
           | some pp => directOrFail pp "Place.Field" "base"
-        collectPlaceTarget tables scope bp? base
-    | .index base idx => do
+        collectPlaceTargetFuelV1 tables scope bp? fuel base
+    | fuel + 1, .index base idx => do
         let bp? ← match placePath? with
           | none => pure none
           | some pp => directOrFail pp "Place.Index" "base"
-        collectPlaceTarget tables scope bp? base
+        collectPlaceTargetFuelV1 tables scope bp? fuel base
         let ip? ← match placePath? with
           | none => pure none
           | some pp => directOrFail pp "Place.Index" "index"
-        collectExpr tables scope ip? idx
+        collectExprFuelV1 tables scope ip? fuel idx
 end
+
+/-- Total production wrappers over the sole effect-evidence AST walk. Validated
+    source admits at most 100000 nodes; impossible exhaustion emits an internal
+    path draft and therefore fails closed. -/
+def collectExpr (tables : TypedDeclTablesV1) (scope : EffectScope)
+    (exprPath? : Option NormalizedSyntacticPathV1) (expr : ExprV1) :
+    CollectorM Unit :=
+  collectExprFuelV1 tables scope exprPath? 100001 expr
+
+def collectPlace (tables : TypedDeclTablesV1) (scope : EffectScope)
+    (placePath? : Option NormalizedSyntacticPathV1) (place : PlaceV1) :
+    CollectorM Unit :=
+  collectPlaceFuelV1 tables scope placePath? 100001 place
+
+def collectBlock (tables : TypedDeclTablesV1) (scope : EffectScope)
+    (blockPath? : Option NormalizedSyntacticPathV1) (block : BlockV1) :
+    CollectorM Unit :=
+  collectBlockFuelV1 tables scope blockPath? 100001 block
+
+def collectStmts (tables : TypedDeclTablesV1) (scope : EffectScope)
+    (blockPath? : Option NormalizedSyntacticPathV1)
+    (statements : List StmtV1) (index : Nat) : CollectorM Unit :=
+  collectStmtsFuelV1 tables scope blockPath? 100001 statements index
+
+def collectStmt (tables : TypedDeclTablesV1) (scope : EffectScope)
+    (stmtPath? : Option NormalizedSyntacticPathV1) (stmt : StmtV1) :
+    CollectorM (List SourceNameComponentV1) :=
+  collectStmtFuelV1 tables scope stmtPath? 100001 stmt
+
+def collectPlaceTarget (tables : TypedDeclTablesV1) (scope : EffectScope)
+    (placePath? : Option NormalizedSyntacticPathV1) (place : PlaceV1) :
+    CollectorM Unit :=
+  collectPlaceTargetFuelV1 tables scope placePath? 100001 place
 
 def emptyCollectorState : CollectorState :=
   { effects := EffectSetV1.empty
@@ -738,77 +817,95 @@ def incompleteEffectResult : EffectCheckResultV1 :=
 def incompleteEffectDraftResult : EffectCheckDraftResultV1 :=
   { drafts := #[], ok := false, analysisComplete := false }
 
+abbrev ProgramEvidenceAccumulatorV1 :=
+  Array BodyEvidenceV1 × Array TypedDiagnosticDraftV1 ×
+    Array (Option BodyEvidenceV1)
+
+/-- Process one source item in the sole production effect-evidence pass. -/
+def collectProgramItemEvidenceV1 (tables : TypedDeclTablesV1)
+    (acc : ProgramEvidenceAccumulatorV1) (item : ProgramItemV1)
+    (itemIndex : Nat) : ProgramEvidenceAccumulatorV1 :=
+  let (fnEvidence, pathErrors, itemEvidence) := acc
+  match programItemPathV1 itemIndex with
+  | .error detail =>
+      (fnEvidence, pathErrors.push (pathInternalDraft detail), itemEvidence)
+  | .ok itemPath =>
+      match item with
+      | .fn decl =>
+          let bodyPath? :=
+            match directChildPathV1 itemPath "FnDecl" "body" with
+            | .ok bp => some bp
+            | .error _ => none
+          let pathErrors :=
+            match directChildPathV1 itemPath "FnDecl" "body" with
+            | .error detail => pathErrors.push (pathInternalDraft detail)
+            | .ok _ => pathErrors
+          let (st, ev) := collectBodyEvidence tables decl.params bodyPath? decl.body
+          let pathErrors := pathErrors ++ st.pathErrors
+          let fnEvidence :=
+            match tables.fn.find? decl.name with
+            | some (o, _) =>
+                if o < fnEvidence.size then fnEvidence.set! o ev else fnEvidence
+            | none => fnEvidence
+          let itemEvidence := itemEvidence.set! itemIndex (some ev)
+          (fnEvidence, pathErrors, itemEvidence)
+      | .view decl =>
+          let bodyPath? :=
+            match directChildPathV1 itemPath "ViewDecl" "body" with
+            | .ok bp => some bp
+            | .error _ => none
+          let pathErrors :=
+            match directChildPathV1 itemPath "ViewDecl" "body" with
+            | .error detail => pathErrors.push (pathInternalDraft detail)
+            | .ok _ => pathErrors
+          let (st, ev) := collectBodyEvidence tables decl.params bodyPath? decl.body
+          let pathErrors := pathErrors ++ st.pathErrors
+          let itemEvidence := itemEvidence.set! itemIndex (some ev)
+          (fnEvidence, pathErrors, itemEvidence)
+      | .entry decl =>
+          let bodyPath? :=
+            match directChildPathV1 itemPath "EntryDecl" "body" with
+            | .ok bp => some bp
+            | .error _ => none
+          let pathErrors :=
+            match directChildPathV1 itemPath "EntryDecl" "body" with
+            | .error detail => pathErrors.push (pathInternalDraft detail)
+            | .ok _ => pathErrors
+          let (st, _) := collectBodyEvidence tables decl.params bodyPath? decl.body
+          (fnEvidence, pathErrors ++ st.pathErrors, itemEvidence)
+      | .init decl =>
+          let bodyPath? :=
+            match directChildPathV1 itemPath "InitDecl" "body" with
+            | .ok bp => some bp
+            | .error _ => none
+          let pathErrors :=
+            match directChildPathV1 itemPath "InitDecl" "body" with
+            | .error detail => pathErrors.push (pathInternalDraft detail)
+            | .ok _ => pathErrors
+          let (st, _) := collectBodyEvidence tables decl.params bodyPath? decl.body
+          (fnEvidence, pathErrors ++ st.pathErrors, itemEvidence)
+      | _ => (fnEvidence, pathErrors, itemEvidence)
+
+/-- Structural source-list driver for production effect-evidence collection. -/
+def collectProgramItemsEvidenceV1 (tables : TypedDeclTablesV1) :
+    ProgramEvidenceAccumulatorV1 → List (ProgramItemV1 × Nat) →
+      ProgramEvidenceAccumulatorV1
+  | acc, [] => acc
+  | acc, (item, itemIndex) :: items =>
+      collectProgramItemsEvidenceV1 tables
+        (collectProgramItemEvidenceV1 tables acc item itemIndex) items
+
 /-- Collect path-threaded evidence for every fn ordinal + all items (for views).
     Returns (fnEvidence by ordinal, pathErrors, item evidence keyed by item index). -/
 def collectProgramEvidence (program : ProgramV1) (tables : TypedDeclTablesV1) :
-    Array BodyEvidenceV1 × Array TypedDiagnosticDraftV1 ×
-      Array (Option BodyEvidenceV1) :=
+    ProgramEvidenceAccumulatorV1 :=
   let fnCount := tables.fn.size
   let initFn : Array BodyEvidenceV1 :=
     List.replicate fnCount emptyBodyEvidence |>.toArray
   let initItems : Array (Option BodyEvidenceV1) :=
     List.replicate program.items.size none |>.toArray
-  program.items.zipIdx.foldl (init := (initFn, (#[] : Array TypedDiagnosticDraftV1), initItems))
-    fun (fnEvidence, pathErrors, itemEvidence) (item, itemIndex) =>
-      match programItemPathV1 itemIndex with
-      | .error detail =>
-          (fnEvidence, pathErrors.push (pathInternalDraft detail), itemEvidence)
-      | .ok itemPath =>
-          match item with
-          | .fn decl =>
-              let bodyPath? :=
-                match directChildPathV1 itemPath "FnDecl" "body" with
-                | .ok bp => some bp
-                | .error _ => none
-              let pathErrors :=
-                match directChildPathV1 itemPath "FnDecl" "body" with
-                | .error detail => pathErrors.push (pathInternalDraft detail)
-                | .ok _ => pathErrors
-              let (st, ev) := collectBodyEvidence tables decl.params bodyPath? decl.body
-              let pathErrors := pathErrors ++ st.pathErrors
-              let fnEvidence :=
-                match tables.fn.find? decl.name with
-                | some (o, _) =>
-                    if o < fnEvidence.size then fnEvidence.set! o ev else fnEvidence
-                | none => fnEvidence
-              let itemEvidence := itemEvidence.set! itemIndex (some ev)
-              (fnEvidence, pathErrors, itemEvidence)
-          | .view decl =>
-              let bodyPath? :=
-                match directChildPathV1 itemPath "ViewDecl" "body" with
-                | .ok bp => some bp
-                | .error _ => none
-              let pathErrors :=
-                match directChildPathV1 itemPath "ViewDecl" "body" with
-                | .error detail => pathErrors.push (pathInternalDraft detail)
-                | .ok _ => pathErrors
-              let (st, ev) := collectBodyEvidence tables decl.params bodyPath? decl.body
-              let pathErrors := pathErrors ++ st.pathErrors
-              let itemEvidence := itemEvidence.set! itemIndex (some ev)
-              (fnEvidence, pathErrors, itemEvidence)
-          | .entry decl =>
-              let bodyPath? :=
-                match directChildPathV1 itemPath "EntryDecl" "body" with
-                | .ok bp => some bp
-                | .error _ => none
-              let pathErrors :=
-                match directChildPathV1 itemPath "EntryDecl" "body" with
-                | .error detail => pathErrors.push (pathInternalDraft detail)
-                | .ok _ => pathErrors
-              let (st, _) := collectBodyEvidence tables decl.params bodyPath? decl.body
-              (fnEvidence, pathErrors ++ st.pathErrors, itemEvidence)
-          | .init decl =>
-              let bodyPath? :=
-                match directChildPathV1 itemPath "InitDecl" "body" with
-                | .ok bp => some bp
-                | .error _ => none
-              let pathErrors :=
-                match directChildPathV1 itemPath "InitDecl" "body" with
-                | .error detail => pathErrors.push (pathInternalDraft detail)
-                | .ok _ => pathErrors
-              let (st, _) := collectBodyEvidence tables decl.params bodyPath? decl.body
-              (fnEvidence, pathErrors ++ st.pathErrors, itemEvidence)
-          | _ => (fnEvidence, pathErrors, itemEvidence)
+  collectProgramItemsEvidenceV1 tables (initFn, #[], initItems)
+    program.items.zipIdx.toList
 
 /-- Build fn-only adjacency from collected call-site evidence. -/
 def adjacencyFromEvidence (fnCount : Nat) (fnEvidence : Array BodyEvidenceV1) :
@@ -822,6 +919,74 @@ def adjacencyFromEvidence (fnCount : Nat) (fnEvidence : Array BodyEvidenceV1) :
         acc
   buildAdjacency fnCount pairEdges
 
+/-- Append allowlist drafts for one item in the sole production effect pass. -/
+def checkEffectProgramItemDraftsV1 (tables : TypedDeclTablesV1)
+    (fnCount : Nat) (fnEvidence : Array BodyEvidenceV1)
+    (itemEvidence : Array (Option BodyEvidenceV1))
+    (fnClosed : Array EffectSetV1) (acc : Array TypedDiagnosticDraftV1)
+    (item : ProgramItemV1) (itemIndex : Nat) :
+    Array TypedDiagnosticDraftV1 :=
+  match item with
+  | .fn decl =>
+      let o? := tables.fn.find? decl.name |>.map (·.1)
+      let total :=
+        match o? with
+        | some o =>
+            if o < fnClosed.size then fnClosed[o]! else EffectSetV1.empty
+        | none =>
+            let ev := itemEvidence[itemIndex]!.getD emptyBodyEvidence
+            absorbCalleesEvidence fnClosed ev
+      let disallowed := total.toOrderedKinds.filter (fun k => !fnAllowed k)
+      let seed :=
+        match o? with
+        | some o =>
+            if o < fnEvidence.size then fnEvidence[o]! else emptyBodyEvidence
+        | none => itemEvidence[itemIndex]!.getD emptyBodyEvidence
+      let primary? :=
+        match o? with
+        | some o => itemPathForOrdinal? tables .fn o
+        | none => itemPathForNamed? tables .fn decl.name
+      match primary? with
+      | none =>
+          acc ++ disallowed.map fun k =>
+            make .effectDisallowed (effectDisallowedMessage "fn" decl.name.raw k)
+      | some primaryPath =>
+          disallowed.foldl (init := acc) fun acc k =>
+            let related := relatedPathsForEffect fnCount fnEvidence fnClosed
+              seed o? k
+            acc.push (effectDisallowedDraft "fn" decl.name.raw k primaryPath related)
+  | .view decl =>
+      let seed := itemEvidence[itemIndex]!.getD emptyBodyEvidence
+      let total := absorbCalleesEvidence fnClosed seed
+      let disallowed := total.toOrderedKinds.filter (fun k => !viewAllowed k)
+      let primary? := itemPathForNamed? tables .view decl.name
+      match primary? with
+      | none =>
+          acc ++ disallowed.map fun k =>
+            make .effectDisallowed (effectDisallowedMessage "view" decl.name.raw k)
+      | some primaryPath =>
+          disallowed.foldl (init := acc) fun acc k =>
+            let related := relatedPathsForEffect fnCount fnEvidence fnClosed
+              seed none k
+            acc.push
+              (effectDisallowedDraft "view" decl.name.raw k primaryPath related)
+  | _ => acc
+
+/-- Structural source-list driver for production effect allowlist drafts. -/
+def checkEffectProgramItemsDraftsV1 (tables : TypedDeclTablesV1)
+    (fnCount : Nat) (fnEvidence : Array BodyEvidenceV1)
+    (itemEvidence : Array (Option BodyEvidenceV1))
+    (fnClosed : Array EffectSetV1) :
+    Array TypedDiagnosticDraftV1 → List (ProgramItemV1 × Nat) →
+      Array TypedDiagnosticDraftV1
+  | acc, [] => acc
+  | acc, (item, itemIndex) :: items =>
+      checkEffectProgramItemsDraftsV1 tables fnCount fnEvidence itemEvidence
+        fnClosed
+        (checkEffectProgramItemDraftsV1 tables fnCount fnEvidence itemEvidence
+          fnClosed acc item itemIndex)
+        items
+
 /-- Draft authority: path-threaded effect allowlist check. -/
 def checkEffectsDraftsV1 (program : ProgramV1) (tables : TypedDeclTablesV1) :
     EffectCheckDraftResultV1 :=
@@ -833,53 +998,8 @@ def checkEffectsDraftsV1 (program : ProgramV1) (tables : TypedDeclTablesV1) :
     let directFn : Array EffectSetV1 := fnEvidence.map (·.effects)
     let adj := adjacencyFromEvidence fnCount fnEvidence
     let fnClosed := closeFnEffectsFixedPoint fnCount adj directFn
-    let drafts :=
-      program.items.zipIdx.foldl (init := pathErrors) fun acc (item, itemIndex) =>
-        match item with
-        | .fn decl =>
-            let o? := tables.fn.find? decl.name |>.map (·.1)
-            let total :=
-              match o? with
-              | some o =>
-                  if o < fnClosed.size then fnClosed[o]! else EffectSetV1.empty
-              | none =>
-                  let ev := itemEvidence[itemIndex]!.getD emptyBodyEvidence
-                  absorbCalleesEvidence fnClosed ev
-            let disallowed := total.toOrderedKinds.filter (fun k => !fnAllowed k)
-            let seed :=
-              match o? with
-              | some o =>
-                  if o < fnEvidence.size then fnEvidence[o]! else emptyBodyEvidence
-              | none => itemEvidence[itemIndex]!.getD emptyBodyEvidence
-            let primary? :=
-              match o? with
-              | some o => itemPathForOrdinal? tables .fn o
-              | none => itemPathForNamed? tables .fn decl.name
-            match primary? with
-            | none =>
-                acc ++ disallowed.map fun k =>
-                  make .effectDisallowed (effectDisallowedMessage "fn" decl.name.raw k)
-            | some primaryPath =>
-                disallowed.foldl (init := acc) fun acc k =>
-                  let related := relatedPathsForEffect fnCount fnEvidence fnClosed
-                    seed o? k
-                  acc.push (effectDisallowedDraft "fn" decl.name.raw k primaryPath related)
-        | .view decl =>
-            let seed := itemEvidence[itemIndex]!.getD emptyBodyEvidence
-            let total := absorbCalleesEvidence fnClosed seed
-            let disallowed := total.toOrderedKinds.filter (fun k => !viewAllowed k)
-            let primary? := itemPathForNamed? tables .view decl.name
-            match primary? with
-            | none =>
-                acc ++ disallowed.map fun k =>
-                  make .effectDisallowed (effectDisallowedMessage "view" decl.name.raw k)
-            | some primaryPath =>
-                disallowed.foldl (init := acc) fun acc k =>
-                  let related := relatedPathsForEffect fnCount fnEvidence fnClosed
-                    seed none k
-                  acc.push
-                    (effectDisallowedDraft "view" decl.name.raw k primaryPath related)
-        | _ => acc
+    let drafts := checkEffectProgramItemsDraftsV1 tables fnCount fnEvidence
+      itemEvidence fnClosed pathErrors program.items.zipIdx.toList
     { drafts := drafts
       ok := drafts.isEmpty
       analysisComplete := true }

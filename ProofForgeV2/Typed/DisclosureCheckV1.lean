@@ -276,6 +276,7 @@ def placeRootName : PlaceV1 → SourceNameComponentV1
 /-- Walk state: accumulate all flow-violation drafts in source order. -/
 structure WalkState where
   drafts : Array TypedDiagnosticDraftV1
+  analysisComplete : Bool
   deriving Inhabited
 
 abbrev WalkM := StateM WalkState
@@ -283,6 +284,17 @@ abbrev WalkM := StateM WalkState
 def emitPathError (detail : String) : WalkM Unit :=
   modify fun s =>
     { s with drafts := s.drafts.push (pathInternalDraft detail) }
+
+/-- Mark bounded traversal exhaustion exactly once and fail closed. -/
+def emitFuelExhausted : WalkM Unit :=
+  modify fun s =>
+    if s.analysisComplete then
+      { s with
+        drafts := s.drafts.push
+          (pathInternalDraft "disclosure walk: traversal fuel exhausted")
+        analysisComplete := false }
+    else
+      s
 
 def childOrFail
     (parent : NormalizedSyntacticPathV1)
@@ -370,16 +382,19 @@ def seedParamEvidence
 mutual
   /-- Infer expression visibility bottom-up while emitting index/public sinks
       under the current program-counter evidence. -/
-  partial def exprVisibility (tables : TypedDeclTablesV1) (scope : DisclosureScope)
+  def exprVisibilityFuelV1 (tables : TypedDeclTablesV1) (scope : DisclosureScope)
       (pc : VisibilityEvidence) (exprPath? : Option NormalizedSyntacticPathV1) :
-      ExprV1 → WalkM VisibilityEvidence
-    | .literal _ => pure publicEvidence
-    | .place p => do
+      Nat → ExprV1 → WalkM VisibilityEvidence
+    | 0, _ => do
+        emitFuelExhausted
+        pure publicEvidence
+    | _fuel + 1, .literal _ => pure publicEvidence
+    | fuel + 1, .place p => do
         let pp? ← match exprPath? with
           | none => pure none
           | some ep => directOrFail ep "Expr.Place" "place"
-        placeRValueVisibility tables scope pc pp? p
-    | .constructor ctor args => do
+        placeRValueVisibilityFuelV1 tables scope pc pp? fuel p
+    | fuel + 1, .constructor ctor args => do
         -- ADR-0030 E2: env-read catalog QNs produce a public_ result (balance
         -- read is a public observation); args are explicit public sinks (the
         -- mint Principal is a key, not a value that taints the result).
@@ -389,7 +404,7 @@ mutual
             let ap? ← match exprPath? with
               | none => pure none
               | some ep => childOrFail ep "Expr.Constructor" "args" i
-            let v ← exprVisibility tables scope pc ap? a
+            let v ← exprVisibilityFuelV1 tables scope pc ap? fuel a
             requirePublic pc v ap?
               (stableUniqueUnion (optPathArray exprPath?) (optPathArray exprPath?))
           pure publicEvidence
@@ -399,25 +414,25 @@ mutual
             let ap? ← match exprPath? with
               | none => pure none
               | some ep => childOrFail ep "Expr.Constructor" "args" i
-            let v ← exprVisibility tables scope pc ap? a
+            let v ← exprVisibilityFuelV1 tables scope pc ap? fuel a
             acc := joinVisibilityEvidence acc v
           pure acc
-    | .unary _ e => do
+    | fuel + 1, .unary _ e => do
         let op? ← match exprPath? with
           | none => pure none
           | some ep => directOrFail ep "Expr.Unary" "operand"
-        exprVisibility tables scope pc op? e
-    | .binary _ lhs rhs => do
+        exprVisibilityFuelV1 tables scope pc op? fuel e
+    | fuel + 1, .binary _ lhs rhs => do
         let lp? ← match exprPath? with
           | none => pure none
           | some ep => directOrFail ep "Expr.Binary" "lhs"
-        let lv ← exprVisibility tables scope pc lp? lhs
+        let lv ← exprVisibilityFuelV1 tables scope pc lp? fuel lhs
         let rp? ← match exprPath? with
           | none => pure none
           | some ep => directOrFail ep "Expr.Binary" "rhs"
-        let rv ← exprVisibility tables scope pc rp? rhs
+        let rv ← exprVisibilityFuelV1 tables scope pc rp? fuel rhs
         pure (joinVisibilityEvidence lv rv)
-    | .localCall callee args => do
+    | fuel + 1, .localCall callee args => do
         -- N5: intrinsic `commit(x)` is the sole private→commitment declassification
         -- operator. Walk the operand for nested sinks but do **not** mayFlow-check
         -- the operand into commitment; result label is always commitment (causes
@@ -431,7 +446,7 @@ mutual
               let ap? ← match exprPath? with
                 | none => pure none
                 | some ep => childOrFail ep "Expr.LocalCall" "args" 0
-              let v ← exprVisibility tables scope pc ap? arg0
+              let v ← exprVisibilityFuelV1 tables scope pc ap? fuel arg0
               pure { label := .commitment, causes := v.causes }
         else
           -- Explicit sinks: each arg flows into the corresponding ParamV1.visibility
@@ -445,7 +460,7 @@ mutual
                   let ap? ← match exprPath? with
                     | none => pure none
                     | some ep => childOrFail ep "Expr.LocalCall" "args" i
-                  let v ← exprVisibility tables scope pc ap? arg
+                  let v ← exprVisibilityFuelV1 tables scope pc ap? fuel arg
                   let paramPath? := fnParamPath? tables decl.name i
                   emitFlowUnderPc pc v param.visibility ap? (optPathArray paramPath?)
               else
@@ -453,15 +468,15 @@ mutual
                   let ap? ← match exprPath? with
                     | none => pure none
                     | some ep => childOrFail ep "Expr.LocalCall" "args" i
-                  let _ ← exprVisibility tables scope pc ap? a
+                  let _ ← exprVisibilityFuelV1 tables scope pc ap? fuel a
           | none =>
               for (a, i) in args.zipIdx do
                 let ap? ← match exprPath? with
                   | none => pure none
                   | some ep => childOrFail ep "Expr.LocalCall" "args" i
-                let _ ← exprVisibility tables scope pc ap? a
+                let _ ← exprVisibilityFuelV1 tables scope pc ap? fuel a
           pure publicEvidence
-    | .externalCall call => do
+    | fuel + 1, .externalCall call => do
         -- N-CALL-RET: value-position sync call. Args are explicit public sinks
         -- (same as statement call); the result label is public_.
         let callPath? ← match exprPath? with
@@ -471,11 +486,11 @@ mutual
           let ap? ← match callPath? with
             | none => pure none
             | some cp => childOrFail cp "ExternalCallExpr" "args" i
-          let v ← exprVisibility tables scope pc ap? a
+          let v ← exprVisibilityFuelV1 tables scope pc ap? fuel a
           requirePublic pc v ap?
             (stableUniqueUnion (optPathArray exprPath?) (optPathArray callPath?))
         pure publicEvidence
-    | .match_ scrutinee arms => do
+    | fuel + 1, .match_ scrutinee arms => do
         -- Expression match: result = join(scrutControl, join of arm values) so
         -- the scrutinee control-taints the result (decl causes + scrutinee Expr
         -- root). Arm expressions walk under pc' = join(pc, scrutControl);
@@ -483,12 +498,12 @@ mutual
         let sp? ← match exprPath? with
           | none => pure none
           | some ep => directOrFail ep "Expr.Match" "scrutinee"
-        let scrutVis ← exprVisibility tables scope pc sp? scrutinee
+        let scrutVis ← exprVisibilityFuelV1 tables scope pc sp? fuel scrutinee
         let scrutControl := withControlRootEvidence scrutVis sp?
         let pc' := joinVisibilityEvidence pc scrutControl
         let mut acc : VisibilityEvidence := publicEvidence
         for (arm, i) in arms.zipIdx do
-          let binders := patternBinders arm.pattern scrutVis
+          let binders ← patternBindersFuelV1 fuel arm.pattern scrutVis
           let armScope := { scope with locals := binders ++ scope.locals }
           let vp? ← match exprPath? with
             | none => pure none
@@ -496,17 +511,21 @@ mutual
                 match ← childOrFail ep "Expr.Match" "arms" i with
                 | none => pure none
                 | some armPath => directOrFail armPath "ExprMatchArm" "value"
-          let v ← exprVisibility tables armScope pc' vp? arm.value
+          let v ← exprVisibilityFuelV1 tables armScope pc' vp? fuel arm.value
           acc := joinVisibilityEvidence acc v
         pure (joinVisibilityEvidence scrutControl acc)
 
   /-- R-value place: field keeps base; index joins base with index expr and
       treats the index expression as a public-required sink under PC. -/
-  partial def placeRValueVisibility (tables : TypedDeclTablesV1) (scope : DisclosureScope)
+  def placeRValueVisibilityFuelV1 (tables : TypedDeclTablesV1)
+      (scope : DisclosureScope)
       (pc : VisibilityEvidence) (placePath? : Option NormalizedSyntacticPathV1) :
-      PlaceV1 → WalkM VisibilityEvidence
-    | .name n => pure (lookupName tables scope n)
-    | .field base field => do
+      Nat → PlaceV1 → WalkM VisibilityEvidence
+    | 0, _ => do
+        emitFuelExhausted
+        pure publicEvidence
+    | _fuel + 1, .name n => pure (lookupName tables scope n)
+    | fuel + 1, .field base field => do
         -- N5/ADR-0031-S2/S3: context.unixTimeSeconds / blockHeight / chainId
         -- are public invocation-start snapshots; caller / self are public
         -- Principal identity surfaces (not private witnesses).
@@ -521,90 +540,119 @@ mutual
           let bp? ← match placePath? with
             | none => pure none
             | some pp => directOrFail pp "Place.Field" "base"
-          placeRValueVisibility tables scope pc bp? base
-    | .index base idx => do
+          placeRValueVisibilityFuelV1 tables scope pc bp? fuel base
+    | fuel + 1, .index base idx => do
         let bp? ← match placePath? with
           | none => pure none
           | some pp => directOrFail pp "Place.Index" "base"
-        let baseVis ← placeRValueVisibility tables scope pc bp? base
+        let baseVis ← placeRValueVisibilityFuelV1 tables scope pc bp? fuel base
         let ip? ← match placePath? with
           | none => pure none
           | some pp => directOrFail pp "Place.Index" "index"
-        let idxVis ← exprVisibility tables scope pc ip? idx
+        let idxVis ← exprVisibilityFuelV1 tables scope pc ip? fuel idx
         requirePublic pc idxVis ip? (optPathArray placePath?)
         pure (joinVisibilityEvidence baseVis idxVis)
 
   /-- Assignment-target place visibility: root name/field chain secrecy only
       (index expressions are still public-required sinks under PC, but do not
       raise the sink label of the cell being written). -/
-  partial def placeTargetVisibility (tables : TypedDeclTablesV1) (scope : DisclosureScope)
+  def placeTargetVisibilityFuelV1 (tables : TypedDeclTablesV1)
+      (scope : DisclosureScope)
       (pc : VisibilityEvidence) (placePath? : Option NormalizedSyntacticPathV1) :
-      PlaceV1 → WalkM VisibilityEvidence
-    | .name n => pure (lookupName tables scope n)
-    | .field base _ => do
+      Nat → PlaceV1 → WalkM VisibilityEvidence
+    | 0, _ => do
+        emitFuelExhausted
+        pure publicEvidence
+    | _fuel + 1, .name n => pure (lookupName tables scope n)
+    | fuel + 1, .field base _ => do
         let bp? ← match placePath? with
           | none => pure none
           | some pp => directOrFail pp "Place.Field" "base"
-        placeTargetVisibility tables scope pc bp? base
-    | .index base idx => do
+        placeTargetVisibilityFuelV1 tables scope pc bp? fuel base
+    | fuel + 1, .index base idx => do
         let bp? ← match placePath? with
           | none => pure none
           | some pp => directOrFail pp "Place.Index" "base"
-        let baseVis ← placeTargetVisibility tables scope pc bp? base
+        let baseVis ← placeTargetVisibilityFuelV1 tables scope pc bp? fuel base
         let ip? ← match placePath? with
           | none => pure none
           | some pp => directOrFail pp "Place.Index" "index"
-        let idxVis ← exprVisibility tables scope pc ip? idx
+        let idxVis ← exprVisibilityFuelV1 tables scope pc ip? fuel idx
         requirePublic pc idxVis ip? (optPathArray placePath?)
         pure baseVis
 
   /-- Pattern binders inherit the scrutinee visibility evidence (value flow). -/
-  partial def patternBinders (pattern : PatternV1) (scrutVis : VisibilityEvidence) :
-      List (SourceNameComponentV1 × VisibilityEvidence) :=
-    match pattern with
-    | PatternV1.wildcard | PatternV1.literal _ => []
-    | PatternV1.bind name => [(name, scrutVis)]
-    | PatternV1.constructor _ args =>
-        args.foldl (fun acc p => acc ++ patternBinders p scrutVis) []
+  def patternBindersFuelV1 :
+      Nat → PatternV1 → VisibilityEvidence →
+        WalkM (List (SourceNameComponentV1 × VisibilityEvidence))
+    | 0, _, _ => do
+        emitFuelExhausted
+        pure []
+    | _fuel + 1, PatternV1.wildcard, _ => pure []
+    | _fuel + 1, PatternV1.literal _, _ => pure []
+    | _fuel + 1, PatternV1.bind name, scrutVis => pure [(name, scrutVis)]
+    | fuel + 1, PatternV1.constructor _ args, scrutVis =>
+        patternBinderListFuelV1 fuel args.toList scrutVis
 
-  partial def checkBlock (tables : TypedDeclTablesV1) (scope : DisclosureScope)
-      (pc : VisibilityEvidence) (blockPath? : Option NormalizedSyntacticPathV1)
-      (callablePath? : Option NormalizedSyntacticPathV1) (block : BlockV1) :
-      WalkM Unit :=
-    checkStmts tables scope pc blockPath? callablePath? block.statements.toList 0
+  def patternBinderListFuelV1 :
+      Nat → List PatternV1 → VisibilityEvidence →
+        WalkM (List (SourceNameComponentV1 × VisibilityEvidence))
+    | _, [], _ => pure []
+    | 0, _ :: _, _ => do
+        emitFuelExhausted
+        pure []
+    | fuel + 1, pattern :: patterns, scrutVis => do
+        let head ← patternBindersFuelV1 fuel pattern scrutVis
+        let tail ← patternBinderListFuelV1 fuel patterns scrutVis
+        pure (head ++ tail)
 
-  partial def checkStmts (tables : TypedDeclTablesV1) (scope : DisclosureScope)
+  def checkBlockFuelV1 (tables : TypedDeclTablesV1) (scope : DisclosureScope)
       (pc : VisibilityEvidence) (blockPath? : Option NormalizedSyntacticPathV1)
       (callablePath? : Option NormalizedSyntacticPathV1) :
-      List StmtV1 → Nat → WalkM Unit
-    | [], _ => pure ()
-    | stmt :: rest, idx => do
+      Nat → BlockV1 → WalkM Unit
+    | 0, _ => emitFuelExhausted
+    | fuel + 1, block =>
+        checkStmtsFuelV1 tables scope pc blockPath? callablePath? fuel
+          block.statements.toList 0
+
+  def checkStmtsFuelV1 (tables : TypedDeclTablesV1) (scope : DisclosureScope)
+      (pc : VisibilityEvidence) (blockPath? : Option NormalizedSyntacticPathV1)
+      (callablePath? : Option NormalizedSyntacticPathV1) :
+      Nat → List StmtV1 → Nat → WalkM Unit
+    | _, [], _ => pure ()
+    | 0, _ :: _, _ => emitFuelExhausted
+    | fuel + 1, stmt :: rest, idx => do
         let stmtPath? ← match blockPath? with
           | none => pure none
           | some bp => childOrFail bp "Block" "statements" idx
-        let added ← checkStmt tables scope pc stmtPath? callablePath? stmt
-        checkStmts tables { scope with locals := added ++ scope.locals } pc
-          blockPath? callablePath? rest (idx + 1)
+        let added ←
+          checkStmtFuelV1 tables scope pc stmtPath? callablePath? fuel stmt
+        checkStmtsFuelV1 tables
+          { scope with locals := added ++ scope.locals } pc
+          blockPath? callablePath? fuel rest (idx + 1)
 
-  partial def checkStmt (tables : TypedDeclTablesV1) (scope : DisclosureScope)
+  def checkStmtFuelV1 (tables : TypedDeclTablesV1) (scope : DisclosureScope)
       (pc : VisibilityEvidence) (stmtPath? : Option NormalizedSyntacticPathV1)
       (callablePath? : Option NormalizedSyntacticPathV1) :
-      StmtV1 → WalkM (List (SourceNameComponentV1 × VisibilityEvidence))
-    | .let_ name _ value => do
+      Nat → StmtV1 → WalkM (List (SourceNameComponentV1 × VisibilityEvidence))
+    | 0, _ => do
+        emitFuelExhausted
+        pure []
+    | fuel + 1, .let_ name _ value => do
         let vp? ← match stmtPath? with
           | none => pure none
           | some sp => directOrFail sp "Stmt.Let" "value"
-        let v ← exprVisibility tables scope pc vp? value
+        let v ← exprVisibilityFuelV1 tables scope pc vp? fuel value
         pure [(name, v)]
-    | .assign target value => do
+    | fuel + 1, .assign target value => do
         let tp? ← match stmtPath? with
           | none => pure none
           | some sp => directOrFail sp "Stmt.Assign" "target"
-        let sinkEv ← placeTargetVisibility tables scope pc tp? target
+        let sinkEv ← placeTargetVisibilityFuelV1 tables scope pc tp? fuel target
         let vp? ← match stmtPath? with
           | none => pure none
           | some sp => directOrFail sp "Stmt.Assign" "value"
-        let src ← exprVisibility tables scope pc vp? value
+        let src ← exprVisibilityFuelV1 tables scope pc vp? fuel value
         let mut sinkSites := optPathArray tp?
         let root := placeRootName target
         if resolvesToState tables scope root then
@@ -612,104 +660,105 @@ mutual
             (optPathArray (itemPathForNamed? tables .state root))
         emitFlowUnderPc pc src sinkEv.label vp? sinkSites
         pure []
-    | .if_ condition thenBlock elseBlock? => do
+    | fuel + 1, .if_ condition thenBlock elseBlock? => do
         -- Condition is not a public *value* sink; it raises PC for branches.
         -- PC evidence = decl/value causes of condition + condition Expr root.
         let cp? ← match stmtPath? with
           | none => pure none
           | some sp => directOrFail sp "Stmt.If" "condition"
-        let condVis ← exprVisibility tables scope pc cp? condition
+        let condVis ← exprVisibilityFuelV1 tables scope pc cp? fuel condition
         let pc' := joinVisibilityEvidence pc (withControlRootEvidence condVis cp?)
         let tp? ← match stmtPath? with
           | none => pure none
           | some sp => directOrFail sp "Stmt.If" "thenBlock"
-        checkBlock tables scope pc' tp? callablePath? thenBlock
+        checkBlockFuelV1 tables scope pc' tp? callablePath? fuel thenBlock
         match elseBlock? with
         | none => pure ()
         | some eb => do
             let ep? ← match stmtPath? with
               | none => pure none
               | some sp => directOrFail sp "Stmt.If" "elseBlock"
-            checkBlock tables scope pc' ep? callablePath? eb
+            checkBlockFuelV1 tables scope pc' ep? callablePath? fuel eb
         pure []
-    | .match_ scrutinee arms => do
+    | fuel + 1, .match_ scrutinee arms => do
         -- Scrutinee raises PC with decl causes + scrutinee Expr root.
         -- Binders still inherit raw scrutVis for value flow.
         let sp? ← match stmtPath? with
           | none => pure none
           | some sp => directOrFail sp "Stmt.Match" "scrutinee"
-        let scrutVis ← exprVisibility tables scope pc sp? scrutinee
+        let scrutVis ← exprVisibilityFuelV1 tables scope pc sp? fuel scrutinee
         let pc' := joinVisibilityEvidence pc (withControlRootEvidence scrutVis sp?)
         for (arm, i) in arms.zipIdx do
-          let binders := patternBinders arm.pattern scrutVis
+          let binders ← patternBindersFuelV1 fuel arm.pattern scrutVis
           let bp? ← match stmtPath? with
             | none => pure none
             | some sp => do
                 match ← childOrFail sp "Stmt.Match" "arms" i with
                 | none => pure none
                 | some armPath => directOrFail armPath "StmtMatchArm" "body"
-          checkBlock tables { scope with locals := binders ++ scope.locals }
-            pc' bp? callablePath? arm.body
+          checkBlockFuelV1 tables
+            { scope with locals := binders ++ scope.locals }
+            pc' bp? callablePath? fuel arm.body
         pure []
-    | .for_ binder start endExclusive _ body => do
+    | fuel + 1, .for_ binder start endExclusive _ body => do
         let sp? ← match stmtPath? with
           | none => pure none
           | some sp => directOrFail sp "Stmt.For" "start"
-        let startVis ← exprVisibility tables scope pc sp? start
+        let startVis ← exprVisibilityFuelV1 tables scope pc sp? fuel start
         requirePublic pc startVis sp? (optPathArray stmtPath?)
         let ep? ← match stmtPath? with
           | none => pure none
           | some sp => directOrFail sp "Stmt.For" "endExclusive"
-        let endVis ← exprVisibility tables scope pc ep? endExclusive
+        let endVis ← exprVisibilityFuelV1 tables scope pc ep? fuel endExclusive
         requirePublic pc endVis ep? (optPathArray stmtPath?)
         -- For-loop binder is public_ (iterator identity is not secret).
         -- Body runs under current PC (no extra raise from endpoints).
         let bp? ← match stmtPath? with
           | none => pure none
           | some sp => directOrFail sp "Stmt.For" "body"
-        checkBlock tables
+        checkBlockFuelV1 tables
           { scope with locals := (binder, publicEvidence) :: scope.locals }
-          pc bp? callablePath? body
+          pc bp? callablePath? fuel body
         pure []
-    | .assert_ condition _ => do
+    | fuel + 1, .assert_ condition _ => do
         -- Condition is a public sink (assert ⇒ failure.revert / observable).
         -- Nested sinks use current PC; assert does not raise PC for subsequent
         -- statements (assert is not a branch).
         let cp? ← match stmtPath? with
           | none => pure none
           | some sp => directOrFail sp "Stmt.Assert" "condition"
-        let condVis ← exprVisibility tables scope pc cp? condition
+        let condVis ← exprVisibilityFuelV1 tables scope pc cp? fuel condition
         requirePublic pc condVis cp? (optPathArray stmtPath?)
         pure []
-    | .revert _ args => do
+    | fuel + 1, .revert _ args => do
         for (a, i) in args.zipIdx do
           let ap? ← match stmtPath? with
             | none => pure none
             | some sp => childOrFail sp "Stmt.Revert" "args" i
-          let v ← exprVisibility tables scope pc ap? a
+          let v ← exprVisibilityFuelV1 tables scope pc ap? fuel a
           requirePublic pc v ap? (optPathArray stmtPath?)
         pure []
-    | .emit _ args => do
+    | fuel + 1, .emit _ args => do
         for (a, i) in args.zipIdx do
           let ap? ← match stmtPath? with
             | none => pure none
             | some sp => childOrFail sp "Stmt.Emit" "args" i
-          let v ← exprVisibility tables scope pc ap? a
+          let v ← exprVisibilityFuelV1 tables scope pc ap? fuel a
           requirePublic pc v ap? (optPathArray stmtPath?)
         pure []
-    | .return_ value? => do
+    | fuel + 1, .return_ value? => do
         match value? with
         | none => pure ()
         | some e => do
             let vp? ← match stmtPath? with
               | none => pure none
               | some sp => directOrFail sp "Stmt.Return" "value"
-            let v ← exprVisibility tables scope pc vp? e
+            let v ← exprVisibilityFuelV1 tables scope pc vp? fuel e
             let sinkSites :=
               stableUniqueUnion (optPathArray stmtPath?) (optPathArray callablePath?)
             requirePublic pc v vp? sinkSites
         pure []
-    | .call externalCall => do
+    | fuel + 1, .call externalCall => do
         let callPath? ← match stmtPath? with
           | none => pure none
           | some sp => directOrFail sp "Stmt.Call" "call"
@@ -717,11 +766,11 @@ mutual
           let ap? ← match callPath? with
             | none => pure none
             | some cp => childOrFail cp "ExternalCallExpr" "args" i
-          let v ← exprVisibility tables scope pc ap? a
+          let v ← exprVisibilityFuelV1 tables scope pc ap? fuel a
           requirePublic pc v ap?
             (stableUniqueUnion (optPathArray stmtPath?) (optPathArray callPath?))
         pure []
-    | .schedule externalCall => do
+    | fuel + 1, .schedule externalCall => do
         let callPath? ← match stmtPath? with
           | none => pure none
           | some sp => directOrFail sp "Stmt.Schedule" "call"
@@ -729,18 +778,24 @@ mutual
           let ap? ← match callPath? with
             | none => pure none
             | some cp => childOrFail cp "ExternalCallExpr" "args" i
-          let v ← exprVisibility tables scope pc ap? a
+          let v ← exprVisibilityFuelV1 tables scope pc ap? fuel a
           requirePublic pc v ap?
             (stableUniqueUnion (optPathArray stmtPath?) (optPathArray callPath?))
         pure []
 end
 
+/-- Completion-bearing result of one bounded disclosure walk. -/
+structure DisclosureWalkDraftResultV1 where
+  drafts : Array TypedDiagnosticDraftV1
+  analysisComplete : Bool
+  deriving Repr, Inhabited
+
 /-- Path-threaded body draft collection. When paths are `none`, drafts are
     unlocated (legacy erase projection). -/
-def checkBodyDrafts
+def checkBodyDraftResultV1
     (tables : TypedDeclTablesV1) (params : Array ParamV1) (body : BlockV1)
     (itemPath? : Option NormalizedSyntacticPathV1)
-    (parentTag : String) : Array TypedDiagnosticDraftV1 :=
+    (parentTag : String) : DisclosureWalkDraftResultV1 :=
   let bodyPath? : Option NormalizedSyntacticPathV1 :=
     match itemPath? with
     | none => none
@@ -755,23 +810,30 @@ def checkBodyDrafts
         match directChildPathV1 ip parentTag "body" with
         | .error detail => #[pathInternalDraft detail]
         | .ok _ => #[]
-  let init : WalkState := { drafts := pathErrs }
+  let init : WalkState := { drafts := pathErrs, analysisComplete := true }
   let walk : WalkM Unit := do
     let paramEv ← seedParamEvidence params itemPath? parentTag
-    checkBlock tables (scopeFromParamEvidence paramEv) publicEvidence
-      bodyPath? itemPath? body
+    checkBlockFuelV1 tables (scopeFromParamEvidence paramEv) publicEvidence
+      bodyPath? itemPath? 100001 body
   let (_, st) := walk.run init
-  st.drafts
+  { drafts := st.drafts, analysisComplete := st.analysisComplete }
+
+/-- Draft-only compatibility projection of the authoritative body walk. -/
+def checkBodyDrafts
+    (tables : TypedDeclTablesV1) (params : Array ParamV1) (body : BlockV1)
+    (itemPath? : Option NormalizedSyntacticPathV1)
+    (parentTag : String) : Array TypedDiagnosticDraftV1 :=
+  (checkBodyDraftResultV1 tables params body itemPath? parentTag).drafts
 
 def checkBody (tables : TypedDeclTablesV1) (params : Array ParamV1) (body : BlockV1) :
     Array DiagnosticV1 :=
   eraseArray (checkBodyDrafts tables params body none "FnDecl")
 
 /-- Const defining expression draft walk under empty scope and public PC. -/
-def checkConstValueDrafts
+def checkConstValueDraftResultV1
     (tables : TypedDeclTablesV1) (value : ExprV1)
     (itemPath? : Option NormalizedSyntacticPathV1) :
-    Array TypedDiagnosticDraftV1 :=
+    DisclosureWalkDraftResultV1 :=
   let valuePath? : Option NormalizedSyntacticPathV1 :=
     match itemPath? with
     | none => none
@@ -786,12 +848,20 @@ def checkConstValueDrafts
         match directChildPathV1 ip "ConstDecl" "value" with
         | .error detail => #[pathInternalDraft detail]
         | .ok _ => #[]
-  let init : WalkState := { drafts := pathErrs }
+  let init : WalkState := { drafts := pathErrs, analysisComplete := true }
   let walk : WalkM Unit := do
-    let v ← exprVisibility tables emptyDisclosureScope publicEvidence valuePath? value
+    let v ← exprVisibilityFuelV1 tables emptyDisclosureScope publicEvidence
+      valuePath? 100001 value
     requirePublic publicEvidence v valuePath? (optPathArray itemPath?)
   let (_, st) := walk.run init
-  st.drafts
+  { drafts := st.drafts, analysisComplete := st.analysisComplete }
+
+/-- Draft-only compatibility projection of the authoritative const walk. -/
+def checkConstValueDrafts
+    (tables : TypedDeclTablesV1) (value : ExprV1)
+    (itemPath? : Option NormalizedSyntacticPathV1) :
+    Array TypedDiagnosticDraftV1 :=
+  (checkConstValueDraftResultV1 tables value itemPath?).drafts
 
 /-- Const defining expression under empty/local scope and public PC: nested sinks
     are checked via `exprVisibility`, then the value itself must flow into public_
@@ -823,43 +893,63 @@ def incompleteDisclosureResult : DisclosureCheckResultV1 :=
 def incompleteDisclosureDraftResult : DisclosureCheckDraftResultV1 :=
   { drafts := #[], ok := false, analysisComplete := false }
 
+/-- Check one program item through the bounded production disclosure walkers. -/
+def checkDisclosureProgramItemDraftResultV1
+    (tables : TypedDeclTablesV1) (item : ProgramItemV1) (itemIndex : Nat) :
+    DisclosureWalkDraftResultV1 :=
+  let empty : DisclosureWalkDraftResultV1 :=
+    { drafts := #[], analysisComplete := true }
+  match programItemPathV1 itemIndex with
+  | .error detail =>
+      { drafts := #[pathInternalDraft detail], analysisComplete := true }
+  | .ok itemPath =>
+      match item with
+      | .const decl =>
+          checkConstValueDraftResultV1 tables decl.value (some itemPath)
+      | .fn decl =>
+          checkBodyDraftResultV1 tables decl.params decl.body
+            (some itemPath) "FnDecl"
+      | .entry decl =>
+          checkBodyDraftResultV1 tables decl.params decl.body
+            (some itemPath) "EntryDecl"
+      | .view decl =>
+          checkBodyDraftResultV1 tables decl.params decl.body
+            (some itemPath) "ViewDecl"
+      | .init decl =>
+          checkBodyDraftResultV1 tables decl.params decl.body
+            (some itemPath) "InitDecl"
+      | _ => empty
+
+/-- Structurally recursive source-order program fold. -/
+def checkDisclosureProgramItemsDraftResultV1 (tables : TypedDeclTablesV1) :
+    List (ProgramItemV1 × Nat) → DisclosureWalkDraftResultV1
+  | [] => { drafts := #[], analysisComplete := true }
+  | (item, itemIndex) :: rest =>
+      let head := checkDisclosureProgramItemDraftResultV1 tables item itemIndex
+      let tail := checkDisclosureProgramItemsDraftResultV1 tables rest
+      { drafts := head.drafts ++ tail.drafts
+        analysisComplete := head.analysisComplete && tail.analysisComplete }
+
 /-- Draft authority: path-threaded disclosure check on ProgramV1. -/
 def checkDisclosureDraftsV1 (program : ProgramV1) (tables : TypedDeclTablesV1) :
     DisclosureCheckDraftResultV1 :=
   if tables.fn.hasDuplicateKey then
     incompleteDisclosureDraftResult
   else
-    let drafts := program.items.zipIdx.foldl (init := #[]) fun acc (item, itemIndex) =>
-      match programItemPathV1 itemIndex with
-      | .error detail => acc.push (pathInternalDraft detail)
-      | .ok itemPath =>
-          match item with
-          | .const decl =>
-              acc ++ checkConstValueDrafts tables decl.value (some itemPath)
-          | .fn decl =>
-              acc ++
-                checkBodyDrafts tables decl.params decl.body (some itemPath) "FnDecl"
-          | .entry decl =>
-              acc ++
-                checkBodyDrafts tables decl.params decl.body (some itemPath) "EntryDecl"
-          | .view decl =>
-              acc ++
-                checkBodyDrafts tables decl.params decl.body (some itemPath) "ViewDecl"
-          | .init decl =>
-              acc ++
-                checkBodyDrafts tables decl.params decl.body (some itemPath) "InitDecl"
-          | _ => acc
-    { drafts := drafts
-      ok := drafts.isEmpty
-      analysisComplete := true }
+    let result := checkDisclosureProgramItemsDraftResultV1 tables
+      program.items.zipIdx.toList
+    { drafts := result.drafts
+      ok := result.analysisComplete && result.drafts.isEmpty
+      analysisComplete := result.analysisComplete }
 
 /-- Check disclosure flow (explicit + PC-label implicit) on ProgramV1 using
     declaration tables.
 
     When `tables.fn` has duplicate keys, returns `analysisComplete = false` and
-    does not invent flow diagnostics.  Otherwise walks const defining expressions
-    and init/entry/view/fn bodies in program source order and collects all
-    violations. Exact erase of `checkDisclosureDraftsV1`. -/
+    does not invent flow diagnostics. Fuel exhaustion also forces an incomplete,
+    non-success result. Otherwise walks const defining expressions and
+    init/entry/view/fn bodies in program source order and collects all violations.
+    Exact erase of `checkDisclosureDraftsV1`. -/
 def checkDisclosureV1 (program : ProgramV1) (tables : TypedDeclTablesV1) :
     DisclosureCheckResultV1 :=
   let r := checkDisclosureDraftsV1 program tables

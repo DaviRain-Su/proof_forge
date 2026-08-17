@@ -307,18 +307,31 @@ second codegen.
     proof-only checker was added. This closes the first two Typed phases only;
     TypeCheck and the remaining analysis phases still gate whole CheckV1
     acceptance.
+28. **SOL-0048-D5-STATECELL-TYPED-CERTIFICATE** — **done 2026-08-16**:
+    made every StateCell-reachable recursive walk in the sole production
+    TypeCheck, EffectCheck, BoundCheck, DisclosureCheck and
+    ContextExtensionCheck bounded-total. Fuel exhaustion is represented by the
+    production result and forces `analysisComplete = false` and `ok = false`;
+    no exhausted walk is projected to an empty successful result. The real
+    exported StateCell declaration now has exact kernel equations for those
+    five phases plus the existing AuthorityCustodyCheck, name-resolution and
+    call-graph phases. Their production composition proves the complete
+    `checkProgramTypedResultV1` result is exactly empty diagnostics, `ok = true`
+    and `analysisComplete = true` for any canonical binding of that source. No
+    expected AST, second checker, contract-name branch or runtime Boolean is
+    accepted. This closes the production Typed gate; canonical carrier encoding
+    and the compiler identity mint are the next boundary.
 
 D4's four pinned sparse certificates and all four concrete D5 compositions are
 complete, and the generic seam now has a second real contract/HandlerIR shape
 consumer plus its first multiword typed return. The generic bytes→SHA→artifact
 identity proof boundary and a kernel-reducible production emitter core are now
-present. Source binding and exact ProgramV1→SemanticProgramDataV1 normalization
-are now kernel-certified from the real StateCell declaration. Production name
-resolution and call-graph acceptance are also kernel-certified. The remaining
-compiler boundary starts with TypeCheck plus effect/bound/disclosure/authority/
-context acceptance, then canonical SemanticProgramV1 encoding →
-`CompiledSemanticV1` identity mint; target ownership continues through the
-reachable `LowerSemanticV1`/`EmitIRV1` path and `validateIR = .ok ()`.
+present. Source binding, the complete production Typed gate and exact
+ProgramV1→SemanticProgramDataV1 normalization are now kernel-certified from the
+real StateCell declaration. The remaining compiler boundary is canonical
+SemanticProgramV1 encoding → `CompiledSemanticV1` identity mint; target
+ownership then continues through the reachable `LowerSemanticV1`/`EmitIRV1`
+path and `validateIR = .ok ()`.
 Until compiler/IR ownership closes, the post-validation emission equation cannot
 be owner-bound to the real source pipeline, so a SHA trace alone still cannot
 establish emitter ownership. Runtime output `true` and a certificate over copied
@@ -329,14 +342,13 @@ Next formalization slices, in order:
 1. **SOL-0048-D5-GET-EMITTER-CERTIFICATE**: make the real production emission
    stage fully proof-producing/kernel-replayable for its exact result. The
    emitter core, certificate boundary, real StateCell source binding and
-   exact whole-program data normalization certificate are done; name resolution
-   and call-graph acceptance are now also discharged. Next totalize/replay the
-   StateCell-reachable production TypeCheck walkers, then discharge the
-   remaining CheckV1 phases, canonical carrier encode and compiler identity
-   mint from those same production values; after that totalize/replay
-   `LowerSemanticV1`, `EmitIRV1` and `validateIR`, and discharge the StateCell
-   exact post-validation emission equation. Keep traversal contract-independent
-   and do not add a proof-only compiler, emitter or copied assembly.
+   exact whole-program data normalization certificate are done; the complete
+   production Typed gate is now also discharged. Next close canonical carrier
+   encoding and the compiler identity mint from those same production values;
+   after that totalize/replay `LowerSemanticV1`, `EmitIRV1` and `validateIR`,
+   and discharge the StateCell exact post-validation emission equation. Keep
+   traversal contract-independent and do not add a proof-only compiler, emitter
+   or copied assembly.
 2. **SOL-0048-D5-GET-UNCONDITIONAL**: build the 103-block SHA trace directly
    over that exact emitter result, replay it through `resolveBoundSbpfArtifactV1`
    and preparation replay, then discharge the existing StateCell `get` gate.
