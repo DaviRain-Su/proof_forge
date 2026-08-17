@@ -131,7 +131,8 @@ normative: false
 | Bytes N state | **LOWERED** | N=1..8 UInt64 叶存低 8 位；IndexGet/Set 复用 Array 字面量下标；param/return/N=0 仍 FC |
 | scalar `Op.Constant` | **LOWERED** | 经已有 `lowerLiteral`（UInt64/Int64/UInt32/Bool）；String/aggregate/Principal const 仍 FC |
 | Principal state/params | **LOWERED** | T4：9×UInt64 identity 叶（`owner_len`+`w0..w7`）；pf.assets `transfer` 仍按 `.principal` 在 call site 重装；return / `context.caller`/`self` 仍 FC |
-| multi-block/if/match/for、Field/String/named aggregates | **FAIL-CLOSED** | Q0 不做语义近似 |
+| named Struct/Enum state | **LOWERED** | T5：`p_x`/`p_y` 与 MaybeMark tag+payload 叶 flatten；named 作 entry/view return 仍 FC |
+| multi-block/if/match/for、Field/String | **FAIL-CLOSED** | Q0 不做语义近似；named return 仍 FC |
 | event/nonzero revert payload/call/schedule/ContextRead/Commit | **FAIL-CLOSED** | zero-payload declared revert 保留 ErrorId（failure code=`256+id`）；resolver 仅 rollback/state/Bool/checked-arithmetic 四键 |
 | 制品 / 验收 | `.qnt` + zero-tool finalize；host-optional exact Quint 0.32 typecheck + TS smoke | 不可部署；非 ITF/MBT/verify/Apalache/formal |
 
@@ -141,9 +142,9 @@ normative: false
 
 | Target | Profile | 已开 | 诚实 FC / 非声称 |
 |---|---|---|---|
-| **Soroban** | sole `soroban-source-u64-v1` | public UInt64/Bool/Unit Counter/StateCell `.rs`；4-key；zero-tool Finalize `deployable=false`；T3 scalar const 内联 + Bytes N（N UInt64 低 8 位叶）；**T4 Principal 9 叶 identity**（`owner_len`+`w0..w7`，≠ Address） | auth/TTL/Wasm/stellar-cli；UInt64 ContextRead 四键 named no-host；`pf.crypto.*` / nativeVaultBalance named no-host；Principal return / `self`/`caller` 仍 FC |
-| **OpenVM** | default `openvm-guest-source-v1`；opt-in `openvm-guest-elf-v1` | 受控 guest tree（O0 zero-tool）；O1 locked `cargo-openvm` 2.0.1 → ELF+`.vmexe` extras 仍 `deployable=false`；T3 scalar const 内联 + Bytes N；**T4 Principal 9 叶 identity**（≠ host address） | keygen/execute/prove/verify；UInt64 ContextRead 四键 / `pf.crypto.*` / nativeVaultBalance named no-host；Principal return / caller 仍 FC |
-| **ICP** | sole `icp-wasm-candid-u64-v1` | Counter/StateCell `.wat`+`.did`；locked wat2wasm `{name}.wasm` `deployable=true`；host-optional PocketIC；**CAP-1a** `unixTimeSeconds`→`ic0.time` ns÷10⁹（init/update/query）；T3 scalar const 内联 + Bytes N（N extra i64 globals，无 Candid `vec nat8`）；**T4 Principal 9 叶 identity**（9 extra i64 globals，无 Candid `principal`） | PocketIC 不进 Finalize；sync+event FC；async advertise-only；`blockHeight`/`attachedValue`/`chainId` / `pf.crypto.*` / nativeVaultBalance named no-host；Principal return / caller 仍 FC |
+| **Soroban** | sole `soroban-source-u64-v1` | public UInt64/Bool/Unit Counter/StateCell `.rs`；4-key；zero-tool Finalize `deployable=false`；T3 scalar const 内联 + Bytes N（N UInt64 低 8 位叶）；**T4 Principal 9 叶 identity**（`owner_len`+`w0..w7`，≠ Address）；**T5 named Struct/Enum 叶 flatten**（`p_x`/`p_y`、MaybeMark tag+payload；`symbol_short` 只卡 state 叶） | auth/TTL/Wasm/stellar-cli；UInt64 ContextRead 四键 named no-host；`pf.crypto.*` / nativeVaultBalance named no-host；Principal / named Struct/Enum return / `self`/`caller` 仍 FC |
+| **OpenVM** | default `openvm-guest-source-v1`；opt-in `openvm-guest-elf-v1` | 受控 guest tree（O0 zero-tool）；O1 locked `cargo-openvm` 2.0.1 → ELF+`.vmexe` extras 仍 `deployable=false`；T3 scalar const 内联 + Bytes N；**T4 Principal 9 叶 identity**（≠ host address）；**T5 named Struct/Enum 叶 flatten**（return 仍 FC） | keygen/execute/prove/verify；UInt64 ContextRead 四键 / `pf.crypto.*` / nativeVaultBalance named no-host；Principal / named Struct/Enum return / caller 仍 FC |
+| **ICP** | sole `icp-wasm-candid-u64-v1` | Counter/StateCell `.wat`+`.did`；locked wat2wasm `{name}.wasm` `deployable=true`；host-optional PocketIC；**CAP-1a** `unixTimeSeconds`→`ic0.time` ns÷10⁹（init/update/query）；T3 scalar const 内联 + Bytes N（N extra i64 globals，无 Candid `vec nat8`）；**T4 Principal 9 叶 identity**（9 extra i64 globals，无 Candid `principal`）；**T5 Option UInt64 2 叶 identity**（`o_tag`/`o_p0` extra i64 globals，无 Candid `opt`）；**T5 named Struct/Enum 叶 flatten**（extra i64 globals，无 Candid `record`/`variant`） | PocketIC 不进 Finalize；sync+event FC；async advertise-only；Map 仍 FC（无动态 mux）；`blockHeight`/`attachedValue`/`chainId` / `pf.crypto.*` / nativeVaultBalance named no-host；Principal / Option / named Struct/Enum return / caller 仍 FC |
 
 ## 2. 验收/差分覆盖矩阵
 
@@ -168,7 +169,7 @@ normative: false
 | **N-A1** | EVM String match-switch | **已闭合(EvmStringMatch)**：EVM Lower 将 `match String` desugar 为 leaf-wise eq + nested ifThenElse（Plan `switchOn` 仍仅 UInt64 case）；catch-all fallthrough；非 String aggregate switch 与非 String pattern 仍 fail-closed | EVM | EvmStringMatch ✅ |
 | **N-A2** | 多臂同构造器 match 细化 | **已闭合(MultiArmCtor)**：Normalize 允许同外构造器多臂，子模式可区分时 first-match 嵌套 guard（nested ctor→VariantTag eq，nested lit→value eq；fallthrough→outer catch-all 或 trap.unreachable）；结构 pattern key 重复（bind≡wildcard、ctor by vIdx、lit by valueBytes）仍 fail-closed；TypeCheck 同源 duplicate pattern 诊断；六 target 经 sole Normalize 继承 | 全 target | MultiArmCtor ✅ |
 | **N-A3** | Map/Bytes 穿透元素赋值 | **已闭合(MapBytesAssign)**：TypeCheck/Normalize 单步 `m[k]:=v`/`b[i]:=u8` → IndexSet（load→set→store）；Reference 已有 Map/Bytes step。target 覆盖非均匀：EVM Map+Bytes、Solana Map、NEAR Map 与 fixed Bytes state、Noir Map、Aleo Map+Bytes 已部分 LOWERED，Psy 与其余组合按上表 FAIL-CLOSED；五个 Map-capable target 的 aggregate StateStore snapshot hazard 已修。**Map 整程序 Reference admission（2026-08-07）** 已切 per-canonical-value/helper Wire envelope（无 sampled packing/第二 runtime capacity；empty state default exact 4B；whole-step cumulative work 仍 residual）；**MiniAmm `Map Principal UInt64` Normalize→admit 已通**（runtime upsert 仍 Wire 实际 limits）；**嵌套穿透** `m[k].x:=v` 仍 fail-closed | 全 target Normalize；target 见 op 表 | MapBytesAssign + B-SOL-MAP-UPSERT ✅ |
-| **N-A4** | Option state | **shared 闭合**：Normalize+Reference default none；**B-OPT-STATE 已开八 materializer** `Option UInt64` tag+payload state（EVM/Solana/NEAR/Noir/Aleo/Psy/CosmWasm/TON）；**仅 Quint FC**；Option params/非 UInt64/nested 全 target 仍 FC | 全 target | OptionState ✅ + B-OPT-STATE ✅（Quint residual） |
+| **N-A4** | Option state | **shared 闭合**：Normalize+Reference default none；十二 materializer 均 Admit `Option UInt64` 2 叶 tag+payload state（T5 补 ICP：两个 extra i64 global，无 Candid `opt`）；Option return / params / 非 UInt64 / nested 仍 FC；ICP Map 仍 FC | 全 target | OptionState ✅ + B-OPT-STATE ✅ + T5 |
 
 ### B 组：各 target 的 Plan/IR/emitter 覆盖缺口
 

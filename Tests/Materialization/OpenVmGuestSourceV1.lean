@@ -1345,6 +1345,70 @@ unsafe def testArrayInt64N9FailClosed : IO Unit := do
   | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
   | .ok _ => throw <| IO.userError "Array Int64 9 must fail closed"
 
+unsafe def testPointBoxFlatten : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PointBox where\n" ++
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  state p : Point\n" ++
+    "  init() do\n" ++
+    "    p := Point.new(0, 0)\n" ++
+    "  entry setX(v : UInt64) : UInt64 do\n" ++
+    "    p.x := v\n" ++
+    "    return p.x\n" ++
+    "  view getX() : UInt64 do\n" ++
+    "    return p.x\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<openvm-point-box>" "Tests.OpenVmPointBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planOpenVm compiled
+  expect (plan.states.map (·.name) == #["p_x", "p_y"])
+    "PointBox must flatten to p_x/p_y"
+  liftResult <| Targets.OpenVM.validatePlan plan
+  let files ← liftResult <| buildOpenVm compiled
+  expect (!files.isEmpty) "PointBox must materialize files"
+  let some mainRs := files.find? (·.path == "guest/src/main.rs") |
+    throw <| IO.userError "openvm: missing guest/src/main.rs"
+  expect (mainRs.contents.contains "pub p_x: u64,")
+    "guest State must carry flattened p_x"
+  expect (mainRs.contents.contains "pub p_y: u64,")
+    "guest State must carry flattened p_y"
+
+unsafe def testMaybeMarkFlatten : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MaybeMark where\n" ++
+    "  enum Maybe where\n" ++
+    "    | None\n" ++
+    "    | Some(UInt64)\n" ++
+    "  state m : Maybe\n" ++
+    "  init() do\n" ++
+    "    m := Maybe.None()\n" ++
+    "  entry put(v : UInt64) : UInt64 do\n" ++
+    "    m := Maybe.Some(v)\n" ++
+    "    return v\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<openvm-maybe-mark>" "Tests.OpenVmMaybeMark" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planOpenVm compiled
+  expect (plan.states.map (·.name) == #["m_tag", "m_p0"])
+    "MaybeMark must flatten to m_tag/m_p0"
+  liftResult <| Targets.OpenVM.validatePlan plan
+  let files ← liftResult <| buildOpenVm compiled
+  expect (!files.isEmpty) "MaybeMark must materialize files"
+  let some mainRs := files.find? (·.path == "guest/src/main.rs") |
+    throw <| IO.userError "openvm: missing guest/src/main.rs"
+  expect (mainRs.contents.contains "pub m_tag: u64,")
+    "guest State must carry flattened m_tag"
+  expect (mainRs.contents.contains "pub m_p0: u64,")
+    "guest State must carry flattened m_p0"
+
 unsafe def run : IO Unit := do
   testStateCellOpenVmSource
   testMaterializeDeterminism
@@ -1385,6 +1449,8 @@ unsafe def run : IO Unit := do
   testMapInt64ElementFc
   testMapReturnFc
   testSignedNumericMapFc
+  testPointBoxFlatten
+  testMaybeMarkFlatten
   testMixedInt64UInt64Fc
   testFailClosedInt32
   IO.println "Tests.Materialization.OpenVmGuestSourceV1: ok"

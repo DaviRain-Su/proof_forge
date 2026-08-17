@@ -22,14 +22,16 @@ ICP-2 envelope: public UInt64 **or** public Int64 state (homogeneous
 numeric domain: every integer state/param/result is UInt64, or every
 one is Int64; mixing fails closed); Array UInt64 N or Array Int64 N∈1..8
 state flattens to N i64 Wasm globals (element follows signedNumeric; no
-Candid `vec`); Option/Map stay fail closed; `init`/entry(mutate)/view;
+Candid `vec`); Option UInt64 2-leaf and named Struct/Enum flatten to extra
+i64 globals (no Candid `opt`/`record`/`variant`); Map stays fail closed;
+`init`/entry(mutate)/view;
 single-block callable bodies; checked `+`/`-`/`*`/`/`/`%` and comparisons
 (literal/param/stateLoad/store/return; Bool results). `Op.ContextRead`
 admits only `context.unixTimeSeconds`.
-Everything else — pureFn, invariants, constants, events, errors, emit,
-sync call, schedule, residual ContextRead keys, `Op.Commit`, named
-aggregates, Map/Option/Bytes, Array return, Int8/16/32, UInt8/16/128/256,
-Field, Principal — fails closed. ICP-1's async advertisement (`effect.asynchronous-workflow`)
+Everything else — pureFn, invariants, events, errors, emit,
+sync call, schedule, residual ContextRead keys, `Op.Commit`, Map,
+Option/named/Principal return, Array return, Int8/16/32, UInt8/16/128/256,
+Field — fails closed. ICP-1's async advertisement (`effect.asynchronous-workflow`)
 stays a resolver-level advertisement only; no ICP-2 Plan shape realizes
 it.
 -/

@@ -26,6 +26,8 @@ non-literal Array/Bytes index, and nested arrays/Option/Map fail closed.
 Anonymous `Bytes N` (N=1..8) **state** flattens to N unsigned UInt64 leaves
 storing the low 8 bits (`0..255`); IndexGet/Set reuse the Array literal-index
 path. UInt8 is admitted only as the Bytes element literal lane.
+Named Struct/Enum **state** flattens to UInt64/Int64 leaves (`p_x`/`p_y`,
+`m_tag`/`m_p0`); named return and nested named stay fail closed.
 Plan is target-owned and retains no Semantic carrier.
 
 ADR-0029 Phase A5: void `Op.ExternalCall` whose callee is in the closed
@@ -169,6 +171,8 @@ structure TypedExpr where
   isOption : Bool := false
   /-- True when `leaves` is dense Map UInt64 cap-8 (24 occ/key/val). -/
   isMap : Bool := false
+  /-- True when `leaves` is a named Struct/Enum flatten. -/
+  isNamed : Bool := false
   deriving BEq, Inhabited, Repr
 
 /-- Success condition (Bool) that must hold; evaluated in array order. -/
@@ -253,7 +257,7 @@ private def quintTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt64/Int64 widths are supported"
   unsupportedShapeDetail :=
-    "only anonymous UInt64, Int64, UInt8 (Bytes element), Bool, Unit, Principal (9-leaf wire identity; pf.assets dst packs the same leaves), Array UInt64 N state flatten, Option UInt64 2-leaf flatten, Map UInt64 UInt64 cap-8 flatten, and Bytes N (N UInt64 low-8 leaves) are supported (narrow Int/Field/aggregates fail closed)"
+    "only anonymous UInt64, Int64, UInt8 (Bytes element), Bool, Unit, Principal (9-leaf wire identity; pf.assets dst packs the same leaves), named Struct/Enum UInt64/Int64 leaf flatten (return stays fail closed), Array UInt64 N state flatten, Option UInt64 2-leaf flatten, Map UInt64 UInt64 cap-8 flatten, and Bytes N (N UInt64 low-8 leaves) are supported (narrow Int/Field/aggregates fail closed)"
 
 private def pilotUintWidthPolicyU64U32Index : PilotUintWidthPolicy where
   admittedWidths := #[64, 32, 8]
@@ -267,6 +271,7 @@ private def validateQuintTypeClosureV1
     (intPolicy := pilotIntWidthPolicyI64)
     (fieldPolicy := pilotFieldPolicyNone)
     (principalPolicy := pilotPrincipalPolicyAdmit)
+    (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
     (containerPolicy := pilotContainerStatePolicyArrayMapBytes)
 
 private def maxIdentifierBytes : Nat := 200
@@ -387,7 +392,10 @@ private def isPrincipalValue (v : TypedExpr) : Bool :=
   v.ty == .principal && v.leaves.size == principalLeafCountV1
 
 private def isArrayValue (v : TypedExpr) : Bool :=
-  isAggregateValue v && !v.isOption && !v.isMap && v.ty != .principal
+  isAggregateValue v && !v.isOption && !v.isMap && !v.isNamed && v.ty != .principal
+
+private def isNamedValue (v : TypedExpr) : Bool :=
+  v.isNamed && !v.leaves.isEmpty
 
 private def isOptionValue (v : TypedExpr) : Bool :=
   v.isOption && v.leaves.size == 2
@@ -427,7 +435,17 @@ private def mkPrincipalLeaves (leaves : Array Expr) (nodes : Nat) : TypedExpr :=
     expandedNodes := nodes
     leaves
     isOption := false
-    isMap := false }
+    isMap := false
+    isNamed := false }
+
+private def mkNamedLeaves (leaves : Array Expr) (nodes : Nat) : TypedExpr :=
+  { ty := .uint64
+    expr := leaves[0]?.getD (.litU64 0)
+    expandedNodes := nodes
+    leaves
+    isOption := false
+    isMap := false
+    isNamed := true }
 
 /-- True when `typeId` is an anonymous Option TypeDecl. Option is never
     pushed to `containerTypeIds`; state planning owns the 2-leaf layout. -/
@@ -575,14 +593,78 @@ private def arrayUInt64LenV1
       planError
         "unsupported Quint semantic shape: container TypeId is not Array UInt64 or Bytes N"
 
-/-- Physical PlanState leaves after Array/Option flatten. `leavesOf[logicalId]`
-    is the dense field-index list (`name`, `name_0`..`name_{N-1}`, or
-    `name_tag`/`name_p0`). `isOptionOf` is parallel to `leavesOf`. -/
+/-- Flatten named Struct/Enum into ordered leaf names. Leaves are UInt64 or
+    Int64 only; nested named / containers / Bool / Field fail closed. -/
+private def flattenNamedLeafSpecsV1
+    (typeDecls : Array TypeDeclV1) (types : QuintTypeClosureV1)
+    (typeId : TypeIdV1) (namePrefix : String) : CompileResult (Array String) := do
+  if isUInt64Type types typeId || isInt64Type types typeId then
+    unless isIdentifier namePrefix do
+      planError s!"state name '{namePrefix}' is not a safe identifier"
+    return #[namePrefix]
+  unless types.isNamedAggregate typeId do
+    planError
+      "unsupported Quint semantic shape: named aggregate leaf must be UInt64, Int64, or named Struct/Enum"
+  match typeDecls[typeId.toNat]? with
+  | none =>
+      planError
+        s!"unsupported Quint semantic shape: missing TypeDecl for aggregate {typeId}"
+  | some decl =>
+      match decl.shape with
+      | .struct fields => do
+          unless fields.size > 0 do
+            planError
+              "unsupported Quint semantic shape: named Struct requires at least one field"
+          let mut out : Array String := #[]
+          for f in fields do
+            unless isUInt64Type types f.typeId || isInt64Type types f.typeId do
+              planError
+                "unsupported Quint semantic shape: named Struct field must be UInt64 or Int64 (nested named stay fail closed)"
+            let subName :=
+              if namePrefix.isEmpty then f.name else namePrefix ++ "_" ++ f.name
+            unless isIdentifier subName do
+              planError s!"state name '{subName}' is not a safe identifier"
+            out := out.push subName
+          pure out
+      | .enum variants => do
+          unless variants.size > 0 do
+            planError
+              "unsupported Quint semantic shape: named Enum requires at least one variant"
+          let tagName :=
+            if namePrefix.isEmpty then "tag" else namePrefix ++ "_tag"
+          unless isIdentifier tagName do
+            planError s!"state name '{tagName}' is not a safe identifier"
+          let mut maxPay : Nat := 0
+          for v in variants do
+            unless v.payloadTypes.size ≤ 1 do
+              planError
+                "unsupported Quint semantic shape: named Enum variant admits at most one UInt64/Int64 payload"
+            for pt in v.payloadTypes do
+              unless isUInt64Type types pt || isInt64Type types pt do
+                planError
+                  "unsupported Quint semantic shape: named Enum payload must be UInt64 or Int64 (nested named stay fail closed)"
+            if v.payloadTypes.size > maxPay then maxPay := v.payloadTypes.size
+          let mut out : Array String := #[tagName]
+          for i in [0:maxPay] do
+            let pName :=
+              if namePrefix.isEmpty then s!"p{i}" else namePrefix ++ "_p" ++ toString i
+            unless isIdentifier pName do
+              planError s!"state name '{pName}' is not a safe identifier"
+            out := out.push pName
+          pure out
+      | _ =>
+          planError
+            "unsupported Quint semantic shape: named type must be Struct or Enum"
+
+/-- Physical PlanState leaves after Array/Option/named flatten. `leavesOf[logicalId]`
+    is the dense field-index list (`name`, `name_0`..`name_{N-1}`,
+    `name_tag`/`name_p0`, or `{state}_{field}`). -/
 private structure StateLayout where
   states : Array PlanState
   leavesOf : Array (Array Nat)
   isOptionOf : Array Bool
   isMapOf : Array Bool
+  isNamedOf : Array Bool
   deriving Inhabited
 
 private def physicalLeaves
@@ -602,12 +684,28 @@ private def makeStateLayoutV1
   let mut leavesOf : Array (Array Nat) := #[]
   let mut isOptionOf : Array Bool := #[]
   let mut isMapOf : Array Bool := #[]
+  let mut isNamedOf : Array Bool := #[]
   for st in data.logicalState do
     unless st.id.toNat == leavesOf.size do
       planError "unsupported Quint semantic shape: state ids must match declaration order"
     unless isIdentifier st.name do
       planError s!"state name '{st.name}' is not a safe identifier"
-    if isAnonymousOptionTypeIdV1 data.types st.typeId then
+    if types.isNamedAggregate st.typeId then
+      requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedState quintPlanErr types st
+      let leafSpecs ← flattenNamedLeafSpecsV1 data.types types st.typeId st.name
+      if leafSpecs.isEmpty then
+        planError s!"state '{st.name}' produced zero named-aggregate leaves"
+      if states.size + leafSpecs.size > maxStateFields then
+        planError "unsupported Quint semantic shape: state field count exceeds limit"
+      let mut leaves : Array Nat := #[]
+      for leafName in leafSpecs do
+        leaves := leaves.push states.size
+        states := states.push { name := leafName }
+      leavesOf := leavesOf.push leaves
+      isOptionOf := isOptionOf.push false
+      isMapOf := isMapOf.push false
+      isNamedOf := isNamedOf.push true
+    else if isAnonymousOptionTypeIdV1 data.types st.typeId then
       requireOptionUInt64V1 data.types types st.typeId signedNumeric
       if states.size + 2 > maxStateFields then
         planError "unsupported Quint semantic shape: state field count exceeds limit"
@@ -624,6 +722,7 @@ private def makeStateLayoutV1
       leavesOf := leavesOf.push #[tagFi, pFi]
       isOptionOf := isOptionOf.push true
       isMapOf := isMapOf.push false
+      isNamedOf := isNamedOf.push false
     else if isAnonymousMapTypeIdV1 data.types st.typeId then
       requireMapUInt64V1 data.types types st.typeId signedNumeric
       if states.size + mapPilotLeafCountV1 > maxStateFields then
@@ -638,6 +737,7 @@ private def makeStateLayoutV1
       leavesOf := leavesOf.push leaves
       isOptionOf := isOptionOf.push false
       isMapOf := isMapOf.push true
+      isNamedOf := isNamedOf.push false
     else if isPrincipalType types st.typeId then
       if states.size + principalLeafCountV1 > maxStateFields then
         planError "unsupported Quint semantic shape: state field count exceeds limit"
@@ -649,6 +749,7 @@ private def makeStateLayoutV1
       leavesOf := leavesOf.push leaves
       isOptionOf := isOptionOf.push false
       isMapOf := isMapOf.push false
+      isNamedOf := isNamedOf.push false
     else
       match ← arrayUInt64LenV1 data.types types st.typeId signedNumeric with
       | some n =>
@@ -664,6 +765,7 @@ private def makeStateLayoutV1
           leavesOf := leavesOf.push leaves
           isOptionOf := isOptionOf.push false
           isMapOf := isMapOf.push false
+          isNamedOf := isNamedOf.push false
       | none =>
           requirePublicUInt64OrInt64State quintPlanErr types st
           if states.size + 1 > maxStateFields then
@@ -673,9 +775,10 @@ private def makeStateLayoutV1
           leavesOf := leavesOf.push #[fi]
           isOptionOf := isOptionOf.push false
           isMapOf := isMapOf.push false
+          isNamedOf := isNamedOf.push false
   unless states.size ≤ maxStateFields do
     planError "unsupported Quint semantic shape: state field count exceeds limit"
-  pure { states, leavesOf, isOptionOf, isMapOf }
+  pure { states, leavesOf, isOptionOf, isMapOf, isNamedOf }
 
 /-- First-seen integer domain. Mixed UInt64/Int64 user-facing slots fail closed. -/
 private def noteIntegerDomain
@@ -1096,6 +1199,8 @@ private def resultKindOf
   else if isBoolType types typeId then pure .bool
   else if isAnonymousOptionTypeIdV1 typeDecls typeId then
     planError s!"{owner} Option return is outside Q0"
+  else if types.isNamedAggregate typeId then
+    planError s!"{owner} named Struct/Enum return is outside Q0"
   else if types.isContainer typeId then
     planError
       s!"{owner} Array/Map return is outside Q0 (only Array/Map UInt64 state flattens; no native Quint List/Map)"
@@ -1159,6 +1264,10 @@ private partial def lowerInstructions
               match layout.isMapOf[stateId.toNat]? with
               | some b => b
               | none => false
+            let isNm :=
+              match layout.isNamedOf[stateId.toNat]? with
+              | some b => b
+              | none => false
             let value : TypedExpr :=
               match overlayLookup acc.overlay stateId with
               | some ov => ov
@@ -1171,6 +1280,8 @@ private partial def lowerInstructions
                     mkOptionLeaves (phys.map (fun fi => .stateLoad fi)) phys.size
                   else if isMp then
                     mkMapLeaves (phys.map (fun fi => .stateLoad fi)) phys.size
+                  else if isNm then
+                    mkNamedLeaves (phys.map (fun fi => .stateLoad fi)) phys.size
                   else if isPrincipalType types vd.typeId then
                     mkPrincipalLeaves (phys.map (fun fi => .stateLoad fi)) phys.size
                   else
@@ -1391,12 +1502,77 @@ private partial def lowerInstructions
               | _ =>
                   planError
                     "unsupported Quint semantic shape: Option construct ctorIdx must be 0 (none) or 1 (some)"
+            else if types.isNamedAggregate typeId then
+              let some decl := data.types[typeId.toNat]? |
+                planError "unsupported Quint semantic shape: construct TypeDecl missing"
+              match decl.shape with
+              | .struct fields => do
+                  unless ctorIdx.toNat == 0 do
+                    planError
+                      "unsupported Quint semantic shape: struct construct ctorIdx must be 0"
+                  unless argIds.size == fields.size do
+                    planError
+                      "unsupported Quint semantic shape: struct construct arity mismatch"
+                  let mut leafExprs : Array Expr := #[]
+                  let mut nodes : Nat := 0
+                  for i in [0:argIds.size] do
+                    let some argId := argIds[i]? |
+                      planError "unsupported Quint semantic shape: struct construct arg missing"
+                    let some field := fields[i]? |
+                      planError "unsupported Quint semantic shape: struct construct field missing"
+                    unless isUInt64Type types field.typeId || isInt64Type types field.typeId do
+                      planError
+                        "unsupported Quint semantic shape: named Struct field must be UInt64 or Int64"
+                    let av ← match envLookup acc.env argId with
+                      | some v => pure v
+                      | none => planError "unsupported Quint semantic shape: construct arg undefined"
+                    unless !isAggregateValue av &&
+                        (av.ty == .uint64 || av.ty == .int64) do
+                      planError
+                        "unsupported Quint semantic shape: struct construct args must be scalar UInt64/Int64"
+                    leafExprs := leafExprs.push av.expr
+                    nodes := nodes + av.expandedNodes
+                  acc := { acc with
+                    env := envInsert acc.env vd.valueId
+                      (mkNamedLeaves leafExprs (nodes + leafExprs.size)) }
+              | .enum variants => do
+                  let vi := ctorIdx.toNat
+                  let some variant := variants[vi]? |
+                    planError
+                      "unsupported Quint semantic shape: enum construct variant out of range"
+                  unless argIds.size == variant.payloadTypes.size do
+                    planError
+                      "unsupported Quint semantic shape: enum construct arity mismatch"
+                  let mut maxPay : Nat := 0
+                  for v in variants do
+                    if v.payloadTypes.size > maxPay then maxPay := v.payloadTypes.size
+                  let mut leafExprs : Array Expr := #[.litU64 (UInt64.ofNat vi)]
+                  let mut nodes : Nat := 1
+                  for argId in argIds do
+                    let av ← match envLookup acc.env argId with
+                      | some v => pure v
+                      | none => planError "unsupported Quint semantic shape: construct arg undefined"
+                    unless !isAggregateValue av &&
+                        (av.ty == .uint64 || av.ty == .int64) do
+                      planError
+                        "unsupported Quint semantic shape: enum construct payload must be scalar UInt64/Int64"
+                    leafExprs := leafExprs.push av.expr
+                    nodes := nodes + av.expandedNodes
+                  while leafExprs.size < 1 + maxPay do
+                    leafExprs := leafExprs.push (.litU64 0)
+                    nodes := nodes + 1
+                  acc := { acc with
+                    env := envInsert acc.env vd.valueId
+                      (mkNamedLeaves leafExprs nodes) }
+              | _ =>
+                  planError
+                    "unsupported Quint semantic shape: named construct requires Struct or Enum"
             else
               let n ← match ← arrayUInt64LenV1 data.types types typeId (numericTy == .int64) with
                 | some n => pure n
                 | none =>
                     planError
-                      "unsupported Quint semantic shape: construct admits only Array UInt64 N, Bytes N, Option UInt64, or Map UInt64 UInt64 on Quint"
+                      "unsupported Quint semantic shape: construct admits only Array UInt64 N, Bytes N, Option UInt64, Map UInt64 UInt64, or named Struct/Enum on Quint"
               unless ctorIdx == 0 do
                 planError "unsupported Quint semantic shape: Array construct ctorIdx must be 0"
               unless argIds.size == n do
@@ -1495,9 +1671,9 @@ private partial def lowerInstructions
             let bv ← match envLookup acc.env baseId with
               | some v => pure v
               | none => planError "unsupported Quint semantic shape: variantTag base undefined"
-            unless isOptionValue bv do
+            unless isOptionValue bv || isNamedValue bv do
               planError
-                "unsupported Quint semantic shape: variantTag base must be Option UInt64"
+                "unsupported Quint semantic shape: variantTag base must be Option UInt64 or named Enum"
             let some tag := bv.leaves[0]? |
               planError "unsupported Quint semantic shape: variantTag Option tag leaf missing"
             acc := { acc with env := envInsert acc.env vd.valueId {
@@ -1514,24 +1690,73 @@ private partial def lowerInstructions
               | some v => pure v
               | none =>
                   planError "unsupported Quint semantic shape: variantPayload base undefined"
-            unless isOptionValue bv do
+            unless isOptionValue bv || isNamedValue bv do
               planError
-                "unsupported Quint semantic shape: variantPayload base must be Option UInt64"
-            if variantIndex.toNat == 0 then
+                "unsupported Quint semantic shape: variantPayload base must be Option UInt64 or named Enum"
+            if isOptionValue bv then
+              if variantIndex.toNat == 0 then
+                planError
+                  "unsupported Quint semantic shape: variantPayload of Option.none is empty"
+              unless variantIndex.toNat == 1 && payloadIndex.toNat == 0 do
+                planError
+                  "unsupported Quint semantic shape: variantPayload Option some requires (variant 1, payload 0)"
+            else if variantIndex.toNat == 0 && payloadIndex.toNat == 0 &&
+                bv.leaves.size == 1 then
               planError
-                "unsupported Quint semantic shape: variantPayload of Option.none is empty"
-            unless variantIndex.toNat == 1 && payloadIndex.toNat == 0 do
+                "unsupported Quint semantic shape: variantPayload of empty Enum variant is empty"
+            let payloadIdx :=
+              if isOptionValue bv then 1 else 1 + payloadIndex.toNat
+            let some payload := bv.leaves[payloadIdx]? |
               planError
-                "unsupported Quint semantic shape: variantPayload Option some requires (variant 1, payload 0)"
-            let some payload := bv.leaves[1]? |
-              planError
-                "unsupported Quint semantic shape: variantPayload Option payload leaf missing"
+                "unsupported Quint semantic shape: variantPayload payload leaf missing"
             acc := { acc with env := envInsert acc.env vd.valueId {
               ty := numericTy
               expr := payload
               expandedNodes := 1
             } }
-    | .fieldGet .. | .fieldSet ..
+    | .fieldGet baseId fieldIndex => do
+        match instr.result with
+        | none => planError "unsupported Quint semantic shape: fieldGet must produce a value"
+        | some vd =>
+            let bv ← match envLookup acc.env baseId with
+              | some v => pure v
+              | none => planError "unsupported Quint semantic shape: fieldGet base undefined"
+            unless isNamedValue bv do
+              planError
+                "unsupported Quint semantic shape: fieldGet base must be a named Struct"
+            let i := fieldIndex.toNat
+            unless i < bv.leaves.size do
+              planError "unsupported Quint semantic shape: fieldGet leaf index out of range"
+            let some leaf := bv.leaves[i]? |
+              planError "unsupported Quint semantic shape: fieldGet leaf missing"
+            acc := { acc with env := envInsert acc.env vd.valueId {
+              ty := numericTy
+              expr := leaf
+              expandedNodes := 1
+            } }
+    | .fieldSet baseId fieldIndex valueId => do
+        match instr.result with
+        | none => planError "unsupported Quint semantic shape: fieldSet must produce a value"
+        | some vd =>
+            let bv ← match envLookup acc.env baseId with
+              | some v => pure v
+              | none => planError "unsupported Quint semantic shape: fieldSet base undefined"
+            unless isNamedValue bv do
+              planError
+                "unsupported Quint semantic shape: fieldSet base must be a named Struct"
+            let vv ← match envLookup acc.env valueId with
+              | some v => pure v
+              | none => planError "unsupported Quint semantic shape: fieldSet value undefined"
+            unless !isAggregateValue vv && (vv.ty == .uint64 || vv.ty == .int64) do
+              planError
+                "unsupported Quint semantic shape: fieldSet value must be scalar UInt64/Int64"
+            let i := fieldIndex.toNat
+            unless i < bv.leaves.size do
+              planError "unsupported Quint semantic shape: fieldSet leaf index out of range"
+            let newLeaves := bv.leaves.set! i vv.expr
+            acc := { acc with
+              env := envInsert acc.env vd.valueId
+                (mkNamedLeaves newLeaves (bv.expandedNodes + vv.expandedNodes + 1)) }
     | .checkedCast .. | .commit ..
     | .emit .. | .schedule .. =>
         planError "unsupported Quint semantic shape: op is outside Q0"
@@ -1570,10 +1795,21 @@ private def seedParamEnv
       planError s!"parameter '{p.name}' is not a safe identifier"
     if isAnonymousOptionTypeIdV1 typeDecls p.typeId then
       planError s!"{owner} Option params are outside Q0"
-    if types.isContainer p.typeId then
+    if types.isNamedAggregate p.typeId then
+      unless p.visibility == .public_ do
+        planError s!"parameter '{p.name}' is not public"
+      let leafSpecs ← flattenNamedLeafSpecsV1 typeDecls types p.typeId p.name
+      let mut leafExprs : Array Expr := #[]
+      for leafName in leafSpecs do
+        names := names.push leafName
+        isPrincipal := isPrincipal.push false
+        leafExprs := leafExprs.push (.param i)
+        i := i + 1
+      env := envInsert env p.valueId (mkNamedLeaves leafExprs leafExprs.size)
+    else if types.isContainer p.typeId then
       planError
         "unsupported Quint semantic shape: Array params are outside Q0 (only Array UInt64 N state flattens; no native Quint List)"
-    if isInt64Type types p.typeId then
+    else if isInt64Type types p.typeId then
       env := envInsert env p.valueId {
         ty := .int64
         expr := .param i
@@ -1640,6 +1876,10 @@ private def lowerCallableBody
         match layout.isMapOf[st.id.toNat]? with
         | some b => b
         | none => false
+      let isNm :=
+        match layout.isNamedOf[st.id.toNat]? with
+        | some b => b
+        | none => false
       if phys.size == 1 then
         overlay0 := overlayInsert overlay0 st.id {
           ty := numericTy
@@ -1652,6 +1892,8 @@ private def lowerCallableBody
           overlay0 := overlayInsert overlay0 st.id (mkOptionLeaves zeros phys.size)
         else if isMp then
           overlay0 := overlayInsert overlay0 st.id (mkMapLeaves zeros phys.size)
+        else if isNm then
+          overlay0 := overlayInsert overlay0 st.id (mkNamedLeaves zeros phys.size)
         else if isPrincipalType types st.typeId then
           overlay0 := overlayInsert overlay0 st.id (mkPrincipalLeaves zeros phys.size)
         else

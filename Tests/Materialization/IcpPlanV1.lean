@@ -576,30 +576,84 @@ private unsafe def testScheduleFc
       expectPlanErrorContaining "schedule plan" "schedule" (planFromCapability capability)
   IO.println "  ✓ schedule (async) fail closed"
 
-private unsafe def testAggregateFc
+/-- PointBox: named Struct flattens to two extra i64 globals. No Candid record. -/
+private unsafe def testPointBoxFlatten
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let aggSrc := wrapProgram "AggFc" <|
-    "  struct Pair where\n" ++
-    "    a : UInt64\n" ++
-    "    b : UInt64\n" ++
-    "  state p : Pair\n\n" ++
-    "  init(x : UInt64, y : UInt64) do\n" ++
-    "    p := Pair.new(x, y)\n\n" ++
-    "  entry go() : UInt64 do\n" ++
-    "    return p.a\n\n" ++
-    "  view peek() : UInt64 do\n" ++
-    "    return p.a\n"
-  match ← (do
-      try
-        let c ← compileSource session aggSrc "Examples.AggFc" "<icp-agg-fc>"
-        pure (some c)
-      catch _ => pure none) with
-  | none => pure ()  -- may fail earlier at Normalize/typed
-  | some compiled =>
-      match planIcp compiled with
-      | .error _ => pure ()
-      | .ok _ => throw <| IO.userError "ICP aggregate state must fail closed"
-  IO.println "  ✓ aggregate state fail closed"
+  let src := wrapProgram "PointBox" <|
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  state p : Point\n\n" ++
+    "  init() do\n" ++
+    "    p := Point.new(0, 0)\n\n" ++
+    "  entry setX(v : UInt64) : UInt64 do\n" ++
+    "    p.x := v\n" ++
+    "    return p.x\n\n" ++
+    "  view getX() : UInt64 do\n" ++
+    "    return p.x\n"
+  let compiled ← compileSource session src "Examples.PointBox" "<icp-point-box>"
+  let plan ← liftResult <| planIcp compiled
+  expect (plan.states.map (·.name) == #["p_x", "p_y"])
+    "PointBox must flatten to p_x/p_y"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"PointBox plan must validate: {e.render}"
+  let files ← liftResult <| filesIcp compiled
+  expect (!files.isEmpty) "PointBox must materialize files"
+  let wat ← findFile files "PointBox.wat"
+  let did ← findFile files "PointBox.did"
+  expect (wat.contains "(global $g_state_0 (mut i64)") "wat global 0"
+  expect (wat.contains "(global $g_state_1 (mut i64)") "wat global 1"
+  expect (!wat.contains "record") "no Candid record in wat"
+  expect (!did.contains "record") "no Candid record in did"
+  expect (!wat.contains "variant") "no Candid variant in wat"
+  expect (!did.contains "variant") "no Candid variant in did"
+  IO.println "  ✓ PointBox named Struct flatten (two i64 globals; no Candid record)"
+  let retSrc := wrapProgram "PointRet" <|
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  state p : Point\n\n" ++
+    "  init() do\n" ++
+    "    p := Point.new(0, 0)\n\n" ++
+    "  entry peek() : Point do\n" ++
+    "    return p\n"
+  let retCompiled ← compileSource session retSrc "Examples.PointRet" "<icp-point-ret>"
+  expectPlanErrorContaining "named Struct return" "named Struct/Enum return"
+    (planIcp retCompiled)
+  IO.println "  ✓ named Struct return fail closed"
+
+/-- MaybeMark: named Enum flattens to tag+payload i64 globals. No Candid variant. -/
+private unsafe def testMaybeMarkFlatten
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "MaybeMark" <|
+    "  enum Maybe where\n" ++
+    "    | None\n" ++
+    "    | Some(UInt64)\n" ++
+    "  state m : Maybe\n\n" ++
+    "  init() do\n" ++
+    "    m := Maybe.None()\n\n" ++
+    "  entry put(v : UInt64) : UInt64 do\n" ++
+    "    m := Maybe.Some(v)\n" ++
+    "    return v\n"
+  let compiled ← compileSource session src "Examples.MaybeMark" "<icp-maybe-mark>"
+  let plan ← liftResult <| planIcp compiled
+  expect (plan.states.map (·.name) == #["m_tag", "m_p0"])
+    "MaybeMark must flatten to m_tag/m_p0"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"MaybeMark plan must validate: {e.render}"
+  let files ← liftResult <| filesIcp compiled
+  expect (!files.isEmpty) "MaybeMark must materialize files"
+  let wat ← findFile files "MaybeMark.wat"
+  let did ← findFile files "MaybeMark.did"
+  expect (wat.contains "(global $g_state_0 (mut i64)") "wat global 0"
+  expect (wat.contains "(global $g_state_1 (mut i64)") "wat global 1"
+  expect (!wat.contains "record") "no Candid record in wat"
+  expect (!did.contains "record") "no Candid record in did"
+  expect (!wat.contains "variant") "no Candid variant in wat"
+  expect (!did.contains "variant") "no Candid variant in did"
+  IO.println "  ✓ MaybeMark named Enum flatten (two i64 globals; no Candid variant)"
 
 /-- Array UInt64 2 flattens to two i64 globals. No Candid vec. -/
 private unsafe def testArraySlotsFlatten
@@ -660,6 +714,66 @@ private unsafe def testBytesBoxFlatten
   expect (!wat.contains "vec") "no Candid vec nat8 in wat"
   expect (!did.contains "vec") "no Candid vec nat8 in did"
   IO.println "  ✓ Bytes 4 flatten (four i64 globals; no Candid vec)"
+
+/-- Option UInt64 flattens to two i64 globals. No Candid `opt`. -/
+private unsafe def testOptBoxFlatten
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "OptBox" <|
+    "  state o : Option UInt64\n\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n\n" ++
+    "  entry setSome(v : UInt64) : UInt64 do\n" ++
+    "    o := Option.some(v)\n" ++
+    "    return v\n"
+  let compiled ← compileSource session src "Examples.OptBox" "<icp-opt-box>"
+  let plan ← liftResult <| planFromCompiledSemanticV1 compiled
+  expect (plan.signedNumeric == false) "OptBox stays unsigned"
+  expect (plan.states.size == 2) "Option UInt64 flattens to two i64 globals"
+  expect (plan.states[0]!.name == "o_tag") "leaf o_tag"
+  expect (plan.states[1]!.name == "o_p0") "leaf o_p0"
+  expect (plan.initializer.body.size == 2) "init stores both Option leaves"
+  let some setSome := plan.entries[0]? |
+    throw <| IO.userError "missing setSome entry"
+  expect (setSome.body.size == 3)
+    "setSome stores both Option leaves then returns"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"OptBox plan must validate: {e.render}"
+  let files ← liftResult <| buildFromCompiledSemanticV1 compiled
+  let wat ← findFile files "OptBox.wat"
+  let did ← findFile files "OptBox.did"
+  expect (wat.contains "(global $g_state_0 (mut i64)") "wat global 0"
+  expect (wat.contains "(global $g_state_1 (mut i64)") "wat global 1"
+  expect (!wat.contains "(opt") "no Candid opt type in wat"
+  expect (!did.contains "opt") "no Candid opt in did"
+  IO.println "  ✓ Option UInt64 flatten (two i64 globals; no Candid opt)"
+
+private unsafe def testOptionReturnFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "OptRetBox" <|
+    "  state o : Option UInt64\n\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n\n" ++
+    "  entry peek() : Option UInt64 do\n" ++
+    "    return o\n"
+  let compiled ← compileSource session src "Examples.OptRetBox" "<icp-opt-ret>"
+  expectPlanErrorContaining "Option return" "Option return is outside ICP-2"
+    (planFromCompiledSemanticV1 compiled)
+  IO.println "  ✓ Option return fail closed"
+
+private unsafe def testOptionInt64PayloadFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "OptInt" <|
+    "  state o : Option Int64\n\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n\n" ++
+    "  entry setSome(v : UInt64) : UInt64 do\n" ++
+    "    o := Option.some(0)\n" ++
+    "    return v\n"
+  let compiled ← compileSource session src "Examples.OptInt" "<icp-opt-int>"
+  expectPlanErrorContaining "Option Int64" "requires UInt64 payload"
+    (planFromCompiledSemanticV1 compiled)
+  IO.println "  ✓ Option Int64 payload fail closed"
 
 private unsafe def testArrayN9FailClosed
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -891,9 +1005,13 @@ unsafe def run : IO Unit := do
   testEmitFc session
   testInvariantFc session
   testScheduleFc session
-  testAggregateFc session
+  testPointBoxFlatten session
+  testMaybeMarkFlatten session
   testArraySlotsFlatten session
   testBytesBoxFlatten session
+  testOptBoxFlatten session
+  testOptionReturnFailClosed session
+  testOptionInt64PayloadFailClosed session
   testArrInt64Flatten session
   testArrayN9FailClosed session
   testArrayInt64N9FailClosed session

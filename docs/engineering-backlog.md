@@ -675,11 +675,12 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-15 | **MAT-PRIV-QS**：N1 private state 补 CW/TON admit；Quint/Soroban/ICP/OpenVM envelope FC。**不**改 disclosure |
 | 2026-08-15 | **MAT-COMM-STATE-QS**：N1 commitment state 补 CW/TON admit；Noir+Quint/Soroban/ICP/OpenVM FC。**不**关 B-COMMIT-ZK |
 | 2026-08-15 | **MAT-FIELD-QS**：N2b Field bn254_fr 十二 target 补齐。EVM/Noir admit；其余十个 Plan FC。Aleo 钉 BLS12-377≠bn254（与 Psy Goldilocks 同类）。**不**开 Field |
-| 2026-08-15 | **MAT-OPT-QS**：N-A4 Option UInt64 state 十二 target 补齐。八个 admit；Quint/Soroban/ICP/OpenVM envelope FC。**不**开 Option |
+| 2026-08-15 | **MAT-OPT-QS**：N-A4 Option UInt64 state 十二 target 补齐。八个 admit；当时 Quint/Soroban/ICP/OpenVM envelope FC。**T5** 已开 ICP Option 2 叶（`o_tag`/`o_p0` extra i64 globals，无 Candid `opt`）；Quint/Soroban/OpenVM Option 已在 ENV4-OPTION 开。Option return / params / nested / ICP Map 仍 FC |
 | 2026-08-15 | **MAT-PRIN-QS**：N2c Principal identity-storage 十二 target 补齐。EVM/Solana/NEAR/Noir/Psy + CosmWasm admit；当时 Aleo/TON/Quint/Soroban/ICP/OpenVM FC。**T3** 已开 Aleo 9-leaf identity（≠address）；**T4** 已开 TON + 信封-4（Quint/Soroban/OpenVM/ICP）同构 9 叶 identity（≠ address / Candid `principal`）；return / caller 映射仍 FC |
 | 2026-08-16 | **T3**：scalar const 内联八 target；Aleo Principal 9-leaf identity（≠address）；envelope-4 Bytes N（N UInt64 低 8 位）。TON/envelope-4 Principal 当时仍 FC |
 | 2026-08-16 | **T4**：TON + 信封-4 Principal 9 叶 identity 存储（`owner_len`+`w0..w7`）。Quint 保留 pf.assets `.principal` 打包；ICP 为 9 extra i64 global、无 Candid `principal`。return / caller / 容器-of-Principal / CAP-D 仍 FC |
-| 2026-08-15 | **MAT-STRUCT-QS**：N3 named Struct PointBox 十二 target 补齐。六 flatten-to-leaf + CW/TON admit；Quint/Soroban/ICP/OpenVM envelope FC。**不**开 Struct |
+| 2026-08-17 | **T5**：信封-4 存储拉齐。ICP Option UInt64 2 叶（无 Candid `opt`）；Quint/Soroban/OpenVM/ICP named Struct/Enum 叶 flatten（无 Candid `record`/`variant`）。named/Option return、ICP Map、caller、CAP-D 仍 FC |
+| 2026-08-15 | **MAT-STRUCT-QS**：N3 named Struct PointBox 十二 target 补齐。六 flatten-to-leaf + CW/TON admit；当时 Quint/Soroban/ICP/OpenVM envelope FC。**T5** 已开四家 named Struct 叶 flatten（`p_x`/`p_y`）；named return 仍 FC |
 | 2026-08-15 | **MAT-ARRAY-QS**：Array UInt64 2 ArrayBox 十二 target 补齐。六 flatten-to-leaf + CW/TON admit；Quint/Soroban/ICP/OpenVM envelope FC。**不**开 Array |
 | 2026-08-15 | **MAT-RET-QS**：B-RET-ABI PairRet view-return 十二 target 补齐。七个 admit；Aleo view-over-state + Quint/Soroban/ICP/OpenVM FC。PairRetEntry Aleo pin 保留。**不**开 aggregate return |
 | 2026-08-15 | **MAT-STATECELL-QS**：产品 StateCell 十二 target 补齐。十二个均 admit（public UInt64 lighthouse）。digest 绑定不变。**不**开新 shape |
@@ -705,7 +706,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-15 | **MAT-LATER-QS**：LaterFlow schedule-only 十二 target 补齐。五个 admit；六个 `effect.asynchronous-workflow` FC；ICP resolver-only async FC。LaterFlow Plan pin 保留。**不**开 B-CALL-SEM |
 | 2026-08-15 | **MAT-MAP-QS**：MapMini Map UInt64 UInt64 十二 target 补齐。八个 admit；Quint/Soroban/OpenVM/ICP container-state pilot FC。Array/Option pin 保留。**不**开 Map on 四 envelope |
 | 2026-08-15 | **MAT-BYTES-QS**：BytesBox Bytes 4 state 十二 target 补齐。八个 admit；Quint/Soroban/OpenVM/ICP container-state pilot FC。**不**开 Bytes return ABI |
-| 2026-08-15 | **MAT-ENUM-QS**：MaybeMark named Enum state 十二 target 补齐。八个 admit；Quint/Soroban/OpenVM/ICP UInt64-pilot FC。PointBox pin 保留。**不**开 Enum return ABI |
+| 2026-08-15 | **MAT-ENUM-QS**：MaybeMark named Enum state 十二 target 补齐。八个 admit；当时 Quint/Soroban/OpenVM/ICP UInt64-pilot FC。**T5** 已开四家 named Enum 叶 flatten（`m_tag`/`m_p0`）；Enum return 仍 FC。PointBox pin 保留 |
 | 2026-08-15 | **MAT-U128-QS**：WideUInt UInt128 十二 target 补齐。五个 admit；Aleo/Quint/Soroban/OpenVM/ICP/CW/TON width envelope FC。**不**开 UInt256 或 signed 128 |
 | 2026-08-15 | **MAT-U256-QS**：WideUInt256 UInt256 十二 target 补齐。五个 admit；Aleo/Quint/Soroban/OpenVM/ICP/CW/TON width envelope FC。**不**开 signed 128/256。 |
 | 2026-08-15 | **MAT-BYTES-RET-QS**：BytesRetBox Bytes 4 view-return 十二 target 补齐。三个 admit（NEAR/Psy/CW）；其余九个 named B-RET/container FC。**不**开 Bytes return ABI。 |
@@ -790,6 +791,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-15 | **MAT-OPT-I8-QS**：OptI8 十二 target 全 FC（Int8 ≠ Int16）；Aleo/CW/TON 宽度/narrow-Int。窄 signed Option 钉完。 |
 | 2026-08-15 | **AGENT-NOTES-0**：引入 [`.agents/notes/`](../.agents/notes/README.md) 记 why/why-not（非 ADR、非 formal、非运行日志）。首批五篇：TypeKey 不进 structure gate、EXT-CRYPTO 不自动开、Soroban S0≠Wasm、focused `lake env lean`、Goal 不关 formal。无 format CI。 |
 | 2026-08-15 | **CAP-LAYER-0**：同一能力层 = catalog 行上的 named admit/FC，不是 opcode 对齐、不是第 13 个 TargetId。设计 [`plan/capability-layer-parity.md`](plan/capability-layer-parity.md)；任务 [`plan/capability-layer-tasks.md`](plan/capability-layer-tasks.md)。默认可编码 = CAP-1a ICP `unixTimeSeconds`。不关 formal / SOR-1 / Merkle。 |
+| 2026-08-17 | **XRPL-0**：Bedrock WASM / XLS-0101 研究叶落盘（[`targets/16-xrpl.md`](targets/16-xrpl.md) · [`plan/xrpl-bedrock-wasm-gap.md`](plan/xrpl-bedrock-wasm-gap.md) · [`plan/xrpl-bedrock-wasm-tasks.md`](plan/xrpl-bedrock-wasm-tasks.md)）。建议 Q0 = source-only Rust guest；**不**进 registry、**不**当默认 Next、**不**混 Hooks/EVM 侧链/OpenVM。 |
 | 2026-08-15 | **RPT-028 全仓诚实对账 + 活指针**：Goal-auto drain 标空；AGENTS Next 不再写成「闭合 D2-07」；SBOM 313；Solana sole CPI；ICP 与 zero-tool 拆开；击杀序删已做完的 CALL wide；RPT-014 加 superseded 横幅。**不**关闭 formal 0/27 |
 | 2026-08-16 | **FC-SUBJECT**：`FieldComparisonSubjectV1` 补齐 sibling `bodyEncodeOkV1` + `referenceAdmissionV1`。不提交过期 `FieldComparisonPreservationV1` 草稿（HEAD PreservationABI 编不过；ordinal 2 在全零初态不成立，禁止 sorry）。**不**关闭 formal TASK-D2-07 / TST-SEM-002/003 / target refinement |
 | 2026-08-16 | **FC-PRESERVE**：`FieldComparisonPreservationV1` 按现用 PreservationABI 包装 ordinal 0/1（literal-true / 两态 `.eq`）；ordinal 2 在全零初态仍不成立、未包装，并由 `InlineProofAuthoringV1` kernel 负例钉住。新增 literal-return stutter，无 sorry。**不**关闭 formal TASK-D2-07 / TST-SEM-002/003 / target refinement |

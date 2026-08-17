@@ -342,6 +342,15 @@ def pilotContainerStatePolicyArrayBytes : PilotContainerStatePolicy where
   admitBytes := true
   admitOption := false
 
+/-- ICP T5 Option wave: Array + Bytes + anonymous Option UInt64 2-leaf
+    (`name_tag`/`name_p0`; no Candid `opt`). Map stays fail closed
+    (dynamic key mux is outside the ICP Expr surface). -/
+def pilotContainerStatePolicyArrayBytesOption : PilotContainerStatePolicy where
+  admitArray := true
+  admitMap := false
+  admitBytes := true
+  admitOption := true
+
 /-- Array flatten + independent Option UInt64 2-leaf state (tag+payload).
     Map/Bytes stay fail closed. Used by Quint/Soroban/OpenVM Option wave. -/
 def pilotContainerStatePolicyArrayOption : PilotContainerStatePolicy where

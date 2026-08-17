@@ -52,8 +52,10 @@ Goal: lift envelope-4 toward mid-tier (CW/TON/Aleo/Psy), then mid-tier toward th
 | T3-CONST | main | Scalar `Op.Constant` inline via existing `Op.Literal` on EVM/Solana(product)/Noir/TON/Quint/Soroban/OpenVM/ICP. String/aggregate/Principal const + Solana `Cpi*IR` empty-table stay FC | **committed** `9454bcec9` |
 | T3-ALEO-PRIN | main | Aleo 9-leaf Principal wire identity (`owner_len`+`w0..w7`, ≠address/Field). Return / caller→address stay FC | **committed** `9454bcec9` |
 | T3-ENV4-BYTES | main | Quint/Soroban/OpenVM/ICP Bytes N as N UInt64 low-8 leaves. No Candid `vec nat8`. Bytes return stay FC | **committed** `9454bcec9` |
-| T4-TON-PRIN | main | TON `pilotPrincipalPolicyAdmit`; reuse existing 9-leaf flatten (`owner_len`+`w0..w7`, ≠ TON address). Return / caller stay FC | **landed** |
-| T4-ENV4-PRIN | main | Quint/Soroban/OpenVM/ICP Principal 9-leaf identity. Quint keeps pf.assets `.principal` packing. ICP = 9 i64 globals, no Candid `principal`. Return / caller stay FC | **landed** |
+| T4-TON-PRIN | main | TON `pilotPrincipalPolicyAdmit`; reuse existing 9-leaf flatten (`owner_len`+`w0..w7`, ≠ TON address). Return / caller stay FC | **committed** `db5128ef6` |
+| T4-ENV4-PRIN | main | Quint/Soroban/OpenVM/ICP Principal 9-leaf identity. Quint keeps pf.assets `.principal` packing. ICP = 9 i64 globals, no Candid `principal`. Return / caller stay FC | **committed** `db5128ef6` |
+| T5-ICP-OPT | main | ICP Option UInt64 2-leaf (`o_tag`/`o_p0` extra i64 globals; no Candid `opt`). Map stays FC | **landed** |
+| T5-ENV4-NAMED | main | Quint/Soroban/OpenVM/ICP named Struct/Enum leaf flatten (`p_x`/`p_y`; MaybeMark tag+payload). Return stays FC. Soroban `symbol_short` on state leaves only. ICP = extra i64 globals, no Candid `record`/`variant` | **landed** |
 
 **File lock:** workers must not edit `Tests/Materialization/Targets.lean` or another target's tree. `FieldComparison*` is a main-agent serial slice (`FC-PRESERVE`), not a parallel leaf. Main agent integrates WideInt64 / OptInt / ArrInt / MapInt needles after each leaf lands.
 

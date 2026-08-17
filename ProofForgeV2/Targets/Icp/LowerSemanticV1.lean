@@ -15,8 +15,11 @@ Narrow ICP-2 Counter/StateCell target leaf (ADR-0047). Envelope:
   state/param/result; mixing is fail closed). Array UInt64 N∈1..8 state
   flattens to N mutable i64 Wasm globals (no Candid `vec`). `Bytes N`
   (N=1..8) state flattens to N extra i64 globals storing low-8 bits
-  (no Candid `vec nat8`). Bool results are admitted. No
-  Field/Principal/Map/Option/named aggregates
+  (no Candid `vec nat8`). Anonymous `Option UInt64` state flattens to
+  two extra i64 globals `{name}_tag`/`{name}_p0` (tag 0=none / 1=some;
+  no Candid `opt`). Named Struct/Enum flatten to extra i64 globals
+  (no Candid `record`/`variant`). Bool results are admitted. No Field/Map;
+  Option / named return, Option-of-*, Option params stay fail closed
 * `init` (initializer), `entry` (canister_update), `view` (canister_query)
 * single-block callable bodies; checked `+`/`-`/`*`/`/`/`%` and
   comparisons (no bitwise); literal, param, stateLoad, stateStore, return,
@@ -155,7 +158,7 @@ private def icpTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt64/Int64 widths are supported"
   unsupportedShapeDetail :=
-    "only anonymous UInt64, Int64, UInt8 (Bytes element), Bool, Unit, Array UInt64 N state flatten, Bytes N (N i64 globals, low-8, no Candid vec nat8), and Principal 9-leaf identity (9 i64 globals, not Candid principal) are supported (narrow Int/Field/aggregates/Map/Option/String fail closed on the ICP-2 Counter/StateCell envelope)"
+    "only anonymous UInt64, Int64, UInt8 (Bytes element), Bool, Unit, named Struct/Enum UInt64/Int64 leaf flatten (extra i64 globals; no Candid record/variant; return stays fail closed), Array UInt64 N state flatten, Bytes N (N i64 globals, low-8, no Candid vec nat8), Option UInt64 2-leaf identity (o_tag/o_p0, no Candid opt), and Principal 9-leaf identity (9 i64 globals, not Candid principal) are supported (narrow Int/Field/aggregates/Map/String fail closed on the ICP-2 Counter/StateCell envelope)"
 
 private def pilotUintWidthPolicyU64U32Index : PilotUintWidthPolicy where
   admittedWidths := #[64, 32, 8]
@@ -169,7 +172,8 @@ private def validateIcpTypeClosureV1
     (intPolicy := pilotIntWidthPolicyI64)
     (fieldPolicy := pilotFieldPolicyNone)
     (principalPolicy := pilotPrincipalPolicyAdmit)
-    (containerPolicy := pilotContainerStatePolicyArrayBytes)
+    (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
+    (containerPolicy := pilotContainerStatePolicyArrayBytesOption)
 
 private def maxIdentifierBytes : Nat := 200
 private def maxStateFields : Nat := 64
@@ -226,8 +230,32 @@ private def flattenPrincipalLeafNamesV1 (namePrefix : String) :
     out := out.push wName
   pure out
 
+/-- True when `typeId` is an anonymous Option TypeDecl. Option is never
+    pushed to `containerTypeIds`; state planning owns the 2-leaf layout. -/
+private def isAnonymousOptionTypeIdV1
+    (typeDecls : Array TypeDeclV1) (typeId : TypeIdV1) : Bool :=
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .option _, name := none, .. } => true
+  | _ => false
+
+/-- Admit only anonymous `Option UInt64` (tag+payload). Non-UInt64 /
+    nested / named Option stay fail closed. Int64 payload stays FC
+    (T5 gold is Option UInt64; mixed OptInt needles keep a payload cite). -/
+private def requireOptionUInt64V1
+    (typeDecls : Array TypeDeclV1) (types : IcpTypeClosureV1)
+    (typeId : TypeIdV1) (stateName : String) : CompileResult Unit := do
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .option elTid, name := none, .. } =>
+      unless isUInt64Type types elTid do
+        planError
+          s!"unsupported ICP semantic shape: Option state '{stateName}' requires UInt64 payload"
+  | _ =>
+      planError
+        s!"unsupported ICP semantic shape: Option state '{stateName}' requires UInt64 payload"
+
 /-- CosmWasm/Quint-style Array UInt64 N flatten: `some n` for admitted 1..8;
-    `none` for scalars. Nested/narrow/Map/Bytes/N=0/N>8 fail closed. -/
+    `none` for scalars or Option (Option is not a containerTypeId).
+    Nested/narrow/Map/N=0/N>8 fail closed. -/
 private def arrayUInt64LenV1
     (typeDecls : Array TypeDeclV1) (types : IcpTypeClosureV1)
     (typeId : TypeIdV1) (signedNumeric : Bool) : CompileResult (Option Nat) := do
@@ -251,13 +279,78 @@ private def arrayUInt64LenV1
       pure (some n)
   | _ =>
       planError
-        "unsupported ICP semantic shape: container TypeId is not Array UInt64 or Bytes N (Map/Option stay fail closed)"
+        "unsupported ICP semantic shape: container TypeId is not Array UInt64 or Bytes N (Map stays fail closed)"
 
-/-- Physical PlanState leaves after Array flatten. `leavesOf[logicalId]` is
-    the dense field-index list (`name` or `name_0`..`name_{N-1}`). -/
+private def flattenNamedLeafSpecsV1
+    (typeDecls : Array TypeDeclV1) (types : IcpTypeClosureV1)
+    (typeId : TypeIdV1) (namePrefix : String) : CompileResult (Array String) := do
+  if isUInt64Type types typeId || isInt64Type types typeId then
+    unless isIdentifier namePrefix do
+      planError s!"state name '{namePrefix}' is not a safe identifier"
+    return #[namePrefix]
+  unless types.isNamedAggregate typeId do
+    planError
+      "unsupported ICP semantic shape: named aggregate leaf must be UInt64, Int64, or named Struct/Enum"
+  match typeDecls[typeId.toNat]? with
+  | none =>
+      planError
+        s!"unsupported ICP semantic shape: missing TypeDecl for aggregate {typeId}"
+  | some decl =>
+      match decl.shape with
+      | .struct fields => do
+          unless fields.size > 0 do
+            planError
+              "unsupported ICP semantic shape: named Struct requires at least one field"
+          let mut out : Array String := #[]
+          for f in fields do
+            unless isUInt64Type types f.typeId || isInt64Type types f.typeId do
+              planError
+                "unsupported ICP semantic shape: named Struct field must be UInt64 or Int64 (nested named stay fail closed)"
+            let subName :=
+              if namePrefix.isEmpty then f.name else namePrefix ++ "_" ++ f.name
+            unless isIdentifier subName do
+              planError s!"state name '{subName}' is not a safe identifier"
+            out := out.push subName
+          pure out
+      | .enum variants => do
+          unless variants.size > 0 do
+            planError
+              "unsupported ICP semantic shape: named Enum requires at least one variant"
+          let tagName :=
+            if namePrefix.isEmpty then "tag" else namePrefix ++ "_tag"
+          unless isIdentifier tagName do
+            planError s!"state name '{tagName}' is not a safe identifier"
+          let mut maxPay : Nat := 0
+          for v in variants do
+            unless v.payloadTypes.size ≤ 1 do
+              planError
+                "unsupported ICP semantic shape: named Enum variant admits at most one UInt64/Int64 payload"
+            for pt in v.payloadTypes do
+              unless isUInt64Type types pt || isInt64Type types pt do
+                planError
+                  "unsupported ICP semantic shape: named Enum payload must be UInt64 or Int64 (nested named stay fail closed)"
+            if v.payloadTypes.size > maxPay then maxPay := v.payloadTypes.size
+          let mut out : Array String := #[tagName]
+          for i in [0:maxPay] do
+            let pName :=
+              if namePrefix.isEmpty then s!"p{i}" else namePrefix ++ "_p" ++ toString i
+            unless isIdentifier pName do
+              planError s!"state name '{pName}' is not a safe identifier"
+            out := out.push pName
+          pure out
+      | _ =>
+          planError
+            "unsupported ICP semantic shape: named type must be Struct or Enum"
+
+/-- Physical PlanState leaves after Array/Option/named flatten. `leavesOf[logicalId]`
+    is the dense field-index list (`name`, `name_0`..`name_{N-1}`,
+    `name_tag`/`name_p0`, or `{state}_{field}`). Extra i64 globals; no Candid
+    record/variant. `isOptionOf` / `isNamedOf` are parallel to `leavesOf`. -/
 private structure StateLayout where
   states : Array StateField
   leavesOf : Array (Array Nat)
+  isOptionOf : Array Bool
+  isNamedOf : Array Bool
   deriving Inhabited
 
 private def physicalLeaves
@@ -275,12 +368,45 @@ private def makeStateLayoutV1
     (signedNumeric : Bool) : CompileResult StateLayout := do
   let mut states : Array StateField := #[]
   let mut leavesOf : Array (Array Nat) := #[]
+  let mut isOptionOf : Array Bool := #[]
+  let mut isNamedOf : Array Bool := #[]
   for st in data.logicalState do
     unless st.id.toNat == leavesOf.size do
       planError "unsupported ICP semantic shape: state ids must match declaration order"
     unless isIdentifier st.name do
       planError s!"state name '{st.name}' is not a safe identifier"
-    if isPrincipalType types st.typeId then
+    if types.isNamedAggregate st.typeId then
+      requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedState icpPlanErr types st
+      let leafSpecs ← flattenNamedLeafSpecsV1 data.types types st.typeId st.name
+      if leafSpecs.isEmpty then
+        planError s!"state '{st.name}' produced zero named-aggregate leaves"
+      if states.size + leafSpecs.size > maxStateFields then
+        planError "unsupported ICP semantic shape: state field count exceeds limit"
+      let mut leaves : Array Nat := #[]
+      for leafName in leafSpecs do
+        leaves := leaves.push states.size
+        states := states.push { name := leafName }
+      leavesOf := leavesOf.push leaves
+      isOptionOf := isOptionOf.push false
+      isNamedOf := isNamedOf.push true
+    else if isAnonymousOptionTypeIdV1 data.types st.typeId then
+      requireOptionUInt64V1 data.types types st.typeId st.name
+      if states.size + 2 > maxStateFields then
+        planError "unsupported ICP semantic shape: state field count exceeds limit"
+      let tagName := st.name ++ "_tag"
+      let pName := st.name ++ "_p0"
+      unless isIdentifier tagName do
+        planError s!"state name '{tagName}' is not a safe identifier"
+      unless isIdentifier pName do
+        planError s!"state name '{pName}' is not a safe identifier"
+      let tagFi := states.size
+      states := states.push { name := tagName }
+      let pFi := states.size
+      states := states.push { name := pName }
+      leavesOf := leavesOf.push #[tagFi, pFi]
+      isOptionOf := isOptionOf.push true
+      isNamedOf := isNamedOf.push false
+    else if isPrincipalType types st.typeId then
       if states.size + principalLeafCountV1 > maxStateFields then
         planError "unsupported ICP semantic shape: state field count exceeds limit"
       let leafSpecs ← flattenPrincipalLeafNamesV1 st.name
@@ -289,6 +415,8 @@ private def makeStateLayoutV1
         leaves := leaves.push states.size
         states := states.push { name := leafName }
       leavesOf := leavesOf.push leaves
+      isOptionOf := isOptionOf.push false
+      isNamedOf := isNamedOf.push false
     else
       match ← arrayUInt64LenV1 data.types types st.typeId signedNumeric with
       | some n =>
@@ -302,6 +430,8 @@ private def makeStateLayoutV1
             leaves := leaves.push states.size
             states := states.push { name := leafName }
           leavesOf := leavesOf.push leaves
+          isOptionOf := isOptionOf.push false
+          isNamedOf := isNamedOf.push false
       | none =>
           requirePublicUInt64OrInt64State icpPlanErr types st
           if states.size + 1 > maxStateFields then
@@ -309,9 +439,11 @@ private def makeStateLayoutV1
           let fi := states.size
           states := states.push { name := st.name }
           leavesOf := leavesOf.push #[fi]
+          isOptionOf := isOptionOf.push false
+          isNamedOf := isNamedOf.push false
   unless states.size ≤ maxStateFields do
     planError "unsupported ICP semantic shape: state field count exceeds limit"
-  pure { states, leavesOf }
+  pure { states, leavesOf, isOptionOf, isNamedOf }
 
 /-- First-seen integer domain. Mixed UInt64/Int64 user-facing slots fail closed. -/
 private def noteIntegerDomain
@@ -336,20 +468,29 @@ private def noteIntegerDomain
 -- Lowering helpers
 -- ---------------------------------------------------------------------------
 
-/-- Scalar Plan Expr plus optional Array flatten leaves. Empty `leaves` is a
-    scalar; nonempty is an Array UInt64 N aggregate (not a Candid vec) or
-    Principal 9-leaf identity (not a Candid principal). -/
+/-- Scalar Plan Expr plus optional flatten leaves. Empty `leaves` is a
+    scalar; nonempty is an Array UInt64 N aggregate (not a Candid vec),
+    Option UInt64 2-leaf (not a Candid `opt`), or Principal 9-leaf
+    identity (not a Candid principal). -/
 private structure LoweredValue where
   expr : Expr
   leaves : Array Expr
   isPrincipal : Bool := false
+  isOption : Bool := false
+  isNamed : Bool := false
   deriving BEq, Inhabited
 
 private def isArrayValue (v : LoweredValue) : Bool :=
-  !v.leaves.isEmpty && !v.isPrincipal
+  !v.leaves.isEmpty && !v.isPrincipal && !v.isOption && !v.isNamed
 
 private def isPrincipalValue (v : LoweredValue) : Bool :=
   v.isPrincipal && v.leaves.size == principalLeafCountV1
+
+private def isOptionValue (v : LoweredValue) : Bool :=
+  v.isOption && v.leaves.size == 2
+
+private def isNamedValue (v : LoweredValue) : Bool :=
+  v.isNamed && !v.leaves.isEmpty
 
 private def mkScalar (e : Expr) : LoweredValue :=
   { expr := e, leaves := #[] }
@@ -359,6 +500,12 @@ private def mkArrayLeaves (leaves : Array Expr) : LoweredValue :=
 
 private def mkPrincipalLeaves (leaves : Array Expr) : LoweredValue :=
   { expr := leaves[0]?.getD (.literal 0), leaves, isPrincipal := true }
+
+private def mkOptionLeaves (leaves : Array Expr) : LoweredValue :=
+  { expr := leaves[0]?.getD (.literal 0), leaves, isOption := true }
+
+private def mkNamedLeaves (leaves : Array Expr) : LoweredValue :=
+  { expr := leaves[0]?.getD (.literal 0), leaves, isNamed := true }
 
 private def decodePrincipalLiteralLeavesV1 (bytes : ByteArray) :
     CompileResult (Array Expr) := do
@@ -391,8 +538,8 @@ private def decodePrincipalLiteralLeavesV1 (bytes : ByteArray) :
   pure leaves
 
 private def requireScalar (v : LoweredValue) (what : String) : CompileResult Expr := do
-  if isArrayValue v || isPrincipalValue v then
-    planError s!"unsupported ICP semantic shape: {what} cannot be an Array/Principal aggregate"
+  if isArrayValue v || isPrincipalValue v || isOptionValue v || isNamedValue v then
+    planError s!"unsupported ICP semantic shape: {what} cannot be an Array/Principal/Option/named aggregate"
   pure v.expr
 
 private structure ValueEnv where
@@ -598,12 +745,24 @@ private partial def lowerInstructions
             unless stateId.toNat < data.logicalState.size do
               planError "unsupported ICP semantic shape: stateLoad references unknown state"
             let phys ← physicalLeaves layout stateId
+            let isOpt :=
+              match layout.isOptionOf[stateId.toNat]? with
+              | some b => b
+              | none => false
+            let isNm :=
+              match layout.isNamedOf[stateId.toNat]? with
+              | some b => b
+              | none => false
             let value : LoweredValue :=
               match overlayLookup acc.overlay stateId with
               | some ov => ov
               | none =>
                   if phys.size == 1 then
                     mkScalar (.stateLoad phys[0]!)
+                  else if isOpt then
+                    mkOptionLeaves (phys.map (fun fi => .stateLoad fi))
+                  else if isNm then
+                    mkNamedLeaves (phys.map (fun fi => .stateLoad fi))
                   else if isPrincipalType types vd.typeId then
                     mkPrincipalLeaves (phys.map (fun fi => .stateLoad fi))
                   else
@@ -696,23 +855,99 @@ private partial def lowerInstructions
         match instr.result with
         | none => planError "unsupported ICP semantic shape: construct must produce a value"
         | some vd =>
-            let n ← match ← arrayUInt64LenV1 data.types types typeId signedNumeric with
-              | some n => pure n
-              | none =>
+            if isAnonymousOptionTypeIdV1 data.types typeId then
+              requireOptionUInt64V1 data.types types typeId "construct"
+              match ctorIdx.toNat with
+              | 0 =>
+                  unless argIds.isEmpty do
+                    planError
+                      "unsupported ICP semantic shape: Option.none construct takes no args"
+                  acc := { acc with
+                    env := envInsert acc.env vd.valueId
+                      (mkOptionLeaves #[.literal 0, .literal 0]) }
+              | 1 =>
+                  unless argIds.size == 1 do
+                    planError
+                      "unsupported ICP semantic shape: Option.some construct takes one arg"
+                  let some argId := argIds[0]? |
+                    planError "unsupported ICP semantic shape: Option.some construct arg missing"
+                  let av ← match envLookup acc.env argId with
+                    | some v => requireScalar v "Option.some arg"
+                    | none => planError "unsupported ICP semantic shape: construct arg undefined"
+                  acc := { acc with
+                    env := envInsert acc.env vd.valueId
+                      (mkOptionLeaves #[.literal 1, av]) }
+              | _ =>
                   planError
-                    "unsupported ICP semantic shape: construct admits only Array UInt64 N on ICP-2"
-            unless ctorIdx == 0 do
-              planError "unsupported ICP semantic shape: Array construct ctorIdx must be 0"
-            unless argIds.size == n do
-              planError "unsupported ICP semantic shape: Array construct arity mismatch"
-            let mut leafExprs : Array Expr := #[]
-            for argId in argIds do
-              let av ← match envLookup acc.env argId with
-                | some v => requireScalar v "Array construct arg"
-                | none => planError "unsupported ICP semantic shape: construct arg undefined"
-              leafExprs := leafExprs.push av
-            acc := { acc with
-              env := envInsert acc.env vd.valueId (mkArrayLeaves leafExprs) }
+                    "unsupported ICP semantic shape: Option construct ctorIdx must be 0 (none) or 1 (some)"
+            else if types.isNamedAggregate typeId then
+              let some decl := data.types[typeId.toNat]? |
+                planError "unsupported ICP semantic shape: construct TypeDecl missing"
+              match decl.shape with
+              | .struct fields => do
+                  unless ctorIdx.toNat == 0 do
+                    planError
+                      "unsupported ICP semantic shape: struct construct ctorIdx must be 0"
+                  unless argIds.size == fields.size do
+                    planError
+                      "unsupported ICP semantic shape: struct construct arity mismatch"
+                  let mut leafExprs : Array Expr := #[]
+                  for i in [0:argIds.size] do
+                    let some argId := argIds[i]? |
+                      planError "unsupported ICP semantic shape: struct construct arg missing"
+                    let some field := fields[i]? |
+                      planError "unsupported ICP semantic shape: struct construct field missing"
+                    unless isUInt64Type types field.typeId || isInt64Type types field.typeId do
+                      planError
+                        "unsupported ICP semantic shape: named Struct field must be UInt64 or Int64"
+                    let av ← match envLookup acc.env argId with
+                      | some v => requireScalar v "struct construct arg"
+                      | none => planError "unsupported ICP semantic shape: construct arg undefined"
+                    leafExprs := leafExprs.push av
+                  acc := { acc with
+                    env := envInsert acc.env vd.valueId (mkNamedLeaves leafExprs) }
+              | .enum variants => do
+                  let vi := ctorIdx.toNat
+                  let some variant := variants[vi]? |
+                    planError
+                      "unsupported ICP semantic shape: enum construct variant out of range"
+                  unless argIds.size == variant.payloadTypes.size do
+                    planError
+                      "unsupported ICP semantic shape: enum construct arity mismatch"
+                  let mut maxPay : Nat := 0
+                  for v in variants do
+                    if v.payloadTypes.size > maxPay then maxPay := v.payloadTypes.size
+                  let mut leafExprs : Array Expr := #[.literal (UInt64.ofNat vi)]
+                  for argId in argIds do
+                    let av ← match envLookup acc.env argId with
+                      | some v => requireScalar v "enum construct payload"
+                      | none => planError "unsupported ICP semantic shape: construct arg undefined"
+                    leafExprs := leafExprs.push av
+                  while leafExprs.size < 1 + maxPay do
+                    leafExprs := leafExprs.push (.literal 0)
+                  acc := { acc with
+                    env := envInsert acc.env vd.valueId (mkNamedLeaves leafExprs) }
+              | _ =>
+                  planError
+                    "unsupported ICP semantic shape: named construct requires Struct or Enum"
+            else
+              let n ← match ← arrayUInt64LenV1 data.types types typeId signedNumeric with
+                | some n => pure n
+                | none =>
+                    planError
+                      "unsupported ICP semantic shape: construct admits only Array UInt64 N, Option UInt64, or named Struct/Enum on ICP-2"
+              unless ctorIdx == 0 do
+                planError "unsupported ICP semantic shape: Array construct ctorIdx must be 0"
+              unless argIds.size == n do
+                planError "unsupported ICP semantic shape: Array construct arity mismatch"
+              let mut leafExprs : Array Expr := #[]
+              for argId in argIds do
+                let av ← match envLookup acc.env argId with
+                  | some v => requireScalar v "Array construct arg"
+                  | none => planError "unsupported ICP semantic shape: construct arg undefined"
+                leafExprs := leafExprs.push av
+              acc := { acc with
+                env := envInsert acc.env vd.valueId (mkArrayLeaves leafExprs) }
     | .indexGet base index => do
         match instr.result with
         | none => planError "unsupported ICP semantic shape: IndexGet must produce a value"
@@ -754,8 +989,76 @@ private partial def lowerInstructions
             let newLeaves := bv.leaves.set! i vv
             acc := { acc with
               env := envInsert acc.env vd.valueId (mkArrayLeaves newLeaves) }
-    | .fieldGet .. | .fieldSet ..
-    | .variantTag .. | .variantPayload ..
+    | .variantTag baseId => do
+        match instr.result with
+        | none => planError "unsupported ICP semantic shape: variantTag must produce a value"
+        | some vd =>
+            let bv ← match envLookup acc.env baseId with
+              | some v => pure v
+              | none => planError "unsupported ICP semantic shape: variantTag base undefined"
+            unless isOptionValue bv || isNamedValue bv do
+              planError
+                "unsupported ICP semantic shape: variantTag base must be Option UInt64 or named Enum"
+            let some tag := bv.leaves[0]? |
+              planError "unsupported ICP semantic shape: variantTag Option tag leaf missing"
+            acc := { acc with env := envInsert acc.env vd.valueId (mkScalar tag) }
+    | .variantPayload baseId variantIndex payloadIndex => do
+        match instr.result with
+        | none =>
+            planError "unsupported ICP semantic shape: variantPayload must produce a value"
+        | some vd =>
+            let bv ← match envLookup acc.env baseId with
+              | some v => pure v
+              | none =>
+                  planError "unsupported ICP semantic shape: variantPayload base undefined"
+            unless isOptionValue bv || isNamedValue bv do
+              planError
+                "unsupported ICP semantic shape: variantPayload base must be Option UInt64 or named Enum"
+            if variantIndex.toNat == 0 then
+              planError
+                "unsupported ICP semantic shape: variantPayload of Option.none is empty"
+            unless variantIndex.toNat == 1 && payloadIndex.toNat == 0 do
+              planError
+                "unsupported ICP semantic shape: variantPayload Option some requires (variant 1, payload 0)"
+            let some payload := bv.leaves[1]? |
+              planError
+                "unsupported ICP semantic shape: variantPayload Option payload leaf missing"
+            acc := { acc with env := envInsert acc.env vd.valueId (mkScalar payload) }
+    | .fieldGet baseId fieldIndex => do
+        match instr.result with
+        | none => planError "unsupported ICP semantic shape: fieldGet must produce a value"
+        | some vd =>
+            let bv ← match envLookup acc.env baseId with
+              | some v => pure v
+              | none => planError "unsupported ICP semantic shape: fieldGet base undefined"
+            unless isNamedValue bv do
+              planError
+                "unsupported ICP semantic shape: fieldGet base must be a named Struct"
+            let i := fieldIndex.toNat
+            unless i < bv.leaves.size do
+              planError "unsupported ICP semantic shape: fieldGet leaf index out of range"
+            let some leaf := bv.leaves[i]? |
+              planError "unsupported ICP semantic shape: fieldGet leaf missing"
+            acc := { acc with env := envInsert acc.env vd.valueId (mkScalar leaf) }
+    | .fieldSet baseId fieldIndex valueId => do
+        match instr.result with
+        | none => planError "unsupported ICP semantic shape: fieldSet must produce a value"
+        | some vd =>
+            let bv ← match envLookup acc.env baseId with
+              | some v => pure v
+              | none => planError "unsupported ICP semantic shape: fieldSet base undefined"
+            unless isNamedValue bv do
+              planError
+                "unsupported ICP semantic shape: fieldSet base must be a named Struct"
+            let vv ← match envLookup acc.env valueId with
+              | some v => requireScalar v "fieldSet value"
+              | none => planError "unsupported ICP semantic shape: fieldSet value undefined"
+            let i := fieldIndex.toNat
+            unless i < bv.leaves.size do
+              planError "unsupported ICP semantic shape: fieldSet leaf index out of range"
+            let newLeaves := bv.leaves.set! i vv
+            acc := { acc with
+              env := envInsert acc.env vd.valueId (mkNamedLeaves newLeaves) }
     | .checkedCast .. | .unary .. | .pureCall .. | .assert_ .. =>
         planError "unsupported ICP semantic shape: op is outside the ICP-2 Counter/StateCell envelope"
   match block.terminator with
@@ -773,15 +1076,28 @@ private partial def lowerInstructions
   | .jump .. | .branch .. | .switch .. | .trap .. =>
       planError "unsupported ICP semantic shape: multi-block/branch/switch/trap terminators are outside ICP-2 (no control flow)"
 
-private def seedParamEnv (types : IcpTypeClosureV1) (owner : String)
-    (callable : CallableV1) : CompileResult (ValueEnv × Array String) := do
+private def seedParamEnv (typeDecls : Array TypeDeclV1) (types : IcpTypeClosureV1)
+    (owner : String) (callable : CallableV1) :
+    CompileResult (ValueEnv × Array String) := do
   let mut env : ValueEnv := { entries := #[] }
   let mut names : Array String := #[]
   let mut i : Nat := 0
   for p in callable.params do
     unless isIdentifier p.name do
       planError s!"parameter '{p.name}' in {owner} is not a safe identifier"
-    if isPrincipalType types p.typeId then
+    if isAnonymousOptionTypeIdV1 typeDecls p.typeId then
+      planError s!"{owner} Option params are outside ICP-2"
+    if types.isNamedAggregate p.typeId then
+      unless p.visibility == .public_ do
+        planError s!"parameter '{p.name}' in {owner} is not public"
+      let leafSpecs ← flattenNamedLeafSpecsV1 typeDecls types p.typeId p.name
+      let mut leafExprs : Array Expr := #[]
+      for leafName in leafSpecs do
+        names := names.push leafName
+        leafExprs := leafExprs.push (.param i)
+        i := i + 1
+      env := envInsert env p.valueId (mkNamedLeaves leafExprs)
+    else if isPrincipalType types p.typeId then
       unless p.visibility == .public_ do
         planError s!"parameter '{p.name}' in {owner} is not public"
       let leafSpecs ← flattenPrincipalLeafNamesV1 p.name
@@ -808,13 +1124,27 @@ private def lowerCallableBody
     (signedNumeric : Bool)
     (owner : String) (callable : CallableV1) :
     CompileResult (Array String × Array Statement × Option Expr) := do
-  let (env0, paramNames) ← seedParamEnv types owner callable
+  let (env0, paramNames) ← seedParamEnv data.types types owner callable
   let mut overlay0 : StateOverlay := { entries := #[] }
   if seedZeroState then
     for st in data.logicalState do
       let phys ← physicalLeaves layout st.id
+      let isOpt :=
+        match layout.isOptionOf[st.id.toNat]? with
+        | some b => b
+        | none => false
+      let isNm :=
+        match layout.isNamedOf[st.id.toNat]? with
+        | some b => b
+        | none => false
       if phys.size == 1 then
         overlay0 := overlayInsert overlay0 st.id (mkScalar (.literal 0))
+      else if isOpt then
+        overlay0 := overlayInsert overlay0 st.id
+          (mkOptionLeaves (phys.map (fun _ => .literal 0)))
+      else if isNm then
+        overlay0 := overlayInsert overlay0 st.id
+          (mkNamedLeaves (phys.map (fun _ => .literal 0)))
       else if isPrincipalType types st.typeId then
         overlay0 := overlayInsert overlay0 st.id
           (mkPrincipalLeaves (phys.map (fun _ => .literal 0)))
@@ -829,10 +1159,14 @@ private def lowerCallableBody
   pure (paramNames, stores, ret?)
 
 private def resultKindOf
-    (_data : SemanticProgramDataV1) (types : IcpTypeClosureV1)
+    (data : SemanticProgramDataV1) (types : IcpTypeClosureV1)
     (typeId : TypeIdV1) (owner : String) :
     CompileResult ResultKind := do
-  if types.isContainer typeId then
+  if isAnonymousOptionTypeIdV1 data.types typeId then
+    planError s!"{owner} Option return is outside ICP-2"
+  else if types.isNamedAggregate typeId then
+    planError s!"{owner} named Struct/Enum return is outside ICP-2"
+  else if types.isContainer typeId then
     planError
       s!"{owner} Array return is outside ICP-2 (only Array UInt64 N state flattens; no Candid vec)"
   else if isUnitType types typeId then pure .unit

@@ -656,6 +656,91 @@ unsafe def testOptBoxFlatten : IO Unit := do
   expect (!qnt.contains "List[")
     "Option flatten must not emit a native Quint List"
 
+/-- PointBox: named Struct flattens to p_x / p_y. Return of the struct stays FC. -/
+unsafe def testPointBoxFlatten : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PointBox where\n" ++
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  state p : Point\n" ++
+    "  init() do\n" ++
+    "    p := Point.new(0, 0)\n" ++
+    "  entry setX(v : UInt64) : UInt64 do\n" ++
+    "    p.x := v\n" ++
+    "    return p.x\n" ++
+    "  view getX() : UInt64 do\n" ++
+    "    return p.x\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-point-box>" "Tests.QuintPointBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  expect (plan.states.map (·.name) == #["p_x", "p_y"])
+    "PointBox must flatten to p_x/p_y Plan leaves"
+  liftResult <| Targets.Quint.validatePlan plan
+  let files ← liftResult <| buildQuint compiled
+  let some qntFile := files.find? (fun f => f.path == "PointBox.qnt") |
+    throw <| IO.userError "quint: missing PointBox.qnt"
+  expect (qntFile.contents.contains "var pf_state_p_x")
+    "PointBox.qnt must declare pf_state_p_x"
+  expect (qntFile.contents.contains "var pf_state_p_y")
+    "PointBox.qnt must declare pf_state_p_y"
+  let retSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PointRet where\n" ++
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  state p : Point\n" ++
+    "  init() do\n" ++
+    "    p := Point.new(0, 0)\n" ++
+    "  entry peek() : Point do\n" ++
+    "    return p\n"
+  let retParsed ← liftResult (← session.selectProgramV1
+    retSource "<quint-point-ret>" "Tests.QuintPointRet" none)
+  let retCompiled ← liftResult <| Compiler.compileValidatedSourceV1 retParsed
+  match planQuint retCompiled with
+  | .error (.planInvariant .quint msg) =>
+      expect (msg.contains "named Struct/Enum return")
+        s!"Point return must cite named return FC, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
+  | .ok _ => throw <| IO.userError "named Struct return must fail closed at Quint plan"
+
+/-- MaybeMark: named Enum flattens to m_tag / m_p0. -/
+unsafe def testMaybeMarkFlatten : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MaybeMark where\n" ++
+    "  enum Maybe where\n" ++
+    "    | None\n" ++
+    "    | Some(UInt64)\n" ++
+    "  state m : Maybe\n" ++
+    "  init() do\n" ++
+    "    m := Maybe.None()\n" ++
+    "  entry put(v : UInt64) : UInt64 do\n" ++
+    "    m := Maybe.Some(v)\n" ++
+    "    return v\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-maybe-mark>" "Tests.QuintMaybeMark" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  expect (plan.states.map (·.name) == #["m_tag", "m_p0"])
+    "MaybeMark must flatten to m_tag/m_p0 Plan leaves"
+  liftResult <| Targets.Quint.validatePlan plan
+  let files ← liftResult <| buildQuint compiled
+  let some qntFile := files.find? (fun f => f.path == "MaybeMark.qnt") |
+    throw <| IO.userError "quint: missing MaybeMark.qnt"
+  expect (qntFile.contents.contains "var pf_state_m_tag")
+    "MaybeMark.qnt must declare pf_state_m_tag"
+  expect (qntFile.contents.contains "var pf_state_m_p0")
+    "MaybeMark.qnt must declare pf_state_m_p0"
+
 /-- Option Int64 payload stays fail closed. -/
 unsafe def testOptionInt64PayloadFc : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -1795,6 +1880,8 @@ unsafe def run : IO Unit := do
   testArrayInt64N9FailClosed
   testArrayInt64ReturnFc
   testOptBoxFlatten
+  testPointBoxFlatten
+  testMaybeMarkFlatten
   testOptInt64Flatten
   testOptionInt64PayloadFc
   testOptionBoolPayloadFc

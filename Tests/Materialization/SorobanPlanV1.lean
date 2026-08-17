@@ -1006,6 +1006,58 @@ unsafe def testPrincipalIdentityLeaves : IO Unit := do
       expect (e.render.contains "Principal")
         s!"Principal return must cite Principal, got {e.render}"
 
+unsafe def testPointBoxFlatten : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PointBox where\n" ++
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  state p : Point\n" ++
+    "  init() do\n" ++
+    "    p := Point.new(0, 0)\n" ++
+    "  entry setX(v : UInt64) : UInt64 do\n" ++
+    "    p.x := v\n" ++
+    "    return p.x\n" ++
+    "  view getX() : UInt64 do\n" ++
+    "    return p.x\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-point-box>" "Tests.SorobanPointBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  expect (plan.states.map (·.name) == #["p_x", "p_y"])
+    "PointBox must flatten to p_x/p_y"
+  liftResult <| Targets.Soroban.validatePlan plan
+  let files ← liftResult <| buildSoroban compiled
+  expect (!files.isEmpty) "PointBox must materialize files"
+
+unsafe def testMaybeMarkFlatten : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MaybeMark where\n" ++
+    "  enum Maybe where\n" ++
+    "    | None\n" ++
+    "    | Some(UInt64)\n" ++
+    "  state m : Maybe\n" ++
+    "  init() do\n" ++
+    "    m := Maybe.None()\n" ++
+    "  entry put(v : UInt64) : UInt64 do\n" ++
+    "    m := Maybe.Some(v)\n" ++
+    "    return v\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-maybe-mark>" "Tests.SorobanMaybeMark" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  expect (plan.states.map (·.name) == #["m_tag", "m_p0"])
+    "MaybeMark must flatten to m_tag/m_p0"
+  liftResult <| Targets.Soroban.validatePlan plan
+  let files ← liftResult <| buildSoroban compiled
+  expect (!files.isEmpty) "MaybeMark must materialize files"
+
 unsafe def run : IO Unit := do
   testStateCellSorobanSource
   testInt64CellSorobanSource
@@ -1038,6 +1090,8 @@ unsafe def run : IO Unit := do
   testMapReturnFailClosed
   testSignedNumericMapStateFailClosed
   testPrincipalIdentityLeaves
+  testPointBoxFlatten
+  testMaybeMarkFlatten
   IO.println "Tests.Materialization.SorobanPlanV1: ok"
 
 end Tests.Materialization.SorobanPlanV1
