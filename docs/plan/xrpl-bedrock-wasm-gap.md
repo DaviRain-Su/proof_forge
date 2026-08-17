@@ -47,8 +47,8 @@ D/E stay out.
 | `state` | `ContractData` / host storage API | name-only slots in source |
 | checked `+`/`-` | guest rust + host traps unknown | rust `checked_*` + `trace`; no silent wrap |
 | `call` / `schedule` | emit Payment / OfferCreate / another `ContractCall` | **FC** (`B-CALL-SEM`) |
-| ContextRead | ledger header / account fields via host | **FC** until per-key ADR |
-| `pf.crypto.sha256` | unknown / not Bedrock Q0 | **FC** |
+| ContextRead | ledger header / account fields via host | **FC** until CAP-D yes（ADR-0052 已冻 TIME/CALLER 符号） |
+| `pf.crypto.sha256` | 无 host；仅 `compute_sha512_half` | **FC**（ADR-0052 keep-FC；不得冒充 sha256） |
 | invariants | no XRPL equivalent | **FC** |
 | deployable | AlphaNet / local only | `false` |
 
@@ -59,8 +59,8 @@ D/E stay out.
   `EvmPlan`, or a future `HooksPlan`.
 - **Do not** put this row in `family-wasm-host.md` as “another import
   table”. Shared encoder is allowed later; shared Plan is not.
-- CAP-layer (`capability-layer-tasks.md`) stays on the **existing 12**.
-  XRPL is a new TargetId wave, not CAP-1a.
+- CAP-layer (`capability-layer-tasks.md`) 的 **CAP-1a…5 叶**仍在既有 12。
+  XRPL 只到 ADR-0052 / `CAP-D-XRPL-*`；**不开** XRPL CAP leaf。
 
 ## 5. Order versus other work
 

@@ -3,7 +3,7 @@ id: PLAN-CAP-LAYER-PARITY
 title: 十二 target 同一能力层 — 设计
 status: draft
 owner: engineering
-updated: 2026-08-16
+updated: 2026-08-17
 normative: false
 ---
 
@@ -81,6 +81,12 @@ is largely **done** on all twelve targets. The holes are not missing
 diagnostics. They are **unbound honest hosts** on under-served
 state-class leaves.
 
+### 3.4 XRPL (13th materializer; named-FC)
+
+XRPL 已在 registry（ADR-0049/0050）。**尚未**加入本层的 admitted 列。
+ADR-0052 冻 TIME/CALLER 符号并拍 SHA keep-FC；六键 + `sha256` **全 F**，
+直到对应 `CAP-D-XRPL-*` owner yes + 另批 leaf。不把 XRPL 塞进上表当 A。
+
 ## 4. Do not add these targets
 
 | Candidate | Why not this wave |
@@ -90,9 +96,10 @@ state-class leaves.
 | Bitcoin Script / BitVM | UTXO predicate ≠ account Semantic (RPT-025 档 D) |
 | Fuel, Cardano, Stylus-as-EVM, ink! | no ADR, no catalog row |
 
-New TargetIds are out of scope. “加入” here means **bring an existing
-implemented leaf onto the catalog layer**, not register a thirteenth
-backend.
+XRPL is already the 13th materializer; joining this layer still needs
+CAP-D yes + a later leaf ID (ADR-0052). New TargetIds are out of scope.
+Joining the layer means bring an existing implemented leaf onto the catalog,
+not auto-admit XRPL because it is already registered.
 
 ## 5. Priority to raise (existing leaves only)
 
@@ -110,7 +117,8 @@ Order is host honesty × product freeze × file isolation.
 | **P3** | stop | Merkle, Bytes ABI, ed25519, Cairo, prove, SOR-1 Wasm | Agent Notes + Track C |
 
 ICP has **no** block-height API. That cell stays F. CosmWasm has **no**
-sha256 host. That cell stays F. Circuit class stays F.
+sha256 host. That cell stays F. XRPL has **no** sha256 host
+(`compute_sha512_half` only; ADR-0052). Circuit class stays F.
 
 ## 6. Non-goals
 

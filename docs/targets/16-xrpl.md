@@ -71,6 +71,9 @@ identity（`len+w0..w7`，不是 AccountID）；T5 named Struct/Enum 叶 flatten
 T6/T7 named view/entry 叶返回 Rust `(u64,…)` 元组；T8b Bytes N **view**
 叶返回；T9a/T9b if-diamond + `switchOn`；T9c counted `forLoop` trap。
 
+ContextRead / `pf.crypto.sha256` 见 [ADR-0052](../adr/0052-xrpl-host-capability-keys.md)：
+TIME/CALLER 符号已冻、SHA keep-FC；**叶仍 FC**。
+
 Q0 **一律 fail closed**：`call`/`schedule`、ContextRead、`pf.crypto.*`、
 `pf.assets`、invariants、Principal result/self/caller、Bytes **entry**
 return、不可约 CFG / 臂内 call·emit·revert、Escrow/Vault、Hooks、EVM
@@ -90,4 +93,4 @@ sidechain、主网 deployable、bedrock CLI 作为 product Finalize。
 
 已进 `TargetRegistryV1` 为第 13 个 implemented materializer（ADR-0049）。不扩
 accepted PRD。不关 formal。不把 AlphaNet 实验写成主网智能合约。不把 EVM
-侧链或 Hooks 算作本 target 完成度。C（AlphaNet deploy）需后续独立批准。Q1 WASM extra 见 ADR-0050。
+侧链或 Hooks 算作本 target 完成度。C（AlphaNet deploy）需后续独立批准。Q1 WASM extra 见 ADR-0050。host 三键见 ADR-0052（不开叶）。

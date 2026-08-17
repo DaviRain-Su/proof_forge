@@ -3,7 +3,7 @@ id: PLAN-CAP-LAYER-TASKS
 title: 十二 target 同一能力层 — 任务拆分
 status: draft
 owner: engineering
-updated: 2026-08-16
+updated: 2026-08-17
 normative: false
 ---
 
@@ -38,6 +38,17 @@ These are product decisions. Goal / Amp must **stop** and ask.
 四项决策均只授权「绑定真实 host 或 named fail-closed」，不发明伪能力、不改 catalog、
 不扩 accepted PRD、不关 formal TASK/TST。CAP-2 / CAP-1b / CAP-3 / CAP-4 / CAP-5 现为可编码行。
 
+## Wave 1b — XRPL host-key decisions（ADR-0052；**不开叶**）
+
+第 13 个 materializer 的 catalog 键。只冻符号或 keep-FC。**不要**发明
+CAP-7 / CAP-8 / CAP-9。owner 未拍 TIME/CALLER **yes** 之前禁止 Lower/Emit。
+
+| ID | Decision | Decided | Unlocks |
+|---|---|---|---|
+| **CAP-D-XRPL-TIME** | `unixTimeSeconds` ← `get_parent_ledger_time` + `946684800`（Ripple Time→Unix）？ | **proposed / awaiting owner**（符号已冻；叶仍 FC） | 另批 leaf ID（yes 之后） |
+| **CAP-D-XRPL-CALLER** | `caller` ← `get_current_contract_call().get_account()`（20B AccountID；ADR-0025-class `u32le(20)‖bytes`；仅 entry）？ | **proposed / awaiting owner**（符号已冻；叶仍 FC） | 另批 leaf ID（yes 之后） |
+| **CAP-D-XRPL-SHA** | 有无诚实 `pf.crypto.sha256` host？ | **keep-FC（2026-08-17）**：仅 `compute_sha512_half`；不得冒充 sha256 | 无 |
+
 ## Wave 2 — state-class deepen (existing targets)
 
 | ID | Pri | Objective | Files (expected) | Done when | Not |
@@ -58,11 +69,12 @@ These are product decisions. Goal / Amp must **stop** and ask.
 | **CAP-X-MERKLE** | [EXT-CRYPTO auto-open rejected](../../.agents/notes/rejected/architecture/2026-08-15-ext-crypto-auto-open.md) |
 | **CAP-X-BYTES** | Shared-core `sha256Bytes`; separate cutover |
 | **CAP-X-CW-SHA** | CosmWasm has no sha256 host — keep F |
+| **CAP-X-XRPL-SHA** | XRPL has no sha256 host — only `compute_sha512_half` (ADR-0052) |
 | **CAP-X-ICP-HEIGHT** | ICP has no block-height API — keep F |
 | **CAP-X-CIRCUIT** | Noir/OpenVM/Psy chain-anchored keys stay F |
 | **CAP-X-FORMAL** | [Goal ↛ formal](../../.agents/notes/implemented/process/2026-08-15-goal-must-not-close-formal.md) |
 
-## Suggested serial order（CAP-D-* 已于 2026-08-16 全开）
+## Suggested serial order（既有 CAP-D-* 已于 2026-08-16 全开；XRPL 仅 ADR）
 
 ```text
 CAP-0 (docs, done)
@@ -71,7 +83,8 @@ CAP-0 (docs, done)
   → CAP-D-* decided yes (2026-08-16)
       → CAP-2 → CAP-1b → CAP-3 → CAP-4 → CAP-5
         (disjoint allowlists, parallel worktree OK; shared Targets.lean/docs serial)
-  → stop
+  → CAP-D-XRPL-* (ADR-0052 proposed; SHA keep-FC; TIME/CALLER await owner)
+  → stop（XRPL 叶另批；不要发明 CAP-7/8/9）
 ```
 
 One local commit per ID. Touch `ProofForgeV2/**` → `just sbom-package-files-refresh`.

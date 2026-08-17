@@ -58,6 +58,14 @@ Same skeleton as Soroban S0 / OpenVM O0:
 | **T9b-XRPL-SWITCH** | **done** | `Term.switch` → `switchOn` |
 | **T9c-XRPL-FOR** | **done** | `loopBounds` → counted `forLoop` trap |
 
+## CAP-D wave（ADR-0052；**不开叶**）
+
+| ID | Status | Objective |
+|---|---|---|
+| **CAP-D-XRPL-TIME** | proposed / awaiting owner | 冻 `get_parent_ledger_time` + Ripple→Unix `+946684800`；叶仍 FC |
+| **CAP-D-XRPL-CALLER** | proposed / awaiting owner | 冻 `get_current_contract_call().get_account()`；叶仍 FC |
+| **CAP-D-XRPL-SHA** | **keep-FC** | 无 sha256 host（仅 `compute_sha512_half`）；不冻伪符号 |
+
 ## Wave 3 — opt-in only (product yes)
 
 | ID | Objective | Gate |
@@ -75,7 +83,7 @@ Same skeleton as Soroban S0 / OpenVM O0:
 | **XRPL-X-MAINNET** | `ContractCreate` not on XRPL mainnet |
 | **XRPL-X-GENERIC-WASM** | No shared Plan with NEAR/CW/ICP/OpenVM |
 | **XRPL-X-FORMAL** | Does not move D1–D4 0/27 |
-| **XRPL-X-CAP-LAYER** | CAP-1a… stays on the existing 12 |
+| **XRPL-X-CAP-LAYER** | CAP-1a…5 叶仍在既有 12；XRPL 只到 ADR-0052 / CAP-D，不开叶 |
 
 ## Serial order
 
