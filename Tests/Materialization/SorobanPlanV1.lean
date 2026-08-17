@@ -253,9 +253,13 @@ unsafe def testCallFailClosed : IO Unit := do
         s!"generic call Plan FC must contain 'op is outside S0', got: {e.render}"
   | .ok _ => throw <| IO.userError "sync call must fail closed on Soroban S0"
 
-/-- SYS-S5: Soroban has no sha256/keccak256 host. Exact `pf.crypto.*` stays
-    Plan fail closed (no host / precompile / circuit gadget). -/
-unsafe def testCryptoSha256StayFailClosed : IO Unit := do
+/-- CAP-4 / CAP-D-SOR-LEDGER: S0 source-only Plan admits exact
+    `pf.crypto.sha256` UInt256→UInt256 as `env.crypto().sha256` over the
+    Semantic canonical 32-byte LE valueBytes (4×u64 LE limbs). UInt256 is
+    plumbing-only (locals as sha256 in/out); state/param/result stay FC.
+    `pf.crypto.keccak256` and sibling QNs keep the named host-binding FC.
+    Finalize stays zero-tool / non-deployable. -/
+unsafe def testCryptoSha256Admitted : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let expectPlanFc (label body needle : String)
       (also : String := "") : IO Unit := do
@@ -275,31 +279,175 @@ unsafe def testCryptoSha256StayFailClosed : IO Unit := do
             s!"{label} Plan FC must contain '{also}', got: {e.render}"
     | .ok _ =>
         throw <| IO.userError
-          s!"{label} must Plan fail closed (no Soroban crypto host)"
-  let cryptoBody (qn : String) : String :=
+          s!"{label} must Plan fail closed"
+  let cryptoBodyU256 (qn : String) : String :=
     "  state pad : UInt64\n" ++
       "  init() do\n" ++
       "    pad := 0\n" ++
       "  entry probe() : UInt64 do\n" ++
-      "    let w : UInt64 := 0\n" ++
-      "    let h : UInt64 := call " ++ qn ++ "(w)\n" ++
+      "    let w : UInt256 := 0\n" ++
+      "    let h : UInt256 := call " ++ qn ++ "(w)\n" ++
       "    return pad\n" ++
       "  view get() : UInt64 do\n" ++
       "    return pad\n"
-  expectPlanFc "Sha256Soroban" (cryptoBody "pf.crypto.sha256")
-    "has no Soroban host binding"
-  expectPlanFc "Keccak256Soroban" (cryptoBody "pf.crypto.keccak256")
-    "has no Soroban host binding"
-  expectPlanFc "Sha256SorobanHashNoPad" (cryptoBody "pf.crypto.hashNoPad")
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Sha256Soroban where\n" ++
+    cryptoBodyU256 "pf.crypto.sha256"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-sha256>" "Tests.SorobanSha256" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  let some probe := plan.entries.find? (·.name == "probe") |
+    throw <| IO.userError "Sha256Soroban: missing probe entry"
+  expect (probe.sha256Sites.size == 1)
+    "Sha256Soroban: plan must record exactly one sha256 site"
+  liftResult <| Targets.Soroban.validatePlan plan
+  let files ← liftResult <| buildSoroban compiled
+  let some rsFile := files.find? (fun f => f.path == "Sha256Soroban.rs") |
+    throw <| IO.userError "soroban: missing Sha256Soroban.rs"
+  let rs := rsFile.contents
+  expect (rs.contains "env.crypto().sha256")
+    "Soroban source must call env.crypto().sha256"
+  expect (rs.contains "soroban_sdk::Bytes")
+    "Soroban source must build soroban_sdk::Bytes from UInt256 LE limbs"
+  expect (rs.contains "to_le_bytes")
+    "Soroban source must pack Semantic UInt256 LE valueBytes"
+  expect (rs.contains "ProofForge Soroban S0")
+    "sha256 source must stay an S0 recipe"
+  let selection ← liftResult <|
+    Targets.BuildSelectionV1.resolveBuildSelectionV1 TargetId.soroban none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let artifacts ← liftResult <| Targets.materializeResult capability
+  let finalized ← Targets.finalizeMaterializedArtifactsV1
+    capability artifacts (System.FilePath.mk ".")
+  expect (!FinalizedArtifactsV1.deployableOf finalized)
+    "sha256 must not make Soroban S0 deployable"
+  expect (FinalizedArtifactsV1.extraFilesOf finalized).isEmpty
+    "sha256 must not grow S0 Finalize beyond zero-tool"
+  expectPlanFc "Keccak256Soroban" (cryptoBodyU256 "pf.crypto.keccak256")
+    "has no Soroban host binding" "keccak256"
+  expectPlanFc "Sha256SorobanHashNoPad" (cryptoBodyU256 "pf.crypto.hashNoPad")
     "has no Soroban host binding"
   expectPlanFc "EcdsaRecoverSoroban"
-    (cryptoBody "pf.crypto.ecdsaRecoverSecp256k1")
+    (cryptoBodyU256 "pf.crypto.ecdsaRecoverSecp256k1")
     "has no Soroban host binding" "ecdsaRecoverSecp256k1"
+  expectPlanFc "Sha256SorobanU64"
+    ("  state pad : UInt64\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt64 := 0\n" ++
+      "    let h : UInt64 := call pf.crypto.sha256(w)\n" ++
+      "    return pad\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "pf.crypto.sha256 requires exactly one UInt256 argument and UInt256 result"
+  expectPlanFc "Sha256SorobanState"
+    ("  state last : UInt256\n" ++
+      "  init() do\n" ++
+      "    last := 0\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    return 0\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return 0\n")
+    "UInt256 is admitted only as pf.crypto.sha256 operand/result plumbing"
 
-/-- SYS-S4: Soroban has no unixTime/blockHeight/attachedValue/chainId host.
-    Named UInt64 ContextRead keys stay Plan fail closed. caller/self are
-    Principal and stay on the generic ContextRead envelope (S0 rejects
-    Principal at type closure first). -/
+/-- CAP-3 / CAP-D-SOR-LEDGER: S0 source-only Plan admits
+    `context.unixTimeSeconds` → `env.ledger().timestamp()` and
+    `context.blockHeight` → `env.ledger().sequence()` (u32 widened to u64).
+    Ledger reads are available in any Soroban invocation, and every S0
+    contract fn already receives `env: Env`, so init/entry/view all admit.
+    Finalize stays zero-tool / non-deployable. -/
+unsafe def testLedgerContextReadAdmitted : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program LedgerReads where\n" ++
+    "  state t : UInt64\n" ++
+    "  state h : UInt64\n" ++
+    "  init() do\n" ++
+    "    t := context.unixTimeSeconds\n" ++
+    "    h := context.blockHeight\n" ++
+    "  entry now() : UInt64 do\n" ++
+    "    return context.unixTimeSeconds\n" ++
+    "  entry height() : UInt64 do\n" ++
+    "    return context.blockHeight\n" ++
+    "  view peekTime() : UInt64 do\n" ++
+    "    return context.unixTimeSeconds\n" ++
+    "  view peekHeight() : UInt64 do\n" ++
+    "    return context.blockHeight\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-ledger-reads>" "Tests.SorobanLedgerReads" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  let some initFn := plan.initializer |
+    throw <| IO.userError "LedgerReads must have an initializer"
+  let initStoresUnix :=
+    initFn.stores.any (fun s =>
+      match s with
+      | (0, .unixTimeSeconds) => true
+      | _ => false)
+  let initStoresHeight :=
+    initFn.stores.any (fun s =>
+      match s with
+      | (1, .blockHeight) => true
+      | _ => false)
+  expect initStoresUnix "init must store unixTimeSeconds into t"
+  expect initStoresHeight "init must store blockHeight into h"
+  let some now := plan.entries.find? (·.name == "now") |
+    throw <| IO.userError "missing now entry"
+  expect (now.result? == some .unixTimeSeconds)
+    "entry now must return unixTimeSeconds"
+  let some height := plan.entries.find? (·.name == "height") |
+    throw <| IO.userError "missing height entry"
+  expect (height.result? == some .blockHeight)
+    "entry height must return blockHeight"
+  let some peekTime := plan.views.find? (·.name == "peekTime") |
+    throw <| IO.userError "missing peekTime view"
+  expect (peekTime.value == .unixTimeSeconds)
+    "view peekTime must return unixTimeSeconds"
+  let some peekHeight := plan.views.find? (·.name == "peekHeight") |
+    throw <| IO.userError "missing peekHeight view"
+  expect (peekHeight.value == .blockHeight)
+    "view peekHeight must return blockHeight"
+  liftResult <| Targets.Soroban.validatePlan plan
+  let files ← liftResult <| buildSoroban compiled
+  let some rsFile := files.find? (fun f => f.path == "LedgerReads.rs") |
+    throw <| IO.userError "soroban: missing LedgerReads.rs"
+  let rs := rsFile.contents
+  expect (rs.contains "env.ledger().timestamp()")
+    "Soroban source must read env.ledger().timestamp() for unixTimeSeconds"
+  expect (rs.contains "env.ledger().sequence()")
+    "Soroban source must read env.ledger().sequence() for blockHeight"
+  expect (rs.contains "u64::from(env.ledger().sequence())")
+    "Soroban source must widen sequence() u32 to u64"
+  expect (rs.contains "pub fn init(env: Env)")
+    "init must keep env: Env (ledger reads use it)"
+  expect (rs.contains "pub fn now(env: Env)")
+    "entry now must keep env: Env"
+  expect (rs.contains "pub fn peekTime(env: Env)")
+    "view peekTime must keep env: Env"
+  expect (rs.contains "ProofForge Soroban S0")
+    "ledger-read source must stay an S0 recipe"
+  let selection ← liftResult <|
+    Targets.BuildSelectionV1.resolveBuildSelectionV1 TargetId.soroban none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let artifacts ← liftResult <| Targets.materializeResult capability
+  let finalized ← Targets.finalizeMaterializedArtifactsV1
+    capability artifacts (System.FilePath.mk ".")
+  expect (!FinalizedArtifactsV1.deployableOf finalized)
+    "ledger reads must not make Soroban S0 deployable"
+  expect (FinalizedArtifactsV1.extraFilesOf finalized).isEmpty
+    "ledger reads must not grow S0 Finalize beyond zero-tool"
+
+/-- SYS-S4 residual after CAP-3: attachedValue/chainId stay Plan fail closed.
+    caller/self are Principal and stay on the generic ContextRead envelope
+    (S0 rejects Principal at type closure first). -/
 unsafe def testContextReadStayFailClosed : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let expectPlanFc (label body needle schemaId : String) : IO Unit := do
@@ -327,10 +475,6 @@ unsafe def testContextReadStayFailClosed : IO Unit := do
       "    return " ++ place ++ "\n" ++
       "  view get() : UInt64 do\n" ++
       "    return pad\n"
-  expectPlanFc "UnixTimeSoroban" (ctxBody "context.unixTimeSeconds")
-    "has no Soroban host binding" "proof-forge.context.unix-time-seconds.v1"
-  expectPlanFc "BlockHeightSoroban" (ctxBody "context.blockHeight")
-    "has no Soroban host binding" "proof-forge.context.block-height.v1"
   expectPlanFc "AttachedValueSoroban" (ctxBody "context.attachedValue")
     "has no Soroban host binding" "proof-forge.context.attached-value.v1"
   expectPlanFc "ChainIdSoroban" (ctxBody "context.chainId")
@@ -1275,7 +1419,8 @@ unsafe def run : IO Unit := do
   testMultiWidthFailClosed
   testInvariantFailClosed
   testCallFailClosed
-  testCryptoSha256StayFailClosed
+  testCryptoSha256Admitted
+  testLedgerContextReadAdmitted
   testContextReadStayFailClosed
   testEnvReadNativeStayFailClosed
   testCapabilityProductPath

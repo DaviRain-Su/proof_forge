@@ -269,6 +269,8 @@ private def stateCellSemanticProgramDataV1 : SemanticProgramDataV1 :=
     stateCellCallableLoweringState3V1.toBodies
     stateCellProgramFinalizationCoreV1 stateCellProgramRequirementsV1
 
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
 private theorem stateCellProgramFinalizationSuccessV1 :
     finishProgramLoweringV1 stateCellQualifiedNameV1
       StateCell.Source.subjectV1.program stateCellProgramLoweringTablesV1
@@ -280,6 +282,9 @@ private theorem stateCellProgramFinalizationSuccessV1 :
   rw [stateCellProgramS2RequirementsSuccessV1]
   dsimp only [Bind.bind, Except.bind]
   rw [stateCellProgramRequirementsSuccessV1]
+  -- StateCell anonymous first-seen order (UInt64 before Unit) is already the
+  -- SPEC §5 canonical rank, so the Stage A canonicalizer is an exact identity
+  -- on the assembled data (kernel-evaluated).
   rfl
 
 /-- Unconditional kernel certificate for the concrete production StateCell

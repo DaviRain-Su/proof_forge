@@ -81,7 +81,7 @@ theorem preservationTheorem_of_subjectBodyV1
     rw [SemanticProgramV1.invariants_eq_of_validate program data hvalidate]
     change 0 < 1
     decide
-  have hcanZero : validateValueBytesV1 data.types 0 zero8BytesV1 = .ok () := by
+  have hcanZero : validateValueBytesV1 data.types 1 zero8BytesV1 = .ok () := by
     rfl
   have hinitializerReturned :
       ∀ (pre post : LogicalStateV1)
@@ -93,7 +93,7 @@ theorem preservationTheorem_of_subjectBodyV1
         (value : Option ReferenceValueV1)
         (effects : Array OrderedEffectV1),
         gateInvocation admitted pre invocation =
-          .ready (initializerStoreZeroTwoCallableV1 0 0 1)
+          .ready (initializerStoreZeroTwoCallableV1 0 1 2)
             overlay context true →
         stepReferenceSliceV1 admitted pre invocation responses vault =
           .returned post value effects →
@@ -101,7 +101,7 @@ theorem preservationTheorem_of_subjectBodyV1
     intro pre post invocation responses vault overlay context value effects
       hgate hstep
     have hdecode := gateInvocation_ready_decodeV1 admitted pre invocation
-      (initializerStoreZeroTwoCallableV1 0 0 1) overlay context true hgate
+      (initializerStoreZeroTwoCallableV1 0 1 2) overlay context true hgate
     rw [hadmittedData] at hdecode
     have hoverlaySize := decodeLogicalStateValuesV1_size data pre overlay hdecode
     have hoverlaySizeTwo : overlay.size = 2 := by
@@ -117,7 +117,7 @@ theorem preservationTheorem_of_subjectBodyV1
     have hpostEncode : encodeLogicalStateValuesV1 data true
         #[zero8BytesV1, zero8BytesV1] = .ok post := by
       apply postEncode_of_readyInitializerStoreZeroTwoV1 admitted pre post
-        invocation data before0 before1 0 1 state0Name state1Name 0 context
+        invocation data before0 before1 1 2 state0Name state1Name 0 context
         responses vault value effects hadmittedData
       · rfl
       · rfl
@@ -133,7 +133,7 @@ theorem preservationTheorem_of_subjectBodyV1
         #[zero8BytesV1, zero8BytesV1] post hpostEncode
     exact (evalInvariantV1_returnedTrue_iff_two_state_bytes_eq program data 0 0
       invariantName post #[zero8BytesV1, zero8BytesV1] zero8BytesV1
-      zero8BytesV1 3 0 2 0 1 (some invariantName) .public_ .public_
+      zero8BytesV1 3 1 0 0 1 (some invariantName) .public_ .public_
       .public_ state0Name state1Name hvalidate hpostInitialized hdecodePost
       rfl rfl rfl rfl rfl rfl rfl).2 rfl
   have hhasInitializer : HasInitializerV1 program := by
@@ -149,15 +149,15 @@ theorem preservationTheorem_of_subjectBodyV1
   have hinitial : initialLogicalStateV1 program = .ok initial := by
     simpa [initial, data, zero8BytesV1] using
       initialLogicalStateV1_double_uint64_eq_ok program data
-        (StateDeclV1.mk 0 state0Name 0 .public_)
-        (StateDeclV1.mk 1 state1Name 0 .public_)
-        (TypeDeclV1.mk 0 none (.uint 64)) true hvalidate rfl rfl rfl rfl
+        (StateDeclV1.mk 0 state0Name 1 .public_)
+        (StateDeclV1.mk 1 state1Name 1 .public_)
+        (TypeDeclV1.mk 1 none (.uint 64)) true hvalidate rfl rfl rfl rfl
         (by
           simp [data,
             ProofForgeV2.Semantic.InitializerDepositViewEqualitySubjectV1.subjectDataV1,
             ProofForgeV2.Semantic.InitializerDepositViewEqualitySubjectV1.callablesV1,
             show
-              ((initializerStoreZeroTwoCallableV1 0 0 1).kind ==
+              ((initializerStoreZeroTwoCallableV1 0 1 2).kind ==
                 CallableKindV1.initializer) = true by rfl])
         (by rfl) (by rfl)
   have hbaseWithInitializer :
@@ -190,7 +190,7 @@ theorem preservationTheorem_of_subjectBodyV1
         | 0 =>
             have hlookup0 := hlookup
             rw [hindex] at hlookup0
-            have hcallable : callable = initializerStoreZeroTwoCallableV1 0 0 1 := by
+            have hcallable : callable = initializerStoreZeroTwoCallableV1 0 1 2 := by
               simpa [data,
                 ProofForgeV2.Semantic.InitializerDepositViewEqualitySubjectV1.subjectDataV1,
                 ProofForgeV2.Semantic.InitializerDepositViewEqualitySubjectV1.callablesV1]
@@ -199,7 +199,7 @@ theorem preservationTheorem_of_subjectBodyV1
             have hisInitializer : isInitializer = true := by
               have hkindInit :=
                 (gateInvocation_ready_callable_lookup admitted initial invocation
-                  (initializerStoreZeroTwoCallableV1 0 0 1) overlay context
+                  (initializerStoreZeroTwoCallableV1 0 1 2) overlay context
                     isInitializer hgate).2
               change isInitializer = true at hkindInit
               exact hkindInit
@@ -210,7 +210,7 @@ theorem preservationTheorem_of_subjectBodyV1
             have hlookup1 := hlookup
             rw [hindex] at hlookup1
             have hcallable : callable = addParameterTwoReturnCallableV1 1
-                (some depositName) parameterName 0 0 1 .public_ := by
+                (some depositName) parameterName 1 0 1 .public_ := by
               simpa [data,
                 ProofForgeV2.Semantic.InitializerDepositViewEqualitySubjectV1.subjectDataV1,
                 ProofForgeV2.Semantic.InitializerDepositViewEqualitySubjectV1.callablesV1]
@@ -221,7 +221,7 @@ theorem preservationTheorem_of_subjectBodyV1
         | 2 =>
             have hlookup2 := hlookup
             rw [hindex] at hlookup2
-            have hcallable : callable = viewLoadCallableV1 2 (some viewName) 0 0 := by
+            have hcallable : callable = viewLoadCallableV1 2 (some viewName) 1 0 := by
               simpa [data,
                 ProofForgeV2.Semantic.InitializerDepositViewEqualitySubjectV1.subjectDataV1,
                 ProofForgeV2.Semantic.InitializerDepositViewEqualitySubjectV1.callablesV1]
@@ -232,7 +232,7 @@ theorem preservationTheorem_of_subjectBodyV1
         | 3 =>
             have hlookup3 := hlookup
             rw [hindex] at hlookup3
-            have hcallable : callable = twoStateCompareInvariantCallableV1 3 (some invariantName) 0 2 0 1 .eq .public_ (some 5) := by
+            have hcallable : callable = twoStateCompareInvariantCallableV1 3 (some invariantName) 1 0 0 1 .eq .public_ (some 5) := by
               simpa [data, ProofForgeV2.Semantic.InitializerDepositViewEqualitySubjectV1.subjectDataV1, ProofForgeV2.Semantic.InitializerDepositViewEqualitySubjectV1.callablesV1] using hlookup3.symm
             subst callable
             change false = true at hkind
@@ -254,7 +254,7 @@ theorem preservationTheorem_of_subjectBodyV1
           data.callables[0] overlay context isInitializer hgate).2
         have hkind' :
             isInitializer =
-              ((initializerStoreZeroTwoCallableV1 0 0 1).kind ==
+              ((initializerStoreZeroTwoCallableV1 0 1 2).kind ==
                 CallableKindV1.initializer) := by
           simpa [data,
             ProofForgeV2.Semantic.InitializerDepositViewEqualitySubjectV1.subjectDataV1,
@@ -263,7 +263,7 @@ theorem preservationTheorem_of_subjectBodyV1
         change isInitializer = true at hkind'
         exact hkind'
       change gateInvocation admitted pre invocation =
-        .ready (initializerStoreZeroTwoCallableV1 0 0 1) overlay context
+        .ready (initializerStoreZeroTwoCallableV1 0 1 2) overlay context
           isInitializer at hgate
       rw [hisInitializer] at hgate
       exact hinitializerReturned pre post invocation responses vault overlay
@@ -278,17 +278,17 @@ theorem preservationTheorem_of_subjectBodyV1
           change (CallableKindV1.entry == CallableKindV1.initializer) = false
           decide
         exact hk.trans hkFalse
-      have htypeBound : 0 < data.types.size := by
+      have htypeBound : 1 < data.types.size := by
         simp [data, ProofForgeV2.Semantic.InitializerDepositViewEqualitySubjectV1.subjectDataV1,
           ProofForgeV2.Semantic.InitializerDepositViewEqualitySubjectV1.typesV1]
       obtain ⟨argument, harg⟩ := gateInvocation_ready_uint64_argumentV1 admitted pre
-        invocation data.callables[1] overlay context isInitializer 0 (by change 0 < 1; decide) 0
-        (by rfl) (data.types[0]'htypeBound) (by simpa [hadmittedData]) (by rfl) hgate
+        invocation data.callables[1] overlay context isInitializer 0 (by change 0 < 1; decide) 1
+        (by rfl) (data.types[1]'htypeBound) (by simpa [hadmittedData]) (by rfl) hgate
       have harity := gateInvocation_ready_arity admitted pre invocation data.callables[1]
         overlay context isInitializer hgate
       have hinvocation : invocation = {
           callableId := 1
-          args := #[{ typeId := 0, valueBytes := encodeU64le argument }]
+          args := #[{ typeId := 1, valueBytes := encodeU64le argument }]
           context := invocation.context } := by
         cases invocation with
         | mk cid args ctx =>
@@ -320,24 +320,24 @@ theorem preservationTheorem_of_subjectBodyV1
           (gateInvocation_ready_noninit_decode admitted pre invocation data.callables[1]
             overlay context (by simpa [hisInitializer] using hgate)).2.1
         have hiff := evalInvariantV1_returnedTrue_iff_two_state_bytes_eq program data 0 0
-          invariantName pre #[before0, before1] before0 before1 3 0 2 0 1
+          invariantName pre #[before0, before1] before0 before1 3 1 0 0 1
           (some invariantName) .public_ .public_ .public_ state0Name state1Name
           hvalidate hpreInitialized (by simpa [hoverlayEq] using hdecode)
           rfl rfl rfl rfl rfl rfl rfl
         exact hiff.mp heval
       subst before1
-      have hcanonical : validateValueBytesV1 data.types 0 (encodeU64le argument) = .ok () := by
-        apply validateValueBytesV1_uint64_of_size data.types 0 (data.types[0]'htypeBound)
+      have hcanonical : validateValueBytesV1 data.types 1 (encodeU64le argument) = .ok () := by
+        apply validateValueBytesV1_uint64_of_size data.types 1 (data.types[1]'htypeBound)
         · rfl
         · rfl
         · exact encodeU64le_size argument
       obtain ⟨sumBytes, hpostEncode⟩ :=
         stepReferenceSliceV1_ready_add_parameter_two_returned_post_encode
-          admitted pre post data before0 (encodeU64le argument) 0 state0Name state1Name
+          admitted pre post data before0 (encodeU64le argument) 1 state0Name state1Name
           parameterName 1 (some depositName) invocation.context context responses vault value
           effects hadmittedData rfl rfl rfl hcanonical (by
             change gateInvocation admitted pre invocation = .ready
-              (addParameterTwoReturnCallableV1 1 (some depositName) parameterName 0 0 1 .public_)
+              (addParameterTwoReturnCallableV1 1 (some depositName) parameterName 1 0 1 .public_)
                 overlay context isInitializer at hgate
             rw [hinvocation, hoverlayEq, hisInitializer] at hgate
             exact hgate) (by rw [hinvocation] at hstep; exact hstep)
@@ -347,7 +347,7 @@ theorem preservationTheorem_of_subjectBodyV1
         LogicalStateV1.initialized_of_encodeLogicalStateValuesV1 data true
           #[sumBytes, sumBytes] post hpostEncode
       exact (evalInvariantV1_returnedTrue_iff_two_state_bytes_eq program data 0 0
-        invariantName post #[sumBytes, sumBytes] sumBytes sumBytes 3 0 2 0 1
+        invariantName post #[sumBytes, sumBytes] sumBytes sumBytes 3 1 0 0 1
         (some invariantName) .public_ .public_ .public_ state0Name state1Name
         hvalidate hpostInitialized hdecodePost rfl rfl rfl rfl rfl rfl rfl).2 rfl
     | ⟨2, _⟩ =>
@@ -356,7 +356,7 @@ theorem preservationTheorem_of_subjectBodyV1
       have hisInitializer : isInitializer = false := by
         have hkind := (gateInvocation_ready_callable_lookup admitted pre invocation
           data.callables[2] overlay context isInitializer hgate).2
-        have hkind' : isInitializer = ((viewLoadCallableV1 2 (some viewName) 0 0).kind == CallableKindV1.initializer) := by
+        have hkind' : isInitializer = ((viewLoadCallableV1 2 (some viewName) 1 0).kind == CallableKindV1.initializer) := by
           simpa [data, ProofForgeV2.Semantic.InitializerDepositViewEqualitySubjectV1.subjectDataV1,
             ProofForgeV2.Semantic.InitializerDepositViewEqualitySubjectV1.callablesV1] using hkind
         change isInitializer = false at hkind'
@@ -371,10 +371,10 @@ theorem preservationTheorem_of_subjectBodyV1
       let loadedBytes := overlay[0]'hoverlayNonempty
       have hloaded : overlay[0]? = some loadedBytes := Array.getElem?_eq_getElem hoverlayNonempty
       change gateInvocation admitted pre invocation = .ready
-        (viewLoadCallableV1 2 (some viewName) 0 0) overlay context isInitializer at hgate
+        (viewLoadCallableV1 2 (some viewName) 1 0) overlay context isInitializer at hgate
       rw [hisInitializer] at hgate
       have hpostEq := postEqPre_of_readyViewLoadV1 admitted pre post invocation data overlay
-        loadedBytes 0 0 state0Name 2 (some viewName) context responses vault value effects
+        loadedBytes 1 0 state0Name 2 (some viewName) context responses vault value effects
         hadmittedData rfl rfl hloaded hgate hstep
       simpa [hpostEq] using heval
     | ⟨3, _⟩ =>

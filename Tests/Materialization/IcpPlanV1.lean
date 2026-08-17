@@ -11,7 +11,10 @@
   Map UInt64 UInt64 cap-8 flattens to 24 i64 globals, no Candid map).
   CAP-1a admits `context.unixTimeSeconds` as
   `ic0.time` ns÷10⁹ on init/update/query; other UInt64 ContextRead keys stay
-  named fail-closed.
+  named fail-closed. CAP-1b admits `context.caller` as ADR-0025-class
+  Principal (`u32le(len)‖bytes`) via `ic0.msg_caller_size` /
+  `ic0.msg_caller_copy` on init/entry only; query/view stays named
+  `ICP-VIEW-CALLER` fail-closed (S1 consistency with NEAR/CosmWasm).
 
   Registered via Tests/Shards/Targets. Materialize is zero-tool; Finalize
   is locked wat2wasm (ICP-1a). Not a PocketIC/dfx/replica lane; not formal D4.
@@ -167,6 +170,10 @@ private unsafe def testStateCellIRAndWat
   expect (wat.contains "\"ic0\" \"msg_reply\"") "ic0 msg_reply import"
   expect (!wat.contains "\"ic0\" \"time\"")
     "StateCell must not import ic0.time (unixTime is use-gated)"
+  expect (!wat.contains "msg_caller_size")
+    "StateCell must not import ic0.msg_caller_size (caller is use-gated)"
+  expect (!wat.contains "msg_caller_copy")
+    "StateCell must not import ic0.msg_caller_copy (caller is use-gated)"
   expect (wat.contains "(memory (export \"memory\") 1)") "memory export"
   expect (wat.contains "(global $g_state_0 (mut i64) (i64.const 0)) ;; count")
     "state global for count"
@@ -450,10 +457,110 @@ private unsafe def testUnixTimeSecondsAdmitted
   expect (wat.contains "(export \"canister_query peek\"") "query export"
   IO.println "  ✓ context.unixTimeSeconds → ic0.time ns÷10^9 (init/entry/view)"
 
+/-- CAP-1b: `context.caller` binds `ic0.msg_caller_size` /
+    `ic0.msg_caller_copy` on init/entry. Principal wire is ADR-0025-class
+    `u32le(len)‖bytes` (max 29). Query/view stays named fail-closed. -/
+private unsafe def testCallerAdmitted
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "CallerIcp" <|
+    "  state owner : Principal\n" ++
+      "  state pad : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    owner := context.caller\n" ++
+      "    pad := 0\n\n" ++
+      "  entry who(a : Principal) : Bool do\n" ++
+      "    return context.caller == a\n\n" ++
+      "  view peek() : UInt64 do\n" ++
+      "    return pad\n"
+  let compiled ← compileSource session src "Examples.CallerIcp" "<icp-caller>"
+  let plan ← liftResult <| planIcp compiled
+  expect (plan.states.size == 10)
+    s!"owner Principal must flatten to 9 leaves + pad, got {plan.states.size}"
+  expect (plan.states[0]!.name == "owner_len") "first Principal leaf is owner_len"
+  expect (plan.states[9]!.name == "pad") "UInt64 pad stays a scalar leaf"
+  let initStoresCaller := plan.initializer.body.any fun
+    | .store 0 .callerPrincipalLen => true
+    | _ => false
+  expect initStoresCaller "init must store callerPrincipalLen into owner_len"
+  let who ← findMethod plan "who"
+  expect (who.mode == .mutate) "who must be an update"
+  expect (who.resultKind == .bool) "who must return Bool"
+  expect (who.paramKinds == #[.principal]) "who param is Principal"
+  let whoReturnsPrincipalEq :=
+    match who.body.back? with
+    | some (.returnValue (.principalEq lhs rhs)) =>
+        lhs.size == 9 && rhs.size == 9
+    | _ => false
+  expect whoReturnsPrincipalEq "entry who must return principalEq of 9+9 leaves"
+  let files ← liftResult <| filesIcp compiled
+  let wat ← findFile files "CallerIcp.wat"
+  expect (wat.contains "\"ic0\" \"msg_caller_size\"")
+    "WAT must import ic0.msg_caller_size"
+  expect (wat.contains "\"ic0\" \"msg_caller_copy\"")
+    "WAT must import ic0.msg_caller_copy"
+  expect (wat.contains "(call $ic0_msg_caller_size)")
+    "WAT must call ic0.msg_caller_size"
+  expect (wat.contains "(call $ic0_msg_caller_copy")
+    "WAT must call ic0.msg_caller_copy"
+  expect (wat.contains "u32le(len)")
+    "WAT must name ADR-0025-class u32le(len)||bytes framing"
+  expect (wat.contains "(export \"canister_update who\"") "entry export"
+  expect (wat.contains "(export \"canister_query peek\"") "query export"
+  let did ← findFile files "CallerIcp.did"
+  expect (did.contains "who : (principal) -> (bool);")
+    s!"did who must take principal, got: {did}"
+  -- Usage-gated: StateCell-shaped program without caller is checked above.
+  -- Locked wat2wasm must still accept the caller WAT.
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.icp none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let artifacts ← liftResult <| Targets.materializeResult capability
+  let files := MaterializedArtifactsV1.filesOf artifacts
+  IO.FS.withTempDir fun stagingDir => do
+    for f in files do
+      let path := stagingDir / f.path
+      if let some parent := path.parent then
+        IO.FS.createDirAll parent
+      IO.FS.writeFile path f.contents
+    let finalized ← Targets.finalizeMaterializedArtifactsV1
+      capability artifacts stagingDir
+    expect (FinalizedArtifactsV1.deployableOf finalized)
+      "CallerIcp locked wat2wasm finalization must be deployable"
+    expect (FinalizedArtifactsV1.extraFilesOf finalized == #["CallerIcp.wasm"])
+      "CallerIcp Finalize must add exactly CallerIcp.wasm"
+  IO.println "  ✓ context.caller → ic0.msg_caller_* (init/entry; ADR-0025 framing)"
+
+/-- CAP-1b ICP-VIEW-CALLER: query/view keeps context.caller fail-closed
+    (S1 consistency with NEAR predecessor / CosmWasm MessageInfo.sender).
+    ic0.msg_caller is available on queries; this profile still refuses it. -/
+private unsafe def testCallerViewFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "CallerViewIcp" <|
+    "  state pad : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n\n" ++
+      "  entry bump() : UInt64 do\n" ++
+      "    pad := pad + 1\n" ++
+      "    return pad\n\n" ++
+      "  view who() : Bool do\n" ++
+      "    let c : Principal := context.caller\n" ++
+      "    return c == c\n"
+  let compiled ← compileSource session src "Examples.CallerViewIcp"
+    "<icp-caller-view>"
+  match planFromCompiledSemanticV1 compiled with
+  | .error e =>
+      expect (e.render.contains "ICP-VIEW-CALLER")
+        s!"view caller FC must name ICP-VIEW-CALLER, got: {e.render}"
+      expect (e.render.contains "query/view" || e.render.contains "view")
+        s!"view caller FC must cite query/view, got: {e.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "CallerViewIcp must Plan fail closed (CAP-1b ICP-VIEW-CALLER)"
+  IO.println "  ✓ context.caller query/view named FC (ICP-VIEW-CALLER)"
+
 /-- SYS-S4 residual: ICP has no blockHeight/attachedValue/chainId host.
-    Those named UInt64 ContextRead keys stay Plan fail closed. caller/self
-    are Principal and stay on the generic ContextRead envelope (ICP-2
-    rejects Principal at type closure first). -/
+    Those named UInt64 ContextRead keys stay Plan fail closed. context.self
+    stays on the generic ContextRead envelope. -/
 private unsafe def testContextReadStayFailClosed
     (session : Language.Loader.ParserSession) : IO Unit := do
   let expectPlanFc (programName pathLabel moduleName body needle schemaId : String) :
@@ -1312,6 +1419,8 @@ unsafe def run : IO Unit := do
   testCallSyncFc session
   testCryptoSha256StayFailClosed session
   testUnixTimeSecondsAdmitted session
+  testCallerAdmitted session
+  testCallerViewFailClosed session
   testContextReadStayFailClosed session
   testEnvReadNativeStayFailClosed session
   testEmitFc session

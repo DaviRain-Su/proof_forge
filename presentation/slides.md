@@ -144,7 +144,7 @@ layout: center
 | TON | Tolk → real BoC + sandbox 10/10; schedule `createMessage` PARTIAL | Mainnet / formal; real address+value / callback round-trip |
 
 <div class="mt-6 text-center text-sm opacity-80">
-Engineering registry 12 = 9 materializers + 3 design-only. Accepted PRD Phase 1 remains EVM/Solana/NEAR/Noir; Aleo/Psy/Quint/CosmWasm/TON are engineering leaves (ADR-0036; formal lighthouse=EVM-first). Compile/mock/sandbox/host-only model smoke ≠ formal/hermetic.
+Engineering registry 12 = 12 implemented materializers + 0 design-only. Accepted PRD Phase 1 remains EVM/Solana/NEAR/Noir; Aleo/Psy/Quint/CosmWasm/TON/Soroban/OpenVM/ICP are engineering leaves (ADR-0036, still proposed; formal lighthouse=EVM-first). Compile/mock/sandbox/host-only model smoke ≠ formal/hermetic.
 </div>
 
 ---
@@ -220,7 +220,7 @@ backgroundSize: contain
 # Roadmap & target landscape
 
 <div class="mt-80 text-center text-sm opacity-80">
-Historical landscape image; engineering registry is now 12 = 10 implemented materializers + 2 design-only. Accepted PRD Phase 1 is still four targets; ADR-0036/0043 own the boundary. See the preceding table.
+Historical landscape image; engineering registry is now 12 = 12 implemented materializers + 0 design-only (Soroban/OpenVM/ICP implemented per ADR-0044/0045/0046/0047). Accepted PRD Phase 1 is still four targets; ADR-0036 (still proposed) claims the boundary. See the preceding table.
 </div>
 
 ---

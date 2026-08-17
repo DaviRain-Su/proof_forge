@@ -126,15 +126,15 @@
 
 > 路线图分两块：
 > accepted Phase 1 范围仍是 EVM、Solana、NEAR、Noir 四个目标；
-> 工程 registry 则是 12 targets：10 implemented materializers 加 2 design-only。Aleo、Psy、Quint、CosmWasm、TON、OpenVM 是 engineering leaves，不自动扩大 accepted scope；
-> Soroban、ICP 仍 design-only。ADR-0036/0043 固定 accepted 4 / engineering 10+2 边界与 EVM-first formal lighthouse。OpenVM O0 为 guest-source only（无 prove）。
+> 工程 registry 则是 12 targets：12 implemented materializers 加 0 design-only。Aleo、Psy、Quint、CosmWasm、TON、Soroban、OpenVM、ICP 是 engineering leaves，不自动扩大 accepted scope
+>（Soroban/ICP 已 implemented，见 ADR-0044/0047）。ADR-0036（仍 proposed）主张 accepted 4 / engineering 12+0 边界与 EVM-first formal lighthouse。OpenVM O0 为 guest-source only（无 prove；O1 ELF opt-in）。
 > 我们不会让不同平台共用一个虚假的通用 Plan，每个 materializer 都保持自己的 Plan 和 IR。
 
 ---
 
 ## 第 14 页 · Team & next steps（6:30–6:55）
 
-> 团队节奏上，当前产品恢复已形成单一 ProgramV1→Typed/Normalize→Semantic→九个 target-owned materializer 纵切面；
+> 团队节奏上，当前产品恢复已形成单一 ProgramV1→Typed/Normalize→Semantic→十二个 target-owned materializer 纵切面；
 > 下一步继续闭合 B-CALL-SEM、B-OPT-STATE 等精确 residual；CosmWasm runtime/ABI design-exit 已冻结，TON schedule 仍以 hash destination/value=0 的 PARTIAL 语义推进；
 > formal D1–D4 qualification 与日常产品工程保持独立，仍按真实条件 pending；
 > 路线图和里程碑都已文档化，可检查、可追踪。

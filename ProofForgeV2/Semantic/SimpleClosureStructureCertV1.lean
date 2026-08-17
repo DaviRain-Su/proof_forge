@@ -212,11 +212,18 @@ theorem typeKeyNamedBodyCycle_simpleClosure (p : SimpleClosureParamsV1) :
 
 theorem typeKeyPhases_simpleClosure (p : SimpleClosureParamsV1) :
     validateTypeKeyPhasesV1 (materializeSimpleClosureDataV1 p).types = .ok () := by
-  apply validateTypeKeyPhasesV1_eq_ok_of_phases
+  apply validateTypeKeyPhasesV1_eq_ok_of_prefix_phases
   · exact typeKeyNamedPrefix_simpleClosure p
   · exact typeKeyPrimitiveLeaf_simpleClosure p
   · exact typeKeyRecursiveAnonymous_simpleClosure p
   · exact typeKeyNamedBodyCycle_simpleClosure p
+  · have htypes :
+        (materializeSimpleClosureDataV1 p).types =
+          #[simpleClosureBoolTypeV1, simpleClosureUInt64TypeV1] := by
+      simp [materializeSimpleClosureDataV1]
+    rw [htypes]
+    exact validateAnonymousTypeKeyRankV1_bool_uint64_eq_ok
+      simpleClosureBoolTypeV1 simpleClosureUInt64TypeV1 rfl rfl
 
 theorem namedTypeNames_simpleClosure (p : SimpleClosureParamsV1) :
     validateNamedTypeNameUniquenessV1 (materializeSimpleClosureDataV1 p).types =

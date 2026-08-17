@@ -1,7 +1,7 @@
 # Goal slice — LH-4: EventFlow Reference OutcomeWire
 
-> Drain: `/goal @.grok/goals/prompt-next-wave.md starting at LH-4 --budget 8000000`  
-> One slice: `/workflow next-wave-runner`
+> **HISTORICAL（engineering-done 2026-08-12）**：LH-4 已完成，**不要** resume。
+> 原 drain 命令已废除；当前下一刀见 `docs/plan/capability-layer-tasks.md`。
 
 ## ID
 `LH-4`

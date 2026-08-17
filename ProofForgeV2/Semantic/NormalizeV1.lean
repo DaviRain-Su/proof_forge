@@ -4457,9 +4457,174 @@ def assembleProgramLoweringDataV1
   requirements
 }
 
+/-! ### Anonymous TypeId canonical rank (TypeKey Stage A)
+
+    SPEC-SEM-WIRE-001 §5 orders anonymous TypeDecls by unsigned-lex canonical
+    `typeKey` bytes after the named contiguous prefix. The interner above
+    interns anonymous shapes in first-seen order (lookup only); this stage
+    assigns the final canonical ids by sorting the anonymous suffix on
+    `encodeAnonymousTypeRankKeyV1` bytes and remapping every TypeId reference
+    in the assembled data. Named-prefix ids never move, and anonymous rank
+    keys expand children structurally (named anchors use reserved-prefix ids),
+    so the sort is well defined before the final ids are assigned. -/
+
+/-- Remap one TypeId through the old→new table. Ids produced by the interner
+    are always in range; OOR is impossible on the production path and falls
+    back to identity to keep the helper total. -/
+private def remapTypeIdV1 (remap : Array TypeIdV1) (t : TypeIdV1) : TypeIdV1 :=
+  remap[t.toNat]?.getD t
+
+private def remapTypeShapeV1 (remap : Array TypeIdV1) :
+    TypeShapeV1 → TypeShapeV1
+  | .array element length => .array (remapTypeIdV1 remap element) length
+  | .map key value => .map (remapTypeIdV1 remap key) (remapTypeIdV1 remap value)
+  | .option element => .option (remapTypeIdV1 remap element)
+  | .struct fields =>
+      .struct (fields.map fun f => { f with typeId := remapTypeIdV1 remap f.typeId })
+  | .enum variants =>
+      .enum (variants.map fun v =>
+        { v with payloadTypes := v.payloadTypes.map (remapTypeIdV1 remap) })
+  | shape => shape
+
+private def remapSemanticOpTypeIdsV1 (remap : Array TypeIdV1) :
+    SemanticOpV1 → SemanticOpV1
+  | .literal typeId valueBytes => .literal (remapTypeIdV1 remap typeId) valueBytes
+  | .construct typeId ctor args => .construct (remapTypeIdV1 remap typeId) ctor args
+  | .checkedCast value toType => .checkedCast value (remapTypeIdV1 remap toType)
+  | op => op
+
+private def remapTerminatorTypeIdsV1 (remap : Array TypeIdV1) :
+    TerminatorV1 → TerminatorV1
+  | .switch scrutinee cases defaultTarget =>
+      .switch scrutinee
+        (cases.map fun c => { c with typeId := remapTypeIdV1 remap c.typeId })
+        defaultTarget
+  | terminator => terminator
+
+private def remapCallableTypeIdsV1 (remap : Array TypeIdV1)
+    (callable : CallableV1) : CallableV1 :=
+  { callable with
+    params := callable.params.map fun p =>
+      { p with typeId := remapTypeIdV1 remap p.typeId }
+    result := { callable.result with
+      typeId := remapTypeIdV1 remap callable.result.typeId }
+    blocks := callable.blocks.map fun block =>
+      { block with
+        params := block.params.map fun bp =>
+          { bp with typeId := remapTypeIdV1 remap bp.typeId }
+        instructions := block.instructions.map fun instr =>
+          { result := instr.result.map fun r =>
+              { r with typeId := remapTypeIdV1 remap r.typeId }
+            op := remapSemanticOpTypeIdsV1 remap instr.op }
+        terminator := remapTerminatorTypeIdsV1 remap block.terminator } }
+
+/-- Remap every TypeId reference outside the `types` table itself (constants,
+    logicalState, event/error interface fields, callable params/results, block
+    params, instruction result defs, literal/construct/checkedCast operands,
+    switch cases). The caller supplies the reordered `types` table. -/
+private def remapDataTypeIdsV1 (remap : Array TypeIdV1)
+    (data : SemanticProgramDataV1) : SemanticProgramDataV1 :=
+  { data with
+    constants := data.constants.map fun c =>
+      { c with typeId := remapTypeIdV1 remap c.typeId }
+    logicalState := data.logicalState.map fun s =>
+      { s with typeId := remapTypeIdV1 remap s.typeId }
+    events := data.events.map fun e =>
+      { e with fields := e.fields.map fun f =>
+        { f with typeId := remapTypeIdV1 remap f.typeId } }
+    errors := data.errors.map fun e =>
+      { e with fields := e.fields.map fun f =>
+        { f with typeId := remapTypeIdV1 remap f.typeId } }
+    callables := data.callables.map (remapCallableTypeIdsV1 remap) }
+
+/-- Strict rank order on (rank-key bytes, old id). The old-id tiebreak only
+    pins determinism; distinct interned anonymous decls have distinct keys. -/
+private def rankKeyedLtV1 (a b : ByteArray × Nat) : Bool :=
+  match compareByteArrayLex a.1 b.1 with
+  | .lt => true
+  | .gt => false
+  | .eq => a.2 < b.2
+
+/-- Structural insertion into a rank-sorted list. Kernel-reducible on purpose:
+    production lowering certificates evaluate the canonicalizer by `rfl`/
+    `decide`, and `Array.qsort` (well-founded recursion) does not reduce. -/
+private def insertRankKeyedV1 (item : ByteArray × Nat) :
+    List (ByteArray × Nat) → List (ByteArray × Nat)
+  | [] => [item]
+  | head :: tail =>
+      if rankKeyedLtV1 item head then item :: head :: tail
+      else head :: insertRankKeyedV1 item tail
+
+/-- Structural insertion sort by `rankKeyedLtV1` (anonymous suffixes are
+    small; kernel reducibility outweighs asymptotics here). -/
+private def sortRankKeyedV1 : List (ByteArray × Nat) → List (ByteArray × Nat)
+  | [] => []
+  | head :: tail => insertRankKeyedV1 head (sortRankKeyedV1 tail)
+
+/-- Assign SPEC §5 canonical anonymous TypeIds: sort the anonymous suffix by
+    unsigned-lex `typeKey` rank-key bytes (`encodeAnonymousTypeRankKeyV1`;
+    exact SPEC byte form plus the engineering `string` frame), remap every
+    reference, and reindex the table. First-seen order equal to canonical
+    rank returns the input data unchanged (exact identity fast path). Keys of
+    distinct interned anonymous decls are distinct by interner uniqueness;
+    the old id tiebreak only pins determinism. -/
+def canonicalizeAnonymousTypeRankV1 (data : SemanticProgramDataV1) :
+    Except NormalizeErrorV1 SemanticProgramDataV1 := do
+  -- Kernel-reducibility note: production lowering certificates evaluate this
+  -- stage by `rfl`/`decide`, so the body iterates Arrays/Lists only
+  -- (`Std.Range` for-in and `Array.qsort` do not kernel-reduce).
+  let types := data.types
+  -- Named contiguous prefix length (the interner keeps named decls first).
+  let mut namedCount := 0
+  for decl in types do
+    if decl.name.isSome then namedCount := namedCount + 1 else break
+  if types.size ≤ namedCount + 1 then
+    return data
+  let mut keyed : Array (ByteArray × Nat) := #[]
+  let mut idx := 0
+  for _ in types do
+    if idx ≥ namedCount then
+      match encodeAnonymousTypeRankKeyV1 types (UInt32.ofNat idx) with
+      | .ok key => keyed := keyed.push (key, idx)
+      | .error e => return ← .error (.wire e)
+    idx := idx + 1
+  let sorted := sortRankKeyedV1 keyed.toList
+  -- Identity remap table, then overwrite the anonymous suffix from the sort.
+  let mut remap : Array TypeIdV1 := #[]
+  let mut position := 0
+  for _ in types do
+    remap := remap.push (UInt32.ofNat position)
+    position := position + 1
+  let mut identity := true
+  let mut next := namedCount
+  for entry in sorted do
+    remap := remap.set! entry.2 (UInt32.ofNat next)
+    if entry.2 != next then
+      identity := false
+    next := next + 1
+  if identity then
+    return data
+  let mut newTypes : Array TypeDeclV1 := #[]
+  let mut prefixPosition := 0
+  for decl in types do
+    if prefixPosition < namedCount then
+      newTypes := newTypes.push
+        { decl with shape := remapTypeShapeV1 remap decl.shape }
+    prefixPosition := prefixPosition + 1
+  for entry in sorted do
+    match types[entry.2]? with
+    | none => pure ()
+    | some decl =>
+        newTypes := newTypes.push
+          { decl with
+            id := remapTypeIdV1 remap decl.id
+            shape := remapTypeShapeV1 remap decl.shape }
+  pure (remapDataTypeIdsV1 remap { data with types := newTypes })
+
 /-- Production finalization stage: assign the sole exact invariant metadata,
-    ensure the target-envelope UInt64 type, freeze requirements, and assemble
-    the canonical SemanticProgram data record. -/
+    ensure the target-envelope UInt64 type, freeze requirements, assemble
+    the canonical SemanticProgram data record, and assign the SPEC §5
+    canonical anonymous TypeId rank. -/
 def finishProgramLoweringV1
     (qualifiedName : QualifiedName) (program : ProgramV1)
     (tables : ProgramLoweringTablesV1) (bodies : ProgramLoweringBodiesV1) :
@@ -4467,7 +4632,7 @@ def finishProgramLoweringV1
   let core ← prepareProgramLoweringFinalizationCoreV1 bodies
   let s2Reqs ← freezeProgramLoweringS2RequirementsV1 program
   let requirements ← mergeProgramLoweringRequirementsV1 s2Reqs bodies
-  pure (assembleProgramLoweringDataV1
+  canonicalizeAnonymousTypeRankV1 (assembleProgramLoweringDataV1
     qualifiedName tables bodies core requirements)
 
 /-- Core lowering after Typed CheckV1 has succeeded.

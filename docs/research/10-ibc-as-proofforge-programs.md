@@ -36,7 +36,7 @@ closed，call/schedule 平台语义债 `B-CALL-SEM`、authority/custody 与 prot
 
 ## 动机与定位
 
-当前九个 materializer 没有一个把宿主原生 IBC 暴露为 portable ProofForge capability：EVM、
+当前十二个 materializer 没有一个把宿主原生 IBC 暴露为 portable ProofForge capability：EVM、
 Solana、NEAR、TON 的宿主模型不同，Noir/Quint 非部署型，Aleo/Psy 是独立 ZK 应用链模型；
 CosmWasm 虽已有 Plan/IR/Wasm 与 SubMsg 子集，IBC handler/packet/ack 仍显式 fail closed。
 因此“靠链原生 IBC”在当前产品可构建 target 集上仍不成立。

@@ -35,9 +35,9 @@ def requirementsV1 : ProgramRequirementsV1 := {
 def callablesV1
     (entryName parameterName invariantName : String) : Array CallableV1 := #[
   storeParameterTwoReturnCallableV1 0 (some entryName) parameterName
-    0 0 1 .public_,
+    1 0 1 .public_,
   twoStateCompareInvariantCallableV1 1 (some invariantName)
-    0 1 0 1 .eq .public_ (some 5)
+    1 0 0 1 .eq .public_ (some 5)
 ]
 
 /-- Contract-name-parametric semantic data for the state-changing equality
@@ -50,8 +50,8 @@ def subjectDataV1
   types := typesV1
   constants := #[]
   logicalState := #[
-    { id := 0, name := state0Name, typeId := 0, visibility := .public_ },
-    { id := 1, name := state1Name, typeId := 0, visibility := .public_ }
+    { id := 0, name := state0Name, typeId := 1, visibility := .public_ },
+    { id := 1, name := state1Name, typeId := 1, visibility := .public_ }
   ]
   events := #[]
   errors := #[]
@@ -77,15 +77,15 @@ theorem exactAtRoot_statesV1
     (hstate1Name : validateIdentifierComponent state1Name = .ok ()) :
     ExactMidOffsetInvertAtV1 (encodeArray encodeStateDeclV1)
       (decodeArray maxTableElements decodeStateDeclV1)
-      #[{ id := 0, name := state0Name, typeId := 0, visibility := .public_ },
-        { id := 1, name := state1Name, typeId := 0,
+      #[{ id := 0, name := state0Name, typeId := 1, visibility := .public_ },
+        { id := 1, name := state1Name, typeId := 1,
           visibility := .public_ }] 1 :=
   exactAt_array_two_of_exactAtV1 encodeStateDeclV1 decodeStateDeclV1
     maxTableElements (by decide) (by decide)
-    (StateDeclV1.mk 0 state0Name 0 .public_)
-    (StateDeclV1.mk 1 state1Name 0 .public_) 1
-    (exactAt_stateDecl_publicV1 0 0 state0Name hstate0Name 1 (by decide))
-    (exactAt_stateDecl_publicV1 1 0 state1Name hstate1Name 1 (by decide))
+    (StateDeclV1.mk 0 state0Name 1 .public_)
+    (StateDeclV1.mk 1 state1Name 1 .public_) 1
+    (exactAt_stateDecl_publicV1 0 1 state0Name hstate0Name 1 (by decide))
+    (exactAt_stateDecl_publicV1 1 1 state1Name hstate1Name 1 (by decide))
 
 theorem exactAtRoot_invariantsV1 (invariantName : String) :
     ExactMidOffsetInvertAtV1 (encodeArray encodeInvariantDeclV1)
@@ -155,7 +155,7 @@ theorem rootFieldInvertV1
         maxTableElements 1)
   · simpa [subjectDataV1, callablesV1] using
       exactAt_storeParameterEqualityCallableTableV1 0 1 entryName
-        parameterName invariantName 0 1 0 1 hentryName hparameterName
+        parameterName invariantName 1 0 0 1 hentryName hparameterName
         hinvariantName
   · simpa [subjectDataV1] using exactAtRoot_invariantsV1 invariantName
   · simpa [subjectDataV1] using exactAtRoot_requirementsV1
@@ -243,8 +243,8 @@ theorem logicalStateNamesV1
     (state0Name state1Name : String)
     (hstate01 : state0Name ≠ state1Name) :
     validateLogicalStateNameUniquenessV1 #[
-      { id := 0, name := state0Name, typeId := 0, visibility := .public_ },
-      { id := 1, name := state1Name, typeId := 0,
+      { id := 0, name := state0Name, typeId := 1, visibility := .public_ },
+      { id := 1, name := state1Name, typeId := 1,
         visibility := .public_ }
     ] = .ok () := by
   have h01 : (state0Name == state1Name) = false := by
@@ -358,12 +358,12 @@ private theorem entryCfgV1
     (state0Name state1Name entryName parameterName invariantName : String) :
     validateCallableCfgShape
       (storeParameterTwoReturnCallableV1 0 (some entryName) parameterName
-        0 0 1 .public_)
+        1 0 1 .public_)
       typesV1.size typesV1
       (subjectDataV1 qualifiedName state0Name state1Name entryName
         parameterName invariantName) = .ok () := by
   let callable := storeParameterTwoReturnCallableV1 0 (some entryName)
-    parameterName 0 0 1 .public_
+    parameterName 1 0 1 .public_
   let data := subjectDataV1 qualifiedName state0Name state1Name entryName
     parameterName invariantName
   refine validateCallableCfgShape_eq_ok_of_phases callable typesV1.size
@@ -387,12 +387,12 @@ private theorem invariantCfgV1
     (state0Name state1Name entryName parameterName invariantName : String) :
     validateCallableCfgShape
       (twoStateCompareInvariantCallableV1 1 (some invariantName)
-        0 1 0 1 .eq .public_ (some 5))
+        1 0 0 1 .eq .public_ (some 5))
       typesV1.size typesV1
       (subjectDataV1 qualifiedName state0Name state1Name entryName
         parameterName invariantName) = .ok () := by
   let callable := twoStateCompareInvariantCallableV1 1 (some invariantName)
-    0 1 0 1 .eq .public_ (some 5)
+    1 0 0 1 .eq .public_ (some 5)
   let data := subjectDataV1 qualifiedName state0Name state1Name entryName
     parameterName invariantName
   refine validateCallableCfgShape_eq_ok_of_phases callable typesV1.size
@@ -421,9 +421,9 @@ theorem genericCfgPhasesV1
     (subjectDataV1 qualifiedName state0Name state1Name entryName
       parameterName invariantName)
     (storeParameterTwoReturnCallableV1 0 (some entryName) parameterName
-      0 0 1 .public_)
+      1 0 1 .public_)
     (twoStateCompareInvariantCallableV1 1 (some invariantName)
-      0 1 0 1 .eq .public_ (some 5))
+      1 0 0 1 .eq .public_ (some 5))
   · rfl
   · exact entryCfgV1 qualifiedName state0Name state1Name entryName
       parameterName invariantName

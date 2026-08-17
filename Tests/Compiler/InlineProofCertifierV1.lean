@@ -134,7 +134,8 @@ private theorem storageField_eq_binding_of_fields
     (hname : field.name = binding.semanticName)
     (hkey : field.key = binding.physicalKey)
     (hwidth : field.byteWidth = 8)
-    (hendianness : field.endianness = .little) :
+    (hendianness : field.endianness = .little)
+    (hisInt : field.isInt = false) :
     field = {
       sourceId := binding.physicalFieldIndex
       name := binding.semanticName
@@ -153,7 +154,7 @@ private theorem nearEndianness_eq_little (endianness : Endianness) :
 private def productionReservesBinding (physicalKey : String) :
     UInt64StateBindingV1 := {
   semanticStateId := 0
-  semanticTypeId := 0
+  semanticTypeId := 1
   semanticName := "reserves"
   physicalFieldIndex := 0
   physicalKey
@@ -164,7 +165,7 @@ private def productionReservesBinding (physicalKey : String) :
 private def productionSharesBinding (physicalKey : String) :
     UInt64StateBindingV1 := {
   semanticStateId := 1
-  semanticTypeId := 0
+  semanticTypeId := 1
   semanticName := "shares"
   physicalFieldIndex := 1
   physicalKey
@@ -216,7 +217,8 @@ private def checkProductionUInt64Binding
                                 field.sourceId = binding.physicalFieldIndex ∧
                                 field.name = binding.semanticName ∧
                                 field.key = binding.physicalKey ∧
-                                field.byteWidth = 8 then
+                                field.byteWidth = 8 ∧
+                                field.isInt = false then
                               have hstateExact :=
                                 stateDeclV1_eq_binding_of_fields stateDecl binding
                                   hstateFields.1 hstateFields.2.1
@@ -234,8 +236,8 @@ private def checkProductionUInt64Binding
                               have hfieldExact :=
                                 storageField_eq_binding_of_fields field binding
                                   hfieldFields.1 hfieldFields.2.1
-                                  hfieldFields.2.2.1 hfieldFields.2.2.2
-                                  hendianness
+                                  hfieldFields.2.2.1 hfieldFields.2.2.2.1
+                                  hendianness hfieldFields.2.2.2.2
                               pure ⟨(), by
                                 refine ⟨?_, ?_, ?_, ?_⟩
                                 · exact hstate.trans (congrArg some hstateExact)

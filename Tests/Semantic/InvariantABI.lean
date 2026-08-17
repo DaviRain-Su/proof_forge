@@ -200,57 +200,59 @@ private def evalState : LogicalStateV1 :=
 
 /--
   Named Struct/Enum occupy types[0..1); anonymous leaves/containers follow
-  without duplicate anonymous shapes. TypeId layout:
+  in SPEC §5 unsigned-lex `typeKey` rank (tag-length first: int < map <
+  bool < uint < unit < array < bytes < field < option < principal).
+  TypeId layout:
 
     0  named Struct Pair { a:Bool, b:UInt8 }
     1  named Enum Tag { V0(UInt8), V1() }
-    2  Bool
-    3  UInt8
-    4  Int8
-    5  Principal
+    2  Int8
+    3  Map Bool → UInt8
+    4  Bool
+    5  UInt8
     6  Unit
-    7  Bytes 3
-    8  Array Bool × 2
-    9  Map Bool → UInt8
+    7  Array Bool × 2
+    8  Bytes 3
+    9  Field bn254-fr
     10 Option Bool
-    11 Field bn254-fr
+    11 Principal
 -/
 private def allShapeTypes : Array TypeDeclV1 := #[
   {
     id := 0
     name := some "Pair"
     shape := .struct #[
-      { name := "a", typeId := 2 },
-      { name := "b", typeId := 3 }
+      { name := "a", typeId := 4 },
+      { name := "b", typeId := 5 }
     ]
   },
   {
     id := 1
     name := some "Tag"
     shape := .enum #[
-      { name := "V0", payloadTypes := #[3] },
+      { name := "V0", payloadTypes := #[5] },
       { name := "V1", payloadTypes := #[] }
     ]
   },
-  { id := 2, name := none, shape := .bool },
-  { id := 3, name := none, shape := .uint 8 },
-  { id := 4, name := none, shape := .int 8 },
-  { id := 5, name := none, shape := .principal },
+  { id := 2, name := none, shape := .int 8 },
+  { id := 3, name := none, shape := .map 4 5 },
+  { id := 4, name := none, shape := .bool },
+  { id := 5, name := none, shape := .uint 8 },
   { id := 6, name := none, shape := .unit },
-  { id := 7, name := none, shape := .bytes 3 },
-  { id := 8, name := none, shape := .array 2 2 },
-  { id := 9, name := none, shape := .map 2 3 },
-  { id := 10, name := none, shape := .option 2 },
-  { id := 11, name := none, shape := .field bn254FrFieldSpecV1 }
+  { id := 7, name := none, shape := .array 4 2 },
+  { id := 8, name := none, shape := .bytes 3 },
+  { id := 9, name := none, shape := .field bn254FrFieldSpecV1 },
+  { id := 10, name := none, shape := .option 4 },
+  { id := 11, name := none, shape := .principal }
 ]
 
 /-- State declaration order covers a representative multi-slot mix. -/
 private def multiStateDecls : Array StateDeclV1 := #[
-  { id := 0, name := "sBool", typeId := 2, visibility := .public_ },
-  { id := 1, name := "sU8", typeId := 3, visibility := .public_ },
+  { id := 0, name := "sBool", typeId := 4, visibility := .public_ },
+  { id := 1, name := "sU8", typeId := 5, visibility := .public_ },
   { id := 2, name := "sOpt", typeId := 10, visibility := .public_ },
   { id := 3, name := "sPair", typeId := 0, visibility := .public_ },
-  { id := 4, name := "sMap", typeId := 9, visibility := .public_ }
+  { id := 4, name := "sMap", typeId := 3, visibility := .public_ }
 ]
 
 private def encodeCarrier (label : String) (data : SemanticProgramDataV1) :
@@ -291,26 +293,26 @@ private def expectedDefaults : Array (TypeIdV1 × ByteArray) := #[
   (0, ByteArray.mk #[0, 0]),
   -- 1 Enum Tag variant0 + UInt8 payload default
   (1, (u32le 0).append (ByteArray.mk #[0])),
-  -- 2 Bool false
+  -- 2 Int8 zero
   (2, ByteArray.mk #[0]),
-  -- 3 UInt8 zero
-  (3, ByteArray.mk #[0]),
-  -- 4 Int8 zero
+  -- 3 Map empty
+  (3, u32le 0),
+  -- 4 Bool false
   (4, ByteArray.mk #[0]),
-  -- 5 Principal payload `00` with u32 length
-  (5, (u32le 1).append (ByteArray.mk #[0])),
+  -- 5 UInt8 zero
+  (5, ByteArray.mk #[0]),
   -- 6 Unit empty
   (6, ByteArray.empty),
-  -- 7 Bytes 3 zeros
-  (7, zeroBytes 3),
-  -- 8 Array Bool×2 = false,false
-  (8, ByteArray.mk #[0, 0]),
-  -- 9 Map empty
-  (9, u32le 0),
+  -- 7 Array Bool×2 = false,false
+  (7, ByteArray.mk #[0, 0]),
+  -- 8 Bytes 3 zeros
+  (8, zeroBytes 3),
+  -- 9 Field zero (32 LE bytes for bn254 Fr)
+  (9, zeroBytes 32),
   -- 10 Option none
   (10, ByteArray.mk #[0]),
-  -- 11 Field zero (32 LE bytes for bn254 Fr)
-  (11, zeroBytes 32)
+  -- 11 Principal payload `00` with u32 length
+  (11, (u32le 1).append (ByteArray.mk #[0]))
 ]
 
 private def expectedMultiStateDefaults : Array ByteArray := #[
@@ -486,10 +488,11 @@ private def testDecodeEncodeNegatives : IO Unit := do
   let baseF ← emptyData "NegField"
   let fieldData : SemanticProgramDataV1 := {
     baseF with
-    types := #[{ id := 0, name := none, shape := .field bn254FrFieldSpecV1 },
-               { id := 1, name := none, shape := .unit }]
-    logicalState := #[{ id := 0, name := "f", typeId := 0, visibility := .public_ }]
-    callables := #[entryGate 0 1]
+    -- Anonymous rank: unit (tag len 4) before field (tag len 5).
+    types := #[{ id := 0, name := none, shape := .unit },
+               { id := 1, name := none, shape := .field bn254FrFieldSpecV1 }]
+    logicalState := #[{ id := 0, name := "f", typeId := 1, visibility := .public_ }]
+    callables := #[entryGate 0 0]
   }
   let fieldCarrier ← encodeCarrier "NegField" fieldData
   let fieldProgData ← expectOk "field validate"
@@ -582,14 +585,16 @@ def qualifiedName : QualifiedName :=
 
 def boolType : TypeDeclV1 := { id := 0, name := none, shape := .bool }
 
+def unitType : TypeDeclV1 := { id := 1, name := none, shape := .unit }
+
 /-- The unrelated Principal declaration pins selected-closure rather than
-    whole-program admission. -/
-def principalType : TypeDeclV1 := { id := 1, name := none, shape := .principal }
+    whole-program admission. Canonical anonymous rank places Unit before
+    Principal. -/
+def principalType : TypeDeclV1 := { id := 2, name := none, shape := .principal }
 
-def unitType : TypeDeclV1 := { id := 2, name := none, shape := .unit }
-
-/-- The exact type table exercised by the selected invariant. -/
-def types : Array TypeDeclV1 := #[boolType, principalType, unitType]
+/-- The exact type table exercised by the selected invariant (SPEC §5
+    anonymous typeKey unsigned-lex order). -/
+def types : Array TypeDeclV1 := #[boolType, unitType, principalType]
 
 def logicalStateDecl : StateDeclV1 :=
   { id := 0, name := "flag", typeId := 0, visibility := .public_ }
@@ -597,7 +602,7 @@ def logicalStateDecl : StateDeclV1 :=
 def gateBlock : BlockV1 :=
   { id := 0, params := #[], instructions := #[], terminator := .return_ none }
 
-def gate : CallableV1 := entryGate 0 2
+def gate : CallableV1 := entryGate 0 1
 
 def leafInstruction : InstructionV1 := boolLiteral 0 true
 
@@ -746,10 +751,10 @@ private theorem compare_bool_principal_fixture :
   · decide
   · decide
 
-private theorem compare_principal_unit_fixture :
-    compareByteArrayLex principalTypeShapeBytes unitTypeShapeBytes = .gt := by
+private theorem compare_unit_principal_fixture :
+    compareByteArrayLex unitTypeShapeBytes principalTypeShapeBytes = .lt := by
   rw [compareByteArrayLex]
-  apply compareByteArrayLexLoopV1_eq_gt
+  apply compareByteArrayLexLoopV1_eq_lt
   · decide
   · decide
 
@@ -778,7 +783,7 @@ theorem typeKeyPrimitiveLeaf_data :
     unitType, encodeTypeShape_bool_fixture,
     encodeTypeShape_principal_fixture, encodeTypeShape_unit_fixture,
     compare_bool_principal_fixture, compare_bool_unit_fixture,
-    compare_principal_unit_fixture, Pure.pure, Except.pure, Bind.bind, Except.bind]
+    compare_unit_principal_fixture, Pure.pure, Except.pure, Bind.bind, Except.bind]
 
 /-- No fixture declaration is an anonymous Array/Map/Option container, so the
     production recursive structural-class subphase has an empty domain. -/
@@ -798,11 +803,13 @@ theorem typeKeyNamedBodyCycle_data :
     the canonical fixture. -/
 theorem typeKeyPhases_data :
     validateTypeKeyPhasesV1 data.types = .ok () := by
-  apply validateTypeKeyPhasesV1_eq_ok_of_phases
+  apply validateTypeKeyPhasesV1_eq_ok_of_prefix_phases
   · exact typeKeyNamedPrefix_data
   · exact typeKeyPrimitiveLeaf_data
   · exact typeKeyRecursiveAnonymous_data
   · exact typeKeyNamedBodyCycle_data
+  · exact validateAnonymousTypeKeyRankV1_bool_unit_principal_eq_ok
+      boolType unitType principalType rfl rfl rfl
 
 /-- The fixture has no named Struct/Enum declarations, so the exact production
     named-TypeDecl uniqueness phase checks an empty name array. -/
@@ -1200,14 +1207,14 @@ def canonicalQualifiedNameSpine : TransparentByteSpineV1 := [
   66, 73
 ]
 
-/-- Exact three-element TypeDecl array at root offset 76. -/
+/-- Exact three-element TypeDecl array at root offset 76 (bool, unit, principal). -/
 def canonicalTypesSpine : TransparentByteSpineV1 := [
   3, 0, 0, 0, 8, 0, 0, 0, 84, 121, 112, 101, 68, 101, 99, 108, 3, 0,
   0, 0, 0, 0, 0, 9, 0, 0, 0, 84, 121, 112, 101, 46, 66, 111, 111, 108, 0, 0,
-  8, 0, 0, 0, 84, 121, 112, 101, 68, 101, 99, 108, 3, 0, 1, 0, 0, 0, 0, 14,
-  0, 0, 0, 84, 121, 112, 101, 46, 80, 114, 105, 110, 99, 105, 112, 97, 108, 0,
-  0, 8, 0, 0, 0, 84, 121, 112, 101, 68, 101, 99, 108, 3, 0, 2, 0, 0, 0, 0, 9,
-  0, 0, 0, 84, 121, 112, 101, 46, 85, 110, 105, 116, 0, 0
+  8, 0, 0, 0, 84, 121, 112, 101, 68, 101, 99, 108, 3, 0, 1, 0, 0, 0, 0, 9,
+  0, 0, 0, 84, 121, 112, 101, 46, 85, 110, 105, 116, 0, 0, 8, 0, 0, 0, 84,
+  121, 112, 101, 68, 101, 99, 108, 3, 0, 2, 0, 0, 0, 0, 14, 0, 0, 0, 84, 121,
+  112, 101, 46, 80, 114, 105, 110, 99, 105, 112, 97, 108, 0, 0
 ]
 
 /-- Exact empty constants table at root offset 187. -/
@@ -1234,7 +1241,7 @@ def canonicalEntryGateSpine : TransparentByteSpineV1 := [
   14, 0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101, 46, 69, 110, 116, 114, 121,
   0, 0, 1, 10, 0, 0, 0, 101, 110, 116, 114, 121, 95, 103, 97, 116, 101, 0,
   0, 0, 0, 14, 0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101, 82, 101, 115,
-  117, 108, 116, 2, 0, 2, 0, 0, 0, 17, 0, 0, 0, 86, 105, 115, 105, 98,
+  117, 108, 116, 2, 0, 1, 0, 0, 0, 17, 0, 0, 0, 86, 105, 115, 105, 98,
   105, 108, 105, 116, 121, 46, 80, 117, 98, 108, 105, 99, 0, 0, 0, 0, 0, 0,
   1, 0, 0, 0, 5, 0, 0, 0, 66, 108, 111, 99, 107, 4, 0, 0, 0, 0,
   0, 0, 0, 0, 0, 0, 0, 0, 0, 11, 0, 0, 0, 84, 101, 114, 109, 46,
@@ -1897,8 +1904,8 @@ theorem expectTypeDecl1_canonicalBytes :
   rfl
 
 theorem expectTypeDecl2_canonicalBytes :
-    expectTag "TypeDecl" 3 ⟨canonicalBytes, 153, 2⟩ =
-      .ok ((), ⟨canonicalBytes, 167, 2⟩) := by
+    expectTag "TypeDecl" 3 ⟨canonicalBytes, 148, 2⟩ =
+      .ok ((), ⟨canonicalBytes, 162, 2⟩) := by
   apply expectTypeDeclV1_canonicalBytes
   unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
     spineRemainingV1 readSpineU16leV1
@@ -1925,7 +1932,7 @@ theorem decodeTypeId1_canonicalBytes :
   rfl
 
 theorem decodeTypeId2_canonicalBytes :
-    decodeU32le ⟨canonicalBytes, 167, 2⟩ = .ok (2, ⟨canonicalBytes, 171, 2⟩) := by
+    decodeU32le ⟨canonicalBytes, 162, 2⟩ = .ok (2, ⟨canonicalBytes, 166, 2⟩) := by
   apply decodeTypeIdV1_canonicalBytes
   rfl
 
@@ -1949,9 +1956,9 @@ theorem decodeNoTypeName1_canonicalBytes :
   simpa using decodeNoTypeNameV1_canonicalBytes 132 (by rfl)
 
 theorem decodeNoTypeName2_canonicalBytes :
-    decodeOption decodeString ⟨canonicalBytes, 171, 2⟩ =
-      .ok (none, ⟨canonicalBytes, 172, 2⟩) := by
-  simpa using decodeNoTypeNameV1_canonicalBytes 171 (by rfl)
+    decodeOption decodeString ⟨canonicalBytes, 166, 2⟩ =
+      .ok (none, ⟨canonicalBytes, 167, 2⟩) := by
+  simpa using decodeNoTypeNameV1_canonicalBytes 166 (by rfl)
 
 private theorem decodeTypeShapeTagV1_canonicalBytes (offset after : Nat)
     (raw : TransparentByteSpineV1) (value : String)
@@ -1993,16 +2000,15 @@ theorem decodeTypeShapeBool_canonicalBytes :
     · apply decodeZeroFieldCountV1_canonicalBytes
       rfl
 
-theorem decodeTypeShapePrincipal_canonicalBytes :
+theorem decodeTypeShapeUnit_canonicalBytes :
     decodeTypeShapeV1 ⟨canonicalBytes, 133, 2⟩ =
-      .ok (.principal, ⟨canonicalBytes, 153, 2⟩) := by
-  refine decodeTypeShapeV1_eq_of_bodyV1 ⟨canonicalBytes, 133, 2⟩ .principal
-    ⟨canonicalBytes, 153, 3⟩ ?_ ?_
+      .ok (.unit, ⟨canonicalBytes, 148, 2⟩) := by
+  refine decodeTypeShapeV1_eq_of_bodyV1 ⟨canonicalBytes, 133, 2⟩ .unit
+    ⟨canonicalBytes, 148, 3⟩ ?_ ?_
   · decide
-  · apply decodeTypeShapeBodyV1_principal
-    · apply decodeTypeShapeTagV1_canonicalBytes 133 151
-        [84, 121, 112, 101, 46, 80, 114, 105, 110, 99, 105, 112, 97, 108]
-        "Type.Principal"
+  · apply decodeTypeShapeBodyV1_unit
+    · apply decodeTypeShapeTagV1_canonicalBytes 133 146
+        [84, 121, 112, 101, 46, 85, 110, 105, 116] "Type.Unit"
       · unfold readTagSpineBytesV1 takeSpineBytesV1 spineRemainingV1
         rw [canonicalSpine_length]
         rfl
@@ -2011,15 +2017,16 @@ theorem decodeTypeShapePrincipal_canonicalBytes :
     · apply decodeZeroFieldCountV1_canonicalBytes
       rfl
 
-theorem decodeTypeShapeUnit_canonicalBytes :
-    decodeTypeShapeV1 ⟨canonicalBytes, 172, 2⟩ =
-      .ok (.unit, ⟨canonicalBytes, 187, 2⟩) := by
-  refine decodeTypeShapeV1_eq_of_bodyV1 ⟨canonicalBytes, 172, 2⟩ .unit
+theorem decodeTypeShapePrincipal_canonicalBytes :
+    decodeTypeShapeV1 ⟨canonicalBytes, 167, 2⟩ =
+      .ok (.principal, ⟨canonicalBytes, 187, 2⟩) := by
+  refine decodeTypeShapeV1_eq_of_bodyV1 ⟨canonicalBytes, 167, 2⟩ .principal
     ⟨canonicalBytes, 187, 3⟩ ?_ ?_
   · decide
-  · apply decodeTypeShapeBodyV1_unit
-    · apply decodeTypeShapeTagV1_canonicalBytes 172 185
-        [84, 121, 112, 101, 46, 85, 110, 105, 116] "Type.Unit"
+  · apply decodeTypeShapeBodyV1_principal
+    · apply decodeTypeShapeTagV1_canonicalBytes 167 185
+        [84, 121, 112, 101, 46, 80, 114, 105, 110, 99, 105, 112, 97, 108]
+        "Type.Principal"
       · unfold readTagSpineBytesV1 takeSpineBytesV1 spineRemainingV1
         rw [canonicalSpine_length]
         rfl
@@ -2041,32 +2048,32 @@ theorem decodeTypeDecl0_canonicalBytes :
 
 theorem decodeTypeDecl1_canonicalBytes :
     decodeTypeDeclV1 ⟨canonicalBytes, 114, 1⟩ =
-      .ok (principalType, ⟨canonicalBytes, 153, 1⟩) := by
-  refine decodeTypeDeclV1_eq_of_bodyV1 ⟨canonicalBytes, 114, 1⟩ principalType
-    ⟨canonicalBytes, 153, 2⟩ (by decide) ?_
+      .ok (unitType, ⟨canonicalBytes, 148, 1⟩) := by
+  refine decodeTypeDeclV1_eq_of_bodyV1 ⟨canonicalBytes, 114, 1⟩ unitType
+    ⟨canonicalBytes, 148, 2⟩ (by decide) ?_
   apply decodeTypeDeclBodyV1_eq_of_fields
   · exact expectTypeDecl1_canonicalBytes
   · exact decodeTypeId1_canonicalBytes
   · exact decodeNoTypeName1_canonicalBytes
-  · exact decodeTypeShapePrincipal_canonicalBytes
+  · exact decodeTypeShapeUnit_canonicalBytes
 
 theorem decodeTypeDecl2_canonicalBytes :
-    decodeTypeDeclV1 ⟨canonicalBytes, 153, 1⟩ =
-      .ok (unitType, ⟨canonicalBytes, 187, 1⟩) := by
-  refine decodeTypeDeclV1_eq_of_bodyV1 ⟨canonicalBytes, 153, 1⟩ unitType
+    decodeTypeDeclV1 ⟨canonicalBytes, 148, 1⟩ =
+      .ok (principalType, ⟨canonicalBytes, 187, 1⟩) := by
+  refine decodeTypeDeclV1_eq_of_bodyV1 ⟨canonicalBytes, 148, 1⟩ principalType
     ⟨canonicalBytes, 187, 2⟩ (by decide) ?_
   apply decodeTypeDeclBodyV1_eq_of_fields
   · exact expectTypeDecl2_canonicalBytes
   · exact decodeTypeId2_canonicalBytes
   · exact decodeNoTypeName2_canonicalBytes
-  · exact decodeTypeShapeUnit_canonicalBytes
+  · exact decodeTypeShapePrincipal_canonicalBytes
 
 theorem decodeTypes_canonicalBytes :
     decodeArray maxTableElements decodeTypeDeclV1 ⟨canonicalBytes, 76, 1⟩ =
       .ok (types, ⟨canonicalBytes, 187, 1⟩) := by
   have h := decodeArray_threeV1 maxTableElements decodeTypeDeclV1
-    ⟨canonicalBytes, 76, 1⟩ 80 boolType principalType unitType
-    ⟨canonicalBytes, 114, 1⟩ ⟨canonicalBytes, 153, 1⟩ ⟨canonicalBytes, 187, 1⟩
+    ⟨canonicalBytes, 76, 1⟩ 80 boolType unitType principalType
+    ⟨canonicalBytes, 114, 1⟩ ⟨canonicalBytes, 148, 1⟩ ⟨canonicalBytes, 187, 1⟩
     readTypesCount_canonicalBytes decodeTypeDecl0_canonicalBytes
     decodeTypeDecl1_canonicalBytes decodeTypeDecl2_canonicalBytes
   simpa [types] using h
@@ -2337,9 +2344,9 @@ theorem decodeGateResultVisibility_canonicalBytes :
 
 theorem decodeGateResult_canonicalBytes :
     decodeCallableResultV1 ⟨canonicalBytes, 318, 2⟩ =
-      .ok ({ typeId := 2, visibility := .public_ }, ⟨canonicalBytes, 365, 2⟩) := by
+      .ok ({ typeId := 1, visibility := .public_ }, ⟨canonicalBytes, 365, 2⟩) := by
   refine decodeCallableResultV1_eq_of_bodyV1 ⟨canonicalBytes, 318, 2⟩
-    { typeId := 2, visibility := .public_ } ⟨canonicalBytes, 365, 3⟩ (by decide) ?_
+    { typeId := 1, visibility := .public_ } ⟨canonicalBytes, 365, 3⟩ (by decide) ?_
   apply decodeCallableResultBodyV1_eq_of_fields
   · exact expectGateResult_canonicalBytes
   · apply decodeCanonicalU32V1
@@ -2412,7 +2419,7 @@ theorem decodeGate_canonicalBytes :
     ⟨canonicalBytes, 314, 2⟩ ⟨canonicalBytes, 365, 2⟩
     ⟨canonicalBytes, 369, 2⟩ ⟨canonicalBytes, 414, 2⟩
     ⟨canonicalBytes, 419, 2⟩ 318 373 418 0 0 .entry (some "entry_gate")
-    { typeId := 2, visibility := .public_ } gateBlock none (by decide)
+    { typeId := 1, visibility := .public_ } gateBlock none (by decide)
     expectGateCallable_canonicalBytes decodeGateId_canonicalBytes decodeGateKind_canonicalBytes
     decodeGateName_canonicalBytes (by
       change readArrayCountAtV1 (ByteArray.mk canonicalSpine.toArray) 314

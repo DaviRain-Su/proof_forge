@@ -3,7 +3,7 @@ id: PLAN-CAP-LAYER-PARITY
 title: 十二 target 同一能力层 — 设计
 status: draft
 owner: engineering
-updated: 2026-08-15
+updated: 2026-08-16
 normative: false
 ---
 
@@ -58,9 +58,9 @@ before the Plan key.
 
 | Key | EVM | Solana | NEAR | CW | TON | Soroban | ICP | Noir/OpenVM/Psy/Aleo/Quint |
 |---|---|---|---|---|---|---|---|---|
-| `caller` | A | P (CPI signer) | P (init/entry) | P (exec/init) | — / F | — / F | F | F |
-| `blockHeight` | A | A (`Clock.slot`) | A | A | F (no honest height) | F | F (no API) | F |
-| `unixTimeSeconds` | A | **F** (Clock has `unix_timestamp`) | A | A | A | F (`ledger.timestamp` exists) | **A** `ic0.time` ns÷10⁹ | F |
+| `caller` | A | P (CPI signer) | P (init/entry) | P (exec/init) | — / F | — / F | **P**（CAP-1b 2026-08-16：`ic0.msg_caller_*` init/entry；view 名义 FC） | F |
+| `blockHeight` | A | A (`Clock.slot`) | A | A | F (no honest height) | **A**（CAP-3 2026-08-16：`env.ledger().sequence()` u32→u64） | F (no API) | F |
+| `unixTimeSeconds` | A | **A**（CAP-2 2026-08-16：`Clock.unix_timestamp` i64@32 raw bits） | A | A | A | **A**（CAP-3 2026-08-16：`env.ledger().timestamp()`） | **A** `ic0.time` ns÷10⁹ | F |
 | `chainId` | A | F | A | F (String, no silent hash) | F | F (`network id` exists) | F | F |
 | `attachedValue` | A | F | P (init/entry) | P (exec/init) | F | F | F | F |
 | `self` | A | F | A | A | F | — / F | F | F |
@@ -69,7 +69,7 @@ before the Plan key.
 
 | QN | EVM | Solana | NEAR | CW | TON | Soroban | ICP | circuit / Quint |
 |---|---|---|---|---|---|---|---|---|
-| `sha256` | A `0x02` | A `sol_sha256` | A host | F (no host) | F (`string_hash` ≠ SHA-256) | F (`env.crypto.sha256` exists) | F (no direct) | F |
+| `sha256` | A `0x02` | A `sol_sha256` | A host | F (no host) | **A**（CAP-5 2026-08-16：Tolk `slice.bitsHash()`/TVM `SHA256U` over LE image；`string_hash` 永不发射） | **A**（CAP-4 2026-08-16：`env.crypto().sha256`，UInt256 LE-limb plumbing-only；keccak/siblings 仍名义 FC） | F (no direct) | F |
 | `keccak256` | A opcode | A `sol_keccak256` | A host | F | F (no keccak) | F | F | F |
 | `ecdsaRecoverSecp256k1` | A `0x01` | F | F | F | F | F | F | F |
 | Bytes / Merkle / other verify | F | F | F | F | F | F | F | F |
@@ -102,11 +102,11 @@ Order is host honesty × product freeze × file isolation.
 |---|---|---|---|
 | **P0** | Keep the matrix honest; no new TargetId | RPT-028 / empty Goal | — |
 | **P1a** | ICP `unixTimeSeconds` → `ic0.time` ns÷10⁹ | Host exists; S0 already emits Wasm; named FC today is a gap, not a freeze | none (Plan/IR/WAT leaf) |
-| **P1b** | ICP `caller` → `msg_caller` | Same as S1 on NEAR/CW; view-safety must be named | Principal wire vs canister principal bytes |
-| **P1c** | Solana `unixTimeSeconds` → `Clock.unix_timestamp` | Sysvar already used for `blockHeight`; last S2 hole on the strongest SVM leaf | product: stake-weighted i64 vs UInt64 |
-| **P2a** | Soroban `unixTimeSeconds` / `blockHeight` as **source** `env.ledger()` | Host exists in the dialect S0 already emits | [S0 ≠ Wasm](../../.agents/notes/implemented/architecture/2026-08-15-soroban-s0-not-wasm.md): Plan-only, no Finalize/tool |
-| **P2b** | Soroban `pf.crypto.sha256` as source `env.crypto.sha256` | Completes S5 on the one Wasm host that has the API | same S0 ceiling; no stellar-cli |
-| **P2c** | TON SHA-256 via honest stdlib (not `string_hash`) | RPT-020 lists a real sha256; current FC is correct vs `string_hash` | TON feature freeze (owner: no pf.assets / later features) |
+| **P1b** | ICP `caller` → `msg_caller` | Same as S1 on NEAR/CW; view-safety must be named | ~~Principal wire vs canister principal bytes~~ **decided 2026-08-16**（CAP-D-ICP-PRINCIPAL yes：ADR-0025-class `u32le(len)‖principal`） |
+| **P1c** | Solana `unixTimeSeconds` → `Clock.unix_timestamp` | Sysvar already used for `blockHeight`; last S2 hole on the strongest SVM leaf | ~~product: stake-weighted i64 vs UInt64~~ **decided 2026-08-16**（CAP-D-SOL-TIME yes） |
+| **P2a** | Soroban `unixTimeSeconds` / `blockHeight` as **source** `env.ledger()` | Host exists in the dialect S0 already emits | [S0 ≠ Wasm](../../.agents/notes/implemented/architecture/2026-08-15-soroban-s0-not-wasm.md): Plan-only, no Finalize/tool；**decided 2026-08-16**（CAP-D-SOR-LEDGER yes，仍 Plan-only） |
+| **P2b** | Soroban `pf.crypto.sha256` as source `env.crypto.sha256` | Completes S5 on the one Wasm host that has the API | same S0 ceiling; no stellar-cli；**decided 2026-08-16**（同上） |
+| **P2c** | TON SHA-256 via honest stdlib (not `string_hash`) | RPT-020 lists a real sha256; current FC is correct vs `string_hash` | ~~TON feature freeze~~ **decided 2026-08-16**（CAP-D-TON-SHA yes：仅解冻 sha256 一项；pf.assets/其余 freeze 不变） |
 | **P3** | stop | Merkle, Bytes ABI, ed25519, Cairo, prove, SOR-1 Wasm | Agent Notes + Track C |
 
 ICP has **no** block-height API. That cell stays F. CosmWasm has **no**

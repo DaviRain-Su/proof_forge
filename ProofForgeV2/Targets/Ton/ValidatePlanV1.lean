@@ -33,6 +33,8 @@ private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) : Expr → Bool
   | .narrowSignedCheckedAdd .. | .narrowSignedCheckedSub ..
   | .narrowSignedCheckedMul .. | .narrowSignedCheckedDiv ..
   | .narrowSignedCheckedMod .. => false
+  -- CAP-5: sha256 result is UInt256, not a UInt64 event/schedule arg.
+  | .sha256 _ => false
   | _ => true
 
 private partial def planExprNodes? (layout : StorageLayout) (params : Array Param)
@@ -64,6 +66,7 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
     | .localTemp _ => some 1
     -- B-CTX-OPEN: Tolk `blockchain.now()` leaf — arity 1 (mirrors EVM/NEAR).
     | .blockUnixTimeSeconds => some 1
+    | .sha256 operand => unaryNodes operand
     | .checkedAdd lhs rhs => binaryNodes lhs rhs
     | .checkedSub lhs rhs => binaryNodes lhs rhs
     | .checkedMul lhs rhs => binaryNodes lhs rhs

@@ -188,6 +188,8 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   -- B-CTX-OPEN: block unix time seconds (tag 51 appended; prior tags
   -- byte-identical). Tolk `blockchain.now()`; no payload.
   | .blockUnixTimeSeconds => pure (encodeU8 51)
+  -- CAP-5: sha256 of a UInt256 operand (tag 57 appended).
+  | .sha256 operand => pure ((encodeU8 57).append (← encodeExpr operand))
 
 private partial def encodeStatement (stmt : Statement) : Except String ByteArray := do
   match stmt with

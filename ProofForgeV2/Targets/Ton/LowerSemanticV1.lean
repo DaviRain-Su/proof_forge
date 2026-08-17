@@ -10,8 +10,10 @@ import ProofForgeV2.Compiler.Pipeline
 Owns the TON/TVM Plan surface (c4 cell storage, internal-message op dispatch,
 get-methods) and Semantic→Plan body for the public-UInt64 state-cell pilot.
 
-`pf.crypto.*` (including `sha256` and `keccak256`) has no TON host binding
-and stays fail closed on both void and result-bearing ExternalCall.
+CAP-5 admits exact `pf.crypto.sha256` (UInt256→UInt256) as Tolk
+`slice.bitsHash()` / TVM `SHA256U` over the Semantic 32-byte LE image.
+`pf.crypto.keccak256` and sibling QNs stay fail closed. FunC `string_hash`
+is forbidden (cell-hash-flavored name; not this binding).
 -/
 
 namespace ProofForgeV2.Targets.Ton
@@ -200,6 +202,11 @@ inductive Expr where
       directly with no range guard. Carries `context.unixTimeSeconds`;
       UInt64-typed. -/
   | blockUnixTimeSeconds
+  /-- CAP-5: SHA-256 of the Semantic UInt256 little-endian 32-byte
+      valueBytes via Tolk `slice.bitsHash()` (TVM `SHA256U`).
+      Forbidden: FunC `string_hash` spelling / cell representation hash
+      (`slice.hash` / `HASHCU` / `HASHBU`). -/
+  | sha256 (operand : Expr)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -459,10 +466,25 @@ def canonicalRegisters : RegisterLayout := {
 def isIdentifier (value : String) : Bool :=
   isAsciiIdentifier maxIdentifierBytes value
 
-/-- ADR-0031 S5: TON has no sha256 or keccak256 host. Any `pf.crypto.*` QN stays
-    fail closed (void and result-bearing). -/
+/-- CAP-5: reserve the whole `pf.crypto.*` namespace. Only exact sha256
+    is admitted; keccak256 and siblings keep the named host-binding FC. -/
 private def isPfCryptoCalleeV1 (components : Array String) : Bool :=
   components[0]? == some "pf" && components[1]? == some "crypto"
+
+private def isPfCryptoSha256CalleeV1 (components : Array String) : Bool :=
+  components.size == 3 &&
+    components[0]? == some "pf" &&
+    components[1]? == some "crypto" &&
+    components[2]? == some "sha256"
+
+private def pfCryptoSha256ArityErrorV1 : String :=
+  "unsupported Ton semantic shape: pf.crypto.sha256 requires exactly one UInt256 argument and UInt256 result"
+
+private def pfCryptoScheduleErrorV1 : String :=
+  "unsupported Ton semantic shape: pf.crypto calls cannot be scheduled"
+
+private def pfCryptoHostBindingErrorV1 (qn : String) : String :=
+  s!"unsupported Ton semantic shape: pf.crypto QN '{qn}' has no Ton host binding (keccak256 and siblings stay fail closed)"
 
 /-- Schedule **receiver stub** grammar (pilot): lowercase ASCII letters, digits,
     `_`, `-`, `.`; UTF-8 length 2..64; no leading or trailing `.`. Uppercase is
@@ -2868,24 +2890,41 @@ private def lowerBlockInstructionsV1
         body := body.push (.emitEvent eventId.toNat argExprs)
         armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
-    | .externalCall _effectId callee _argIds, some _result =>
-        -- SYS-S5: TON has no host sha256/keccak256. Pin the dedicated diagnostic
-        -- instead of falling through the UInt64-pilot catch-all.
+    | .externalCall _effectId callee argIds, some result =>
+        -- CAP-5: exact `pf.crypto.sha256` UInt256→UInt256 is a host SHA-256
+        -- leaf (Tolk `bitsHash` / TVM `SHA256U`), not a sync call. keccak256
+        -- and siblings stay named FC. Generic result-bearing CALL stays
+        -- outside the envelope.
         let components := callee.components.toArray
         let qn := String.intercalate "." components.toList
-        if isPfCryptoCalleeV1 components then
+        if isPfCryptoSha256CalleeV1 components then
+          if mode == .pureFn then
+            throw <| .planInvariant .ton
+              "unsupported Ton semantic shape: pureFn cannot call pf.crypto.sha256"
+          unless argIds.size == 1 && types.uintTypeIdAt 256 == some result.typeId do
+            throw <| .planInvariant .ton pfCryptoSha256ArityErrorV1
+          let some argId := argIds[0]? |
+            throw <| .planInvariant .ton pfCryptoSha256ArityErrorV1
+          let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
+          unless root.kind == .uint256 do
+            throw <| .planInvariant .ton pfCryptoSha256ArityErrorV1
+          let value ← makeUnaryTreeValueV1 (fun o => .sha256 o) .uint256 .uint256 argId root
+          values := ← appendResultValueV1 result.typeId values result value
+        else if isPfCryptoCalleeV1 components then
+          throw <| .planInvariant .ton (pfCryptoHostBindingErrorV1 qn)
+        else
           throw <| .planInvariant .ton
-            s!"unsupported Ton semantic shape: pf.crypto QN '{qn}' has no Ton host binding (sha256/keccak256 and siblings stay fail closed)"
-        throw <| .planInvariant .ton
-          "unsupported Ton semantic shape: result-bearing ExternalCall is outside the Ton envelope"
+            "unsupported Ton semantic shape: result-bearing ExternalCall is outside the Ton envelope"
     | .externalCall _effectId callee _argIds, none =>
         -- Ton has no synchronous cross-contract calls. The S2 resolver already
         -- declines effect.synchronous-call; this is the defensive plan gate.
+        -- Void sha256 is not a host-syscall shape (result is required).
         let components := callee.components.toArray
         let qn := String.intercalate "." components.toList
+        if isPfCryptoSha256CalleeV1 components then
+          throw <| .planInvariant .ton pfCryptoSha256ArityErrorV1
         if isPfCryptoCalleeV1 components then
-          throw <| .planInvariant .ton
-            s!"unsupported Ton semantic shape: pf.crypto QN '{qn}' has no Ton host binding (sha256/keccak256 and siblings stay fail closed)"
+          throw <| .planInvariant .ton (pfCryptoHostBindingErrorV1 qn)
         throw <| .planInvariant .ton
           "call/sync external call is outside the Ton MVP envelope (TON has no synchronous cross-contract return; use schedule/callback)"
     | .schedule _effectId callee argIds, none =>
@@ -2899,6 +2938,8 @@ private def lowerBlockInstructionsV1
           throw <| .planInvariant .ton
             (nearScheduleDisallowedError "pureFn cannot schedule workflows")
         let components := callee.components.toArray
+        if isPfCryptoCalleeV1 components then
+          throw <| .planInvariant .ton pfCryptoScheduleErrorV1
         unless components.size ≥ 2 do
           throw <| .planInvariant .ton
             "unsupported Ton semantic shape: schedule callee must have at least two components"
@@ -4348,8 +4389,10 @@ def materializePlanFromCapabilityV1 (capability : ResolvedEngineeringBuildV1) : 
 
 /-- Engineering Plan-layer entry that bypasses capability resolve.
 
-    Used to pin SYS-S5 `pf.crypto.*` fail-closed diagnostics while the Ton
-    resolver still declines `effect.synchronous-call`. **Not** a product path. -/
+    Used to pin named fail-closed diagnostics (generic sync CALL, pf.assets)
+    while the Ton resolver still declines `effect.synchronous-call`.
+    CAP-5 `pf.crypto.sha256` is a product-path leaf (no sync-call
+    contribution). **Not** a product path. -/
 def engineeringPlanFromSemanticV1 (source : SemanticProgramV1) : CompileResult Plan :=
   makePlanFromSemanticV1 source
 

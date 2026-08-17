@@ -116,7 +116,7 @@ DPN lower 保留函数、参数、static-unroll、aggregate leaf、expression wo
 当前成熟度是 **canonical DPN package emission** + **host-optional official local simulate**（`psy_user_cli simulate` via `pf test`/`pf run` / `scripts/psy_dpn_local_smoke.sh`）。没有 PF-owned VM、proof、UPS、
 network deploy、hermetic 或 formal refinement 证据；删除旧 source/compiler path 不提高这些
 成熟度。accepted PRD Phase 1 仍为 EVM/Solana/NEAR/Noir；Psy 属 engineering
-扩面，accepted/engineering scope 边界由 ADR-0036 固定。
+扩面，accepted/engineering scope 边界由 ADR-0036（仍 `proposed`）主张收口。
 
 
 ## 8. Product surface (agents / dApp)

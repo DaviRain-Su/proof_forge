@@ -1661,6 +1661,24 @@ private def dualArgProductAllowedN : Name :=
     gate stays exact rather than inventing a second product mint. -/
 private def dualArgSolanaCpiPreflightAllowedN : Name :=
   ``ProofForgeV2.Targets.Solana.CpiV1.resolveSolanaCpiPreflightV1
+
+/-- ADR-0048 certified production-preparation decomposition (Solana sBPF
+    semantics provider). The structure's dependent fields retain the REAL sole
+    product functions (`resolveEngineeringRequirementsV1` → capability → Plan →
+    IR → assembly), so their types mention both carriers by construction. This
+    is proof decomposition over the sole rail, not a second product mint.
+    Names are exact; a new dual-arg field or aux proof must be re-reviewed
+    here. (These were unreachable before 2026-08-16: the scan died on the NEAR
+    recognizer `eq_1` budget, which generated equation lemmas are now excluded
+    from — see `isLeanGeneratedEquationLemma`.) -/
+private def dualArgSolanaCertifiedPreparationAllowed : Array Name :=
+  #[``ProofForgeV2.Targets.Solana.CertifiedSolanaProductionPreparationV1.mk,
+    ``ProofForgeV2.Targets.Solana.CertifiedSolanaProductionPreparationV1.capability,
+    ``ProofForgeV2.Targets.Solana.CertifiedSolanaProductionPreparationV1.plan,
+    ``ProofForgeV2.Targets.Solana.CertifiedSolanaProductionPreparationV1.ir,
+    ``ProofForgeV2.Targets.Solana.CertifiedSolanaProductionPreparationV1.assembly,
+    ``ProofForgeV2.Targets.Solana.CertifiedSolanaProductionPreparationV1.artifactSuccess,
+    `ProofForgeV2.Targets.Solana.resolveCertifiedSolanaProductionPreparationV1._proof_1]
 /-- Umbrella library coverage witness (ReferenceV1; outside old selected imports). -/
 private def dualArgUmbrellaCoverageWitnessN : Name :=
   ``ProofForgeV2.Semantic.ReferenceV1.admitReferenceProgramSliceV1
@@ -1776,6 +1794,20 @@ private def isLeanGeneratedCtorChild (env : Environment) (n : Name) : Bool :=
             || leaf == "_flat_ctor")
   | _ => false
 
+/-- Lean-generated equational lemmas (`f.eq_def` / `f.eq_1` / `f.eq_2` …) under
+    a parent that exists in the environment. Their types unfold the parent's
+    whole body (arbitrarily large for big recognizers), and any dual-arg
+    carrier mention in them is already visible on the parent definition itself,
+    so scanning them adds no bypass coverage — only budget blowups. -/
+private def isLeanGeneratedEquationLemma (env : Environment) (n : Name) : Bool :=
+  match n with
+  | .str parent leaf =>
+      env.contains parent
+        && (leaf == "eq_def"
+            || (leaf.startsWith "eq_" && !(leaf.drop 3).isEmpty
+                && (leaf.drop 3).all Char.isDigit))
+  | _ => false
+
 private def isMetadataGeneratedEliminator
     (env : Environment) (n : Name) (info : ConstantInfo) : Bool :=
   isAuxRecursor env n
@@ -1784,6 +1816,7 @@ private def isMetadataGeneratedEliminator
        | .recInfo _ => true
        | _ => false
     || isLeanGeneratedCtorChild env n
+    || isLeanGeneratedEquationLemma env n
 
 /-- Candidate: every public typed ConstantInfo under `namePrefix`, except private
     mangled names and metadata-confirmed generated eliminators. -/
@@ -1892,7 +1925,8 @@ private def assertProductDualArgSurface (env : Environment) : Except String Unit
           | .error e => .error e
           | .ok () =>
               let allowed :=
-                #[dualArgProductAllowedN, dualArgSolanaCpiPreflightAllowedN].qsort Name.lt
+                (#[dualArgProductAllowedN, dualArgSolanaCpiPreflightAllowedN]
+                  ++ dualArgSolanaCertifiedPreparationAllowed).qsort Name.lt
               let unexpected := dualArgUnexpected hits allowed
               let missing := dualArgMissing hits allowed
               if !unexpected.isEmpty then

@@ -111,8 +111,7 @@ D1–D4 = 0/27 done。
 | FR-005 target 不改语义 | 架构遵守；跨 target reference trace 矩阵未做满 | R-1、C-* |
 | FR-006 exact capability | engineering resolver 有；formal SupportClaim 未 | D3-E2、B-3 |
 | FR-007 typed Plan/IR | 十二个 materializer 有 target-owned 类型（含 Quint/CosmWasm/TON/Soroban/OpenVM/ICP）；formal schema/hash 不齐 | D4-E*、T9d、B-CALL-SEM |
-| FR-008 accepted 四-target + runtime/proof | accepted PRD 仍四目标；工程 registry 已 13 implemented + 0 design-only（含 Quint/CosmWasm/TON/Soroban/OpenVM/ICP/XRPL materializer；ADR-0036/0044/0045/0046/0047/0049/0050 固定非静默扩面并选择 EVM-first formal lighthouse）；EVM/Solana runtime 较强、NEAR/CosmWasm/TON 有工程 runtime 门、ICP host-optional PocketIC、Quint/Soroban/OpenVM/XRPL source-only（XRPL 另有 opt-in WASM extra）、Noir 无 prove | C-1/C-4/C-6、ADR-0036、ADR-0044、ADR-0045、ADR-0046、ADR-0047、ADR-0049、ADR-0050、PRD-DoD、B-CALL-SEM |
-| FR-009 manifest 全 hash 链 | engineering output 部分；plan/IR/tool 不齐 | D3-E3/E4、T9d |
+| FR-008 accepted 四-target + runtime/proof | accepted PRD 仍四目标；工程 registry 已 13 implemented + 0 design-only（含 Quint/CosmWasm/TON/Soroban/OpenVM/ICP/XRPL materializer；ADR-0036/0044/0045/0046/0047/0049/0050 固定非静默扩面并选择 EVM-first formal lighthouse）；EVM/Solana runtime 较强、NEAR/CosmWasm/TON 有工程 runtime 门、ICP host-optional PocketIC、Quint/Soroban/OpenVM/XRPL source-only（XRPL 另有 opt-in WASM extra）、Noir 无 prove | C-1/C-4/C-6、ADR-0036、ADR-0044、ADR-0045、ADR-0046、ADR-0047、ADR-0049、ADR-0050、PRD-DoD、B-CALL-SEM || FR-009 manifest 全 hash 链 | engineering output 部分；plan/IR/tool 不齐 | D3-E3/E4、T9d |
 | FR-010 multi-program `--program` | Loader 有 | 回归保持 |
 | FR-011 CLI JSON | 主命令有；flag 面未满 | D3-E5 |
 | FR-012 private/authority/custody | disclosure 有；**T-1 工程 authority/custody 子集有**（非 formal TST-VIS-002 / 完整 owner-key custody） | T-1 **done**、N-3 |
@@ -690,6 +689,13 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-15 | **MAT-STATECELL-QS**：产品 StateCell 十二 target 补齐。十二个均 admit（public UInt64 lighthouse）。digest 绑定不变。**不**开新 shape |
 | 2026-08-15 | **MAT-CONST-QS**：scalar const-table 十二 target 补齐。NEAR/CW/Aleo/Psy admit；evm/solana/noir + TON/Quint/Soroban/ICP/OpenVM FC。invariant 半边未动。**不**开 const |
 | 2026-08-15 | **MAT-INV-QS**：nonempty invariant 十二 target 补齐。Quint Q0 承认只读 Bool（entry `tick`）；其余十一 ordinary materialize FC。NEAR erasure 针保留。const 半边未动。**不**开其余四 target invariant |
+| 2026-08-16 | **CAP-D-\***：四个 Wave-1 产品决策 owner 全开（SOL-TIME / TON-SHA 仅 sha256 一项 / SOR-LEDGER / ICP-PRINCIPAL）。记录于 [`plan/capability-layer-tasks.md`](plan/capability-layer-tasks.md) Wave 1。**不**扩 accepted PRD，**不**关 formal |
+| 2026-08-16 | **CAP-2**：Solana `context.unixTimeSeconds` → `sol_get_clock_sysvar`/`Clock.unix_timestamp`（i64@32 raw bits as u64，同 clockSlot 纪律；escrow composite 仍 FC）。Mollusk `unix_time_seconds` 4/4。**不**关 formal D5 |
+| 2026-08-16 | **CAP-1b**：ICP `context.caller` → `ic0.msg_caller_size/copy`（ADR-0025-class `u32le(len)‖bytes` max 29；Principal identity storage/param/`==`/`!=` S1-shaped；init/entry admit、query/view 名义 FC `ICP-VIEW-CALLER`；Principal result/`self` FC）。**不**做 Principal→account-id 全局映射 |
+| 2026-08-16 | **CAP-3**：Soroban S0 `unixTimeSeconds`/`blockHeight` → `env.ledger().timestamp()`/`u64::from(env.ledger().sequence())`（init/entry/view；Finalize 仍 zero-tool）。attachedValue/chainId/caller/self 仍 FC。**不**开 SOR-1 Wasm |
+| 2026-08-16 | **CAP-4**：Soroban S0 exact `pf.crypto.sha256` → `env.crypto().sha256`（Semantic UInt256 32B LE wire image ↔ 4×u64 LE limbs；UInt256 仅 sha256 plumbing；keccak/siblings 名义 FC）。**不**跑 rustc/soroban-cli |
+| 2026-08-16 | **CAP-5**：TON exact `pf.crypto.sha256` → Tolk `slice.bitsHash()`（TVM `SHA256U`）over LE image；`string_hash`/HASHCU/HASHBU 负针。freeze 仅解冻此一项；keccak/siblings/pf.assets 不变。tolk stdlib 本机缺失，tolk→fif 未跑（诚实记录） |
+| 2026-08-16 | **ADR-0051**：SPEC-honesty external-call typed return 收口 ADR 起草（proposed）；semantic-core 旧句待 acceptance 后修订。**不**关 TST-SEM-002 |
 | 2026-08-15 | **MAT-STR-QS**：String event/error ABI 十二 target 补齐。十二个均 FC。CW/TON Plan type-closure；Quint/Soroban/ICP/OpenVM 与 Aleo 同类 `effect.event` req decline。**不**开 String ABI |
 | 2026-08-15 | **MAT-INTFOR-QS**：Int64 bounded-for 十二 target 补齐。十二个均 FC。CW/TON public-UInt64 induction；Quint/Soroban/ICP/OpenVM UInt64-width envelope。**不**开 signed for |
 | 2026-08-15 | **MAT-ANONRET-QS**：anonymous Array UInt64 2 view-return 十二 target 补齐。七个 admit；Aleo view-over-state。**T6** 已开 Quint/Soroban/ICP/OpenVM **view** 半边。ArrRetEntry Aleo pin 保留。entry Array 仍 FC |
@@ -819,8 +825,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-16 | **EVM-INT64-CONTAINERS**：EVM `Array Int64 N` / `Option Int64` / hashed `Map UInt64 Int64`（1-slot，不是 24-leaf isInt 表；signedness 在 `LoweredValueV1.isInt`）。Int8 容器、Int64-key、Int64 container return 仍 FC。**不**声称 Anvil / formal / runtime parity |
 | 2026-08-16 | **ALEO-INT64-CONTAINERS**：Aleo `Array Int64 N` / `Option Int64` / `Map UInt64 Int64` 跟随 per-leaf `isInt` flatten（Array 全叶 `i64` mapping；Option tag unsigned + payload signed；Map **cap-2 / 6 叶**仅 val `isInt`）。Int8 容器、Int64-key Map、Int64 container return、nested 仍 FC。**不**声称 Leo / VM / proof / deploy / formal |
 | 2026-08-16 | **PSY-INT64-CONTAINERS**：Psy `Array Int64 N` / `Option Int64` / `Map UInt64 Int64` 为 names-only Felt 叶（cap-8 / 24）；`LoweredVal.isInt` 从 TypeId 在 IndexGet/construct 线程，不是 storage ABI suffix。Map mux 仍 `.select`。HashOut `Array UInt64 4` 保持 unsigned。Int8 容器、Int64-key、Int64 container return、nested 仍 FC。**不**声称 simulate / formal / runtime parity |
-| 2026-08-16 | **NOIR-INT64-CONTAINERS**：Noir `Array Int64 N` / `Option Int64` / `Map UInt64 Int64` 跟随 CosmWasm/TON per-leaf signedness，经 `inputType := .i64`（无 storage `isInt` bit；Array 全叶；Option tag `.u64` + payload `.i64`；Map 仅 val `i%3==2`）。复用既有 Int64 checkedAdd mux。Int8 容器、Int64-key Map、Array/Option/Map Int64 return、nested 仍 FC。**不**声称 nargo prove / formal / ACIR |
-
+| 2026-08-16 | **NOIR-INT64-CONTAINERS**：Noir `Array Int64 N` / `Option Int64` / `Map UInt64 Int64` 跟随 CosmWasm/TON per-leaf signedness，经 `inputType := .i64`（无 storage `isInt` bit；Array 全叶；Option tag `.u64` + payload `.i64`；Map 仅 val `i%3==2`）。复用既有 Int64 checkedAdd mux。Int8 容器、Int64-key Map、Array/Option/Map Int64 return、nested 仍 FC。**不**声称 nargo prove / formal / ACIR || 2026-08-17 | **F-TYPEKEY-RANK-C**：TypeKey Stage A/B/C 工程收口——Normalize `canonicalizeAnonymousTypeRankV1`；六 subject + InvariantABI golden 迁 SPEC 序；结构门 `anonymousRank` 上线；`validateAnonymousTypeUsageClosureV1` 已实现但未接线 StructureV1（fat fixture 待紧）。`cfgOpTypes` 迁 Map/Bool/UInt8/UInt32/Bytes/Option。**不**关闭 TASK-D2-06 / TST-SEM-001 |
 ---
 
 ## 10. 新 target 波次（2026-08-03 起）

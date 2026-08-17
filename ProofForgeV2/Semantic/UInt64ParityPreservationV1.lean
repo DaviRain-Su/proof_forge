@@ -28,17 +28,17 @@ open ProofForgeV2.Semantic.WireV1
 set_option maxHeartbeats 80000000
 set_option maxRecDepth 400000
 
-/-- Canonical TypeId 0 shape for the one-slot UInt64 parity family. -/
-def uint64Decl0V1 : TypeDeclV1 :=
-  { id := 0, name := none, shape := .uint 64 }
-
 /-- Canonical TypeId 1 shape for the one-slot UInt64 parity family. -/
-def boolDecl1V1 : TypeDeclV1 :=
-  { id := 1, name := none, shape := .bool }
+def uint64Decl1V1 : TypeDeclV1 :=
+  { id := 1, name := none, shape := .uint 64 }
+
+/-- Canonical TypeId 0 shape for the one-slot UInt64 parity family. -/
+def boolDecl0V1 : TypeDeclV1 :=
+  { id := 0, name := none, shape := .bool }
 
 /-- Canonical public StateId 0 declaration for the one-slot UInt64 parity family. -/
 def singlePublicUInt64State0V1 (stateName : String) : StateDeclV1 :=
-  { id := 0, name := stateName, typeId := 0, visibility := .public_ }
+  { id := 0, name := stateName, typeId := 1, visibility := .public_ }
 
 private theorem no_initializer_of_shape
     (program : SemanticProgramV1)
@@ -46,9 +46,9 @@ private theorem no_initializer_of_shape
     (entryName viewName invName : Option String)
     (hvalidate : validateSemanticProgramV1 program = .ok data)
     (hcallables : data.callables = #[
-      incrementAddTwoCallableV1 0 entryName 0 0,
-      viewLoadCallableV1 1 viewName 0 0,
-      uint64ParityInvariantCallableV1 2 invName 0 1 0 .public_ (some 7)]) :
+      incrementAddTwoCallableV1 0 entryName 1 0,
+      viewLoadCallableV1 1 viewName 1 0,
+      uint64ParityInvariantCallableV1 2 invName 1 0 0 .public_ (some 7)]) :
     ¬ HasInitializerV1 program :=
   not_hasInitializerV1_of_validate_and_any_eq_false
     program data hvalidate (by
@@ -91,20 +91,20 @@ theorem evalParityTrue_of_countEvenV1
       { id := ordinal, name := invName, callableId := 2 })
     (hinit : state.initialized = true)
     (hdecode : decodeLogicalStateValuesV1 data state = .ok #[countBytes])
-    (htypeU : data.types[0]? = some uint64Decl0V1)
-    (htypeB : data.types[1]? = some boolDecl1V1)
+    (htypeU : data.types[1]? = some uint64Decl1V1)
+    (htypeB : data.types[0]? = some boolDecl0V1)
     (hstate0 : data.logicalState[0]? = some (singlePublicUInt64State0V1 stateName))
     (hparityCallable : data.callables[2]? = some
-      (uint64ParityInvariantCallableV1 2 (some invName) 0 1 0 .public_ (some 7)))
-    (hcan : validateValueBytesV1 data.types 0 countBytes = .ok ())
-    (hcanTwo : validateValueBytesV1 data.types 0 two8BytesV1 = .ok ())
-    (hcanZero : validateValueBytesV1 data.types 0 zero8BytesV1 = .ok ())
-    (hcanTrue : validateValueBytesV1 data.types 1 (encodeU8 1) = .ok ())
+      (uint64ParityInvariantCallableV1 2 (some invName) 1 0 0 .public_ (some 7)))
+    (hcan : validateValueBytesV1 data.types 1 countBytes = .ok ())
+    (hcanTwo : validateValueBytesV1 data.types 1 two8BytesV1 = .ok ())
+    (hcanZero : validateValueBytesV1 data.types 1 zero8BytesV1 = .ok ())
+    (hcanTrue : validateValueBytesV1 data.types 0 (encodeU8 1) = .ok ())
     (heven : leBytesToNatV1 countBytes % 2 = 0) :
     evalInvariantV1 program ordinal state = .returnedTrue := by
   have hrun : runInvariantCallableV1 data 2 state = .returnedTrue :=
     runInvariantCallableV1_eq_returnedTrue_of_uint64_parity_even
-      data state countBytes 2 0 1 0 (some invName) .public_ stateName
+      data state countBytes 2 1 0 0 (some invName) .public_ stateName
       hinit hdecode htypeU htypeB rfl hstate0 hparityCallable
       hcan hcanTwo hcanZero hcanTrue heven
   exact evalInvariantV1_eq_of_validated_selection
@@ -127,15 +127,15 @@ theorem countEven_of_evalParityTrueV1
       { id := ordinal, name := invName, callableId := 2 })
     (hinit : state.initialized = true)
     (hdecode : decodeLogicalStateValuesV1 data state = .ok #[countBytes])
-    (htypeU : data.types[0]? = some uint64Decl0V1)
-    (htypeB : data.types[1]? = some boolDecl1V1)
+    (htypeU : data.types[1]? = some uint64Decl1V1)
+    (htypeB : data.types[0]? = some boolDecl0V1)
     (hstate0 : data.logicalState[0]? = some (singlePublicUInt64State0V1 stateName))
     (hparityCallable : data.callables[2]? = some
-      (uint64ParityInvariantCallableV1 2 (some invName) 0 1 0 .public_ (some 7)))
-    (hcan : validateValueBytesV1 data.types 0 countBytes = .ok ())
-    (hcanTwo : validateValueBytesV1 data.types 0 two8BytesV1 = .ok ())
-    (hcanZero : validateValueBytesV1 data.types 0 zero8BytesV1 = .ok ())
-    (hcanFalse : validateValueBytesV1 data.types 1 (encodeU8 0) = .ok ())
+      (uint64ParityInvariantCallableV1 2 (some invName) 1 0 0 .public_ (some 7)))
+    (hcan : validateValueBytesV1 data.types 1 countBytes = .ok ())
+    (hcanTwo : validateValueBytesV1 data.types 1 two8BytesV1 = .ok ())
+    (hcanZero : validateValueBytesV1 data.types 1 zero8BytesV1 = .ok ())
+    (hcanFalse : validateValueBytesV1 data.types 0 (encodeU8 0) = .ok ())
     (heval : evalInvariantV1 program ordinal state = .returnedTrue) :
     leBytesToNatV1 countBytes % 2 = 0 := by
   by_cases he : leBytesToNatV1 countBytes % 2 = 0
@@ -143,7 +143,7 @@ theorem countEven_of_evalParityTrueV1
   · have hodd : leBytesToNatV1 countBytes % 2 = 1 := by omega
     have hrun : runInvariantCallableV1 data 2 state = .returnedFalse :=
       runInvariantCallableV1_eq_returnedFalse_of_uint64_parity_odd
-        data state countBytes 2 0 1 0 (some invName) .public_ stateName
+        data state countBytes 2 1 0 0 (some invName) .public_ stateName
         hinit hdecode htypeU htypeB rfl hstate0 hparityCallable
         hcan hcanTwo hcanZero hcanFalse hodd
     have heval' : evalInvariantV1 program ordinal state = .returnedFalse :=
@@ -157,17 +157,17 @@ theorem countEven_of_evalParityTrueV1
 private theorem countBytes_size_of_canV1
     (data : SemanticProgramDataV1)
     (countBytes : ByteArray)
-    (htypeU : data.types[0]? = some uint64Decl0V1)
-    (hcan : validateValueBytesV1 data.types 0 countBytes = .ok ()) :
+    (htypeU : data.types[1]? = some uint64Decl1V1)
+    (hcan : validateValueBytesV1 data.types 1 countBytes = .ok ()) :
     countBytes.size = 8 :=
-  uint64BytesSizeOfValidateV1 data.types 0 uint64Decl0V1 countBytes htypeU rfl hcan
+  uint64BytesSizeOfValidateV1 data.types 1 uint64Decl1V1 countBytes htypeU rfl hcan
 
 private theorem encode_even_overlay_eq_okV1
     (data : SemanticProgramDataV1)
     (stateName : String)
     (countBytes : ByteArray)
     (hstateTable : data.logicalState = #[singlePublicUInt64State0V1 stateName])
-    (hcan : validateValueBytesV1 data.types 0 countBytes = .ok ())
+    (hcan : validateValueBytesV1 data.types 1 countBytes = .ok ())
     (hsize : countBytes.size = 8) :
     encodeLogicalStateValuesV1 data true #[countBytes] = .ok {
       initialized := true
@@ -184,7 +184,7 @@ private theorem get_encode_post_eq_preV1
     (hstateTable : data.logicalState = #[singlePublicUInt64State0V1 stateName])
     (hinit : pre.initialized = true)
     (hdecode : decodeLogicalStateValuesV1 data pre = .ok #[countBytes])
-    (hcan : validateValueBytesV1 data.types 0 countBytes = .ok ())
+    (hcan : validateValueBytesV1 data.types 1 countBytes = .ok ())
     (hencode : encodeLogicalStateValuesV1 data true #[countBytes] = .ok post) :
     post = pre :=
   encode_of_singleton_decode_eq data (singlePublicUInt64State0V1 stateName)
@@ -195,7 +195,7 @@ private theorem encode_increment_sum_eq_okV1
     (stateName : String)
     (countBytes : ByteArray)
     (hstateTable : data.logicalState = #[singlePublicUInt64State0V1 stateName])
-    (htypeU : data.types[0]? = some uint64Decl0V1)
+    (htypeU : data.types[1]? = some uint64Decl1V1)
     (hsize : countBytes.size = 8)
     (heven : leBytesToNatV1 countBytes % 2 = 0)
     (hnoOverflow : leBytesToNatV1 countBytes + 2 < 2 ^ 64) :
@@ -206,8 +206,8 @@ private theorem encode_increment_sum_eq_okV1
     } := by
   let sumBytes := natToLeBytesV1 (leBytesToNatV1 countBytes + 2) 8
   have hsum := add_two_uint64_sum_bytes_even countBytes hsize heven hnoOverflow
-  have hcanSum : validateValueBytesV1 data.types 0 sumBytes = .ok () :=
-    validateValueBytesV1_uint64_of_size data.types 0 uint64Decl0V1 sumBytes
+  have hcanSum : validateValueBytesV1 data.types 1 sumBytes = .ok () :=
+    validateValueBytesV1_uint64_of_size data.types 1 uint64Decl1V1 sumBytes
       htypeU rfl hsum.1
   simpa [sumBytes] using
     encodeLogicalStateValuesV1_single_uint64_eq_ok data
@@ -222,16 +222,16 @@ private theorem eval_even_after_increment_formV1
     (hvalidate : validateSemanticProgramV1 program = .ok data)
     (hselection : data.invariants[ordinal.toNat]? = some
       { id := ordinal, name := invName, callableId := 2 })
-    (htypeU : data.types[0]? = some uint64Decl0V1)
-    (htypeB : data.types[1]? = some boolDecl1V1)
+    (htypeU : data.types[1]? = some uint64Decl1V1)
+    (htypeB : data.types[0]? = some boolDecl0V1)
     (hstateTable : data.logicalState = #[singlePublicUInt64State0V1 stateName])
     (hstate0 : data.logicalState[0]? = some (singlePublicUInt64State0V1 stateName))
     (hparityCallable : data.callables[2]? = some
-      (uint64ParityInvariantCallableV1 2 (some invName) 0 1 0 .public_ (some 7)))
-    (_hcan : validateValueBytesV1 data.types 0 countBytes = .ok ())
-    (hcanTwo : validateValueBytesV1 data.types 0 two8BytesV1 = .ok ())
-    (hcanZero : validateValueBytesV1 data.types 0 zero8BytesV1 = .ok ())
-    (hcanTrue : validateValueBytesV1 data.types 1 (encodeU8 1) = .ok ())
+      (uint64ParityInvariantCallableV1 2 (some invName) 1 0 0 .public_ (some 7)))
+    (_hcan : validateValueBytesV1 data.types 1 countBytes = .ok ())
+    (hcanTwo : validateValueBytesV1 data.types 1 two8BytesV1 = .ok ())
+    (hcanZero : validateValueBytesV1 data.types 1 zero8BytesV1 = .ok ())
+    (hcanTrue : validateValueBytesV1 data.types 0 (encodeU8 1) = .ok ())
     (hsize : countBytes.size = 8)
     (heven : leBytesToNatV1 countBytes % 2 = 0)
     (hnoOverflow : leBytesToNatV1 countBytes + 2 < 2 ^ 64) :
@@ -242,8 +242,8 @@ private theorem eval_even_after_increment_formV1
     } = .returnedTrue := by
   let sumBytes := natToLeBytesV1 (leBytesToNatV1 countBytes + 2) 8
   have hsum := add_two_uint64_sum_bytes_even countBytes hsize heven hnoOverflow
-  have hcanSum : validateValueBytesV1 data.types 0 sumBytes = .ok () :=
-    validateValueBytesV1_uint64_of_size data.types 0 uint64Decl0V1 sumBytes
+  have hcanSum : validateValueBytesV1 data.types 1 sumBytes = .ok () :=
+    validateValueBytesV1_uint64_of_size data.types 1 uint64Decl1V1 sumBytes
       htypeU rfl hsum.1
   have hdecode : decodeLogicalStateValuesV1 data {
       initialized := true
@@ -270,17 +270,17 @@ theorem preservationStep_uint64ParityIncrementAddTwoV1
     (hadmit : admitReferenceProgramSliceV1 program = .ok admitted)
     (hselection : data.invariants[ordinal.toNat]? = some
       { id := ordinal, name := invName, callableId := 2 })
-    (htypeU : data.types[0]? = some uint64Decl0V1)
-    (htypeB : data.types[1]? = some boolDecl1V1)
+    (htypeU : data.types[1]? = some uint64Decl1V1)
+    (htypeB : data.types[0]? = some boolDecl0V1)
     (hstateTable : data.logicalState = #[singlePublicUInt64State0V1 stateName])
     (hcallables : data.callables = #[
-      incrementAddTwoCallableV1 0 entryName 0 0,
-      viewLoadCallableV1 1 viewName 0 0,
-      uint64ParityInvariantCallableV1 2 (some invName) 0 1 0 .public_ (some 7)])
-    (hcanTwo : validateValueBytesV1 data.types 0 two8BytesV1 = .ok ())
-    (hcanZero : validateValueBytesV1 data.types 0 zero8BytesV1 = .ok ())
-    (hcanTrue : validateValueBytesV1 data.types 1 (encodeU8 1) = .ok ())
-    (hcanFalse : validateValueBytesV1 data.types 1 (encodeU8 0) = .ok ()) :
+      incrementAddTwoCallableV1 0 entryName 1 0,
+      viewLoadCallableV1 1 viewName 1 0,
+      uint64ParityInvariantCallableV1 2 (some invName) 1 0 0 .public_ (some 7)])
+    (hcanTwo : validateValueBytesV1 data.types 1 two8BytesV1 = .ok ())
+    (hcanZero : validateValueBytesV1 data.types 1 zero8BytesV1 = .ok ())
+    (hcanTrue : validateValueBytesV1 data.types 0 (encodeU8 1) = .ok ())
+    (hcanFalse : validateValueBytesV1 data.types 0 (encodeU8 0) = .ok ()) :
     PreservationStepV1 program ordinal admitted := by
   intro pre invocation responses vault hconf heval
   have ⟨_hprog, hdata⟩ := admit_ok_implies_data program data admitted hvalidate hadmit
@@ -294,7 +294,7 @@ theorem preservationStep_uint64ParityIncrementAddTwoV1
   have hdecode' : decodeLogicalStateValuesV1 data pre = .ok #[countBytes] := by
     simpa [hvals] using hdecode
   have hparityCallable : data.callables[2]? = some
-      (uint64ParityInvariantCallableV1 2 (some invName) 0 1 0 .public_ (some 7)) := by
+      (uint64ParityInvariantCallableV1 2 (some invName) 1 0 0 .public_ (some 7)) := by
     simp [hcallables]
   have heven :=
     countEven_of_evalParityTrueV1 program data ordinal pre countBytes invName
@@ -339,9 +339,9 @@ theorem preservationStep_uint64ParityIncrementAddTwoV1
             omega
           match hidx : invocation.callableId.toNat with
           | 0 =>
-            have hcall : callable = incrementAddTwoCallableV1 0 entryName 0 0 := by
+            have hcall : callable = incrementAddTwoCallableV1 0 entryName 1 0 := by
               have : data.callables[0]? = some callable := by simpa [hidx] using hlookup'
-              have : some (incrementAddTwoCallableV1 0 entryName 0 0) = some callable := by
+              have : some (incrementAddTwoCallableV1 0 entryName 1 0) = some callable := by
                 simpa [htable] using this
               exact (Option.some.inj this).symm
             have hisInit : isInitializer = false := by
@@ -350,11 +350,11 @@ theorem preservationStep_uint64ParityIncrementAddTwoV1
               simp [incrementAddTwoCallableV1] at h
               exact h
             have hgate' : gateInvocation admitted pre invocation =
-                .ready (incrementAddTwoCallableV1 0 entryName 0 0) overlay context false := by
+                .ready (incrementAddTwoCallableV1 0 entryName 1 0) overlay context false := by
               simpa [hcall, hisInit] using hgate
             have hgate_dec :=
               gateInvocation_ready_noninit_decode admitted pre invocation
-                (incrementAddTwoCallableV1 0 entryName 0 0) overlay context hgate'
+                (incrementAddTwoCallableV1 0 entryName 1 0) overlay context hgate'
             have hoverlay : overlay = #[countBytes] := by
               have hdec_data : decodeLogicalStateValuesV1 data pre = .ok overlay := by
                 simpa [hdata] using hgate_dec.1
@@ -362,7 +362,7 @@ theorem preservationStep_uint64ParityIncrementAddTwoV1
               rw [h2] at h1
               exact Except.ok.inj h1
             have hgate_inc : gateInvocation admitted pre invocation =
-                .ready (incrementAddTwoCallableV1 0 entryName 0 0) #[countBytes] context false := by
+                .ready (incrementAddTwoCallableV1 0 entryName 1 0) #[countBytes] context false := by
               simpa [hgate', hoverlay]
             by_cases hov : leBytesToNatV1 countBytes + 2 < 2 ^ 64
             · by_cases hresp : responses.size = 0
@@ -380,26 +380,26 @@ theorem preservationStep_uint64ParityIncrementAddTwoV1
                       hstateDecl hparityCallable hcan hcanTwo hcanZero hcanTrue hsize
                       heven hov
                 exact preservationReturned_of_readyIncrementAddTwoV1
-                  program ordinal admitted pre invocation data countBytes 0 0 stateName
+                  program ordinal admitted pre invocation data countBytes 1 0 stateName
                   0 entryName postInc responses vault context hadmitted_data htypeU
                   hstateDecl rfl hcan hcanTwo hov hinit henc' hresp hgate_inc
                   heval_post post value effects hstep
               · have htrap :=
                   stepTrapped_of_readyIncrementAddTwo_nonemptyResponsesV1
-                    admitted pre invocation data countBytes 0 0 stateName 0 entryName
+                    admitted pre invocation data countBytes 1 0 stateName 0 entryName
                     responses vault context hadmitted_data htypeU hstateDecl rfl hcan
                     hcanTwo hov (by exact hresp) hgate_inc
                 rw [htrap] at hstep; cases hstep
             · have hne :=
                 stepNotReturned_of_readyIncrementAddTwo_overflowV1
-                  admitted pre invocation data countBytes 0 0 stateName 0 entryName
+                  admitted pre invocation data countBytes 1 0 stateName 0 entryName
                   responses vault context post value effects hadmitted_data htypeU
                   hstateDecl rfl hcan hcanTwo hov hgate_inc
               exact absurd hstep hne
           | 1 =>
-            have hcall : callable = viewLoadCallableV1 1 viewName 0 0 := by
+            have hcall : callable = viewLoadCallableV1 1 viewName 1 0 := by
               have : data.callables[1]? = some callable := by simpa [hidx] using hlookup'
-              have : some (viewLoadCallableV1 1 viewName 0 0) = some callable := by
+              have : some (viewLoadCallableV1 1 viewName 1 0) = some callable := by
                 simpa [htable] using this
               exact (Option.some.inj this).symm
             have hisInit : isInitializer = false := by
@@ -408,11 +408,11 @@ theorem preservationStep_uint64ParityIncrementAddTwoV1
               simp [viewLoadCallableV1] at h
               exact h
             have hgate' : gateInvocation admitted pre invocation =
-                .ready (viewLoadCallableV1 1 viewName 0 0) overlay context false := by
+                .ready (viewLoadCallableV1 1 viewName 1 0) overlay context false := by
               simpa [hcall, hisInit] using hgate
             have hgate_dec :=
               gateInvocation_ready_noninit_decode admitted pre invocation
-                (viewLoadCallableV1 1 viewName 0 0) overlay context hgate'
+                (viewLoadCallableV1 1 viewName 1 0) overlay context hgate'
             have hoverlay : overlay = #[countBytes] := by
               have hdec_data : decodeLogicalStateValuesV1 data pre = .ok overlay := by
                 simpa [hdata] using hgate_dec.1
@@ -420,7 +420,7 @@ theorem preservationStep_uint64ParityIncrementAddTwoV1
               rw [h2] at h1
               exact Except.ok.inj h1
             have hgate_get : gateInvocation admitted pre invocation =
-                .ready (viewLoadCallableV1 1 viewName 0 0) #[countBytes] context false := by
+                .ready (viewLoadCallableV1 1 viewName 1 0) #[countBytes] context false := by
               simpa [hgate', hoverlay]
             by_cases hresp : responses.size = 0
             · have henc' := encode_even_overlay_eq_okV1 data stateName countBytes
@@ -433,21 +433,21 @@ theorem preservationStep_uint64ParityIncrementAddTwoV1
                 get_encode_post_eq_preV1 data stateName pre postGet countBytes
                   hstateTable hinit hdecode' hcan henc'
               exact preservationReturned_of_readyViewLoad_postEqPreV1
-                program ordinal admitted pre invocation data countBytes 0 0 stateName
+                program ordinal admitted pre invocation data countBytes 1 0 stateName
                 1 viewName postGet responses vault context hadmitted_data htypeU
                 hstateDecl rfl hcan hinit henc' hresp hgate_get hpost_pre0
                 heval post value effects hstep
             · have htrap :=
                 stepTrapped_of_readyViewLoad_nonemptyResponsesV1 admitted
-                  pre invocation data countBytes 0 0 stateName 1 viewName
+                  pre invocation data countBytes 1 0 stateName 1 viewName
                   responses vault context hadmitted_data htypeU hstateDecl rfl hcan
                   (by exact hresp) hgate_get
               rw [htrap] at hstep; cases hstep
           | 2 =>
             have hcall : callable =
-                uint64ParityInvariantCallableV1 2 (some invName) 0 1 0 .public_ (some 7) := by
+                uint64ParityInvariantCallableV1 2 (some invName) 1 0 0 .public_ (some 7) := by
               have : data.callables[2]? = some callable := by simpa [hidx] using hlookup'
-              have : some (uint64ParityInvariantCallableV1 2 (some invName) 0 1 0 .public_ (some 7)) = some callable := by
+              have : some (uint64ParityInvariantCallableV1 2 (some invName) 1 0 0 .public_ (some 7)) = some callable := by
                 simpa [htable] using this
               exact (Option.some.inj this).symm
             have hkind : callable.kind = .invariant := by
@@ -482,16 +482,16 @@ theorem preservationBaseNoInitializer_uint64ParityV1
     (hvalidate : validateSemanticProgramV1 program = .ok data)
     (hselection : data.invariants[ordinal.toNat]? = some
       { id := ordinal, name := invName, callableId := 2 })
-    (htypeU : data.types[0]? = some uint64Decl0V1)
-    (htypeB : data.types[1]? = some boolDecl1V1)
+    (htypeU : data.types[1]? = some uint64Decl1V1)
+    (htypeB : data.types[0]? = some boolDecl0V1)
     (hstateTable : data.logicalState = #[singlePublicUInt64State0V1 stateName])
     (hcallables : data.callables = #[
-      incrementAddTwoCallableV1 0 entryName 0 0,
-      viewLoadCallableV1 1 viewName 0 0,
-      uint64ParityInvariantCallableV1 2 (some invName) 0 1 0 .public_ (some 7)])
-    (hcanTwo : validateValueBytesV1 data.types 0 two8BytesV1 = .ok ())
-    (hcanZero : validateValueBytesV1 data.types 0 zero8BytesV1 = .ok ())
-    (hcanTrue : validateValueBytesV1 data.types 1 (encodeU8 1) = .ok ()) :
+      incrementAddTwoCallableV1 0 entryName 1 0,
+      viewLoadCallableV1 1 viewName 1 0,
+      uint64ParityInvariantCallableV1 2 (some invName) 1 0 0 .public_ (some 7)])
+    (hcanTwo : validateValueBytesV1 data.types 1 two8BytesV1 = .ok ())
+    (hcanZero : validateValueBytesV1 data.types 1 zero8BytesV1 = .ok ())
+    (hcanTrue : validateValueBytesV1 data.types 0 (encodeU8 1) = .ok ()) :
     PreservationBaseNoInitializerV1 program ordinal := by
   let initialState : LogicalStateV1 := {
     initialized := true
@@ -507,7 +507,7 @@ theorem preservationBaseNoInitializer_uint64ParityV1
   have hinitial : initialLogicalStateV1 program = .ok initialState := by
     simpa [initialState, zero8BytesV1] using
       initialLogicalStateV1_single_uint64_no_initializer_eq_ok
-        program data (singlePublicUInt64State0V1 stateName) uint64Decl0V1
+        program data (singlePublicUInt64State0V1 stateName) uint64Decl1V1
         hvalidate hstateTable htypeU rfl hnoInitAny
         (by simpa [singlePublicUInt64State0V1, zero8BytesV1] using hcanZero)
   have hdecode : decodeLogicalStateValuesV1 data initialState = .ok #[zero8BytesV1] := by
@@ -519,7 +519,7 @@ theorem preservationBaseNoInitializer_uint64ParityV1
     stateConformsV1_intro_of_validate_eq_ok
       program data initialState #[zero8BytesV1] hvalidate rfl hdecode
   have hparityCallable : data.callables[2]? = some
-      (uint64ParityInvariantCallableV1 2 (some invName) 0 1 0 .public_ (some 7)) := by
+      (uint64ParityInvariantCallableV1 2 (some invName) 1 0 0 .public_ (some 7)) := by
     simp [hcallables]
   have heven0 : leBytesToNatV1 zero8BytesV1 % 2 = 0 := by decide
   have heval : evalInvariantV1 program ordinal initialState = .returnedTrue :=
@@ -540,17 +540,17 @@ theorem preservationTheorem_uint64ParityIncrementAddTwoV1
     (hordinal : ordinal.toNat < program.invariants.size)
     (hselection : data.invariants[ordinal.toNat]? = some
       { id := ordinal, name := invName, callableId := 2 })
-    (htypeU : data.types[0]? = some uint64Decl0V1)
-    (htypeB : data.types[1]? = some boolDecl1V1)
+    (htypeU : data.types[1]? = some uint64Decl1V1)
+    (htypeB : data.types[0]? = some boolDecl0V1)
     (hstateTable : data.logicalState = #[singlePublicUInt64State0V1 stateName])
     (hcallables : data.callables = #[
-      incrementAddTwoCallableV1 0 entryName 0 0,
-      viewLoadCallableV1 1 viewName 0 0,
-      uint64ParityInvariantCallableV1 2 (some invName) 0 1 0 .public_ (some 7)])
-    (hcanTwo : validateValueBytesV1 data.types 0 two8BytesV1 = .ok ())
-    (hcanZero : validateValueBytesV1 data.types 0 zero8BytesV1 = .ok ())
-    (hcanTrue : validateValueBytesV1 data.types 1 (encodeU8 1) = .ok ())
-    (hcanFalse : validateValueBytesV1 data.types 1 (encodeU8 0) = .ok ()) :
+      incrementAddTwoCallableV1 0 entryName 1 0,
+      viewLoadCallableV1 1 viewName 1 0,
+      uint64ParityInvariantCallableV1 2 (some invName) 1 0 0 .public_ (some 7)])
+    (hcanTwo : validateValueBytesV1 data.types 1 two8BytesV1 = .ok ())
+    (hcanZero : validateValueBytesV1 data.types 1 zero8BytesV1 = .ok ())
+    (hcanTrue : validateValueBytesV1 data.types 0 (encodeU8 1) = .ok ())
+    (hcanFalse : validateValueBytesV1 data.types 0 (encodeU8 0) = .ok ()) :
     PreservationTheoremV1 program ordinal := by
   refine ⟨hordinal, ?_⟩
   rcases admit_exists_of_data_admission program data hvalidate hadmission with
@@ -624,26 +624,26 @@ theorem preservationTheorem_of_subjectBodyV1
   have hselection : data.invariants[0]? = some
       { id := 0, name := invariantName, callableId := 2 } := by
     rfl
-  have htypeU : data.types[0]? = some uint64Decl0V1 := by
+  have htypeU : data.types[1]? = some uint64Decl1V1 := by
     rfl
-  have htypeB : data.types[1]? = some boolDecl1V1 := by
+  have htypeB : data.types[0]? = some boolDecl0V1 := by
     rfl
   have hstateTable : data.logicalState = #[singlePublicUInt64State0V1 stateName] := by
     rfl
   have hcallables : data.callables = #[
-      incrementAddTwoCallableV1 0 (some entryName) 0 0,
-      viewLoadCallableV1 1 (some viewName) 0 0,
-      uint64ParityInvariantCallableV1 2 (some invariantName) 0 1 0 .public_ (some 7)] := by
+      incrementAddTwoCallableV1 0 (some entryName) 1 0,
+      viewLoadCallableV1 1 (some viewName) 1 0,
+      uint64ParityInvariantCallableV1 2 (some invariantName) 1 0 0 .public_ (some 7)] := by
     rfl
-  have hcanTwo : validateValueBytesV1 data.types 0 two8BytesV1 = .ok () := by
-    exact validateValueBytesV1_uint64_eq_ok data.types 0 uint64Decl0V1
+  have hcanTwo : validateValueBytesV1 data.types 1 two8BytesV1 = .ok () := by
+    exact validateValueBytesV1_uint64_eq_ok data.types 1 uint64Decl1V1
       2 0 0 0 0 0 0 0 htypeU rfl
-  have hcanZero : validateValueBytesV1 data.types 0 zero8BytesV1 = .ok () := by
-    exact validateValueBytesV1_uint64_eq_ok data.types 0 uint64Decl0V1
+  have hcanZero : validateValueBytesV1 data.types 1 zero8BytesV1 = .ok () := by
+    exact validateValueBytesV1_uint64_eq_ok data.types 1 uint64Decl1V1
       0 0 0 0 0 0 0 0 htypeU rfl
-  have hcanTrue : validateValueBytesV1 data.types 1 (encodeU8 1) = .ok () := by
+  have hcanTrue : validateValueBytesV1 data.types 0 (encodeU8 1) = .ok () := by
     rfl
-  have hcanFalse : validateValueBytesV1 data.types 1 (encodeU8 0) = .ok () := by
+  have hcanFalse : validateValueBytesV1 data.types 0 (encodeU8 0) = .ok () := by
     rfl
   simpa [program] using
     preservationTheorem_uint64ParityIncrementAddTwoV1

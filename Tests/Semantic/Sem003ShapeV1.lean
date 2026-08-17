@@ -637,15 +637,16 @@ private unsafe def testRemainingStandardReverts
   mintOk "shift" badShift
 
   -- castOutOfRange: UInt256 256 → UInt8 (hand-built; Reference wholeCast)
+  -- Rank: uint256 < uint8 < unit (u16le width 256 before 8).
   let castTypes : Array TypeDeclV1 := #[
-    { id := 0, name := none, shape := TypeShapeV1.unit },
-    { id := 1, name := none, shape := TypeShapeV1.uint 256 },
-    { id := 2, name := none, shape := TypeShapeV1.uint 8 }
+    { id := 0, name := none, shape := TypeShapeV1.uint 256 },
+    { id := 1, name := none, shape := TypeShapeV1.uint 8 },
+    { id := 2, name := none, shape := TypeShapeV1.unit }
   ]
-  let castCallable := mkEntryInstrs 0 "castOor" 0
+  let castCallable := mkEntryInstrs 0 "castOor" 2
     #[
-      instr (some (vd 0 1)) (.literal 1 (leBytesFromNat 256 32)),
-      instr (some (vd 1 2)) (.checkedCast 0 2)
+      instr (some (vd 0 0)) (.literal 0 (leBytesFromNat 256 32)),
+      instr (some (vd 1 1)) (.checkedCast 0 1)
     ]
     (.return_ none)
   let castBase ← emptyProgramData "Sem003CastOor"
@@ -661,16 +662,17 @@ private unsafe def testRemainingStandardReverts
   mintOk "cast" castOut
 
   -- indexOutOfBounds: Array UInt8 len=3 get index 3 (hand-built; Reference array-oor)
+  -- Rank: uint8 < uint32 < unit < array.
   let arrTypes : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := TypeShapeV1.uint 8 },
     { id := 1, name := none, shape := TypeShapeV1.uint 32 },
-    { id := 2, name := none, shape := TypeShapeV1.array 0 3 },
-    { id := 3, name := none, shape := TypeShapeV1.unit }
+    { id := 2, name := none, shape := TypeShapeV1.unit },
+    { id := 3, name := none, shape := TypeShapeV1.array 0 3 }
   ]
   let arrayBytes := ByteArray.mk #[4, 5, 6]
-  let arrCallable := mkEntryInstrs 0 "arrayOor" 3
+  let arrCallable := mkEntryInstrs 0 "arrayOor" 2
     #[
-      instr (some (vd 0 2)) (.literal 2 arrayBytes),
+      instr (some (vd 0 3)) (.literal 3 arrayBytes),
       instr (some (vd 1 1)) (.literal 1 (leBytesFromNat 3 4)),
       instr (some (vd 2 0)) (.indexGet 0 1)
     ]

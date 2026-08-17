@@ -45,24 +45,25 @@ def requirementsV1 : ProgramRequirementsV1 := {
   items := #[persistentStateRequirementV1, boolRequirementV1]
 }
 
-/-- Anonymous production types used by field-comparison lowering. -/
+/-- Anonymous production types used by field-comparison lowering (SPEC §5
+    canonical anonymous rank: Bool sorts before UInt64). -/
 def typesV1 : Array TypeDeclV1 := #[
-  { id := 0, name := none, shape := .uint 64 },
-  { id := 1, name := none, shape := .bool }
+  { id := 0, name := none, shape := .bool },
+  { id := 1, name := none, shape := .uint 64 }
 ]
 
 /-- Exact source-order callable table shared by codec and structure phases. -/
 def callablesV1
     (viewName literalInvariantName eqInvariantName neInvariantName : String) :
     Array CallableV1 := #[
-  literalReturnCallableV1 0 .view (some viewName) 1 (encodeU8 1)
+  literalReturnCallableV1 0 .view (some viewName) 0 (encodeU8 1)
     .public_ none,
-  literalReturnCallableV1 1 .invariant (some literalInvariantName) 1
+  literalReturnCallableV1 1 .invariant (some literalInvariantName) 0
     (encodeU8 1) .public_ (some 3),
   twoStateCompareInvariantCallableV1 2 (some eqInvariantName)
-    0 1 1 2 .eq .public_ (some 5),
+    1 0 1 2 .eq .public_ (some 5),
   twoStateCompareInvariantCallableV1 3 (some neInvariantName)
-    0 1 1 2 .ne .public_ (some 5)
+    1 0 1 2 .ne .public_ (some 5)
 ]
 
 /-- Contract-name-parametric semantic data for the field-comparison family. -/
@@ -75,9 +76,9 @@ def subjectDataV1
   types := typesV1
   constants := #[]
   logicalState := #[
-    { id := 0, name := state0Name, typeId := 0, visibility := .public_ },
-    { id := 1, name := state1Name, typeId := 0, visibility := .public_ },
-    { id := 2, name := state2Name, typeId := 0, visibility := .public_ }
+    { id := 0, name := state0Name, typeId := 1, visibility := .public_ },
+    { id := 1, name := state1Name, typeId := 1, visibility := .public_ },
+    { id := 2, name := state2Name, typeId := 1, visibility := .public_ }
   ]
   events := #[]
   errors := #[]
@@ -98,14 +99,14 @@ def bodyEncodeOkV1 (data : SemanticProgramDataV1) (bytes : ByteArray) : Prop :=
 theorem exactAtRoot_typesV1 :
     ExactMidOffsetInvertAtV1 (encodeArray encodeTypeDeclV1)
       (decodeArray maxTableElements decodeTypeDeclV1)
-      #[{ id := 0, name := none, shape := .uint 64 },
-        { id := 1, name := none, shape := .bool }] 1 :=
+      #[{ id := 0, name := none, shape := .bool },
+        { id := 1, name := none, shape := .uint 64 }] 1 :=
   exactAt_array_two_of_exactAtV1 encodeTypeDeclV1 decodeTypeDeclV1
     maxTableElements (by decide) (by decide)
-    ({ id := 0, name := none, shape := .uint 64 } : TypeDeclV1)
-    ({ id := 1, name := none, shape := .bool } : TypeDeclV1) 1
-    (exactAt_typeDecl_uint_noneV1 0 64 1 (by decide))
-    (exactAt_typeDecl_bool_noneV1 1 1 (by decide))
+    ({ id := 0, name := none, shape := .bool } : TypeDeclV1)
+    ({ id := 1, name := none, shape := .uint 64 } : TypeDeclV1) 1
+    (exactAt_typeDecl_bool_noneV1 0 1 (by decide))
+    (exactAt_typeDecl_uint_noneV1 1 64 1 (by decide))
 
 theorem exactAtRoot_statesV1
     (state0Name state1Name state2Name : String)
@@ -114,17 +115,17 @@ theorem exactAtRoot_statesV1
     (hstate2Name : validateIdentifierComponent state2Name = .ok ()) :
     ExactMidOffsetInvertAtV1 (encodeArray encodeStateDeclV1)
       (decodeArray maxTableElements decodeStateDeclV1)
-      #[{ id := 0, name := state0Name, typeId := 0, visibility := .public_ },
-        { id := 1, name := state1Name, typeId := 0, visibility := .public_ },
-        { id := 2, name := state2Name, typeId := 0, visibility := .public_ }] 1 :=
+      #[{ id := 0, name := state0Name, typeId := 1, visibility := .public_ },
+        { id := 1, name := state1Name, typeId := 1, visibility := .public_ },
+        { id := 2, name := state2Name, typeId := 1, visibility := .public_ }] 1 :=
   exactAt_array_three_of_exactAtV1 encodeStateDeclV1 decodeStateDeclV1
     maxTableElements (by decide)
-    (StateDeclV1.mk 0 state0Name 0 .public_)
-    (StateDeclV1.mk 1 state1Name 0 .public_)
-    (StateDeclV1.mk 2 state2Name 0 .public_) 1
-    (exactAt_stateDecl_publicV1 0 0 state0Name hstate0Name 1 (by decide))
-    (exactAt_stateDecl_publicV1 1 0 state1Name hstate1Name 1 (by decide))
-    (exactAt_stateDecl_publicV1 2 0 state2Name hstate2Name 1 (by decide))
+    (StateDeclV1.mk 0 state0Name 1 .public_)
+    (StateDeclV1.mk 1 state1Name 1 .public_)
+    (StateDeclV1.mk 2 state2Name 1 .public_) 1
+    (exactAt_stateDecl_publicV1 0 1 state0Name hstate0Name 1 (by decide))
+    (exactAt_stateDecl_publicV1 1 1 state1Name hstate1Name 1 (by decide))
+    (exactAt_stateDecl_publicV1 2 1 state2Name hstate2Name 1 (by decide))
 
 theorem exactAtRoot_invariantsV1
     (literalInvariantName eqInvariantName neInvariantName : String) :
@@ -213,7 +214,7 @@ theorem rootFieldInvertV1
         maxTableElements 1)
   · simpa [subjectDataV1, callablesV1] using
       exactAt_literalFieldComparisonCallableTableV1 0 1 2 3 viewName
-        literalInvariantName eqInvariantName neInvariantName 0 1 1 2
+        literalInvariantName eqInvariantName neInvariantName 1 0 1 2
         (encodeU8 1) (encodeU8 1) hviewName hliteralInvariantName
         heqInvariantName hneInvariantName
   · simpa [subjectDataV1] using
@@ -241,8 +242,8 @@ private theorem encodeTypeShape_boolV1 :
   rw [encodeNullary_eq_okV1 "Type.Bool" (by decide) (by decide) (by decide)]
   congr 1
 
-private theorem compare_uint64_boolV1 :
-    compareByteArrayLex uint64TypeShapeBytesV1 boolTypeShapeBytesV1 = .gt := by
+private theorem compare_bool_uint64V1 :
+    compareByteArrayLex boolTypeShapeBytesV1 uint64TypeShapeBytesV1 = .lt := by
   rw [compareByteArrayLex]
   rw [compareByteArrayLexLoopV1_eq_next _ _ _ 0 (by decide) (by decide)]
   rw [compareByteArrayLexLoopV1_eq_next _ _ _ 1 (by decide) (by decide)]
@@ -253,7 +254,7 @@ private theorem compare_uint64_boolV1 :
   rw [compareByteArrayLexLoopV1_eq_next _ _ _ 6 (by decide) (by decide)]
   rw [compareByteArrayLexLoopV1_eq_next _ _ _ 7 (by decide) (by decide)]
   rw [compareByteArrayLexLoopV1_eq_next _ _ _ 8 (by decide) (by decide)]
-  apply compareByteArrayLexLoopV1_eq_gt
+  apply compareByteArrayLexLoopV1_eq_lt
   · decide
   · decide
 
@@ -281,17 +282,22 @@ theorem typesStructureV1 : validateTypesStructureV1 typesV1 = .ok () := by
 
 /-- Full production TypeKey phase for the fixed anonymous UInt64/Bool table. -/
 theorem typeKeyPhasesV1 : validateTypeKeyPhasesV1 typesV1 = .ok () := by
-  apply validateTypeKeyPhasesV1_eq_ok_of_phases
+  apply validateTypeKeyPhasesV1_eq_ok_of_prefix_phases
   · simp [typesV1, validateNamedPrefixRankV1,
       Pure.pure, Except.pure, Bind.bind, Except.bind]
   · simp [typesV1, validatePrimitiveAnonymousTypeKeyUniquenessV1,
       collectPrimitiveAnonymousTypeKeysV1,
-      encodeTypeShape_uint64V1, encodeTypeShape_boolV1, compare_uint64_boolV1,
+      encodeTypeShape_uint64V1, encodeTypeShape_boolV1, compare_bool_uint64V1,
       Pure.pure, Except.pure, Bind.bind, Except.bind]
   · simp [typesV1, validateRecursiveAnonymousTypeKeyUniquenessV1,
       Pure.pure, Except.pure]
   · simp [typesV1, validateNamedBodyOptionCycleLegalityV1,
       Pure.pure, Except.pure]
+  · exact validateAnonymousTypeKeyRankV1_bool_uint64_eq_ok
+      ({ id := 0, name := none, shape := .bool } : TypeDeclV1)
+      ({ id := 1, name := none, shape := .uint 64 } : TypeDeclV1)
+      rfl rfl
+
 
 /-- There are no named TypeDecl rows in this lowering family. -/
 theorem namedTypeNamesV1 :
@@ -348,20 +354,20 @@ theorem callablesValueBytesV1
       (callablesV1 viewName literalInvariantName eqInvariantName neInvariantName)
       maxCanonicalProgramBytes = .ok (maxCanonicalProgramBytes - 4) := by
   have htrue :
-      validateOpValueBytesV1 typesV1 (.literal 1 (encodeU8 1))
+      validateOpValueBytesV1 typesV1 (.literal 0 (encodeU8 1))
         maxCanonicalProgramBytes = .ok (maxCanonicalProgramBytes - 2) := by
-    apply validateOpValueBytesV1_literal_bool_eq_ok typesV1 1
-      ({ id := 1, name := none, shape := .bool } : TypeDeclV1) 1
+    apply validateOpValueBytesV1_literal_bool_eq_ok typesV1 0
+      ({ id := 0, name := none, shape := .bool } : TypeDeclV1) 1
     · rfl
     · rfl
     · exact Or.inr rfl
     · decide
   have htrue2 :
-      validateOpValueBytesV1 typesV1 (.literal 1 (encodeU8 1))
+      validateOpValueBytesV1 typesV1 (.literal 0 (encodeU8 1))
         (maxCanonicalProgramBytes - 2) =
         .ok (maxCanonicalProgramBytes - 4) := by
-    apply validateOpValueBytesV1_literal_bool_eq_ok typesV1 1
-      ({ id := 1, name := none, shape := .bool } : TypeDeclV1) 1
+    apply validateOpValueBytesV1_literal_bool_eq_ok typesV1 0
+      ({ id := 0, name := none, shape := .bool } : TypeDeclV1) 1
     · rfl
     · rfl
     · exact Or.inr rfl
@@ -397,9 +403,9 @@ theorem logicalStateNamesV1
     (hstate02 : state0Name ≠ state2Name)
     (hstate12 : state1Name ≠ state2Name) :
     validateLogicalStateNameUniquenessV1 #[
-      { id := 0, name := state0Name, typeId := 0, visibility := .public_ },
-      { id := 1, name := state1Name, typeId := 0, visibility := .public_ },
-      { id := 2, name := state2Name, typeId := 0, visibility := .public_ }
+      { id := 0, name := state0Name, typeId := 1, visibility := .public_ },
+      { id := 1, name := state1Name, typeId := 1, visibility := .public_ },
+      { id := 2, name := state2Name, typeId := 1, visibility := .public_ }
     ] = .ok () := by
   have h01 : (state0Name == state1Name) = false := by
     exact Bool.eq_false_iff.mpr (by simpa [BEq.beq] using hstate01)
@@ -538,7 +544,7 @@ private theorem literalCfgV1
     (callableId : CallableIdV1) (kind : CallableKindV1)
     (callableName : String) (invariantSteps : Option UInt64) :
     validateCallableCfgShape
-      (literalReturnCallableV1 callableId kind (some callableName) 1
+      (literalReturnCallableV1 callableId kind (some callableName) 0
         (encodeU8 1) .public_ invariantSteps)
       (subjectDataV1 qualifiedName state0Name state1Name state2Name viewName
         literalInvariantName eqInvariantName neInvariantName).types.size
@@ -548,11 +554,11 @@ private theorem literalCfgV1
         literalInvariantName eqInvariantName neInvariantName) = .ok () := by
   let data := subjectDataV1 qualifiedName state0Name state1Name state2Name
     viewName literalInvariantName eqInvariantName neInvariantName
-  let callable := literalReturnCallableV1 callableId kind (some callableName) 1
+  let callable := literalReturnCallableV1 callableId kind (some callableName) 0
     (encodeU8 1) .public_ invariantSteps
   let instruction : InstructionV1 := {
-    result := some { valueId := 0, typeId := 1 }
-    op := .literal 1 (encodeU8 1)
+    result := some { valueId := 0, typeId := 0 }
+    op := .literal 0 (encodeU8 1)
   }
   refine validateCallableCfgShape_eq_ok_of_phases callable data.types.size
     data.types data #[true] ?_ ?_ ?_ ?_ ?_
@@ -580,7 +586,7 @@ private theorem compareCfgV1
     (op : BinaryOpV1) (hop : op = .eq ∨ op = .ne) :
     validateCallableCfgShape
       (twoStateCompareInvariantCallableV1 callableId (some callableName)
-        0 1 1 2 op .public_ (some 5))
+        1 0 1 2 op .public_ (some 5))
       (subjectDataV1 qualifiedName state0Name state1Name state2Name viewName
         literalInvariantName eqInvariantName neInvariantName).types.size
       (subjectDataV1 qualifiedName state0Name state1Name state2Name viewName
@@ -591,9 +597,9 @@ private theorem compareCfgV1
   all_goals
     refine validateCallableCfgShape_eq_ok_of_phases
       (twoStateCompareInvariantCallableV1 callableId (some callableName)
-        0 1 1 2 _ .public_ (some 5)) 2
-      #[{ id := 0, name := none, shape := .uint 64 },
-        { id := 1, name := none, shape := .bool }]
+        1 0 1 2 _ .public_ (some 5)) 2
+      #[{ id := 0, name := none, shape := .bool },
+        { id := 1, name := none, shape := .uint 64 }]
       (subjectDataV1 qualifiedName state0Name state1Name state2Name viewName
         literalInvariantName eqInvariantName neInvariantName) #[true]
       ?_ ?_ ?_ ?_ ?_
@@ -602,7 +608,7 @@ private theorem compareCfgV1
     · rfl
     · apply validateCallableCfgValueFlow_eq_ok_of_phases
         (twoStateCompareInvariantCallableV1 callableId (some callableName)
-          0 1 1 2 _ .public_ (some 5)) #[true]
+          1 0 1 2 _ .public_ (some 5)) #[true]
         #[(0, 0), (1, 0), (2, 0)]
       · rfl
       · rfl
@@ -624,14 +630,14 @@ theorem genericCfgPhasesV1
         literalInvariantName eqInvariantName neInvariantName) = .ok () := by
   let data := subjectDataV1 qualifiedName state0Name state1Name state2Name
     viewName literalInvariantName eqInvariantName neInvariantName
-  let viewCallable := literalReturnCallableV1 0 .view (some viewName) 1
+  let viewCallable := literalReturnCallableV1 0 .view (some viewName) 0
     (encodeU8 1) .public_ none
   let literalInvariantCallable := literalReturnCallableV1 1 .invariant
-    (some literalInvariantName) 1 (encodeU8 1) .public_ (some 3)
+    (some literalInvariantName) 0 (encodeU8 1) .public_ (some 3)
   let eqCallable := twoStateCompareInvariantCallableV1 2 (some eqInvariantName)
-    0 1 1 2 .eq .public_ (some 5)
+    1 0 1 2 .eq .public_ (some 5)
   let neCallable := twoStateCompareInvariantCallableV1 3 (some neInvariantName)
-    0 1 1 2 .ne .public_ (some 5)
+    1 0 1 2 .ne .public_ (some 5)
   apply validateGenericCfgPhasesV1_four_eq_ok data viewCallable
     literalInvariantCallable eqCallable neCallable
   · rfl

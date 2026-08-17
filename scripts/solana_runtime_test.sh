@@ -68,6 +68,7 @@ fixtures_src="$root/runtime-tests/solana/fixtures"
 # S3b fixture programs (source stem == program name == artifact stem).
 fixtures=(
   BlockHeight
+  UnixTimeSeconds
   Sha256Check
   LoopSum
   MathOps

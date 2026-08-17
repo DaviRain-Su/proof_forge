@@ -19,13 +19,14 @@ set -e
 [[ "$code" -eq 2 ]]
 grep -q 'requires --target' <<<"$err"
 
-echo "local-cli-smoke: design-only local rejected"
+echo "local-cli-smoke: soroban local rejects (source-only; no package-script lane)"
 set +e
 err="$("$cli" local --target soroban 2>&1)"
 code=$?
 set -e
 [[ "$code" -eq 2 ]]
-grep -q 'design-only' <<<"$err"
+grep -q 'source-only' <<<"$err"
+grep -q 'no package-script local runtime lane' <<<"$err"
 
 echo "local-cli-smoke: removed network command is rejected"
 set +e

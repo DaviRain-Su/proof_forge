@@ -97,15 +97,15 @@ theorem preservationTheorem_of_subjectBodyV1
     have hinitial : initialLogicalStateV1 program = .ok initial := by
       simpa [initial, zero, data] using
         initialLogicalStateV1_double_uint64_no_initializer_eq_ok program data
-          (StateDeclV1.mk 0 state0Name 0 .public_)
-          (StateDeclV1.mk 1 state1Name 0 .public_)
-          (TypeDeclV1.mk 0 none (.uint 64)) hvalidate rfl rfl rfl rfl
+          (StateDeclV1.mk 0 state0Name 1 .public_)
+          (StateDeclV1.mk 1 state1Name 1 .public_)
+          (TypeDeclV1.mk 1 none (.uint 64)) hvalidate rfl rfl rfl rfl
           hnoInitAny rfl rfl
     have hencode : encodeLogicalStateValuesV1 data true #[zero, zero] = .ok initial := by
       simpa [initial, zero] using
         encodeLogicalStateValuesV1_double_uint64_eq_ok data
-          (StateDeclV1.mk 0 state0Name 0 .public_)
-          (StateDeclV1.mk 1 state1Name 0 .public_) zero zero true
+          (StateDeclV1.mk 0 state0Name 1 .public_)
+          (StateDeclV1.mk 1 state1Name 1 .public_) zero zero true
           rfl rfl rfl rfl rfl
     have hdecode := decodeLogicalStateValuesV1_of_encodeLogicalStateValuesV1
       data true #[zero, zero] initial hencode
@@ -114,7 +114,7 @@ theorem preservationTheorem_of_subjectBodyV1
         hvalidate rfl hdecode
     have heval : evalInvariantV1 program 0 initial = .returnedTrue :=
       (evalInvariantV1_returnedTrue_iff_two_state_bytes_eq program data 0 0
-        invariantName initial #[zero, zero] zero zero 1 0 1 0 1
+        invariantName initial #[zero, zero] zero zero 1 1 0 0 1
         (some invariantName) .public_ .public_ .public_ state0Name state1Name
         hvalidate rfl hdecode rfl rfl rfl rfl rfl rfl rfl).2 rfl
     exact ⟨initial, hinitial, hconforms, heval⟩
@@ -133,13 +133,14 @@ theorem preservationTheorem_of_subjectBodyV1
           decide
         exact hk.trans hkFalse
       obtain ⟨argument, harg⟩ := gateInvocation_ready_uint64_argumentV1 admitted pre
-        invocation data.callables[0] overlay context isInitializer 0 (by change 0 < 1; decide) 0
-        (by rfl) data.types[0] (by simpa [hadmittedData]) (by rfl) hgate
+        invocation data.callables[0] overlay context isInitializer 0 (by change 0 < 1; decide) 1
+        (by rfl) ({ id := 1, name := none, shape := .uint 64 } : TypeDeclV1)
+        (by rw [hadmittedData]; rfl) (by rfl) hgate
       have harity := gateInvocation_ready_arity admitted pre invocation data.callables[0]
         overlay context isInitializer hgate
       have hinvocation : invocation = {
           callableId := 0
-          args := #[{ typeId := 0, valueBytes := encodeU64le argument }]
+          args := #[{ typeId := 1, valueBytes := encodeU64le argument }]
           context := invocation.context } := by
         cases invocation with
         | mk cid args ctx =>
@@ -166,20 +167,21 @@ theorem preservationTheorem_of_subjectBodyV1
         exact ⟨overlay[0]'(by omega), overlay[1]'(by omega), Array.ext (by simp [hoverlay]) (by
           intro i hi hj
           match i with | 0 => simp | 1 => simp | n + 2 => omega)⟩
-      have hcanonical : validateValueBytesV1 data.types 0 (encodeU64le argument) = .ok () := by
-        apply validateValueBytesV1_uint64_of_size data.types 0 data.types[0]
+      have hcanonical : validateValueBytesV1 data.types 1 (encodeU64le argument) = .ok () := by
+        apply validateValueBytesV1_uint64_of_size data.types 1
+          ({ id := 1, name := none, shape := .uint 64 } : TypeDeclV1)
         · rfl
         · rfl
         · exact encodeU64le_size argument
       have hpostEncode : encodeLogicalStateValuesV1 data true
           #[encodeU64le argument, encodeU64le argument] = .ok post := by
         apply stepReferenceSliceV1_ready_store_parameter_two_returned_post_encode
-          admitted pre post data before0 before1 (encodeU64le argument) 0 state0Name
+          admitted pre post data before0 before1 (encodeU64le argument) 1 state0Name
           state1Name parameterName 0 (some entryName) invocation.context context
           responses vault value effects hadmittedData rfl rfl rfl hcanonical
         · change gateInvocation admitted pre invocation = .ready
             (storeParameterTwoReturnCallableV1 0 (some entryName) parameterName
-              0 0 1 .public_) overlay context isInitializer at hgate
+              1 0 1 .public_) overlay context isInitializer at hgate
           rw [hinvocation, hoverlayEq, hisInitializer] at hgate
           exact hgate
         · rw [hinvocation] at hstep
@@ -191,7 +193,7 @@ theorem preservationTheorem_of_subjectBodyV1
           #[encodeU64le argument, encodeU64le argument] post hpostEncode
       exact (evalInvariantV1_returnedTrue_iff_two_state_bytes_eq program data 0 0
         invariantName post #[encodeU64le argument, encodeU64le argument]
-        (encodeU64le argument) (encodeU64le argument) 1 0 1 0 1
+        (encodeU64le argument) (encodeU64le argument) 1 1 0 0 1
         (some invariantName) .public_ .public_ .public_ state0Name state1Name
         hvalidate hpostInitialized hdecodePost rfl rfl rfl rfl rfl rfl rfl).2 rfl
     | ⟨1, _⟩ =>

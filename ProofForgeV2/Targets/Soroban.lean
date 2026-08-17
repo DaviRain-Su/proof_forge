@@ -25,10 +25,15 @@ signedNumeric); Option UInt64 or Option Int64 **state** flattens to
 `{name}_tag`/`{name}_p0` (payload follows signedNumeric); Map UInt64
 UInt64 or Map Int64 Int64 **state** flattens to 24 instance keys
 `{name}_0`..`{name}_23` (cap-8 × occ/key/val; key/value follow
-signedNumeric). No invariants/constants/events/call/schedule. Mixing
-UInt64/Int64, Int8/16/32, Bytes, Array/Option/Map return/params,
-nonempty Map construct, and `symbol_short!` keys longer than 9 bytes
-fail closed.
+signedNumeric). No invariants/constants/events/call/schedule. CAP-3 admits
+`context.unixTimeSeconds` / `context.blockHeight` as source-only
+`env.ledger()` reads on init/entry/view. CAP-4 admits exact
+`pf.crypto.sha256` (UInt256→UInt256 plumbing) as source-only
+`env.crypto().sha256` on init/entry; keccak256 and sibling QNs
+stay fail closed. Mixing UInt64/Int64, Int8/16/32, Bytes,
+Array/Option/Map return/params, nonempty Map construct, UInt256
+state/param/result/arith (except CAP-4 sha256 plumbing), and
+`symbol_short!` keys longer than 9 bytes fail closed.
 -/
 
 namespace ProofForgeV2.Targets.Soroban

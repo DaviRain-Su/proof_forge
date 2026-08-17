@@ -159,7 +159,7 @@ UInt64 溢出 wrap、Int64 `min × -1` 漏 guard、attribute/heap 无界四类 P
 产品 build soft-skip acceptance。随后：四个 P0 经独立复核全部属实并已修复（各配运行时
 与 Plan 钉测，另清除 dead code、验收硬化为硬失败）；`CW-ABI-FREEZE` 的完整
 design-exit 已交付（§6 版本冻结 + §10 批准 structural-WAT 工程先导 + `SRC-CW-002`
-升级 verified + `SRC-CW-003/004` 与 `CLM-CW-001..004` 登记）。ADR-0036 已固定
+升级 verified + `SRC-CW-003/004` 与 `CLM-CW-001..004` 登记）。ADR-0036（仍 `proposed`）主张
 accepted 四目标与 engineering registry 扩面之间的边界。
 
 ## 1. 身份与来源

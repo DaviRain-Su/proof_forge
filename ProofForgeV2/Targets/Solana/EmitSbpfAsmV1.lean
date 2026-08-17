@@ -72,7 +72,9 @@ storeStateMulti, setHeader, setReturnData (u64 LE / bool / multi-leaf B-RET-ABI)
 compare, sha256Syscall (ADR-0031 S5: `sol_sha256` UInt256→UInt256),
 keccak256Syscall (ADR-0031 S5: `sol_keccak256` UInt256→UInt256),
 clockSlot (ADR-0031 S2: `sol_get_clock_sysvar` → Clock.slot; physical
-≈400ms slot, not logical block number; no Clock account meta), assert,
+≈400ms slot, not logical block number; no Clock account meta),
+clockUnixTimestamp (CAP-2: same syscall → Clock.unix_timestamp i64@32
+as u64 bits; no extra sign/range guard), assert,
 returnNone, revertError, ifRegion, switchRegion, forRegion, callFn (inline
 expand), emitEvent (`sol_log_data`), externalCall/schedule (real CPI via
 `sol_invoke_signed_c`, empty AccountMeta; result-bearing call reads
@@ -329,7 +331,7 @@ private def opResultLimbCount : Operation → Nat
   | .bitAnd .. | .bitOr .. | .bitXor .. | .checkedShl .. | .checkedShr ..
   | .bitNot .. | .boolNot .. | .boolAnd .. | .boolOr ..
   | .compare .. | .wideCompare .. | .callFn .. | .clockSlot ..
-  | .callerPrincipalLeaf .. => 1
+  | .clockUnixTimestamp .. | .callerPrincipalLeaf .. => 1
   | .sha256Syscall .. | .keccak256Syscall .. => 4
   | .externalCall _ _ _ (some _) => 1
   | .mapPrincipalUpsert .. => mapPrincipalLeafCountV1 + 1
@@ -360,7 +362,7 @@ private def opDestination? : Operation → Option Nat
       .compare destination .. | .wideCompare _ destination .. |
       .callFn _ destination _ | .sha256Syscall destination _ |
       .keccak256Syscall destination _ |
-      .clockSlot destination
+      .clockSlot destination | .clockUnixTimestamp destination
       | .callerPrincipalLeaf destination _ _ => some destination
   | .mapPrincipalUpsert _ _ _ outTemps _ =>
       match outTemps[0]? with | some d => some d | none => none
@@ -2807,6 +2809,31 @@ private def emitOperation (fuel : Nat) (b : AsmBuf) (ir : IR) (tempBase : Nat)
       -- Reload slot from buffer start (offset 0 = temp bufBase+4). r1 may be
       -- clobbered by the syscall; always use r10-relative load.
       b := loadTempAbs b "r1" (bufBase + 4)
+      pure (storeTemp b tempBase destination "r1")
+  | .clockUnixTimestamp destination => do
+      -- CAP-2 / CAP-D-SOL-TIME: same 40-byte Clock buffer as clockSlot.
+      -- Clock.unix_timestamp is the i64 at byte offset 32. Loaded into a
+      -- u64 register with no extra sign/range guard. Negative host
+      -- timestamps appear as two's-complement u64 bit patterns.
+      -- Stack temps grow downward (higher index = lower address). Allocate
+      -- 5 consecutive temps; point r1 at the lowest address (bufBase+4) so
+      -- the upward 40-byte write fills bufBase+4 .. bufBase.
+      -- unix_timestamp@32 lands in bufBase+0.
+      let (b0, bufBase) := allocTemps b 5
+      let (b1, okLab) := fresh b0 "clock_sysvar_ok"
+      let mut b := b1
+      b := emit b s!"  ; %{destination} = clock_unix_timestamp (sol_get_clock_sysvar → Clock.unix_timestamp @32)"
+      let startOff := tempStackOff (bufBase + 4)
+      b := emit b "  mov64 r1, r10"
+      b := emit b s!"  add64 r1, -{startOff}"
+      b := emit b "  call sol_get_clock_sysvar"
+      b := emit b s!"  jeq r0, 0, {okLab}"
+      b := emit b "  lddw r0, 0x1"
+      b := emit b "  exit"
+      b := emit b s!"{okLab}:"
+      -- Reload unix_timestamp from buffer offset 32 = temp bufBase.
+      -- r1 may be clobbered by the syscall; always use r10-relative load.
+      b := loadTempAbs b "r1" bufBase
       pure (storeTemp b tempBase destination "r1")
   | .callerPrincipalLeaf destination accountIndex leafIndex => do
       -- ADR-0032: Principal wire leaf from account[1] pf_caller key.

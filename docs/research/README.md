@@ -35,7 +35,7 @@ normative: false
 13. [`11-feature-coverage-audit.md`](11-feature-coverage-audit.md)：特性覆盖审查——分层缺口与按杠杆排序清单。
 14. [`12-target-coverage-matrix.md`](12-target-coverage-matrix.md)：wire Op × target LOWERED/FAIL-CLOSED/GAP 矩阵（工程覆盖权威格子）。
 15. [`13-spec-normalize-diff.md`](13-spec-normalize-diff.md)：SPEC-LANG/SEM/TYPE × NormalizeV1 机械对账（DOC-SPEC-AUDIT）。
-16. [`14-n5-call-return-schema.md`](14-n5-call-return-schema.md)：N-5 external call 返回值 schema 影响（void ExternalCall 直至共享核 cutover）。
+16. [`14-n5-call-return-schema.md`](14-n5-call-return-schema.md)：N-5 external call 返回值 schema 影响（历史快照；已被 **N-CALL-RET** 2026-08-04 cutover 取代——optional result 见 `semantic-program-wire.md` L557；semantic-core 旧句待 SPEC-honesty ADR 收口）。
 17. [`15-aleo-psy-compiler-vm.md`](15-aleo-psy-compiler-vm.md)：C-2 Aleo/Psy 历史 compiler/VM 实验；ADR-0035 后只保留 Aleo direct Instructions 与 Psy direct DPN 两条 zero-tool 产品 lane，旧 Leo/Dargo/compiler/runtime/network 入口均已删除。报告正文仅保留历史事实，不是当前入口或成熟度声明。
 18. [`16-noir-prove-path.md`](16-noir-prove-path.md)：C-4 Noir prove/verify 路径——G123 后 nargo compile-only 已锁定并接门，但无 Barretenberg/CRS/proof binding，故**不**升格 prove/verify；保持 source-only relations。
 19. [`13-noir-toolchain-research.md`](13-noir-toolchain-research.md)：RPT-017 的 2026-08-02 J1 历史快照及 2026-08-03 follow-up；明确哪些“无 nargo pin”结论已被 compile-only gate supersede，哪些 prove/verify 阻塞仍有效。
@@ -48,7 +48,7 @@ normative: false
 26. [`22-portable-surface-vs-chain-reality.md`](22-portable-surface-vs-chain-reality.md)：**可移植表面 vs 链上现实**——跨合约 / 资产 / 原子性总表（12-target）；解释为何一份 `program` 不能诚实直出「各链失败语义相同」的制品（NEAR Promise vs EVM/Solana CPI vs CW SubMsg；Wasm 不是原因）（RPT-022；2026-08-07）。
 27. [`23-miniamm-formalization-ladder.md`](23-miniamm-formalization-ladder.md)：**通用程序形式化栈** L0/L1/L2；业务 track 1（EvenCounter preserving product positive GREEN）与工具 track 2 分账；第二实例 deferred；product Reference step 唯一，MiniAmm 为后续普通实例；D/L2 formal 最后（RPT-023；2026-08-08）。
 28. [`24-aleo-local-proof-finalize.md`](24-aleo-local-proof-finalize.md)：locked Leo 4.0.2 的 package/build/execute/proof/finalize/query 实证冻结；offline build 三产物确定性已由 ALEO-I4 productize 为 opt-in non-deployable compile profile，network/proof/deploy 阶段仍阻塞（RPT-024；2026-08-07）。
-29. [`25-remaining-target-landscape.md`](25-remaining-target-landscape.md)：**剩余 target 版图**——用户「四大类」vs 多轴 taxonomy、registry 9+3、ADR-0017 研究桶、比特币脚本族（UTXO predicate）诚实边界，以及 Soroban→ICP→OpenVM→Move→第二 zkVM 的工程波次；执行勾选只进 `engineering-backlog`（RPT-025；2026-08-13）。
+29. [`25-remaining-target-landscape.md`](25-remaining-target-landscape.md)：**剩余 target 版图**——用户「四大类」vs 多轴 taxonomy、registry（撰写时 9+3，现 12+0）、ADR-0017 研究桶、比特币脚本族（UTXO predicate）诚实边界，以及 Soroban→ICP→OpenVM→Move→第二 zkVM 的工程波次；执行勾选只进 `engineering-backlog`（RPT-025；2026-08-13）。
 30. [`26-zkvm-trio-cairo-risc0-sp1-design.md`](26-zkvm-trio-cairo-risc0-sp1-design.md)：**Cairo / RISC Zero / SP1** 三独立 zkVM Plan 设计——共享 Q0 fail-closed 面与 maturity 梯子、分机 `CairoPlan`/`Risc0Plan`/`Sp1Plan`、相对 OpenVM/Noir 分工；非 registry 扩面（RPT-026；2026-08-13）。
 31. [`27-extension-crypto-design.md`](27-extension-crypto-design.md)：**extension.crypto 设计钉**——S5 sha256 三叶现状、其余 target 诚实 FC、Merkle/签名/Bytes 分桶与避让 Soroban/ICP/OpenVM 车道（RPT-027；2026-08-13）。
 32. [`28-project-wide-honesty-audit.md`](28-project-wide-honesty-audit.md)：**全仓诚实性对账**——控制面计数/Next/Goal 空队列、十二 target deployable≠maturity、formal 0/27 仍真（RPT-028；2026-08-15）。后续工程车道：[`../plan/capability-layer-parity.md`](../plan/capability-layer-parity.md) / [`../plan/capability-layer-tasks.md`](../plan/capability-layer-tasks.md)。

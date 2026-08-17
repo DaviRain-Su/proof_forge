@@ -22,20 +22,21 @@ open ProofForgeV2.Semantic.RequirementsV1
 open ProofForgeV2.Semantic.SubjectDataBridgeV1
 open ProofForgeV2.Semantic.WireV1
 
-/-- Canonical TypeId 0 shape for the family. -/
-def uint64Type0V1 : TypeDeclV1 :=
-  { id := 0, name := none, shape := .uint 64 }
+/-- Canonical TypeId 0 shape for the family (SPEC §5 anonymous rank:
+    Bool sorts before UInt64). -/
+def boolType0V1 : TypeDeclV1 :=
+  { id := 0, name := none, shape := .bool }
 
 /-- Canonical TypeId 1 shape for the family. -/
-def boolType1V1 : TypeDeclV1 :=
-  { id := 1, name := none, shape := .bool }
+def uint64Type1V1 : TypeDeclV1 :=
+  { id := 1, name := none, shape := .uint 64 }
 
 /-- Canonical type table for the family. -/
-def typesV1 : Array TypeDeclV1 := #[uint64Type0V1, boolType1V1]
+def typesV1 : Array TypeDeclV1 := #[boolType0V1, uint64Type1V1]
 
 /-- Public StateId 0 declaration for the family. -/
 def publicUInt64State0V1 (stateName : String) : StateDeclV1 :=
-  { id := 0, name := stateName, typeId := 0, visibility := .public_ }
+  { id := 0, name := stateName, typeId := 1, visibility := .public_ }
 
 /-- Requirement row helper using the production S2 version/digests. -/
 def requirementV1 (id : String) (digestBytes : ByteArray) : RequirementRequestV1 := {
@@ -68,9 +69,9 @@ def subjectDataV1
   events := #[]
   errors := #[]
   callables := #[
-    incrementAddTwoCallableV1 0 (some entryName) 0 0,
-    viewLoadCallableV1 1 (some viewName) 0 0,
-    uint64ParityInvariantCallableV1 2 (some invariantName) 0 1 0 .public_ (some 7)]
+    incrementAddTwoCallableV1 0 (some entryName) 1 0,
+    viewLoadCallableV1 1 (some viewName) 1 0,
+    uint64ParityInvariantCallableV1 2 (some invariantName) 1 0 0 .public_ (some 7)]
   invariants := #[{ id := 0, name := invariantName, callableId := 2 }]
   requirements := {
     items := #[rollbackRequirementV1, persistentStateRequirementV1,
@@ -96,28 +97,28 @@ theorem exactAtRoot_typesV1 :
     ExactMidOffsetInvertAtV1 (encodeArray encodeTypeDeclV1)
       (decodeArray maxTableElements decodeTypeDeclV1) typesV1 1 := by
   intro b left right henc
-  cases huint : encodeTypeDeclV1 uint64Type0V1 with
+  cases hbool : encodeTypeDeclV1 boolType0V1 with
   | error error =>
       have harray : encodeArray encodeTypeDeclV1 typesV1 = .error error := by
         simpa [typesV1] using
-          encodeArray_two_error_firstV1 encodeTypeDeclV1 uint64Type0V1 boolType1V1
-            error huint
+          encodeArray_two_error_firstV1 encodeTypeDeclV1 boolType0V1 uint64Type1V1
+            error hbool
       rw [harray] at henc
       cases henc
-  | ok uintB =>
-      cases hbool : encodeTypeDeclV1 boolType1V1 with
+  | ok boolB =>
+      cases huint : encodeTypeDeclV1 uint64Type1V1 with
       | error error =>
           have harray : encodeArray encodeTypeDeclV1 typesV1 = .error error := by
             simpa [typesV1] using
-              encodeArray_two_error_secondV1 encodeTypeDeclV1 uint64Type0V1 boolType1V1
-                uintB error huint hbool
+              encodeArray_two_error_secondV1 encodeTypeDeclV1 boolType0V1 uint64Type1V1
+                boolB error hbool huint
           rw [harray] at henc
           cases henc
-      | ok boolB =>
-          simpa [typesV1, uint64Type0V1, boolType1V1] using
-            decodeTypes_uint64_bool_table_of_encode_midV1 uintB boolB
-              (by simpa [uint64Type0V1] using huint)
-              (by simpa [boolType1V1] using hbool)
+      | ok uintB =>
+          simpa [typesV1, boolType0V1, uint64Type1V1] using
+            decodeTypes_bool_uint64_table_of_encode_midV1 boolB uintB
+              (by simpa [boolType0V1] using hbool)
+              (by simpa [uint64Type1V1] using huint)
               b left right 1 (by decide) henc
 
 /-- A singleton public UInt64 state table is invertible at root depth. -/
@@ -139,7 +140,7 @@ theorem exactAtRoot_publicUInt64StateV1
   | ok stateB =>
       simpa [publicUInt64State0V1] using
         decodeStateDecl_singleton_public_table_of_encode_midV1 stateName hstateName
-          stateB (by simpa [publicUInt64State0V1] using hstate)
+          1 stateB (by simpa [publicUInt64State0V1] using hstate)
           b left right 1 (by decide) henc
 
 /-- A singleton invariant declaration table is invertible at root depth. -/
@@ -266,11 +267,11 @@ private def incrementAddTwoBlockV1 : BlockV1 := {
   id := 0
   params := #[]
   instructions := #[
-    valueInstructionShapeV1 0 0 (.stateLoad 0),
-    valueInstructionShapeV1 1 0 (.literal 0 two8BytesV1),
-    valueInstructionShapeV1 2 0 (.binary .add 0 1),
+    valueInstructionShapeV1 0 1 (.stateLoad 0),
+    valueInstructionShapeV1 1 1 (.literal 1 two8BytesV1),
+    valueInstructionShapeV1 2 1 (.binary .add 0 1),
     voidInstructionShapeV1 (.stateStore 0 2),
-    valueInstructionShapeV1 3 0 (.stateLoad 0)]
+    valueInstructionShapeV1 3 1 (.stateLoad 0)]
   terminator := .return_ (some 3)
 }
 
@@ -278,7 +279,7 @@ private def incrementAddTwoBlockV1 : BlockV1 := {
 private def viewLoadBlockV1 : BlockV1 := {
   id := 0
   params := #[]
-  instructions := #[valueInstructionShapeV1 0 0 (.stateLoad 0)]
+  instructions := #[valueInstructionShapeV1 0 1 (.stateLoad 0)]
   terminator := .return_ (some 0)
 }
 
@@ -287,11 +288,11 @@ private def uint64ParityInvariantBlockV1 : BlockV1 := {
   id := 0
   params := #[]
   instructions := #[
-    valueInstructionShapeV1 0 0 (.stateLoad 0),
-    valueInstructionShapeV1 1 0 (.literal 0 two8BytesV1),
-    valueInstructionShapeV1 2 0 (.binary .mod 0 1),
-    valueInstructionShapeV1 3 0 (.literal 0 zero8BytesV1),
-    valueInstructionShapeV1 4 1 (.binary .eq 2 3)]
+    valueInstructionShapeV1 0 1 (.stateLoad 0),
+    valueInstructionShapeV1 1 1 (.literal 1 two8BytesV1),
+    valueInstructionShapeV1 2 1 (.binary .mod 0 1),
+    valueInstructionShapeV1 3 1 (.literal 1 zero8BytesV1),
+    valueInstructionShapeV1 4 0 (.binary .eq 2 3)]
   terminator := .return_ (some 4)
 }
 
@@ -303,23 +304,23 @@ private theorem exactAt_incrementAddTwoBlockV1 :
       (exactAt_array_emptyV1 encodeBlockParameterV1 decodeBlockParameterV1 maxArrayElements 3)
       (exactAt_array_five_of_exactAtV1 encodeInstructionV1 decodeInstructionV1
         maxArrayElements (by decide)
-        (valueInstructionShapeV1 0 0 (.stateLoad 0))
-        (valueInstructionShapeV1 1 0 (.literal 0 two8BytesV1))
-        (valueInstructionShapeV1 2 0 (.binary .add 0 1))
+        (valueInstructionShapeV1 0 1 (.stateLoad 0))
+        (valueInstructionShapeV1 1 1 (.literal 1 two8BytesV1))
+        (valueInstructionShapeV1 2 1 (.binary .add 0 1))
         (voidInstructionShapeV1 (.stateStore 0 2))
-        (valueInstructionShapeV1 3 0 (.stateLoad 0)) 3
+        (valueInstructionShapeV1 3 1 (.stateLoad 0)) 3
         (by
           simpa [valueInstructionShapeV1] using
-            exactAt_valueInstruction_of_opV1 0 0 (.stateLoad 0) 3 (by decide)
+            exactAt_valueInstruction_of_opV1 0 1 (.stateLoad 0) 3 (by decide)
               (by decide) (exactAt_semanticOp_stateLoadV1 0 4 (by decide)))
         (by
           simpa [valueInstructionShapeV1] using
-            exactAt_valueInstruction_of_opV1 1 0 (.literal 0 two8BytesV1) 3
+            exactAt_valueInstruction_of_opV1 1 1 (.literal 1 two8BytesV1) 3
               (by decide) (by decide)
-              (exactAt_semanticOp_literalV1 0 two8BytesV1 4 (by decide)))
+              (exactAt_semanticOp_literalV1 1 two8BytesV1 4 (by decide)))
         (by
           simpa [valueInstructionShapeV1] using
-            exactAt_valueInstruction_of_opV1 2 0 (.binary .add 0 1) 3
+            exactAt_valueInstruction_of_opV1 2 1 (.binary .add 0 1) 3
               (by decide) (by decide)
               (exactAt_semanticOp_binaryAddV1 0 1 4 (by decide) (by decide)))
         (by
@@ -328,7 +329,7 @@ private theorem exactAt_incrementAddTwoBlockV1 :
               (exactAt_semanticOp_stateStoreV1 0 2 4 (by decide)))
         (by
           simpa [valueInstructionShapeV1] using
-            exactAt_valueInstruction_of_opV1 3 0 (.stateLoad 0) 3 (by decide)
+            exactAt_valueInstruction_of_opV1 3 1 (.stateLoad 0) 3 (by decide)
               (by decide) (exactAt_semanticOp_stateLoadV1 0 4 (by decide))))
       (exactAt_terminatorReturnV1 (some 3) 3 (by decide))
 
@@ -340,10 +341,10 @@ private theorem exactAt_viewLoadBlockV1 :
       (exactAt_array_emptyV1 encodeBlockParameterV1 decodeBlockParameterV1 maxArrayElements 3)
       (exactAt_array_one_of_exactAtV1 encodeInstructionV1 decodeInstructionV1
         maxArrayElements (by decide)
-        (valueInstructionShapeV1 0 0 (.stateLoad 0)) 3
+        (valueInstructionShapeV1 0 1 (.stateLoad 0)) 3
         (by
           simpa [valueInstructionShapeV1] using
-            exactAt_valueInstruction_of_opV1 0 0 (.stateLoad 0) 3 (by decide)
+            exactAt_valueInstruction_of_opV1 0 1 (.stateLoad 0) 3 (by decide)
               (by decide) (exactAt_semanticOp_stateLoadV1 0 4 (by decide))))
       (exactAt_terminatorReturnV1 (some 0) 3 (by decide))
 
@@ -355,33 +356,33 @@ private theorem exactAt_uint64ParityInvariantBlockV1 :
       (exactAt_array_emptyV1 encodeBlockParameterV1 decodeBlockParameterV1 maxArrayElements 3)
       (exactAt_array_five_of_exactAtV1 encodeInstructionV1 decodeInstructionV1
         maxArrayElements (by decide)
-        (valueInstructionShapeV1 0 0 (.stateLoad 0))
-        (valueInstructionShapeV1 1 0 (.literal 0 two8BytesV1))
-        (valueInstructionShapeV1 2 0 (.binary .mod 0 1))
-        (valueInstructionShapeV1 3 0 (.literal 0 zero8BytesV1))
-        (valueInstructionShapeV1 4 1 (.binary .eq 2 3)) 3
+        (valueInstructionShapeV1 0 1 (.stateLoad 0))
+        (valueInstructionShapeV1 1 1 (.literal 1 two8BytesV1))
+        (valueInstructionShapeV1 2 1 (.binary .mod 0 1))
+        (valueInstructionShapeV1 3 1 (.literal 1 zero8BytesV1))
+        (valueInstructionShapeV1 4 0 (.binary .eq 2 3)) 3
         (by
           simpa [valueInstructionShapeV1] using
-            exactAt_valueInstruction_of_opV1 0 0 (.stateLoad 0) 3 (by decide)
+            exactAt_valueInstruction_of_opV1 0 1 (.stateLoad 0) 3 (by decide)
               (by decide) (exactAt_semanticOp_stateLoadV1 0 4 (by decide)))
         (by
           simpa [valueInstructionShapeV1] using
-            exactAt_valueInstruction_of_opV1 1 0 (.literal 0 two8BytesV1) 3
+            exactAt_valueInstruction_of_opV1 1 1 (.literal 1 two8BytesV1) 3
               (by decide) (by decide)
-              (exactAt_semanticOp_literalV1 0 two8BytesV1 4 (by decide)))
+              (exactAt_semanticOp_literalV1 1 two8BytesV1 4 (by decide)))
         (by
           simpa [valueInstructionShapeV1] using
-            exactAt_valueInstruction_of_opV1 2 0 (.binary .mod 0 1) 3
+            exactAt_valueInstruction_of_opV1 2 1 (.binary .mod 0 1) 3
               (by decide) (by decide)
               (exactAt_semanticOp_binaryModV1 0 1 4 (by decide) (by decide)))
         (by
           simpa [valueInstructionShapeV1] using
-            exactAt_valueInstruction_of_opV1 3 0 (.literal 0 zero8BytesV1) 3
+            exactAt_valueInstruction_of_opV1 3 1 (.literal 1 zero8BytesV1) 3
               (by decide) (by decide)
-              (exactAt_semanticOp_literalV1 0 zero8BytesV1 4 (by decide)))
+              (exactAt_semanticOp_literalV1 1 zero8BytesV1 4 (by decide)))
         (by
           simpa [valueInstructionShapeV1] using
-            exactAt_valueInstruction_of_opV1 4 1 (.binary .eq 2 3) 3
+            exactAt_valueInstruction_of_opV1 4 0 (.binary .eq 2 3) 3
               (by decide) (by decide)
               (exactAt_semanticOp_binaryEqV1 2 3 4 (by decide) (by decide))))
       (exactAt_terminatorReturnV1 (some 4) 3 (by decide))
@@ -391,15 +392,15 @@ theorem exactAt_incrementAddTwoCallableV1
     (entryName : String)
     (hentryName : validateIdentifierComponent entryName = .ok ()) :
     ExactMidOffsetInvertAtV1 encodeCallableV1 decodeCallableV1
-      (incrementAddTwoCallableV1 0 (some entryName) 0 0) 1 := by
+      (incrementAddTwoCallableV1 0 (some entryName) 1 0) 1 := by
   simpa [incrementAddTwoCallableV1, incrementAddTwoBlockV1, valueInstructionShapeV1,
     voidInstructionShapeV1] using
-    exactAt_callable_of_fieldsV1 (incrementAddTwoCallableV1 0 (some entryName) 0 0) 1
+    exactAt_callable_of_fieldsV1 (incrementAddTwoCallableV1 0 (some entryName) 1 0) 1
       (by decide)
       (exactAt_callableKindV1 .entry 2 (by decide))
       (exactAt_optionString_some_identifierV1 entryName hentryName 2)
       (exactAt_array_emptyV1 encodeParameterV1 decodeParameterV1 maxArrayElements 2)
-      (exactAt_callableResultV1 ({ typeId := 0, visibility := .public_ } : CallableResultV1)
+      (exactAt_callableResultV1 ({ typeId := 1, visibility := .public_ } : CallableResultV1)
         2 (by decide) (by decide))
       (exactAt_array_one_of_exactAtV1 encodeBlockV1 decodeBlockV1 maxArrayElements
         (by decide) incrementAddTwoBlockV1 2 exactAt_incrementAddTwoBlockV1)
@@ -411,14 +412,14 @@ theorem exactAt_viewLoadCallableV1
     (viewName : String)
     (hviewName : validateIdentifierComponent viewName = .ok ()) :
     ExactMidOffsetInvertAtV1 encodeCallableV1 decodeCallableV1
-      (viewLoadCallableV1 1 (some viewName) 0 0) 1 := by
+      (viewLoadCallableV1 1 (some viewName) 1 0) 1 := by
   simpa [viewLoadCallableV1, viewLoadBlockV1, valueInstructionShapeV1] using
-    exactAt_callable_of_fieldsV1 (viewLoadCallableV1 1 (some viewName) 0 0) 1
+    exactAt_callable_of_fieldsV1 (viewLoadCallableV1 1 (some viewName) 1 0) 1
       (by decide)
       (exactAt_callableKindV1 .view 2 (by decide))
       (exactAt_optionString_some_identifierV1 viewName hviewName 2)
       (exactAt_array_emptyV1 encodeParameterV1 decodeParameterV1 maxArrayElements 2)
-      (exactAt_callableResultV1 ({ typeId := 0, visibility := .public_ } : CallableResultV1)
+      (exactAt_callableResultV1 ({ typeId := 1, visibility := .public_ } : CallableResultV1)
         2 (by decide) (by decide))
       (exactAt_array_one_of_exactAtV1 encodeBlockV1 decodeBlockV1 maxArrayElements
         (by decide) viewLoadBlockV1 2 exactAt_viewLoadBlockV1)
@@ -430,16 +431,16 @@ theorem exactAt_uint64ParityInvariantCallableV1
     (invariantName : String)
     (hinvariantName : validateIdentifierComponent invariantName = .ok ()) :
     ExactMidOffsetInvertAtV1 encodeCallableV1 decodeCallableV1
-      (uint64ParityInvariantCallableV1 2 (some invariantName) 0 1 0 .public_ (some 7)) 1 := by
+      (uint64ParityInvariantCallableV1 2 (some invariantName) 1 0 0 .public_ (some 7)) 1 := by
   simpa [uint64ParityInvariantCallableV1, uint64ParityInvariantBlockV1,
     valueInstructionShapeV1] using
     exactAt_callable_of_fieldsV1
-      (uint64ParityInvariantCallableV1 2 (some invariantName) 0 1 0 .public_ (some 7)) 1
+      (uint64ParityInvariantCallableV1 2 (some invariantName) 1 0 0 .public_ (some 7)) 1
       (by decide)
       (exactAt_callableKindV1 .invariant 2 (by decide))
       (exactAt_optionString_some_identifierV1 invariantName hinvariantName 2)
       (exactAt_array_emptyV1 encodeParameterV1 decodeParameterV1 maxArrayElements 2)
-      (exactAt_callableResultV1 ({ typeId := 1, visibility := .public_ } : CallableResultV1)
+      (exactAt_callableResultV1 ({ typeId := 0, visibility := .public_ } : CallableResultV1)
         2 (by decide) (by decide))
       (exactAt_array_one_of_exactAtV1 encodeBlockV1 decodeBlockV1 maxArrayElements
         (by decide) uint64ParityInvariantBlockV1 2 exactAt_uint64ParityInvariantBlockV1)
@@ -454,14 +455,14 @@ theorem exactAtRoot_callablesV1
     (hinvariantName : validateIdentifierComponent invariantName = .ok ()) :
     ExactMidOffsetInvertAtV1 (encodeArray encodeCallableV1)
       (decodeArray maxTableElements decodeCallableV1)
-      #[incrementAddTwoCallableV1 0 (some entryName) 0 0,
-        viewLoadCallableV1 1 (some viewName) 0 0,
-        uint64ParityInvariantCallableV1 2 (some invariantName) 0 1 0 .public_ (some 7)] 1 :=
+      #[incrementAddTwoCallableV1 0 (some entryName) 1 0,
+        viewLoadCallableV1 1 (some viewName) 1 0,
+        uint64ParityInvariantCallableV1 2 (some invariantName) 1 0 0 .public_ (some 7)] 1 :=
   exactAt_array_three_of_exactAtV1 encodeCallableV1 decodeCallableV1 maxTableElements
     (by decide)
-    (incrementAddTwoCallableV1 0 (some entryName) 0 0)
-    (viewLoadCallableV1 1 (some viewName) 0 0)
-    (uint64ParityInvariantCallableV1 2 (some invariantName) 0 1 0 .public_ (some 7))
+    (incrementAddTwoCallableV1 0 (some entryName) 1 0)
+    (viewLoadCallableV1 1 (some viewName) 1 0)
+    (uint64ParityInvariantCallableV1 2 (some invariantName) 1 0 0 .public_ (some 7))
     1
     (exactAt_incrementAddTwoCallableV1 entryName hentryName)
     (exactAt_viewLoadCallableV1 viewName hviewName)
@@ -530,8 +531,8 @@ private theorem encodeTypeShape_boolV1 :
   rw [encodeNullary_eq_okV1 "Type.Bool" (by decide) (by decide) (by decide)]
   congr 1
 
-private theorem compare_uint64_boolV1 :
-    compareByteArrayLex uint64TypeShapeBytesV1 boolTypeShapeBytesV1 = .gt := by
+private theorem compare_bool_uint64V1 :
+    compareByteArrayLex boolTypeShapeBytesV1 uint64TypeShapeBytesV1 = .lt := by
   rw [compareByteArrayLex]
   rw [compareByteArrayLexLoopV1_eq_next _ _ _ 0 (by decide) (by decide)]
   rw [compareByteArrayLexLoopV1_eq_next _ _ _ 1 (by decide) (by decide)]
@@ -542,48 +543,49 @@ private theorem compare_uint64_boolV1 :
   rw [compareByteArrayLexLoopV1_eq_next _ _ _ 6 (by decide) (by decide)]
   rw [compareByteArrayLexLoopV1_eq_next _ _ _ 7 (by decide) (by decide)]
   rw [compareByteArrayLexLoopV1_eq_next _ _ _ 8 (by decide) (by decide)]
-  apply compareByteArrayLexLoopV1_eq_gt
+  apply compareByteArrayLexLoopV1_eq_lt
   · decide
   · decide
 
 private theorem typeKeyNamedPrefixV1 :
     validateNamedPrefixRankV1 typesV1 = .ok () := by
-  simp [typesV1, uint64Type0V1, boolType1V1, validateNamedPrefixRankV1,
+  simp [typesV1, boolType0V1, uint64Type1V1, validateNamedPrefixRankV1,
     Pure.pure, Except.pure, Bind.bind, Except.bind]
 
 private theorem typeKeyPrimitiveLeafV1 :
     validatePrimitiveAnonymousTypeKeyUniquenessV1 typesV1 = .ok () := by
-  simp [typesV1, uint64Type0V1, boolType1V1,
+  simp [typesV1, boolType0V1, uint64Type1V1,
     validatePrimitiveAnonymousTypeKeyUniquenessV1,
     collectPrimitiveAnonymousTypeKeysV1,
-    encodeTypeShape_uint64V1, encodeTypeShape_boolV1, compare_uint64_boolV1,
+    encodeTypeShape_uint64V1, encodeTypeShape_boolV1, compare_bool_uint64V1,
     Pure.pure, Except.pure, Bind.bind, Except.bind]
 
 private theorem typeKeyRecursiveAnonymousV1 :
     validateRecursiveAnonymousTypeKeyUniquenessV1 typesV1 = .ok () := by
-  simp [typesV1, uint64Type0V1, boolType1V1,
+  simp [typesV1, boolType0V1, uint64Type1V1,
     validateRecursiveAnonymousTypeKeyUniquenessV1, Pure.pure, Except.pure]
 
 private theorem typeKeyNamedBodyCycleV1 :
     validateNamedBodyOptionCycleLegalityV1 typesV1 = .ok () := by
-  simp [typesV1, uint64Type0V1, boolType1V1,
+  simp [typesV1, boolType0V1, uint64Type1V1,
     validateNamedBodyOptionCycleLegalityV1, Pure.pure, Except.pure]
 
 private theorem typeKeyPhasesV1 :
     validateTypeKeyPhasesV1 typesV1 = .ok () := by
-  apply validateTypeKeyPhasesV1_eq_ok_of_phases
+  apply validateTypeKeyPhasesV1_eq_ok_of_prefix_phases
   · exact typeKeyNamedPrefixV1
   · exact typeKeyPrimitiveLeafV1
   · exact typeKeyRecursiveAnonymousV1
   · exact typeKeyNamedBodyCycleV1
-
+  · exact validateAnonymousTypeKeyRankV1_bool_uint64_eq_ok
+      boolType0V1 uint64Type1V1 rfl rfl
 private theorem structurePreludeV1
     (qualifiedName : QualifiedName)
     (stateName entryName viewName invariantName : String)
     (hnameShape : validateProgramQualifiedNameShapeV1 qualifiedName = .ok ()) :
     validateSemanticProgramStructurePreludeV1
       (subjectDataV1 qualifiedName stateName entryName viewName invariantName) = .ok () := by
-  simp [subjectDataV1, typesV1, uint64Type0V1, boolType1V1,
+  simp [subjectDataV1, typesV1, boolType0V1, uint64Type1V1,
     publicUInt64State0V1, incrementAddTwoCallableV1, viewLoadCallableV1,
     uint64ParityInvariantCallableV1, validateSemanticProgramStructurePreludeV1,
     checkTableIdsV1, checkTypeShapeRefs, checkTypeIdInRange,
@@ -592,13 +594,13 @@ private theorem structurePreludeV1
 
 private theorem typesStructureV1 :
     validateTypesStructureV1 typesV1 = .ok () := by
-  simp [typesV1, uint64Type0V1, boolType1V1, validateTypesStructureV1,
+  simp [typesV1, boolType0V1, uint64Type1V1, validateTypesStructureV1,
     validateTypeDeclShapeV1, validateTypeDeclNamedRuleV1,
     legalIntegerWidthV1_64, Pure.pure, Except.pure, Bind.bind, Except.bind]
 
 private theorem namedTypeNamesV1 :
     validateNamedTypeNameUniquenessV1 typesV1 = .ok () := by
-  simp [typesV1, uint64Type0V1, boolType1V1, validateNamedTypeNameUniquenessV1,
+  simp [typesV1, boolType0V1, uint64Type1V1, validateNamedTypeNameUniquenessV1,
     checkUniqueDeclarationNamesV1, Pure.pure, Except.pure, Bind.bind, Except.bind]
 
 private theorem constantsValueBytesV1
@@ -615,32 +617,32 @@ private theorem callablesValueBytesV1
       (subjectDataV1 qualifiedName stateName entryName viewName invariantName).callables
       maxCanonicalProgramBytes = .ok (maxCanonicalProgramBytes - 27) := by
   have htwo0 :
-      validateOpValueBytesV1 typesV1 (.literal 0 two8BytesV1)
+      validateOpValueBytesV1 typesV1 (.literal 1 two8BytesV1)
         maxCanonicalProgramBytes = .ok (maxCanonicalProgramBytes - 9) := by
-    simpa [typesV1, uint64Type0V1, two8BytesV1] using
-      validateOpValueBytesV1_literal_uint64_eq_ok typesV1 0 uint64Type0V1
+    simpa [typesV1, uint64Type1V1, two8BytesV1] using
+      validateOpValueBytesV1_literal_uint64_eq_ok typesV1 1 uint64Type1V1
         2 0 0 0 0 0 0 0 maxCanonicalProgramBytes (by rfl) (by rfl)
         (by decide)
   have htwo1 :
-      validateOpValueBytesV1 typesV1 (.literal 0 two8BytesV1)
+      validateOpValueBytesV1 typesV1 (.literal 1 two8BytesV1)
         (maxCanonicalProgramBytes - 9) = .ok (maxCanonicalProgramBytes - 18) := by
-    have h := validateOpValueBytesV1_literal_uint64_eq_ok typesV1 0 uint64Type0V1
+    have h := validateOpValueBytesV1_literal_uint64_eq_ok typesV1 1 uint64Type1V1
       2 0 0 0 0 0 0 0 (maxCanonicalProgramBytes - 9) (by rfl) (by rfl)
       (by decide)
     have hbudget : maxCanonicalProgramBytes - 9 - 9 =
         maxCanonicalProgramBytes - 18 := by omega
     rw [hbudget] at h
-    simpa [typesV1, uint64Type0V1, two8BytesV1] using h
+    simpa [typesV1, uint64Type1V1, two8BytesV1] using h
   have hzero :
-      validateOpValueBytesV1 typesV1 (.literal 0 zero8BytesV1)
+      validateOpValueBytesV1 typesV1 (.literal 1 zero8BytesV1)
         (maxCanonicalProgramBytes - 18) = .ok (maxCanonicalProgramBytes - 27) := by
-    have h := validateOpValueBytesV1_literal_uint64_eq_ok typesV1 0 uint64Type0V1
+    have h := validateOpValueBytesV1_literal_uint64_eq_ok typesV1 1 uint64Type1V1
       0 0 0 0 0 0 0 0 (maxCanonicalProgramBytes - 18) (by rfl) (by rfl)
       (by decide)
     have hbudget : maxCanonicalProgramBytes - 18 - 9 =
         maxCanonicalProgramBytes - 27 := by omega
     rw [hbudget] at h
-    simpa [typesV1, uint64Type0V1, zero8BytesV1] using h
+    simpa [typesV1, uint64Type1V1, zero8BytesV1] using h
   have hload (stateId : StateIdV1) (budget : Nat) :
       validateOpValueBytesV1 typesV1 (.stateLoad stateId) budget = .ok budget := rfl
   have hstore (stateId : StateIdV1) (value : ValueIdV1) (budget : Nat) :
@@ -697,9 +699,9 @@ private theorem callableSignaturesV1
     (hentryInvariant : entryName ≠ invariantName)
     (hviewInvariant : viewName ≠ invariantName) :
     validateCallableSignaturePhasesV1 typesV1
-      #[incrementAddTwoCallableV1 0 (some entryName) 0 0,
-        viewLoadCallableV1 1 (some viewName) 0 0,
-        uint64ParityInvariantCallableV1 2 (some invariantName) 0 1 0 .public_ (some 7)] = .ok () := by
+      #[incrementAddTwoCallableV1 0 (some entryName) 1 0,
+        viewLoadCallableV1 1 (some viewName) 1 0,
+        uint64ParityInvariantCallableV1 2 (some invariantName) 1 0 0 .public_ (some 7)] = .ok () := by
   have hEntryViewBeq : (entryName == viewName) = false := by
     exact Bool.eq_false_iff.mpr (by simpa [BEq.beq] using hentryView)
   have hEntryInvBeq : (entryName == invariantName) = false := by
@@ -715,7 +717,7 @@ private theorem callableSignaturesV1
   have hPublic : ((.public_ : VisibilityV1) == .public_) = true := by decide
   apply validateCallableSignaturePhasesV1_eq_ok_of_phases
   all_goals
-    simp [typesV1, uint64Type0V1, boolType1V1, incrementAddTwoCallableV1,
+    simp [typesV1, boolType0V1, uint64Type1V1, incrementAddTwoCallableV1,
       viewLoadCallableV1, uint64ParityInvariantCallableV1,
       validateCallableKindNamePresenceV1, validateCallableNameUniquenessV1,
       validateCallableParameterNameUniquenessV1,
@@ -731,9 +733,9 @@ private theorem callableSignaturesV1
 private theorem invariantDeclarationJoinV1
     (entryName viewName invariantName : String) :
     validateInvariantDeclarationJoinV1
-      #[incrementAddTwoCallableV1 0 (some entryName) 0 0,
-        viewLoadCallableV1 1 (some viewName) 0 0,
-        uint64ParityInvariantCallableV1 2 (some invariantName) 0 1 0 .public_ (some 7)]
+      #[incrementAddTwoCallableV1 0 (some entryName) 1 0,
+        viewLoadCallableV1 1 (some viewName) 1 0,
+        uint64ParityInvariantCallableV1 2 (some invariantName) 1 0 0 .public_ (some 7)]
       #[{ id := 0, name := invariantName, callableId := 2 }] = .ok () := by
   have hEntryInv : ((.entry : CallableKindV1) == .invariant) = false := by decide
   have hViewInv : ((.view : CallableKindV1) == .invariant) = false := by decide
@@ -755,7 +757,7 @@ private theorem declarationIdentifierNamesV1
   have hentry := validateIdentifierNameV1_eq_ok_of_common entryName hentryName
   have hview := validateIdentifierNameV1_eq_ok_of_common viewName hviewName
   have hinv := validateIdentifierNameV1_eq_ok_of_common invariantName hinvariantName
-  simp [subjectDataV1, typesV1, uint64Type0V1, boolType1V1,
+  simp [subjectDataV1, typesV1, boolType0V1, uint64Type1V1,
     publicUInt64State0V1, incrementAddTwoCallableV1,
     viewLoadCallableV1, uint64ParityInvariantCallableV1,
     validateDeclarationIdentifierNamesV1, validateTypeShapeIdentifierNamesV1,
@@ -794,18 +796,18 @@ private theorem envReadRequirementsV1
 
 private theorem incrementCfgV1
     (entryName : String) :
-    validateCallableCfgShape (incrementAddTwoCallableV1 0 (some entryName) 0 0)
+    validateCallableCfgShape (incrementAddTwoCallableV1 0 (some entryName) 1 0)
       typesV1.size typesV1
       (subjectDataV1 qualifiedName stateName entryName viewName invariantName) = .ok () := by
   refine validateCallableCfgShape_eq_ok_of_phases
-    (incrementAddTwoCallableV1 0 (some entryName) 0 0) typesV1.size typesV1
+    (incrementAddTwoCallableV1 0 (some entryName) 1 0) typesV1.size typesV1
     (subjectDataV1 qualifiedName stateName entryName viewName invariantName) #[true]
     ?_ ?_ ?_ ?_ ?_
   · rfl
   · rfl
   · rfl
   · apply validateCallableCfgValueFlow_eq_ok_of_phases
-      (incrementAddTwoCallableV1 0 (some entryName) 0 0) #[true]
+      (incrementAddTwoCallableV1 0 (some entryName) 1 0) #[true]
       #[(0, 0), (1, 0), (2, 0), (3, 0)]
     · rfl
     · rfl
@@ -816,18 +818,18 @@ private theorem incrementCfgV1
 
 private theorem getCfgV1
     (viewName : String) :
-    validateCallableCfgShape (viewLoadCallableV1 1 (some viewName) 0 0)
+    validateCallableCfgShape (viewLoadCallableV1 1 (some viewName) 1 0)
       typesV1.size typesV1
       (subjectDataV1 qualifiedName stateName entryName viewName invariantName) = .ok () := by
   refine validateCallableCfgShape_eq_ok_of_phases
-    (viewLoadCallableV1 1 (some viewName) 0 0) typesV1.size typesV1
+    (viewLoadCallableV1 1 (some viewName) 1 0) typesV1.size typesV1
     (subjectDataV1 qualifiedName stateName entryName viewName invariantName) #[true]
     ?_ ?_ ?_ ?_ ?_
   · rfl
   · rfl
   · rfl
   · apply validateCallableCfgValueFlow_eq_ok_of_phases
-      (viewLoadCallableV1 1 (some viewName) 0 0) #[true] #[(0, 0)]
+      (viewLoadCallableV1 1 (some viewName) 1 0) #[true] #[(0, 0)]
     · rfl
     · rfl
     · simp [checkValueIdUsesExist, viewLoadCallableV1,
@@ -839,11 +841,11 @@ private theorem getCfgV1
 private theorem evenCfgV1
     (invariantName : String) :
     validateCallableCfgShape
-      (uint64ParityInvariantCallableV1 2 (some invariantName) 0 1 0 .public_ (some 7))
+      (uint64ParityInvariantCallableV1 2 (some invariantName) 1 0 0 .public_ (some 7))
       typesV1.size typesV1
       (subjectDataV1 qualifiedName stateName entryName viewName invariantName) = .ok () := by
   refine validateCallableCfgShape_eq_ok_of_phases
-    (uint64ParityInvariantCallableV1 2 (some invariantName) 0 1 0 .public_ (some 7))
+    (uint64ParityInvariantCallableV1 2 (some invariantName) 1 0 0 .public_ (some 7))
     typesV1.size typesV1
     (subjectDataV1 qualifiedName stateName entryName viewName invariantName) #[true]
     ?_ ?_ ?_ ?_ ?_
@@ -851,7 +853,7 @@ private theorem evenCfgV1
   · rfl
   · rfl
   · apply validateCallableCfgValueFlow_eq_ok_of_phases
-      (uint64ParityInvariantCallableV1 2 (some invariantName) 0 1 0 .public_ (some 7))
+      (uint64ParityInvariantCallableV1 2 (some invariantName) 1 0 0 .public_ (some 7))
       #[true] #[(0, 0), (1, 0), (2, 0), (3, 0), (4, 0)]
     · rfl
     · rfl
@@ -867,9 +869,9 @@ private theorem genericCfgPhasesV1
       (subjectDataV1 qualifiedName stateName entryName viewName invariantName) = .ok () := by
   apply validateGenericCfgPhasesV1_three_eq_ok
     (subjectDataV1 qualifiedName stateName entryName viewName invariantName)
-    (incrementAddTwoCallableV1 0 (some entryName) 0 0)
-    (viewLoadCallableV1 1 (some viewName) 0 0)
-    (uint64ParityInvariantCallableV1 2 (some invariantName) 0 1 0 .public_ (some 7))
+    (incrementAddTwoCallableV1 0 (some entryName) 1 0)
+    (viewLoadCallableV1 1 (some viewName) 1 0)
+    (uint64ParityInvariantCallableV1 2 (some invariantName) 1 0 0 .public_ (some 7))
   · rfl
   · exact incrementCfgV1 entryName
   · exact getCfgV1 viewName
@@ -881,9 +883,9 @@ private def closureMembersV1 : Array Bool := #[false, false, true]
 private theorem closureMembershipResultV1
     (entryName viewName invariantName : String) :
     invariantClosureMembershipResultV1
-      #[incrementAddTwoCallableV1 0 (some entryName) 0 0,
-        viewLoadCallableV1 1 (some viewName) 0 0,
-        uint64ParityInvariantCallableV1 2 (some invariantName) 0 1 0 .public_ (some 7)] =
+      #[incrementAddTwoCallableV1 0 (some entryName) 1 0,
+        viewLoadCallableV1 1 (some viewName) 1 0,
+        uint64ParityInvariantCallableV1 2 (some invariantName) 1 0 0 .public_ (some 7)] =
       .ok closureMembersV1 := by
   simp [invariantClosureMembershipResultV1, closureMembersV1,
     incrementAddTwoCallableV1, viewLoadCallableV1, uint64ParityInvariantCallableV1]
@@ -892,24 +894,24 @@ private theorem closureMembershipResultV1
 private theorem closureMembershipPhasesV1
     (entryName viewName invariantName : String) :
     validateInvariantClosureMembershipPhasesV1
-      #[incrementAddTwoCallableV1 0 (some entryName) 0 0,
-        viewLoadCallableV1 1 (some viewName) 0 0,
-        uint64ParityInvariantCallableV1 2 (some invariantName) 0 1 0 .public_ (some 7)] =
+      #[incrementAddTwoCallableV1 0 (some entryName) 1 0,
+        viewLoadCallableV1 1 (some viewName) 1 0,
+        uint64ParityInvariantCallableV1 2 (some invariantName) 1 0 0 .public_ (some 7)] =
       .ok closureMembersV1 := by
   apply validateInvariantClosureMembershipPhasesV1_eq_ok
   · rfl
   · exact closureMembershipResultV1 entryName viewName invariantName
   · apply validatePureFnInvariantClosureMembershipThreeV1
-      (incrementAddTwoCallableV1 0 (some entryName) 0 0)
-      (viewLoadCallableV1 1 (some viewName) 0 0)
-      (uint64ParityInvariantCallableV1 2 (some invariantName) 0 1 0 .public_ (some 7)) <;> rfl
+      (incrementAddTwoCallableV1 0 (some entryName) 1 0)
+      (viewLoadCallableV1 1 (some viewName) 1 0)
+      (uint64ParityInvariantCallableV1 2 (some invariantName) 1 0 0 .public_ (some 7)) <;> rfl
 
 private theorem closureDagPhasesV1
     (entryName viewName invariantName : String) :
     validateInvariantClosureDagPhasesV1
-      #[incrementAddTwoCallableV1 0 (some entryName) 0 0,
-        viewLoadCallableV1 1 (some viewName) 0 0,
-        uint64ParityInvariantCallableV1 2 (some invariantName) 0 1 0 .public_ (some 7)] =
+      #[incrementAddTwoCallableV1 0 (some entryName) 1 0,
+        viewLoadCallableV1 1 (some viewName) 1 0,
+        uint64ParityInvariantCallableV1 2 (some invariantName) 1 0 0 .public_ (some 7)] =
       .ok closureMembersV1 := by
   apply validateInvariantClosureDagPhasesV1_eq_ok
   · exact closureMembershipPhasesV1 entryName viewName invariantName
@@ -923,29 +925,29 @@ private theorem closureDagPhasesV1
 private theorem invariantClosurePhasesV1
     (entryName viewName invariantName : String) :
     validateInvariantClosurePhasesV1
-      #[incrementAddTwoCallableV1 0 (some entryName) 0 0,
-        viewLoadCallableV1 1 (some viewName) 0 0,
-        uint64ParityInvariantCallableV1 2 (some invariantName) 0 1 0 .public_ (some 7)] =
+      #[incrementAddTwoCallableV1 0 (some entryName) 1 0,
+        viewLoadCallableV1 1 (some viewName) 1 0,
+        uint64ParityInvariantCallableV1 2 (some invariantName) 1 0 0 .public_ (some 7)] =
       .ok closureMembersV1 := by
   apply validateInvariantClosurePhasesV1_eq_ok
   · exact closureDagPhasesV1 entryName viewName invariantName
   · exact (validateInvariantClosurePostDagCanonicalThreeV1
-      (incrementAddTwoCallableV1 0 (some entryName) 0 0)
-      (viewLoadCallableV1 1 (some viewName) 0 0)
-      (uint64ParityInvariantCallableV1 2 (some invariantName) 0 1 0 .public_ (some 7))
+      (incrementAddTwoCallableV1 0 (some entryName) 1 0)
+      (viewLoadCallableV1 1 (some viewName) 1 0)
+      (uint64ParityInvariantCallableV1 2 (some invariantName) 1 0 0 .public_ (some 7))
       uint64ParityInvariantBlockV1 (by rfl) (by rfl) (by rfl)).1
   · exact (validateInvariantClosurePostDagCanonicalThreeV1
-      (incrementAddTwoCallableV1 0 (some entryName) 0 0)
-      (viewLoadCallableV1 1 (some viewName) 0 0)
-      (uint64ParityInvariantCallableV1 2 (some invariantName) 0 1 0 .public_ (some 7))
+      (incrementAddTwoCallableV1 0 (some entryName) 1 0)
+      (viewLoadCallableV1 1 (some viewName) 1 0)
+      (uint64ParityInvariantCallableV1 2 (some invariantName) 1 0 0 .public_ (some 7))
       uint64ParityInvariantBlockV1 (by rfl) (by rfl) (by rfl)).2
 
 private theorem invariantFuelPhasesV1
     (entryName viewName invariantName : String) :
     validateInvariantFuelPhasesV1
-      #[incrementAddTwoCallableV1 0 (some entryName) 0 0,
-        viewLoadCallableV1 1 (some viewName) 0 0,
-        uint64ParityInvariantCallableV1 2 (some invariantName) 0 1 0 .public_ (some 7)]
+      #[incrementAddTwoCallableV1 0 (some entryName) 1 0,
+        viewLoadCallableV1 1 (some viewName) 1 0,
+        uint64ParityInvariantCallableV1 2 (some invariantName) 1 0 0 .public_ (some 7)]
       closureMembersV1 = .ok () := by
   rfl
 

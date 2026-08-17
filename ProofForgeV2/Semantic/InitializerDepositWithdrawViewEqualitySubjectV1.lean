@@ -21,9 +21,9 @@ open ProofForgeV2.Semantic.RequirementsV1
 open ProofForgeV2.Semantic.WireV1
 
 def typesV1 : Array TypeDeclV1 := #[
-  { id := 0, name := none, shape := .uint 64 },
-  { id := 1, name := none, shape := .unit },
-  { id := 2, name := none, shape := .bool }
+  { id := 0, name := none, shape := .bool },
+  { id := 1, name := none, shape := .uint 64 },
+  { id := 2, name := none, shape := .unit }
 ]
 
 def requirementsV1 : ProgramRequirementsV1 := {
@@ -35,13 +35,13 @@ def requirementsV1 : ProgramRequirementsV1 := {
 }
 
 def callablesV1 (depositName depositParameterName withdrawName withdrawParameterName viewName invariantName : String) : Array CallableV1 := #[
-  initializerStoreZeroTwoCallableV1 0 0 1,
-  addParameterTwoReturnCallableV1 1 (some depositName) depositParameterName 0 0 1 .public_,
+  initializerStoreZeroTwoCallableV1 0 1 2,
+  addParameterTwoReturnCallableV1 1 (some depositName) depositParameterName 1 0 1 .public_,
   guardedSubParameterTwoUnitCallableV1 2 (some withdrawName) withdrawParameterName
-    0 2 1 0 1 .public_,
-  viewLoadCallableV1 3 (some viewName) 0 0,
+    1 0 2 0 1 .public_,
+  viewLoadCallableV1 3 (some viewName) 1 0,
   twoStateCompareInvariantCallableV1 4 (some invariantName)
-    0 2 0 1 .eq .public_ (some 5)
+    1 0 0 1 .eq .public_ (some 5)
 ]
 
 def subjectDataV1
@@ -52,8 +52,8 @@ def subjectDataV1
   types := typesV1
   constants := #[]
   logicalState := #[
-    { id := 0, name := state0Name, typeId := 0, visibility := .public_ },
-    { id := 1, name := state1Name, typeId := 0, visibility := .public_ }
+    { id := 0, name := state0Name, typeId := 1, visibility := .public_ },
+    { id := 1, name := state1Name, typeId := 1, visibility := .public_ }
   ]
   events := #[]
   errors := #[]
@@ -68,12 +68,12 @@ theorem exactAtRoot_typesV1 :
   simpa [typesV1] using
     exactAt_array_three_of_exactAtV1 encodeTypeDeclV1 decodeTypeDeclV1
       maxTableElements (by decide)
-      ({ id := 0, name := none, shape := .uint 64 } : TypeDeclV1)
-      ({ id := 1, name := none, shape := .unit } : TypeDeclV1)
-      ({ id := 2, name := none, shape := .bool } : TypeDeclV1) 1
-      (exactAt_typeDecl_uint_noneV1 0 64 1 (by decide))
-      (exactAt_typeDecl_unit_noneV1 1 1 (by decide))
-      (exactAt_typeDecl_bool_noneV1 2 1 (by decide))
+      ({ id := 0, name := none, shape := .bool } : TypeDeclV1)
+      ({ id := 1, name := none, shape := .uint 64 } : TypeDeclV1)
+      ({ id := 2, name := none, shape := .unit } : TypeDeclV1) 1
+      (exactAt_typeDecl_bool_noneV1 0 1 (by decide))
+      (exactAt_typeDecl_uint_noneV1 1 64 1 (by decide))
+      (exactAt_typeDecl_unit_noneV1 2 1 (by decide))
 
 theorem exactAtRoot_statesV1
     (state0Name state1Name : String)
@@ -81,15 +81,15 @@ theorem exactAtRoot_statesV1
     (hstate1Name : validateIdentifierComponent state1Name = .ok ()) :
     ExactMidOffsetInvertAtV1 (encodeArray encodeStateDeclV1)
       (decodeArray maxTableElements decodeStateDeclV1)
-      #[{ id := 0, name := state0Name, typeId := 0, visibility := .public_ },
-        { id := 1, name := state1Name, typeId := 0,
+      #[{ id := 0, name := state0Name, typeId := 1, visibility := .public_ },
+        { id := 1, name := state1Name, typeId := 1,
           visibility := .public_ }] 1 :=
   exactAt_array_two_of_exactAtV1 encodeStateDeclV1 decodeStateDeclV1
     maxTableElements (by decide) (by decide)
-    (StateDeclV1.mk 0 state0Name 0 .public_)
-    (StateDeclV1.mk 1 state1Name 0 .public_) 1
-    (exactAt_stateDecl_publicV1 0 0 state0Name hstate0Name 1 (by decide))
-    (exactAt_stateDecl_publicV1 1 0 state1Name hstate1Name 1 (by decide))
+    (StateDeclV1.mk 0 state0Name 1 .public_)
+    (StateDeclV1.mk 1 state1Name 1 .public_) 1
+    (exactAt_stateDecl_publicV1 0 1 state0Name hstate0Name 1 (by decide))
+    (exactAt_stateDecl_publicV1 1 1 state1Name hstate1Name 1 (by decide))
 
 theorem exactAtRoot_invariantsV1 (invariantName : String) :
     ExactMidOffsetInvertAtV1 (encodeArray encodeInvariantDeclV1)
@@ -151,7 +151,7 @@ theorem rootFieldInvertV1
   · simpa [subjectDataV1, callablesV1] using
       exactAt_initializerAddGuardedSubViewEqualityCallableTableV1 0 1 2 3 4
         depositName depositParameterName withdrawName withdrawParameterName viewName invariantName
-        0 2 1 0 1 hdepositName hdepositParameterName hwithdrawName
+        1 0 2 0 1 hdepositName hdepositParameterName hwithdrawName
         hwithdrawParameterName hviewName hinvariantName
   · simpa [subjectDataV1] using exactAtRoot_invariantsV1 invariantName
   · simpa [subjectDataV1] using exactAtRoot_requirementsV1
@@ -245,8 +245,8 @@ private theorem compare_uint64_unitV1 :
   · decide
   · decide
 
-private theorem compare_uint64_boolV1 :
-    compareByteArrayLex uint64TypeShapeBytesV1 boolTypeShapeBytesV1 = .gt := by
+private theorem compare_bool_uint64V1 :
+    compareByteArrayLex boolTypeShapeBytesV1 uint64TypeShapeBytesV1 = .lt := by
   rw [compareByteArrayLex]
   rw [compareByteArrayLexLoopV1_eq_next _ _ _ 0 (by decide) (by decide)]
   rw [compareByteArrayLexLoopV1_eq_next _ _ _ 1 (by decide) (by decide)]
@@ -257,12 +257,12 @@ private theorem compare_uint64_boolV1 :
   rw [compareByteArrayLexLoopV1_eq_next _ _ _ 6 (by decide) (by decide)]
   rw [compareByteArrayLexLoopV1_eq_next _ _ _ 7 (by decide) (by decide)]
   rw [compareByteArrayLexLoopV1_eq_next _ _ _ 8 (by decide) (by decide)]
-  apply compareByteArrayLexLoopV1_eq_gt
+  apply compareByteArrayLexLoopV1_eq_lt
   · decide
   · decide
 
-private theorem compare_unit_boolV1 :
-    compareByteArrayLex unitTypeShapeBytesV1 boolTypeShapeBytesV1 = .gt := by
+private theorem compare_bool_unitV1 :
+    compareByteArrayLex boolTypeShapeBytesV1 unitTypeShapeBytesV1 = .lt := by
   rw [compareByteArrayLex]
   rw [compareByteArrayLexLoopV1_eq_next _ _ _ 0 (by decide) (by decide)]
   rw [compareByteArrayLexLoopV1_eq_next _ _ _ 1 (by decide) (by decide)]
@@ -273,7 +273,7 @@ private theorem compare_unit_boolV1 :
   rw [compareByteArrayLexLoopV1_eq_next _ _ _ 6 (by decide) (by decide)]
   rw [compareByteArrayLexLoopV1_eq_next _ _ _ 7 (by decide) (by decide)]
   rw [compareByteArrayLexLoopV1_eq_next _ _ _ 8 (by decide) (by decide)]
-  apply compareByteArrayLexLoopV1_eq_gt
+  apply compareByteArrayLexLoopV1_eq_lt
   · decide
   · decide
 
@@ -284,8 +284,8 @@ private theorem typeKeyNamedPrefixV1 :
 
 private theorem collectPrimitiveTypeKeysV1 :
     collectPrimitiveAnonymousTypeKeysV1 typesV1 =
-      .ok #[uint64TypeShapeBytesV1, unitTypeShapeBytesV1,
-        boolTypeShapeBytesV1] := by
+      .ok #[boolTypeShapeBytesV1, uint64TypeShapeBytesV1,
+        unitTypeShapeBytesV1] := by
   simp [typesV1, collectPrimitiveAnonymousTypeKeysV1,
     encodeTypeShape_uint64V1, encodeTypeShape_unitV1,
     encodeTypeShape_boolV1,
@@ -294,13 +294,13 @@ private theorem collectPrimitiveTypeKeysV1 :
 private theorem typeKeyPrimitiveLeafV1 :
     validatePrimitiveAnonymousTypeKeyUniquenessV1 typesV1 = .ok () := by
   apply validatePrimitiveAnonymousTypeKeyUniquenessV1_collect_three_eq_ok
-    typesV1 uint64TypeShapeBytesV1 unitTypeShapeBytesV1 boolTypeShapeBytesV1
+    typesV1 boolTypeShapeBytesV1 uint64TypeShapeBytesV1 unitTypeShapeBytesV1
     collectPrimitiveTypeKeysV1
+  · rw [compare_bool_uint64V1]
+    decide
+  · rw [compare_bool_unitV1]
+    decide
   · rw [compare_uint64_unitV1]
-    decide
-  · rw [compare_uint64_boolV1]
-    decide
-  · rw [compare_unit_boolV1]
     decide
 
 private theorem typeKeyRecursiveAnonymousV1 :
@@ -314,9 +314,14 @@ private theorem typeKeyNamedBodyCycleV1 :
     Pure.pure, Except.pure]
 
 theorem typeKeyPhasesV1 : validateTypeKeyPhasesV1 typesV1 = .ok () := by
-  exact validateTypeKeyPhasesV1_eq_ok_of_phases typesV1
+  exact validateTypeKeyPhasesV1_eq_ok_of_prefix_phases typesV1
     typeKeyNamedPrefixV1 typeKeyPrimitiveLeafV1 typeKeyRecursiveAnonymousV1
     typeKeyNamedBodyCycleV1
+    (validateAnonymousTypeKeyRankV1_bool_uint64_unit_eq_ok
+      ({ id := 0, name := none, shape := .bool } : TypeDeclV1)
+      ({ id := 1, name := none, shape := .uint 64 } : TypeDeclV1)
+      ({ id := 2, name := none, shape := .unit } : TypeDeclV1)
+      rfl rfl rfl)
 
 theorem namedTypeNamesV1 :
     validateNamedTypeNameUniquenessV1 typesV1 = .ok () := by
@@ -337,19 +342,19 @@ theorem callablesValueBytesV1 (depositName depositParameterName withdrawName wit
       (callablesV1 depositName depositParameterName withdrawName withdrawParameterName viewName invariantName) maxCanonicalProgramBytes =
         .ok (maxCanonicalProgramBytes - 18) := by
   have hzero0 :
-      validateOpValueBytesV1 typesV1 (.literal 0 zero8BytesV1)
+      validateOpValueBytesV1 typesV1 (.literal 1 zero8BytesV1)
         maxCanonicalProgramBytes = .ok (maxCanonicalProgramBytes - 9) := by
     simpa [typesV1, zero8BytesV1] using
-      validateOpValueBytesV1_literal_uint64_eq_ok typesV1 0
-        ({ id := 0, name := none, shape := .uint 64 } : TypeDeclV1)
+      validateOpValueBytesV1_literal_uint64_eq_ok typesV1 1
+        ({ id := 1, name := none, shape := .uint 64 } : TypeDeclV1)
         0 0 0 0 0 0 0 0 maxCanonicalProgramBytes (by rfl) (by rfl)
         (by decide)
   have hzero1 :
-      validateOpValueBytesV1 typesV1 (.literal 0 zero8BytesV1)
+      validateOpValueBytesV1 typesV1 (.literal 1 zero8BytesV1)
         (maxCanonicalProgramBytes - 9) =
           .ok (maxCanonicalProgramBytes - 18) := by
-    have h := validateOpValueBytesV1_literal_uint64_eq_ok typesV1 0
-      ({ id := 0, name := none, shape := .uint 64 } : TypeDeclV1)
+    have h := validateOpValueBytesV1_literal_uint64_eq_ok typesV1 1
+      ({ id := 1, name := none, shape := .uint 64 } : TypeDeclV1)
       0 0 0 0 0 0 0 0 (maxCanonicalProgramBytes - 9)
       (by rfl) (by rfl) (by decide)
     have hbudget : maxCanonicalProgramBytes - 9 - 9 =
@@ -394,8 +399,8 @@ theorem logicalStateNamesV1
     (state0Name state1Name : String)
     (hstate01 : state0Name ≠ state1Name) :
     validateLogicalStateNameUniquenessV1 #[
-      { id := 0, name := state0Name, typeId := 0, visibility := .public_ },
-      { id := 1, name := state1Name, typeId := 0,
+      { id := 0, name := state0Name, typeId := 1, visibility := .public_ },
+      { id := 1, name := state1Name, typeId := 1,
         visibility := .public_ }
     ] = .ok () := by
   have h01 : (state0Name == state1Name) = false :=
@@ -551,11 +556,11 @@ private theorem initializerCfgV1
     (qualifiedName : QualifiedName)
     (state0Name state1Name depositName depositParameterName withdrawName withdrawParameterName viewName invariantName : String) :
     validateCallableCfgShape
-      (initializerStoreZeroTwoCallableV1 0 0 1)
+      (initializerStoreZeroTwoCallableV1 0 1 2)
       typesV1.size typesV1
       (subjectDataV1 qualifiedName state0Name state1Name depositName depositParameterName withdrawName withdrawParameterName viewName
         invariantName) = .ok () := by
-  let callable := initializerStoreZeroTwoCallableV1 0 0 1
+  let callable := initializerStoreZeroTwoCallableV1 0 1 2
   let data := subjectDataV1 qualifiedName state0Name state1Name depositName depositParameterName withdrawName withdrawParameterName viewName
     invariantName
   refine validateCallableCfgShape_eq_ok_of_phases callable typesV1.size
@@ -578,11 +583,11 @@ private theorem viewCfgV1
     (qualifiedName : QualifiedName)
     (state0Name state1Name depositName depositParameterName withdrawName withdrawParameterName viewName invariantName : String) :
     validateCallableCfgShape
-      (viewLoadCallableV1 3 (some viewName) 0 0)
+      (viewLoadCallableV1 3 (some viewName) 1 0)
       typesV1.size typesV1
       (subjectDataV1 qualifiedName state0Name state1Name depositName depositParameterName withdrawName withdrawParameterName viewName
         invariantName) = .ok () := by
-  let callable := viewLoadCallableV1 3 (some viewName) 0 0
+  let callable := viewLoadCallableV1 3 (some viewName) 1 0
   let data := subjectDataV1 qualifiedName state0Name state1Name depositName depositParameterName withdrawName withdrawParameterName viewName
     invariantName
   refine validateCallableCfgShape_eq_ok_of_phases callable typesV1.size
@@ -605,12 +610,12 @@ private theorem entryCfgV1
     (state0Name state1Name depositName depositParameterName withdrawName withdrawParameterName viewName invariantName : String) :
     validateCallableCfgShape
       (addParameterTwoReturnCallableV1 1 (some depositName) depositParameterName
-        0 0 1 .public_)
+        1 0 1 .public_)
       typesV1.size typesV1
       (subjectDataV1 qualifiedName state0Name state1Name depositName
         depositParameterName withdrawName withdrawParameterName viewName invariantName) = .ok () := by
   let callable := addParameterTwoReturnCallableV1 1 (some depositName)
-    depositParameterName 0 0 1 .public_
+    depositParameterName 1 0 1 .public_
   let data := subjectDataV1 qualifiedName state0Name state1Name depositName
     depositParameterName withdrawName withdrawParameterName viewName invariantName
   refine validateCallableCfgShape_eq_ok_of_phases callable typesV1.size
@@ -635,12 +640,12 @@ private theorem withdrawCfgV1
       viewName invariantName : String) :
     validateCallableCfgShape
       (guardedSubParameterTwoUnitCallableV1 2 (some withdrawName) withdrawParameterName
-        0 2 1 0 1 .public_)
+        1 0 2 0 1 .public_)
       typesV1.size typesV1
       (subjectDataV1 qualifiedName state0Name state1Name depositName depositParameterName
         withdrawName withdrawParameterName viewName invariantName) = .ok () := by
   let callable := guardedSubParameterTwoUnitCallableV1 2 (some withdrawName)
-    withdrawParameterName 0 2 1 0 1 .public_
+    withdrawParameterName 1 0 2 0 1 .public_
   let data := subjectDataV1 qualifiedName state0Name state1Name depositName depositParameterName
     withdrawName withdrawParameterName viewName invariantName
   refine validateCallableCfgShape_eq_ok_of_phases callable typesV1.size
@@ -664,12 +669,12 @@ private theorem invariantCfgV1
     (state0Name state1Name depositName depositParameterName withdrawName withdrawParameterName viewName invariantName : String) :
     validateCallableCfgShape
       (twoStateCompareInvariantCallableV1 4 (some invariantName)
-        0 2 0 1 .eq .public_ (some 5))
+        1 0 0 1 .eq .public_ (some 5))
       typesV1.size typesV1
       (subjectDataV1 qualifiedName state0Name state1Name depositName depositParameterName withdrawName withdrawParameterName viewName
         invariantName) = .ok () := by
   let callable := twoStateCompareInvariantCallableV1 4 (some invariantName)
-    0 2 0 1 .eq .public_ (some 5)
+    1 0 0 1 .eq .public_ (some 5)
   let data := subjectDataV1 qualifiedName state0Name state1Name depositName depositParameterName withdrawName withdrawParameterName viewName
     invariantName
   refine validateCallableCfgShape_eq_ok_of_phases callable typesV1.size
@@ -696,14 +701,14 @@ theorem genericCfgPhasesV1
         invariantName) = .ok () := by
   apply validateGenericCfgPhasesV1_five_eq_ok
     (subjectDataV1 qualifiedName state0Name state1Name depositName depositParameterName withdrawName withdrawParameterName viewName invariantName)
-    (initializerStoreZeroTwoCallableV1 0 0 1)
+    (initializerStoreZeroTwoCallableV1 0 1 2)
     (addParameterTwoReturnCallableV1 1 (some depositName) depositParameterName
-      0 0 1 .public_)
+      1 0 1 .public_)
     (guardedSubParameterTwoUnitCallableV1 2 (some withdrawName) withdrawParameterName
-      0 2 1 0 1 .public_)
-    (viewLoadCallableV1 3 (some viewName) 0 0)
+      1 0 2 0 1 .public_)
+    (viewLoadCallableV1 3 (some viewName) 1 0)
     (twoStateCompareInvariantCallableV1 4 (some invariantName)
-      0 2 0 1 .eq .public_ (some 5))
+      1 0 0 1 .eq .public_ (some 5))
   · rfl
   · exact initializerCfgV1 qualifiedName state0Name state1Name depositName depositParameterName withdrawName withdrawParameterName viewName
       invariantName

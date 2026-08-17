@@ -548,7 +548,7 @@ private unsafe def runEventFlow
     expectedSourceHash :=
       "ee6d74460f772b8b309517e9d5c6d27f43dc3eaa869a598f945ba67e25d7d723"
     expectedSemanticHash :=
-      "3332b207ff7c04c815f8ad6e17c30b21680ce1bb18c88df46d753f3c049232d6"
+      "1a11d311b8dbc74d81d7c65adc43198e70eda3606e92946b33ba89b4d633e69a"
   }
   let (carrier, data, admitted, u64, srcHash, semHash) ← loadNormalizeAdmit session repoRoot spec
   let initId ← findCallableId data none
@@ -609,7 +609,7 @@ private unsafe def runOwnableLike
     expectedSourceHash :=
       "1056bb66a65115bdbbd38655c85e53b5f9abe84a7a13ada2b7f3bed4d2b9db64"
     expectedSemanticHash :=
-      "4874d5f6e5b589a26f3175920fee6aa06d59009be8d8c38a45bdc3bd8c14dd75"
+      "314a123c426560ef1980005fa95f22b2cc95b338f79de556638939fb5f73fdf9"
   }
   let (carrier, data, admitted, u64, srcHash, semHash) ← loadNormalizeAdmit session repoRoot spec
   let initId ← findCallableId data none
@@ -686,7 +686,7 @@ private unsafe def runTokenPinCheck
   let expectedSourceHash :=
     "3b60c7a05865886dc4eae7ce1898577c4dc718f10080c36ac8a9c9dcb04eca23"
   let expectedSemanticHash :=
-    "667f76924ca4554e18cfcd1aa51d26cf8cb584ea1abbc50ff7720e1ada6bc17a"
+    "4b8d53a4b4fb49792c96d1812b4cec68fa0b9a6b983e33b8fca6850a5562a297"
   let absPath := repoRoot / sourcePath
   let src ← IO.FS.readFile absPath
   match ← session.selectProgramV1 src sourcePath moduleName none with

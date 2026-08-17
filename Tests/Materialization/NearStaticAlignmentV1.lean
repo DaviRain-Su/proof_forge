@@ -44,7 +44,7 @@ private def storage : StorageLayout := {
 
 private def reservesBinding : UInt64StateBindingV1 := {
   semanticStateId := 0
-  semanticTypeId := 0
+  semanticTypeId := 1
   semanticName := "reserves"
   physicalFieldIndex := 0
   physicalKey := reservesKey
@@ -52,7 +52,7 @@ private def reservesBinding : UInt64StateBindingV1 := {
 
 private def sharesBinding : UInt64StateBindingV1 := {
   semanticStateId := 1
-  semanticTypeId := 0
+  semanticTypeId := 1
   semanticName := "shares"
   physicalFieldIndex := 1
   physicalKey := sharesKey
@@ -142,7 +142,7 @@ private def logicalZero : LogicalStateV1 := {
 }
 
 private def uint64Type : TypeDeclV1 := {
-  id := 0
+  id := 1
   name := none
   shape := .uint 64
 }
@@ -150,14 +150,14 @@ private def uint64Type : TypeDeclV1 := {
 private def reservesDecl : StateDeclV1 := {
   id := 0
   name := "reserves"
-  typeId := 0
+  typeId := 1
   visibility := .public_
 }
 
 private def sharesDecl : StateDeclV1 := {
   id := 1
   name := "shares"
-  typeId := 0
+  typeId := 1
   visibility := .public_
 }
 
@@ -165,8 +165,8 @@ private theorem tenBytes_size : tenBytes.size = 8 := by
   exact encodeU64le_size 10
 
 private theorem tenBytes_canonical :
-    validateValueBytesV1 data.types 0 tenBytes = .ok () := by
-  exact validateValueBytesV1_uint64_of_size data.types 0 uint64Type tenBytes
+    validateValueBytesV1 data.types 1 tenBytes = .ok () := by
+  exact validateValueBytesV1_uint64_of_size data.types 1 uint64Type tenBytes
     (by rfl) (by rfl) tenBytes_size
 
 private theorem logicalTen_encoded :
@@ -188,8 +188,8 @@ private theorem logicalZero_encoded :
     encodeLogicalStateValuesV1 data true #[encodeU64le 0, encodeU64le 0] =
       .ok logicalZero := by
   have hcanonical :
-      validateValueBytesV1 data.types 0 (encodeU64le 0) = .ok () :=
-    validateValueBytesV1_uint64_of_size data.types 0 uint64Type
+      validateValueBytesV1 data.types 1 (encodeU64le 0) = .ok () :=
+    validateValueBytesV1_uint64_of_size data.types 1 uint64Type
       (encodeU64le 0) (by rfl) (by rfl) (encodeU64le_size 0)
   simpa [logicalZero, doubleUint64CanonicalV1, ByteArray.append_assoc] using
     (encodeLogicalStateValuesV1_double_uint64_eq_ok data reservesDecl sharesDecl
@@ -556,13 +556,13 @@ private def statusCallable : CallableV1 := {
   kind := .view
   name := some "status"
   params := #[]
-  result := { typeId := 0, visibility := .public_ }
+  result := { typeId := 1, visibility := .public_ }
   entryBlock := 0
   blocks := #[{
     id := 0
     params := #[]
     instructions := #[{
-      result := some { valueId := 0, typeId := 0 }
+      result := some { valueId := 0, typeId := 1 }
       op := .stateLoad 0
     }]
     terminator := .return_ (some 0)
@@ -871,15 +871,15 @@ example :
     ¬ NullaryUInt64ViewInputRelV1 3
       {
         callableId := 3
-        args := #[{ typeId := 0, valueBytes := tenBytes }]
+        args := #[{ typeId := 1, valueBytes := tenBytes }]
         context := #[]
       }
       statusMethod successfulObservation := by
   simp [NullaryUInt64ViewInputRelV1]
 
 example :
-    UInt64ReturnedObservationRelV1 data 0 logicalTen
-      (.returned logicalTen (some { typeId := 0, valueBytes := tenBytes }) #[])
+    UInt64ReturnedObservationRelV1 data 1 logicalTen
+      (.returned logicalTen (some { typeId := 1, valueBytes := tenBytes }) #[])
       tenBytes successfulObservation := by
   refine ⟨tenBytes_canonical, tenBytes_size, rfl, rfl, rfl, rfl, rfl, rfl⟩
 
@@ -910,7 +910,7 @@ example
       callableId := 3
       args := #[]
       context := #[]
-    } data #[tenBytes, tenBytes] tenBytes 0 0 "reserves" 3
+    } data #[tenBytes, tenBytes] tenBytes 1 0 "reserves" 3
       (some "status") context responses vault value effects hadmittedData
   · rfl
   · rfl
@@ -931,7 +931,7 @@ example
           args := #[]
           context := #[]
         } statusMethod successfulObservation ∧
-        UInt64ReturnedObservationRelV1 data 0 logicalTen
+        UInt64ReturnedObservationRelV1 data 1 logicalTen
           (stepReferenceSliceV1 admitted logicalTen {
             callableId := 3
             args := #[]
@@ -955,7 +955,7 @@ example
           callableId := 3
           args := #[]
           context := #[]
-        } data #[tenBytes, tenBytes] tenBytes 0 0 "reserves" 3
+        } data #[tenBytes, tenBytes] tenBytes 1 0 "reserves" 3
           (some "status") #[] vault successfulObservation hadmittedData
           (by rfl) (by rfl) (by rfl)
           (by simpa [statusCallable] using hgate)
@@ -965,7 +965,7 @@ example
     (vault : ReferenceVaultSeedV1) :
     ∃ admitted : AdmittedReferenceSliceV1,
       admitReferenceProgramSliceV1 subjectProgram = .ok admitted ∧
-        UInt64ReturnedObservationRelV1 data 0 logicalTen
+        UInt64ReturnedObservationRelV1 data 1 logicalTen
           (stepReferenceSliceV1 admitted logicalTen {
             callableId := 3
             args := #[]
@@ -982,7 +982,7 @@ example
         callableId := 3
         args := #[]
         context := #[]
-      } data #[tenBytes, tenBytes] tenBytes 0 0 "reserves" 3 "status" #[]
+      } data #[tenBytes, tenBytes] tenBytes 1 0 "reserves" 3 "status" #[]
       vault storage reservesBinding statusMethod markerRegion reservesRegion
       statusIR observedStorage (by rfl) (by rfl) (by rfl) hadmittedData
       (by rfl) (by rfl) (by rfl)
@@ -992,7 +992,7 @@ example
     (vault : ReferenceVaultSeedV1) :
     ∃ admitted : AdmittedReferenceSliceV1,
       admitReferenceProgramSliceV1 subjectProgram = .ok admitted ∧
-        UInt64ReturnedObservationRelV1 data 0 logicalTen
+        UInt64ReturnedObservationRelV1 data 1 logicalTen
           (stepReferenceSliceV1 admitted logicalTen {
             callableId := 3
             args := #[]
@@ -1010,7 +1010,7 @@ example
         callableId := 3
         args := #[]
         context := #[]
-      } data #[tenBytes, tenBytes] tenBytes 0 0 "reserves" 3 "status" #[]
+      } data #[tenBytes, tenBytes] tenBytes 1 0 "reserves" 3 "status" #[]
       vault storage reservesBinding statusMethod markerRegion reservesRegion
       statusIR canonicalRegisters statusMemory observedStorage (by rfl) (by rfl)
       (by rfl) hadmittedData (by rfl) (by rfl) (by rfl)
@@ -1020,7 +1020,7 @@ example
     (vault : ReferenceVaultSeedV1) :
     ∃ admitted : AdmittedReferenceSliceV1,
       admitReferenceProgramSliceV1 subjectProgram = .ok admitted ∧
-        ¬ UInt64ReturnedObservationRelV1 data 0 logicalTen
+        ¬ UInt64ReturnedObservationRelV1 data 1 logicalTen
           (stepReferenceSliceV1 admitted logicalTen {
             callableId := 3
             args := #[]
@@ -1037,20 +1037,20 @@ example
   simp [tenBytes, leBytesToNatV1_encodeU64le] at hnats
 
 example :
-    ¬ UInt64ReturnedObservationRelV1 data 0 logicalTen
-      (.returned logicalTen (some { typeId := 0, valueBytes := tenBytes }) #[])
+    ¬ UInt64ReturnedObservationRelV1 data 1 logicalTen
+      (.returned logicalTen (some { typeId := 1, valueBytes := tenBytes }) #[])
       tenBytes { successfulObservation with failureObserved := true } := by
   simp [UInt64ReturnedObservationRelV1, successfulObservation]
 
 example :
-    ¬ UInt64ReturnedObservationRelV1 data 0 logicalTen
-      (.returned logicalTen (some { typeId := 0, valueBytes := tenBytes }) #[])
+    ¬ UInt64ReturnedObservationRelV1 data 1 logicalTen
+      (.returned logicalTen (some { typeId := 1, valueBytes := tenBytes }) #[])
       tenBytes { successfulObservation with logs := #["unexpected".toUTF8] } := by
   simp [UInt64ReturnedObservationRelV1, successfulObservation]
 
 example :
-    ¬ UInt64ReturnedObservationRelV1 data 0 logicalTen
-      (.returned logicalTen (some { typeId := 0, valueBytes := tenBytes }) #[])
+    ¬ UInt64ReturnedObservationRelV1 data 1 logicalTen
+      (.returned logicalTen (some { typeId := 1, valueBytes := tenBytes }) #[])
       tenBytes { successfulObservation with promises := #["p0".toUTF8] } := by
   simp [UInt64ReturnedObservationRelV1, successfulObservation]
 
@@ -1126,16 +1126,16 @@ example
     (hgate :
       gateInvocation admitted logicalTen {
         callableId := 1
-        args := #[{ typeId := 0, valueBytes := encodeU64le amount }]
+        args := #[{ typeId := 1, valueBytes := encodeU64le amount }]
         context := #[]
       } = .ready
-        (addParameterTwoReturnCallableV1 1 (some "deposit") "amount" 0 0 1
+        (addParameterTwoReturnCallableV1 1 (some "deposit") "amount" 1 0 1
           .public_)
         #[tenBytes, tenBytes] context false)
     (hstep :
       stepReferenceSliceV1 admitted logicalTen {
         callableId := 1
-        args := #[{ typeId := 0, valueBytes := encodeU64le amount }]
+        args := #[{ typeId := 1, valueBytes := encodeU64le amount }]
         context := #[]
       } responses vault = .returned post value effects)
     (hadd : (10 : UInt64).toNat + amount.toNat < 2 ^ 64) :
@@ -1156,12 +1156,12 @@ example
     (admitReferenceProgramSliceV1_ok_implies subjectProgram data admitted
       Examples.VerifiedVaultPF.Proof.subjectValidationOkV1 hadmit).2
   have hcanonical :
-      validateValueBytesV1 data.types 0 (encodeU64le amount) = .ok () :=
-    validateValueBytesV1_uint64_of_size data.types 0 uint64Type
+      validateValueBytesV1 data.types 1 (encodeU64le amount) = .ok () :=
+    validateValueBytesV1_uint64_of_size data.types 1 uint64Type
       (encodeU64le amount) (by rfl) (by rfl) (encodeU64le_size amount)
   have hpostEncode :=
     stepReferenceSliceV1_ready_add_parameter_two_returned_exact_post_encode
-      admitted logicalTen post data tenBytes (encodeU64le amount) 0 "reserves"
+      admitted logicalTen post data tenBytes (encodeU64le amount) 1 "reserves"
         "shares" "amount" 1 (some "deposit") #[] context responses vault
         value effects hadmittedData (by rfl) (by rfl) (by rfl) hcanonical
         hgate hstep
@@ -1390,16 +1390,16 @@ example
     (hgate :
       gateInvocation admitted logicalTen {
         callableId := 2
-        args := #[{ typeId := 0, valueBytes := encodeU64le amount }]
+        args := #[{ typeId := 1, valueBytes := encodeU64le amount }]
         context := #[]
       } = .ready
         (guardedSubParameterTwoUnitCallableV1 2 (some "withdraw") "amount"
-          0 2 1 0 1 .public_)
+          1 0 2 0 1 .public_)
         #[tenBytes, tenBytes] context false)
     (hstep :
       stepReferenceSliceV1 admitted logicalTen {
         callableId := 2
-        args := #[{ typeId := 0, valueBytes := encodeU64le amount }]
+        args := #[{ typeId := 1, valueBytes := encodeU64le amount }]
         context := #[]
       } responses vault = .returned post value effects)
     (hguard : amount.toNat ≤ (10 : UInt64).toNat) :
@@ -1420,12 +1420,12 @@ example
     (admitReferenceProgramSliceV1_ok_implies subjectProgram data admitted
       Examples.VerifiedVaultPF.Proof.subjectValidationOkV1 hadmit).2
   have hcanonical :
-      validateValueBytesV1 data.types 0 (encodeU64le amount) = .ok () :=
-    validateValueBytesV1_uint64_of_size data.types 0 uint64Type
+      validateValueBytesV1 data.types 1 (encodeU64le amount) = .ok () :=
+    validateValueBytesV1_uint64_of_size data.types 1 uint64Type
       (encodeU64le amount) (by rfl) (by rfl) (encodeU64le_size amount)
   have hpostEncode :=
     stepReferenceSliceV1_ready_guarded_sub_parameter_two_unit_returned_post_encode
-      admitted logicalTen post data tenBytes (encodeU64le amount) 0 2 1
+      admitted logicalTen post data tenBytes (encodeU64le amount) 1 0 2
         "reserves" "shares" "amount" 2 (some "withdraw") #[] context
         responses vault value effects hadmittedData (by rfl) (by rfl) (by rfl)
         (by rfl) (by rfl) hcanonical hgate hstep
@@ -1590,7 +1590,7 @@ example
     (hadmit : admitReferenceProgramSliceV1 subjectProgram = .ok admitted)
     (hgate :
       gateInvocation admitted pre invocation =
-        .ready (initializerStoreZeroTwoCallableV1 0 0 1)
+        .ready (initializerStoreZeroTwoCallableV1 0 1 2)
           #[before0, before1] context true)
     (hstep :
       stepReferenceSliceV1 admitted pre invocation responses vault =
@@ -1606,7 +1606,7 @@ example
       encodeLogicalStateValuesV1 data true
         #[encodeU64le 0, encodeU64le 0] = .ok post := by
     apply postEncode_of_readyInitializerStoreZeroTwoV1 admitted pre post
-      invocation data before0 before1 0 1 "reserves" "shares" 0 context
+      invocation data before0 before1 1 2 "reserves" "shares" 0 context
       responses vault value effects hadmittedData
     · rfl
     · rfl

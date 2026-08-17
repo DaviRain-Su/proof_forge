@@ -1520,14 +1520,14 @@ private unsafe def testAssertComparison
   let data ← match validateSemanticProgramV1 carrier with
     | .ok d => pure d
     | .error e => throw <| IO.userError s!"assert-cmp: validate: {repr e}"
-  -- Interner order: state UInt64 (0), init Unit (1), entry comparison Bool (2).
+  -- SPEC typeKey rank: Bool (0), UInt64 (1), Unit (2).
   expect (data.types.size == 3)
-    s!"assert-cmp: expected UInt64+Unit+Bool closure, got {data.types.size} types"
-  let some boolType := data.types[2]? |
+    s!"assert-cmp: expected Bool+UInt64+Unit closure, got {data.types.size} types"
+  let some boolType := data.types[0]? |
     throw <| IO.userError "assert-cmp: missing interned Bool type"
   expect (boolType.name.isNone &&
       (match boolType.shape with | TypeShapeV1.bool => true | _ => false))
-    "assert-cmp: type[2] must be anonymous Bool"
+    "assert-cmp: type[0] must be anonymous Bool"
   let reqIds := data.requirements.items.map (·.id)
   expect (reqIds == #["failure.atomic-rollback", "state.persistent",
       "value.checked-arithmetic"])
@@ -1544,7 +1544,7 @@ private unsafe def testAssertComparison
     throw <| IO.userError "assert-cmp: comparison result missing"
   match cmpInstr.op with
   | .binary .ge lhs rhs =>
-      expect (cmpResult.valueId == 2 && cmpResult.typeId == 2 && lhs == 1 && rhs == 0)
+      expect (cmpResult.valueId == 2 && cmpResult.typeId == 0 && lhs == 1 && rhs == 0)
         s!"assert-cmp: expected vid2=ge(load1,param0) Bool, got {cmpResult.valueId}/{lhs}/{rhs}"
   | _ => throw <| IO.userError "assert-cmp: expected exact BinaryOpV1.ge"
   let some assertInstr := block.instructions[2]? |
@@ -1617,9 +1617,9 @@ private unsafe def testAllComparisonOps
   let data ← match validateSemanticProgramV1 carrier with
     | .ok d => pure d
     | .error e => throw <| IO.userError s!"cmp-ops: validate: {repr e}"
-  -- No state/init: types are UInt64 (0) then Bool (1); rollback is the only requirement.
+  -- SPEC typeKey rank: Bool (0), UInt64 (1); rollback is the only requirement.
   expect (data.types.size == 2)
-    s!"cmp-ops: expected UInt64+Bool closure, got {data.types.size}"
+    s!"cmp-ops: expected Bool+UInt64 closure, got {data.types.size}"
   let reqIds := data.requirements.items.map (·.id)
   expect (reqIds == #["failure.atomic-rollback"])
     s!"cmp-ops: comparisons add no requirement beyond assert rollback, got {reqIds}"
@@ -1639,7 +1639,7 @@ private unsafe def testAllComparisonOps
     match cmpInstr.op with
     | .binary op lhs rhs =>
         expect (op == opOf i && cmpResult.valueId == UInt32.ofNat (i + 2) &&
-            cmpResult.typeId == 1 && lhs == 0 && rhs == 1)
+            cmpResult.typeId == 0 && lhs == 0 && rhs == 1)
           s!"cmp-ops: comparison {i} expected {repr (opOf i)} on params, got {repr op}"
     | _ => throw <| IO.userError s!"cmp-ops: comparison {i} expected binary"
     let some assertInstr := block.instructions[i * 2 + 1]? |
@@ -1683,9 +1683,9 @@ private unsafe def testAssertBoolLiteral
     throw <| IO.userError "bool-lit: literal result missing"
   match litInstr.op with
   | .literal typeId bytes =>
-      expect (litResult.valueId == 1 && litResult.typeId == 1 &&
-          typeId == 1 && bytes == ByteArray.mk #[1])
-        s!"bool-lit: expected literal Bool(1) true, got tid{typeId}/{bytes.toList}"
+      expect (litResult.valueId == 1 && litResult.typeId == 0 &&
+          typeId == 0 && bytes == ByteArray.mk #[1])
+        s!"bool-lit: expected literal Bool(0) true, got tid{typeId}/{bytes.toList}"
   | _ => throw <| IO.userError "bool-lit: expected Op.Literal"
   let some assertInstr := block.instructions[1]? |
     throw <| IO.userError "bool-lit: missing assert instruction"
@@ -1718,20 +1718,20 @@ private unsafe def testBoolViewResult
   let data ← match validateSemanticProgramV1 carrier with
     | .ok d => pure d
     | .error e => throw <| IO.userError s!"bool-view: validate: {repr e}"
-  -- Types: state UInt64 (0), init Unit (1), first comparison Bool (2).
+  -- SPEC typeKey rank: Bool (0), UInt64 (1), Unit (2).
   expect (data.types.size == 3)
-    s!"bool-view: expected UInt64+Unit+Bool closure, got {data.types.size}"
-  let some boolType := data.types[2]? |
+    s!"bool-view: expected Bool+UInt64+Unit closure, got {data.types.size}"
+  let some boolType := data.types[0]? |
     throw <| IO.userError "bool-view: missing interned Bool type"
   expect (boolType.name.isNone &&
       (match boolType.shape with | TypeShapeV1.bool => true | _ => false))
-    "bool-view: type[2] must be anonymous Bool"
+    "bool-view: type[0] must be anonymous Bool"
   expect (data.callables.size == 4) "bool-view: init + entry + 2 views"
   let some posC := data.callables[2]? |
     throw <| IO.userError "bool-view: missing positive view"
   expect (posC.kind == .view && posC.name == some "positive")
     "bool-view: positive view kind/name"
-  expect (posC.result.typeId == 2 && posC.result.visibility == .public_)
+  expect (posC.result.typeId == 0 && posC.result.visibility == .public_)
     "bool-view: positive result must be public Bool"
   let some posBlk := posC.blocks[0]? |
     throw <| IO.userError "bool-view: missing positive block"
@@ -1743,7 +1743,7 @@ private unsafe def testBoolViewResult
     throw <| IO.userError "bool-view: gt result missing"
   match gtInstr.op with
   | .binary .gt lhs rhs =>
-      expect (gtResult.valueId == 2 && gtResult.typeId == 2 && lhs == 0 && rhs == 1)
+      expect (gtResult.valueId == 2 && gtResult.typeId == 0 && lhs == 0 && rhs == 1)
         s!"bool-view: expected vid2=gt(load0,lit1) Bool, got {gtResult.valueId}/{lhs}/{rhs}"
   | _ => throw <| IO.userError "bool-view: expected BinaryOpV1.gt"
   match posBlk.terminator with
@@ -1752,7 +1752,7 @@ private unsafe def testBoolViewResult
   | _ => throw <| IO.userError "bool-view: expected return of comparison"
   let some satC := data.callables[3]? |
     throw <| IO.userError "bool-view: missing saturated view"
-  expect (satC.result.typeId == 2) "bool-view: saturated result must be Bool"
+  expect (satC.result.typeId == 0) "bool-view: saturated result must be Bool"
   let carrier2 ← match normalizeProgramV1 validated with
     | .ok c => pure c
     | .error e => throw <| IO.userError s!"bool-view-repeat: normalize: {repr e}"
@@ -1789,7 +1789,7 @@ private unsafe def testBoolEntryResultAndLiteral
     | .error e => throw <| IO.userError s!"bool-entry: validate: {repr e}"
   let some entryC := data.callables[1]? |
     throw <| IO.userError "bool-entry: missing matches entry"
-  expect (entryC.kind == .entry && entryC.result.typeId == 2)
+  expect (entryC.kind == .entry && entryC.result.typeId == 0)
     "bool-entry: entry result must be Bool"
   let some viewC := data.callables[2]? |
     throw <| IO.userError "bool-entry: missing yes view"
@@ -1801,7 +1801,7 @@ private unsafe def testBoolEntryResultAndLiteral
     throw <| IO.userError "bool-entry: missing literal instruction"
   match litInstr.op with
   | .literal typeId bytes =>
-      expect (typeId == 2 && bytes == ByteArray.mk #[1])
+      expect (typeId == 0 && bytes == ByteArray.mk #[1])
         s!"bool-entry: expected literal Bool true, got tid{typeId}/{bytes.toList}"
   | _ => throw <| IO.userError "bool-entry: expected Op.Literal"
   match viewBlk.terminator with

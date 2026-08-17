@@ -42,6 +42,3 @@ unsafe def run : IO Unit := do
   IO.println s!"Tests.Semantic.MiniAmmL1Admit: ok bytes={carrier.canonicalBytes.size}"
 
 end Tests.Semantic.MiniAmmL1Admit
-
-unsafe def main : IO Unit :=
-  Tests.Semantic.MiniAmmL1Admit.run

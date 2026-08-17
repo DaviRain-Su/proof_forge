@@ -126,7 +126,7 @@ evidence、manifest-last 与 `inspect` exact disk closure。
 当前成熟度是 **canonical Aleo Instructions emission**。没有 VM execution、proof、deploy、
 on-chain finalization、offline query、hermetic 或 formal refinement 证据；删除旧编译器路径不提高
 这些成熟度。accepted PRD Phase 1 仍为 EVM/Solana/NEAR/Noir；Aleo 属 engineering
-扩面，accepted/engineering scope 边界由 ADR-0036 固定。
+扩面，accepted/engineering scope 边界由 ADR-0036（仍 `proposed`）主张收口。
 
 ## 8. Official load gate（Wave A，engineering）
 

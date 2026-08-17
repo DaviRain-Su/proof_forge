@@ -510,14 +510,20 @@ private unsafe def testIntForMaterializationFailClosed : IO Unit := do
     expectMaterializePlanInvariantV1 "int-for" target kind compiled marker
   -- Extra six from probe; not opening signed for-loop / Int64 induction.
   -- CosmWasm/TON share the public-UInt64 induction gate. Envelope-4 now
-  -- admit Int64 width so they fail on the single-block loopBounds gate.
+  -- admit Int64 width, so Quint/Soroban/ICP/OpenVM fail on their shared
+  -- single-block CFG gate (which fires before the loopBounds gate for a
+  -- multi-block loop body).
   for (target, kind, marker) in #[
       (TargetId.cosmwasm, TargetKind.cosmwasm, "loop induction must be public UInt64"),
       (TargetId.ton, TargetKind.ton, "loop induction must be public UInt64"),
-      (TargetId.quint, TargetKind.quint, "loopBounds are outside Q0"),
-      (TargetId.soroban, TargetKind.soroban, "loopBounds are outside S0"),
-      (TargetId.icp, TargetKind.icp, "loopBounds are outside ICP-2"),
-      (TargetId.openvm, TargetKind.openvm, "loopBounds are outside O0")] do
+      (TargetId.quint, TargetKind.quint,
+        "each callable must have exactly one block"),
+      (TargetId.soroban, TargetKind.soroban,
+        "each callable must have exactly one block"),
+      (TargetId.icp, TargetKind.icp,
+        "each callable must have exactly one block"),
+      (TargetId.openvm, TargetKind.openvm,
+        "each callable must have exactly one block")] do
     expectMaterializePlanInvariantV1 "int-for" target kind compiled marker
 
 /-- N-ANON-RESULT opens only the shared Semantic/Reference result contract.
@@ -3807,7 +3813,8 @@ unsafe def runWideIntegerNeedles : IO Unit := do
 
   -- WideUInt256: UInt256 state/return. Seven-target files-nonempty admit
   -- (evm/solana/near/noir/psy/ton/cosmwasm). Aleo stays width FC (native u128,
-  -- not u256). Quint/Soroban/OpenVM/ICP stay named FC. Not opening signed
+  -- not u256). Quint/OpenVM/ICP stay named FC; Soroban stays state/param FC
+  -- (CAP-4 admits UInt256 only as sha256 plumbing). Not opening signed
   -- 128/256. TON is one uint256 cell / loadUint(256); CW is 4×8-byte Regions.
   let wideUInt256Source :=
     "import ProofForgeV2\n\n" ++
@@ -3835,9 +3842,14 @@ unsafe def runWideIntegerNeedles : IO Unit := do
       s!"WideUInt256: {target} must materialize UInt256"
   expectMaterializePlanInvariantV1 "WideUInt256" TargetId.aleo TargetKind.aleo
     wide256Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64/Int32/Int16/Int8 widths are supported"
+  -- CAP-4 (2026-08-16): Soroban admits the UInt256 *width* solely as
+  -- pf.crypto.sha256 operand/result plumbing; UInt256 state/params/returns
+  -- stay fail closed with the sha256-plumbing-only message.
+  expectMaterializePlanInvariantV1 "WideUInt256" TargetId.soroban
+    TargetKind.soroban wide256Compiled
+    "UInt256 is admitted only as pf.crypto.sha256 operand/result plumbing"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
-      (TargetId.soroban, TargetKind.soroban),
       (TargetId.openvm, TargetKind.openvm),
       (TargetId.icp, TargetKind.icp)] do
     expectMaterializePlanInvariantV1 "WideUInt256" target kind wide256Compiled
@@ -3873,7 +3885,7 @@ unsafe def runWideIntegerNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "WideInt128" TargetId.noir TargetKind.noir
     wideI128Compiled "Int8/Int16/Int32/Int64 integer widths are supported"
   expectMaterializePlanInvariantV1 "WideInt128" TargetId.aleo TargetKind.aleo
-    wideI128Compiled "UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
+    wideI128Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64/Int32/Int16/Int8 widths are supported"
   expectMaterializePlanInvariantV1 "WideInt128" TargetId.psy TargetKind.psy
     wideI128Compiled "UInt64/UInt32/UInt16/UInt8 and Int8/Int16/Int32/Int64"
   expectMaterializePlanInvariantV1 "WideInt128" TargetId.cosmwasm TargetKind.cosmwasm
@@ -3919,7 +3931,7 @@ unsafe def runWideIntegerNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "WideInt256" TargetId.noir TargetKind.noir
     wideI256Compiled "Int8/Int16/Int32/Int64 integer widths are supported"
   expectMaterializePlanInvariantV1 "WideInt256" TargetId.aleo TargetKind.aleo
-    wideI256Compiled "UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
+    wideI256Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64/Int32/Int16/Int8 widths are supported"
   expectMaterializePlanInvariantV1 "WideInt256" TargetId.psy TargetKind.psy
     wideI256Compiled "UInt64/UInt32/UInt16/UInt8 and Int8/Int16/Int32/Int64"
   expectMaterializePlanInvariantV1 "WideInt256" TargetId.cosmwasm TargetKind.cosmwasm
@@ -4710,7 +4722,7 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
       (TargetId.openvm, TargetKind.openvm),
       (TargetId.icp, TargetKind.icp)] do
     expectMaterializePlanInvariantV1 "ArrBytes" target kind arrBytesCompiled
-      "anonymous Bytes is outside the current container-state pilot"
+      "only anonymous UInt64/Int64 widths are supported"
 
   -- ArrMap: Array Map UInt64 UInt64 2 state. All twelve targets stay named
   -- element/pilot FC. Not opening Array-of-Map. ArrBytes / ArrOpt /
@@ -4796,6 +4808,8 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
       (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "ArrPrin" target kind arrPrinCompiled
       "Principal/aggregates/Bytes"
+  -- CAP-1b: bare Principal state is now admitted on ICP, so Array Principal
+  -- fails on the Array-element gate instead of the generic Principal FC.
   expectMaterializePlanInvariantV1 "ArrPrin" TargetId.icp TargetKind.icp
     arrPrinCompiled "Array element must be UInt64"
 
@@ -4847,7 +4861,6 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
       "Int/Field/Principal/aggregates/Bytes"
   expectMaterializePlanInvariantV1 "ArrField" TargetId.icp TargetKind.icp
     arrFieldCompiled "Field"
-
   -- ArrStr: Array String 2 state. Companion UInt64 `n` exists only so
   -- init/entry compile (no String literal; no bare return in init).
   -- All twelve stay named element/String FC. Not opening Array-of-String.
@@ -5076,9 +5089,12 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     arrU256Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64/Int32/Int16/Int8 widths are supported"
   expectMaterializePlanInvariantV1 "ArrU256" TargetId.ton TargetKind.ton
     arrU256Compiled "Array state element must be UInt64"
+  -- CAP-4: Soroban admits the UInt256 width (sha256 plumbing only), so
+  -- Array UInt256 fails on the Array-element gate instead of the width gate.
+  expectMaterializePlanInvariantV1 "ArrU256" TargetId.soroban TargetKind.soroban
+    arrU256Compiled "Array element must be UInt64"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
-      (TargetId.soroban, TargetKind.soroban),
       (TargetId.openvm, TargetKind.openvm),
       (TargetId.icp, TargetKind.icp)] do
     expectMaterializePlanInvariantV1 "ArrU256" target kind arrU256Compiled
@@ -5463,9 +5479,8 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "MapOpt" target kind mapOptCompiled
       "Map state admits only Map UInt64 UInt64"
   -- Quint admits Map type so Map-of-Option fails on the UInt64-value
-  -- needle. Soroban/OpenVM stay Map-pilot. ICP admits Option type and
-  -- still declines Map (no mux).
-  for (target, kind) in #[
+  -- needle. Soroban/OpenVM stay Map-pilot; ICP rejects Map before Option
+  -- under anonymous TypeKey rank (map < option).  for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
       (TargetId.openvm, TargetKind.openvm)] do
@@ -5554,10 +5569,12 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
-      (TargetId.openvm, TargetKind.openvm),
-      (TargetId.icp, TargetKind.icp)] do
+      (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "MapBytes" target kind mapBytesCompiled
       "anonymous Bytes is outside the current container-state pilot"
+  -- ICP declines Map before Bytes under anonymous TypeKey rank (map < bytes).
+  expectMaterializePlanInvariantV1 "MapBytes" TargetId.icp TargetKind.icp
+    mapBytesCompiled "anonymous Map is outside the current container-state pilot"
 
   -- MapMap: Map UInt64 Map UInt64 UInt64 state. All twelve targets stay
   -- named Map-value/pilot FC. Not opening Map-of-Map. MapBytes / MapArr /
@@ -5640,10 +5657,11 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
-      (TargetId.openvm, TargetKind.openvm),
-      (TargetId.icp, TargetKind.icp)] do
+      (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "MapBytesKey" target kind mapBytesKeyCompiled
       "anonymous Bytes is outside the current container-state pilot"
+  expectMaterializePlanInvariantV1 "MapBytesKey" TargetId.icp TargetKind.icp
+    mapBytesKeyCompiled "anonymous Map is outside the current container-state pilot"
 
   -- MapPrin: Map Principal UInt64 state. EVM/Solana admit the Principal-key
   -- alternative named in MapBytesKey needles. Remaining ten stay named
@@ -5689,6 +5707,8 @@ unsafe def runSignedContainerNeedles : IO Unit := do
       (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "MapPrin" target kind mapPrinCompiled
       "Principal/aggregates"
+  -- CAP-1b: Principal passes the ICP type closure now, so Map Principal
+  -- UInt64 fails on the container-state pilot gate instead of the closure.
   expectMaterializePlanInvariantV1 "MapPrin" TargetId.icp TargetKind.icp
     mapPrinCompiled "anonymous Map is outside the current container-state pilot"
 
@@ -5736,8 +5756,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "MapField" target kind mapFieldCompiled
       "Int/Field/Principal/aggregates/Bytes"
   expectMaterializePlanInvariantV1 "MapField" TargetId.icp TargetKind.icp
-    mapFieldCompiled "Field"
-
+    mapFieldCompiled "anonymous Map is outside the current container-state pilot"
   -- MapStr: Map UInt64 String state. All twelve stay named Map-value/String
   -- FC. Not opening Map-of-String. MapField / MapMini /
   -- StringInterfaceBoundary / ArrStr / OptStr stay.
@@ -5781,8 +5800,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "MapStr" target kind mapStrCompiled
       "Int/Field/Principal/aggregates/Bytes"
   expectMaterializePlanInvariantV1 "MapStr" TargetId.icp TargetKind.icp
-    mapStrCompiled "String fail closed"
-
+    mapStrCompiled "anonymous Map is outside the current container-state pilot"
   -- MapBool: Map UInt64 Bool state. All twelve stay named Map-value/pilot
   -- FC. Not opening Map-of-Bool. MapStr / MapMini / ArrBool / OptBool stay.
   let mapBoolSource :=
@@ -5962,10 +5980,11 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
-      (TargetId.openvm, TargetKind.openvm),
-      (TargetId.icp, TargetKind.icp)] do
+      (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "MapU128" target kind mapU128Compiled
       "only anonymous UInt64/Int64 widths are supported"
+  expectMaterializePlanInvariantV1 "MapU128" TargetId.icp TargetKind.icp
+    mapU128Compiled "anonymous Map is outside the current container-state pilot"
 
   -- MapU256: Map UInt64 UInt256 state. Same twelve named-FC needles as
   -- MapU128, but UInt256 ≠ UInt128 so it is its own pin. Aleo stays on
@@ -6005,13 +6024,17 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     mapU256Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64/Int32/Int16/Int8 widths are supported"
   expectMaterializePlanInvariantV1 "MapU256" TargetId.ton TargetKind.ton
     mapU256Compiled "Map state admits only Map UInt64 UInt64"
+  -- CAP-4: Soroban admits the UInt256 width (sha256 plumbing only), so
+  -- Map UInt64 UInt256 fails on the Map-shape gate instead of the width gate.
+  expectMaterializePlanInvariantV1 "MapU256" TargetId.soroban TargetKind.soroban
+    mapU256Compiled "Map state admits only Map UInt64 UInt64"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
-      (TargetId.soroban, TargetKind.soroban),
-      (TargetId.openvm, TargetKind.openvm),
-      (TargetId.icp, TargetKind.icp)] do
+      (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "MapU256" target kind mapU256Compiled
       "only anonymous UInt64/Int64 widths are supported"
+  expectMaterializePlanInvariantV1 "MapU256" TargetId.icp TargetKind.icp
+    mapU256Compiled "anonymous Map is outside the current container-state pilot"
 
   -- MapU128Key: Map UInt128 UInt64 state (unsigned 128-bit KEY).
   -- EVM/Solana stay on the key-shape needle, not MapU128's value
@@ -6053,10 +6076,11 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
-      (TargetId.openvm, TargetKind.openvm),
-      (TargetId.icp, TargetKind.icp)] do
+      (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "MapU128Key" target kind mapU128KeyCompiled
       "only anonymous UInt64/Int64 widths are supported"
+  expectMaterializePlanInvariantV1 "MapU128Key" TargetId.icp TargetKind.icp
+    mapU128KeyCompiled "anonymous Map is outside the current container-state pilot"
 
   -- MapU256Key: Map UInt256 UInt64 state. Same twelve named-FC needles
   -- as MapU128Key, but UInt256-key ≠ UInt128-key so it is its own pin.
@@ -6096,13 +6120,17 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     mapU256KeyCompiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64/Int32/Int16/Int8 widths are supported"
   expectMaterializePlanInvariantV1 "MapU256Key" TargetId.ton TargetKind.ton
     mapU256KeyCompiled "Map state admits only Map UInt64 UInt64"
+  -- CAP-4: Soroban admits the UInt256 width (sha256 plumbing only), so the
+  -- UInt256 key fails on the Map-shape gate instead of the width gate.
+  expectMaterializePlanInvariantV1 "MapU256Key" TargetId.soroban TargetKind.soroban
+    mapU256KeyCompiled "Map state admits only Map UInt64 UInt64"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
-      (TargetId.soroban, TargetKind.soroban),
-      (TargetId.openvm, TargetKind.openvm),
-      (TargetId.icp, TargetKind.icp)] do
+      (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "MapU256Key" target kind mapU256KeyCompiled
       "only anonymous UInt64/Int64 widths are supported"
+  expectMaterializePlanInvariantV1 "MapU256Key" TargetId.icp TargetKind.icp
+    mapU256KeyCompiled "anonymous Map is outside the current container-state pilot"
 
   -- MapU32Key: Map UInt32 UInt64 state. UInt32 is a legal Aleo/TON
   -- width, so those two stay on Map-U64-U64, not MapU128Key's width
@@ -6232,10 +6260,11 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
-      (TargetId.openvm, TargetKind.openvm),
-      (TargetId.icp, TargetKind.icp)] do
+      (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "MapU16Key" target kind mapU16KeyCompiled
       "only anonymous UInt64/Int64 widths are supported"
+  expectMaterializePlanInvariantV1 "MapU16Key" TargetId.icp TargetKind.icp
+    mapU16KeyCompiled "anonymous Map is outside the current container-state pilot"
 
   -- MapU8Key: Map UInt8 UInt64 state. Same legal-width needle set as
   -- MapU16Key, but UInt8-key ≠ UInt16-key so it is its own pin (last
@@ -6276,10 +6305,11 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
-      (TargetId.openvm, TargetKind.openvm),
-      (TargetId.icp, TargetKind.icp)] do
+      (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "MapU8Key" target kind mapU8KeyCompiled
       "only anonymous UInt64/Int64 widths are supported"
+  expectMaterializePlanInvariantV1 "MapU8Key" TargetId.icp TargetKind.icp
+    mapU8KeyCompiled "anonymous Map is outside the current container-state pilot"
 
   -- MapU16: Map UInt64 UInt16 state (unsigned 16-bit VALUE). Same
   -- legal-width value needle set as MapU32, but UInt16-value ≠
@@ -6321,10 +6351,11 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
-      (TargetId.openvm, TargetKind.openvm),
-      (TargetId.icp, TargetKind.icp)] do
+      (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "MapU16" target kind mapU16Compiled
       "only anonymous UInt64/Int64 widths are supported"
+  expectMaterializePlanInvariantV1 "MapU16" TargetId.icp TargetKind.icp
+    mapU16Compiled "anonymous Map is outside the current container-state pilot"
 
   -- MapU8: Map UInt64 UInt8 state (unsigned 8-bit VALUE). Same
   -- legal-width value needle set as MapU16, but UInt8-value ≠
@@ -6366,10 +6397,11 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
-      (TargetId.openvm, TargetKind.openvm),
-      (TargetId.icp, TargetKind.icp)] do
+      (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "MapU8" target kind mapU8Compiled
       "only anonymous UInt64/Int64 widths are supported"
+  expectMaterializePlanInvariantV1 "MapU8" TargetId.icp TargetKind.icp
+    mapU8Compiled "anonymous Map is outside the current container-state pilot"
 
   -- MapI32: Map UInt64 Int32 state. All twelve stay named FC. Aleo/CW/
   -- TON fail on width / narrow-Int first, not MapInt/MapU32's
@@ -6832,9 +6864,10 @@ unsafe def runRemainingNeedles : IO Unit := do
       (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "OptPrin" target kind optPrinCompiled
       "Principal/aggregates/Bytes"
+  -- CAP-1b: Principal passes the ICP type closure now, so Option Principal
+  -- fails on the container-state pilot gate instead of the closure.
   expectMaterializePlanInvariantV1 "OptPrin" TargetId.icp TargetKind.icp
     optPrinCompiled "Option state 'o' requires UInt64 payload"
-
   -- OptField: Option Field bn254_fr state. All twelve targets stay named
   -- payload/Field FC. Not opening Option-of-Field. OptPrin / OptBox /
   -- FieldMix stay.
@@ -6880,7 +6913,6 @@ unsafe def runRemainingNeedles : IO Unit := do
       "Int/Field/Principal/aggregates/Bytes"
   expectMaterializePlanInvariantV1 "OptField" TargetId.icp TargetKind.icp
     optFieldCompiled "Field"
-
   -- OptStr: Option String state. All twelve stay named payload/String FC.
   -- Not opening Option-of-String. OptField / OptBox /
   -- StringInterfaceBoundary stay.
@@ -6924,8 +6956,7 @@ unsafe def runRemainingNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "OptStr" target kind optStrCompiled
       "Int/Field/Principal/aggregates/Bytes"
   expectMaterializePlanInvariantV1 "OptStr" TargetId.icp TargetKind.icp
-    optStrCompiled "String fail closed"
-
+    optStrCompiled "anonymous Option is outside the current container-state pilot"
   -- OptBool: Option Bool state. Eight targets stay named payload FC.
   -- Quint/Soroban/OpenVM admit Option type so they fail on payload.
   -- ICP stays Option-pilot. Not opening Option-of-Bool. OptStr / OptBox /
@@ -7106,9 +7137,12 @@ unsafe def runRemainingNeedles : IO Unit := do
     optU256Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64/Int32/Int16/Int8 widths are supported"
   expectMaterializePlanInvariantV1 "OptU256" TargetId.ton TargetKind.ton
     optU256Compiled "Option state 'o' requires UInt64 payload"
+  -- CAP-4: Soroban admits the UInt256 width (sha256 plumbing only), so
+  -- Option UInt256 fails on the Option-payload gate instead of the width gate.
+  expectMaterializePlanInvariantV1 "OptU256" TargetId.soroban TargetKind.soroban
+    optU256Compiled "Option state 'o' requires UInt64 payload"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
-      (TargetId.soroban, TargetKind.soroban),
       (TargetId.openvm, TargetKind.openvm),
       (TargetId.icp, TargetKind.icp)] do
     expectMaterializePlanInvariantV1 "OptU256" target kind optU256Compiled
@@ -7437,16 +7471,21 @@ unsafe def runRemainingNeedles : IO Unit := do
   -- B-CTX-OPEN (2026-08-04): EVM (timestamp()), NEAR (block_timestamp/1e9),
   -- CosmWasm (Env "time" ns /1e9, BL-37) and TON (blockchain.now(), BL-38)
   -- admit unixTimeSeconds. CAP-1a (2026-08-15): ICP admits ic0.time ns÷10⁹.
-  -- Circuit-class + Quint/Soroban/OpenVM stay FC; Solana unixTime stays FC
-  -- (CAP-D-SOL-TIME not picked). Unanchored public-input injection would
-  -- only prove "the program used T", never "T is the real chain time".
+  -- CAP-2 / CAP-D-SOL-TIME (2026-08-16): Solana admits Clock.unix_timestamp
+  -- (i64@32 via sol_get_clock_sysvar; raw bits as UInt64). CAP-3 /
+  -- CAP-D-SOR-LEDGER (2026-08-16): Soroban S0 admits env.ledger().timestamp()
+  -- (source-only; no Wasm Finalize). Circuit-class + Quint/OpenVM stay FC.
+  -- Unanchored public-input injection would only prove "the program used T",
+  -- never "T is the real chain time".
   let _ ← liftResult <| materializeSelected TargetId.evm ctxCompiled
   let _ ← liftResult <| materializeSelected TargetId.near ctxCompiled
   let _ ← liftResult <| materializeSelected TargetId.cosmwasm ctxCompiled
   let _ ← liftResult <| materializeSelected TargetId.ton ctxCompiled
   let _ ← liftResult <| materializeSelected TargetId.icp ctxCompiled
-  for target in [TargetId.solana, TargetId.noir, TargetId.psy, TargetId.aleo,
-      TargetId.openvm, TargetId.quint, TargetId.soroban] do
+  let _ ← liftResult <| materializeSelected TargetId.solana ctxCompiled
+  let _ ← liftResult <| materializeSelected TargetId.soroban ctxCompiled
+  for target in [TargetId.noir, TargetId.psy, TargetId.aleo,
+      TargetId.openvm, TargetId.quint] do
     match materializeSelected target ctxCompiled with
     | .ok _ =>
         throw <| IO.userError s!"N5 context: {target} must decline ContextRead"
@@ -7499,6 +7538,8 @@ unsafe def runRemainingNeedles : IO Unit := do
   -- EVM admits ADR-0025 encoding (CALLER → u32le(20)||addr20 leaves;
   -- Bool compare fixture). NEAR admits predecessor_account_id →
   -- u32le(L)||account-id-utf8 leaves (view stays FC; entry/init only).
+  -- CAP-1b: ICP admits ic0.msg_caller_* → ADR-0025-class u32le(len)||bytes
+  -- (view stays named ICP-VIEW-CALLER FC; entry/init only).
   -- Solana's sole CPI product profile binds the signer-role `pf_caller` pubkey;
   -- Noir/Psy stay Plan-fail-closed until their own chain-anchor cutover.
   let callerSource :=
@@ -7520,10 +7561,11 @@ unsafe def runRemainingNeedles : IO Unit := do
   let _ ← liftResult <| materializeSelected TargetId.evm callerCompiled
   let _ ← liftResult <| materializeSelected TargetId.near callerCompiled
   let _ ← liftResult <| materializeSelected TargetId.solana callerCompiled
-  -- CosmWasm entry admits caller; Quint/Soroban/Aleo/TON stay FC
-  -- (type-closure or named). Not ICP caller encoding.
+  -- CosmWasm entry admits caller; CAP-1b ICP admits msg_caller (init/entry).
+  -- Quint/Soroban/Aleo/TON stay FC (type-closure or named).
   let _ ← liftResult <| materializeSelected TargetId.cosmwasm callerCompiled
-  for target in [TargetId.noir, TargetId.psy, TargetId.icp, TargetId.openvm,
+  let _ ← liftResult <| materializeSelected TargetId.icp callerCompiled
+  for target in [TargetId.noir, TargetId.psy, TargetId.openvm,
       TargetId.ton, TargetId.aleo, TargetId.quint, TargetId.soroban] do
     match materializeSelected target callerCompiled with
     | .ok _ =>
@@ -7560,7 +7602,8 @@ unsafe def runRemainingNeedles : IO Unit := do
     | .error e => throw <| IO.userError s!"context.blockHeight matrix select: {e.render}"
   let blockHeightCompiled ← liftResult <|
     Compiler.compileValidatedSourceV1 blockHeightV1
-  for target in [TargetId.evm, TargetId.near, TargetId.cosmwasm, TargetId.solana] do
+  for target in [TargetId.evm, TargetId.near, TargetId.cosmwasm, TargetId.solana,
+      TargetId.soroban] do
     expectContextMatrixAdmit "context.blockHeight" target blockHeightCompiled
   expectContextMatrixFailClosed "context.blockHeight/ton"
     TargetId.ton .ton
@@ -7581,10 +7624,6 @@ unsafe def runRemainingNeedles : IO Unit := do
   expectContextMatrixFailClosed "context.blockHeight/quint"
     TargetId.quint .quint
     s!"unsupported Quint semantic shape: ContextRead '{blockHeightContextKeyV1.value}' has no Quint host binding (unixTimeSeconds/blockHeight/attachedValue/chainId stay fail closed)"
-    blockHeightCompiled
-  expectContextMatrixFailClosed "context.blockHeight/soroban"
-    TargetId.soroban .soroban
-    s!"unsupported Soroban semantic shape: ContextRead '{blockHeightContextKeyV1.value}' has no Soroban host binding (unixTimeSeconds/blockHeight/attachedValue/chainId stay fail closed)"
     blockHeightCompiled
   expectContextMatrixFailClosed "context.blockHeight/icp"
     TargetId.icp .icp
@@ -7623,7 +7662,7 @@ unsafe def runRemainingNeedles : IO Unit := do
     chainIdCompiled
   expectContextMatrixFailClosed "context.chainId/solana"
     TargetId.solana .solana
-    s!"CPI derive: unknown ContextRead key '{chainIdContextKeyV1.value}'"
+    s!"unsupported Solana semantic shape: unknown ContextRead key '{chainIdContextKeyV1.value}'"
     chainIdCompiled
   expectContextMatrixFailClosed "context.chainId/ton"
     TargetId.ton .ton
@@ -7647,7 +7686,7 @@ unsafe def runRemainingNeedles : IO Unit := do
     chainIdCompiled
   expectContextMatrixFailClosed "context.chainId/soroban"
     TargetId.soroban .soroban
-    s!"unsupported Soroban semantic shape: ContextRead '{chainIdContextKeyV1.value}' has no Soroban host binding (unixTimeSeconds/blockHeight/attachedValue/chainId stay fail closed)"
+    s!"unsupported Soroban semantic shape: ContextRead '{chainIdContextKeyV1.value}' has no Soroban host binding (attachedValue/chainId stay fail closed)"
     chainIdCompiled
   expectContextMatrixFailClosed "context.chainId/icp"
     TargetId.icp .icp
@@ -7679,7 +7718,7 @@ unsafe def runRemainingNeedles : IO Unit := do
     expectContextMatrixAdmit "context.contractId" target selfCompiled
   expectContextMatrixFailClosed "context.contractId/solana"
     TargetId.solana .solana
-    s!"CPI derive: unknown ContextRead key '{selfContextKeyV1.value}'"
+    s!"unsupported Solana semantic shape: unknown ContextRead key '{selfContextKeyV1.value}'"
     selfCompiled
   expectContextMatrixFailClosed "context.contractId/ton"
     TargetId.ton .ton
@@ -7703,11 +7742,13 @@ unsafe def runRemainingNeedles : IO Unit := do
     selfCompiled
   expectContextMatrixFailClosed "context.contractId/soroban"
     TargetId.soroban .soroban
-    "unsupported Soroban semantic shape: only anonymous UInt64, Int64, Bool, Unit, Array UInt64 N state flatten, Option UInt64 2-leaf state, and Map UInt64 UInt64 cap-8 flatten are supported (narrow Int/Field/Principal/aggregates/Bytes fail closed)"
+    "unsupported Soroban semantic shape: only anonymous UInt64, Int64, Bool, Unit, Array UInt64 N state flatten, Option UInt64 2-leaf state, Map UInt64 UInt64 cap-8 flatten, and UInt256 sha256 plumbing are supported (narrow Int/Field/Principal/aggregates/Bytes fail closed)"
     selfCompiled
+  -- CAP-1b: Principal passes the ICP type closure now, so context.contractId
+  -- reaches the ContextRead gate (context.self stays generic-envelope FC).
   expectContextMatrixFailClosed "context.contractId/icp"
     TargetId.icp .icp
-    "unsupported ICP semantic shape: only anonymous UInt64, Int64, Bool, Unit, and Array UInt64 N state flatten are supported (narrow Int/Field/Principal/aggregates/Map/Option/Bytes/String fail closed on the ICP-2 Counter/StateCell envelope)"
+    "unsupported ICP semantic shape: Op.ContextRead is outside the ICP-2 envelope"
     selfCompiled
   expectContextMatrixFailClosed "context.contractId/openvm"
     TargetId.openvm .openvm

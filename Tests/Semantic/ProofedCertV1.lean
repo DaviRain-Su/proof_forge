@@ -172,11 +172,12 @@ theorem typeKeyNamedBodyCycle_proofed :
 
 theorem typeKeyPhases_proofed :
     validateTypeKeyPhasesV1 proofedData.types = .ok () := by
-  apply validateTypeKeyPhasesV1_eq_ok_of_phases
+  apply validateTypeKeyPhasesV1_eq_ok_of_prefix_phases
   · exact typeKeyNamedPrefix_proofed
   · exact typeKeyPrimitiveLeaf_proofed
   · exact typeKeyRecursiveAnonymous_proofed
   · exact typeKeyNamedBodyCycle_proofed
+  · exact validateAnonymousTypeKeyRankV1_bool_uint64_eq_ok boolT u64T rfl rfl
 
 theorem namedTypeNames_proofed :
     validateNamedTypeNameUniquenessV1 proofedData.types = .ok () := by

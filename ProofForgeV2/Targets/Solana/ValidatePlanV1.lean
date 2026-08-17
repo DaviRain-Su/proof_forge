@@ -23,8 +23,8 @@ private partial def planExprNodes? (account : StateAccount) (params : Array Para
     match expr with
     | .literal .. | .bigLiteral .. => some 1
     | .temp _ => some 1
-    -- ADR-0031 S2: host Clock.slot leaf (no plan refs).
-    | .clockSlot => some 1
+    -- ADR-0031 S2 / CAP-2: host Clock.slot / Clock.unix_timestamp leaves.
+    | .clockSlot | .clockUnixTimestamp => some 1
     | .callerPrincipalLeaf _ leafIndex =>
         if leafIndex < 9 then some 1 else none
     | .param dataOffset | .narrowParam _ dataOffset =>
@@ -107,7 +107,7 @@ private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) : Expr → Bool
   | .narrowShl .. | .narrowShr ..
   | .checkedAdd .. | .checkedSub .. | .literal _ | .bigLiteral .. | .param _ | .narrowParam ..
   | .stateLoad .. | .narrowStateLoad ..
-  | .temp _ | .clockSlot | .callerPrincipalLeaf .. => true
+  | .temp _ | .clockSlot | .clockUnixTimestamp | .callerPrincipalLeaf .. => true
 
 /-- UInt256 expression shapes admitted as input to the dedicated sha256
     syscall node. `.temp` is needed for a prior sha256 result; the semantic
@@ -147,7 +147,7 @@ private def exprIsBoolCompatibleV1 (fns : Array FnBinding) : Expr → Bool
   | .narrowShl .. | .narrowShr ..
   | .checkedAdd .. | .checkedSub .. | .param _ | .narrowParam ..
   | .stateLoad .. | .narrowStateLoad .. | .temp _ | .bigLiteral .. | .clockSlot
-  | .callerPrincipalLeaf .. => false
+  | .clockUnixTimestamp | .callerPrincipalLeaf .. => false
 
 private def addPlanExprNodes (account : StateAccount) (params : Array Param)
     (fns : Array FnBinding) (total : Nat) (expr : Expr) : CompileResult Nat := do

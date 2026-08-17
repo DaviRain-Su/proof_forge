@@ -74,8 +74,9 @@ fail closed（逐项对照 spec EBNF 与 `SPEC-SEM-001`；**N-A1/N-A2 已闭合 
 2. ContextRead 扩 key / `callerContext`（sole `unixTimeSeconds` 已 N5）；
 3. Commit **disclosure 契约**（label-only `commit(x)` 已 N5）；
 4. aggregate entry/view/fn 返回值（target ABI 仍 scalar-only）；
-5. call 返回值 / schedule response 语义（v1 external call 无返回值——`SPEC-SEM-001` 明确
-   "加 typed return 必须升级 semantic/reference schema"）；
+5. ~~call 返回值~~（**已闭合**：N-CALL-RET 2026-08-04 值位置 `call` + `Op.ExternalCall`
+   optional `returnValue?`）；残余为 semantic-core 旧句 SPEC 分裂（待 SPEC-honesty ADR）
+   与 schedule response 语义（schedule 仍无 response，维持 fail closed）；
    > **2026-08-15 诚实注（RPT-028）**：本项“v1 external call 无返回值”写于 N-CALL-RET cutover
    > **之前**，已被产品切片 **N-CALL-RET（2026-08-04 done）** 取代——`call` 可进值位置、
    > `Op.ExternalCall` 可带 typed `returnValue?`（见

@@ -36,6 +36,9 @@
   UInt128/256 shifts/bitwise, Map/Bytes returns, N>8,
   nested/narrow-element containers, Option params, invariants,
   Field). Principal 9-leaf wire identity is admitted (T4; ≠address).
+  CAP-5 `pf.crypto.sha256` UInt256→UInt256 via Tolk `slice.bitsHash()` /
+  TVM `SHA256U` over the Semantic 32-byte LE image (`string_hash` /
+  keccak256 / siblings stay fail closed).
 
   Registered in Tests/Shards/Targets. Not @ton/sandbox runtime (TON-3).
   Not formal D4.
@@ -276,30 +279,172 @@ unsafe def testResultBearingExternalCallFailClosed : IO Unit := do
       throw <| IO.userError
         "result-bearing Oracle.feed must fail closed at Ton engineering Plan"
 
-/-- SYS-S5: TON has no sha256 host. Exact `pf.crypto.sha256` and sibling
-    QNs stay Plan fail closed (no hashed / string_hash fallback). -/
-private unsafe def testCryptoSha256StayFailClosed
+/-- CAP-5: exact `pf.crypto.sha256` UInt256→UInt256 is admitted as Tolk
+    `slice.bitsHash()` (TVM `SHA256U`) over the Semantic 32-byte LE image.
+    `string_hash` must not appear. keccak256 / siblings / wrong width stay
+    named FC. Product resolve admits this leaf (no `effect.synchronous-call`). -/
+private unsafe def testCryptoSha256Admitted
     (session : Language.Loader.ParserSession) : IO Unit := do
   let expectPlanFc (programName pathLabel moduleName body needle : String)
       (also : String := "") : IO Unit := do
     let src := wrapProgram programName body
     let compiled ← compileSource session src moduleName pathLabel
-    -- Engineering path: pin the Plan diagnostic even if the product
-    -- resolver declines effect.synchronous-call first.
-    match engineeringPlanFromCompiled compiled with
+    -- Sibling QNs that are not host-syscall leaves still contribute
+    -- effect.synchronous-call; pin the Plan diagnostic on the engineering
+    -- path. keccak256 / wrong-width sha256 / schedule reach product Plan.
+    match planTon compiled with
     | .error e =>
-        expect (e.render.contains needle)
-          s!"{programName} Plan FC must contain '{needle}', got: {e.render}"
-        unless also.isEmpty do
-          expect (e.render.contains also)
-            s!"{programName} Plan FC must contain '{also}', got: {e.render}"
+        if e.render.contains needle then
+          unless also.isEmpty do
+            expect (e.render.contains also)
+              s!"{programName} Plan FC must contain '{also}', got: {e.render}"
+        else if e.render.contains "effect.synchronous-call" then
+          match engineeringPlanFromCompiled compiled with
+          | .error e2 =>
+              expect (e2.render.contains needle)
+                s!"{programName} Plan FC must contain '{needle}', got: {e2.render}"
+              unless also.isEmpty do
+                expect (e2.render.contains also)
+                  s!"{programName} Plan FC must contain '{also}', got: {e2.render}"
+          | .ok _ =>
+              throw <| IO.userError
+                s!"{programName} must Plan fail closed after resolver sync-call decline"
+        else
+          throw <| IO.userError
+            s!"{programName} Plan FC must contain '{needle}', got: {e.render}"
     | .ok _ =>
         throw <| IO.userError
           s!"{programName} must Plan fail closed (no Ton crypto host)"
-  -- TON type policy rejects UInt256 before ExternalCall, so keep the
-  -- fixture on admitted UInt64. The needle is still the crypto QN —
-  -- not a hashed / string_hash fallback and not the generic call FC.
-  expectPlanFc "Sha256Ton" "<ton-sha256>" "Examples.Sha256Ton"
+  let src := wrapProgram "Sha256Ton" <|
+    "  state last : UInt256\n\n" ++
+    "  init() do\n" ++
+    "    last := 0\n\n" ++
+    "  entry probe(x : UInt256) : UInt256 do\n" ++
+    "    let h : UInt256 := call pf.crypto.sha256(x)\n" ++
+    "    last := h\n" ++
+    "    return last\n\n" ++
+    "  view get() : UInt256 do\n" ++
+    "    return last\n"
+  let compiled ← compileSource session src "Examples.Sha256Ton" "<ton-sha256>"
+  let plan ← liftResult <| planTon compiled
+  let some probe := plan.entries.find? (·.name == "probe") |
+    throw <| IO.userError "Sha256Ton: missing probe"
+  let hasSha256 := probe.body.any fun s =>
+    match s with
+    | .store op =>
+        match op.value with
+        | .sha256 _ => true
+        | _ => false
+    | .returnValue (.sha256 _) => true
+    | _ => false
+  expect hasSha256 "Sha256Ton: plan must contain Expr.sha256"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"Sha256Ton plan must validate: {e.render}"
+  let ir ← liftResult <| irTon compiled
+  let some probeIR := ir.methods.find? (·.name == "probe") |
+    throw <| IO.userError "Sha256Ton: missing IR probe"
+  expect (probeIR.operations.any fun
+      | .sha256 _ _ => true
+      | _ => false)
+    "Sha256Ton IR must carry Operation.sha256"
+  let files ← liftResult <| filesTon compiled
+  let tolk ← findFile files "Sha256Ton.tolk"
+  expect (tolk.contains "bitsHash()")
+    "Sha256Ton Tolk must call slice.bitsHash() (TVM SHA256U)"
+  expect (tolk.contains "beginParse()")
+    "Sha256Ton Tolk must hash a slice built from the UInt256 LE image"
+  expect (tolk.contains "& 255")
+    "Sha256Ton Tolk must extract LE bytes of the UInt256 word"
+  expect (tolk.contains ">> 248")
+    "Sha256Ton Tolk must store all 32 LE bytes (last shift is 248)"
+  expect (!tolk.contains "string_hash")
+    "Sha256Ton Tolk must not emit FunC string_hash (cell-hash-flavored name)"
+  expect (!tolk.contains "HASHCU")
+    "Sha256Ton Tolk must not emit cell representation hash HASHCU"
+  expect (!tolk.contains "HASHBU")
+    "Sha256Ton Tolk must not emit slice representation hash HASHBU"
+  -- Host-optional locked tolk → .fif (same env as ClockBox / OptionState).
+  let home ← IO.getEnv "HOME"
+  let toolRoot ← match ← IO.getEnv "PROOF_FORGE_TOOL_ROOT" with
+    | some r => pure r
+    | none =>
+        match home with
+        | some h =>
+            let linux := s!"{h}/.cache/proof-forge-v2/tool-root/linux-x86_64"
+            let darwin := s!"{h}/.cache/proof-forge-v2/tool-root/darwin-arm64"
+            if (← (System.FilePath.mk (linux ++ "/tolk")).pathExists) then
+              pure linux
+            else
+              pure darwin
+        | none => pure ""
+  let stdlib ← match ← IO.getEnv "PROOF_FORGE_TOLK_STDLIB" with
+    | some p => pure p
+    | none =>
+        match ← IO.getEnv "PROOF_FORGE_TON_TOOLS" with
+        | some root => pure s!"{root}/tolk-stdlib"
+        | none =>
+            match home with
+            | some h => pure s!"{h}/.cache/proof-forge-v2/ton-tools/tolk-stdlib"
+            | none => pure ""
+  let tolkBin := System.FilePath.mk (toolRoot ++ "/tolk")
+  let stdlibPath := System.FilePath.mk stdlib
+  if (← tolkBin.pathExists) && (← stdlibPath.pathExists) then
+    let tmp ← IO.Process.output {
+      cmd := "mktemp"
+      args := #["-d", "/tmp/pf-ton-sha256.XXXXXX"]
+    }
+    unless tmp.exitCode == 0 do
+      throw <| IO.userError s!"mktemp failed: {tmp.stderr}"
+    let staging := (tmp.stdout.trim)
+    try
+      IO.FS.writeFile (System.FilePath.mk staging / "Sha256Ton.tolk") tolk
+      let proc ← IO.Process.output {
+        cmd := tolkBin.toString
+        args := #["-o", "Sha256Ton.fif", "Sha256Ton.tolk"]
+        cwd := some (System.FilePath.mk staging)
+        env := #[("TOLK_STDLIB", stdlib), ("LC_ALL", "C"), ("TZ", "UTC")]
+      }
+      unless proc.exitCode == 0 do
+        throw <| IO.userError
+          s!"locked tolk failed to compile Sha256Ton.tolk:\n{proc.stderr}{proc.stdout}"
+      let fifPath := System.FilePath.mk staging / "Sha256Ton.fif"
+      unless ← fifPath.pathExists do
+        throw <| IO.userError "tolk returned no Sha256Ton.fif"
+      let fifBytes ← IO.FS.readFile fifPath
+      expect (fifBytes.length > 0) "Sha256Ton.fif must be non-empty"
+      IO.println "  ✓ Sha256Ton locked tolk → .fif"
+    finally
+      let _ ← IO.Process.output {
+        cmd := "rm"
+        args := #["-rf", staging]
+      }
+  else
+    IO.println "  · Sha256Ton tolk→fif skipped (tool-root/tolk or stdlib absent)"
+  expectPlanFc "Keccak256Ton" "<ton-keccak256>" "Examples.Keccak256Ton"
+    ("  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.keccak256(x)\n" ++
+      "    last := h\n" ++
+      "    return h\n\n" ++
+      "  view get() : UInt256 do\n" ++
+      "    return last\n")
+    "has no Ton host binding" "keccak256"
+  expectPlanFc "Sha256TonHashNoPad" "<ton-sha256-hashnopad>"
+    "Examples.Sha256TonHashNoPad"
+    ("  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.hashNoPad(x)\n" ++
+      "    last := h\n" ++
+      "    return h\n\n" ++
+      "  view get() : UInt256 do\n" ++
+      "    return last\n")
+    "has no Ton host binding"
+  expectPlanFc "Sha256TonU64" "<ton-sha256-u64>" "Examples.Sha256TonU64"
     ("  state pad : UInt64\n\n" ++
       "  init() do\n" ++
       "    pad := 0\n\n" ++
@@ -309,31 +454,18 @@ private unsafe def testCryptoSha256StayFailClosed
       "    return pad\n\n" ++
       "  view get() : UInt64 do\n" ++
       "    return pad\n")
-    "has no Ton host binding"
-  expectPlanFc "Sha256TonHashNoPad" "<ton-sha256-hashnopad>"
-    "Examples.Sha256TonHashNoPad"
-    ("  state pad : UInt64\n\n" ++
+    "pf.crypto.sha256 requires exactly one UInt256 argument and UInt256 result"
+  expectPlanFc "Sha256TonSched" "<ton-sha256-sched>" "Examples.Sha256TonSched"
+    ("  state last : UInt256\n\n" ++
       "  init() do\n" ++
-      "    pad := 0\n\n" ++
-      "  entry probe() : UInt64 do\n" ++
-      "    let w : UInt64 := 0\n" ++
-      "    let h : UInt64 := call pf.crypto.hashNoPad(w)\n" ++
-      "    return pad\n\n" ++
-      "  view get() : UInt64 do\n" ++
-      "    return pad\n")
-    "has no Ton host binding"
-  expectPlanFc "Keccak256Ton" "<ton-keccak256>" "Examples.Keccak256Ton"
-    ("  state pad : UInt64\n\n" ++
-      "  init() do\n" ++
-      "    pad := 0\n\n" ++
-      "  entry probe() : UInt64 do\n" ++
-      "    let w : UInt64 := 0\n" ++
-      "    let h : UInt64 := call pf.crypto.keccak256(w)\n" ++
-      "    return pad\n\n" ++
-      "  view get() : UInt64 do\n" ++
-      "    return pad\n")
-    "has no Ton host binding"
-  -- SYS-S5-ECDSA-FC-REST: keep admitted UInt64 ABI so the needle is the QN arm.
+      "    last := 0\n\n" ++
+      "  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    schedule pf.crypto.sha256(x)\n" ++
+      "    last := x\n" ++
+      "    return x\n\n" ++
+      "  view get() : UInt256 do\n" ++
+      "    return last\n")
+    "pf.crypto calls cannot be scheduled"
   expectPlanFc "EcdsaRecoverTon" "<ton-ecdsa-recover>"
     "Examples.EcdsaRecoverTon"
     ("  state pad : UInt64\n\n" ++
@@ -350,7 +482,7 @@ private unsafe def testCryptoSha256StayFailClosed
       "    return pad\n")
     "has no Ton host binding"
     "ecdsaRecoverSecp256k1"
-  IO.println "  ✓ pf.crypto.sha256/keccak256 stay fail closed (no Ton host)"
+  IO.println "  ✓ pf.crypto.sha256 → bitsHash/SHA256U; keccak256/siblings stay FC"
 
 /-- Schedule → Plan/IR/Tolk createMessage pins (destination hash stub, bounce,
     send mode, value=0, op encoding). Sync call remains FC (above). -/
@@ -2972,7 +3104,7 @@ unsafe def run : IO Unit := do
   testMultiField session
   testCallSyncFc session
   testResultBearingExternalCallFailClosed
-  testCryptoSha256StayFailClosed session
+  testCryptoSha256Admitted session
   testSchedulePlanAndTolk session
   testNarrowUInt8 session
   testNarrowUInt16UInt32 session

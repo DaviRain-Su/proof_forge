@@ -150,6 +150,9 @@ inductive Operation where
       `destination`. Physical ≈400ms slot (not logical block number). Emitter
       allocates a 40-byte stack buffer; no Clock account meta. -/
   | clockSlot (destination : Nat)
+  /-- CAP-2: load `Clock.unix_timestamp` (i64@32) via the same syscall into
+      `destination` as a u64 bit pattern. No extra sign/range guard. -/
+  | clockUnixTimestamp (destination : Nat)
   /-- ADR-0032: one leaf of Principal wire from account key (see Plan Expr). -/
   | callerPrincipalLeaf (destination accountIndex leafIndex : Nat)
   deriving BEq, Inhabited, Repr
@@ -654,6 +657,8 @@ private partial def lowerExpr (overflowError : Nat) (tempMap : List (Nat × Nat)
         }
   | .clockSlot =>
       { operations := #[.clockSlot next], value := next, next := next + 1 }
+  | .clockUnixTimestamp =>
+      { operations := #[.clockUnixTimestamp next], value := next, next := next + 1 }
   | .callerPrincipalLeaf accountIndex leafIndex =>
       { operations := #[.callerPrincipalLeaf next accountIndex leafIndex]
         value := next, next := next + 1 }
@@ -819,6 +824,8 @@ private partial def lowerExprCseV1
               (fun d l r => .checkedSar d l r invalidShiftError) 1
         | .clockSlot =>
             bind memo (ops.push (.clockSlot next)) next (next + 1)
+        | .clockUnixTimestamp =>
+            bind memo (ops.push (.clockUnixTimestamp next)) next (next + 1)
         | .callerPrincipalLeaf accountIndex leafIndex =>
             bind memo
               (ops.push (.callerPrincipalLeaf next accountIndex leafIndex))
@@ -925,7 +932,7 @@ private def tempDestination? : Operation → Option Nat
       .compare destination .. | .wideCompare _ destination .. |
       .callFn _ destination _ | .sha256Syscall destination _ |
       .keccak256Syscall destination _ |
-      .clockSlot destination
+      .clockSlot destination | .clockUnixTimestamp destination
       | .callerPrincipalLeaf destination _ _ => some destination
   | .mapPrincipalUpsert _ _ _ outTemps _ =>
       match outTemps[0]? with | some d => some d | none => none
@@ -1327,7 +1334,7 @@ private def opResultLimbCount : Operation → Nat
   | .bitAnd .. | .bitOr .. | .bitXor .. | .checkedShl .. | .checkedShr ..
   | .bitNot .. | .boolNot .. | .boolAnd .. | .boolOr ..
   | .compare .. | .wideCompare .. | .callFn .. | .clockSlot ..
-  | .callerPrincipalLeaf .. => 1
+  | .clockUnixTimestamp .. | .callerPrincipalLeaf .. => 1
   | .sha256Syscall .. | .keccak256Syscall .. => 4
   | .externalCall _ _ _ (some _) => 1
   | .mapPrincipalUpsert .. => mapPrincipalLeafCountV1 + 1
@@ -1405,7 +1412,7 @@ private partial def validateOperationSequence
     | .narrowBitAnd .. | .narrowBitOr .. | .narrowBitXor .. | .narrowBitNot ..
     | .narrowCheckedShl .. | .narrowCheckedShr ..
     | .compare .. | .wideCompare .. | .sha256Syscall .. | .keccak256Syscall ..
-    | .clockSlot .. | .callerPrincipalLeaf ..
+    | .clockSlot .. | .clockUnixTimestamp .. | .callerPrincipalLeaf ..
     | .mapPrincipalLookup .. | .mapPrincipalUpsert ..
     | .assert .. | .zeroState .. | .narrowZeroState ..
     | .storeState .. | .narrowStoreState .. | .storeStateMulti ..
@@ -1551,6 +1558,9 @@ private partial def validateOperationSequence
     | .clockSlot _destination =>
         -- Host Clock.slot leaf: no operands; destination numbering already
         -- checked above via tempDestination?.
+        pure ()
+    | .clockUnixTimestamp _destination =>
+        -- Host Clock.unix_timestamp leaf (same syscall, offset 32).
         pure ()
     | .callerPrincipalLeaf _destination accountIndex leafIndex =>
         unless accountIndex == 1 && leafIndex < 9 do
@@ -1890,7 +1900,7 @@ private def validateFnIR (plan : Plan) (fn : FnIR) : CompileResult Unit := do
     | .zeroState .. | .narrowZeroState .. | .setHeader ..
     | .emitEvent .. | .externalCall .. | .sha256Syscall .. | .keccak256Syscall .. | .schedule ..
     -- Host sysvar / caller-role reads are not pure.
-    | .clockSlot .. | .callerPrincipalLeaf .. =>
+    | .clockSlot .. | .clockUnixTimestamp .. | .callerPrincipalLeaf .. =>
         throw <| .planInvariant .solana
           s!"fn IR '{fn.name}' contains a non-pure operation"
     | .ifRegion _ thenOps elseOps =>
@@ -2151,6 +2161,8 @@ private partial def renderOperation (indent : String)
   | .clockSlot destination =>
       -- ADR-0031 S2: Clock.slot (physical ≈400ms slot, not logical block number).
       s!"{indent}%{destination} = clock_slot  ; sol_get_clock_sysvar → Clock.slot\n"
+  | .clockUnixTimestamp destination =>
+      s!"{indent}%{destination} = clock_unix_timestamp  ; sol_get_clock_sysvar → Clock.unix_timestamp @32\n"
   | .callerPrincipalLeaf destination accountIndex leafIndex =>
       s!"{indent}%{destination} = caller_principal_leaf acc{accountIndex}[{leafIndex}]\n"
   | .assert condition errorCode =>

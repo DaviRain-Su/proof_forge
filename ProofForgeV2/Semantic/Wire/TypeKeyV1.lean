@@ -700,14 +700,19 @@ def validateNamedBodyOptionCycleLegalityV1
 
 /-- Closed non-wire phase distinguishing the TypeKey subphases that
     share the public `.nonCanonical` error: `namedPrefix` (named contiguous
-    prefix rank), `primitiveLeaf`, `recursiveAnonymous`, and
+    prefix rank), `primitiveLeaf`, `recursiveAnonymous`,
     `namedBodyCycle` (the SPEC §5 rule that any recursive cycle must pass
-    through an `Option`, enforced after `recursiveAnonymous`). -/
+    through an `Option`, enforced after `recursiveAnonymous`),
+    `anonymousRank` (SPEC §5 unsigned-lex `typeKey` order of the anonymous
+    suffix), and `usageClosure` (every anonymous TypeDecl is reached from a
+    named body or a Core type slot). -/
 inductive TypeKeyValidationPhaseV1
   | namedPrefix
   | primitiveLeaf
   | recursiveAnonymous
   | namedBodyCycle
+  | anonymousRank
+  | usageClosure
   deriving BEq, Repr
 
 /-- Internal phase plus the unchanged public wire error. -/
@@ -724,16 +729,11 @@ private def liftTypeKeyValidationPhaseV1
   | .ok () => .ok ()
   | .error error => .error { phase, error }
 
-/-- Runs the exact stable §5 TypeKey segment used by the structure gate in
-    the fixed order: named contiguous-prefix rank first, then leaf primitive
-    anonymous TypeKey uniqueness, then recursive anonymous container
-    structural-class uniqueness (anonymous-container-cycle rejection without
-    a named anchor), then named-body `Option`-cycle legality (remove every
-    `Option` node and require the induced TypeId graph to be acyclic).
-    Type-shape/FieldSpec/Map-key legality and shallow reference range are
-    earlier prerequisites. The public wire error is unchanged; only the phase
-    is exposed for focused tests. -/
-def validateTypeKeyPhasesV1 (types : Array TypeDeclV1) :
+/-- Runs the exact stable §5 TypeKey *prefix* segment (named prefix through
+    named-body Option-cycle). Anonymous `typeKey` rank and Core/named usage
+    closure are composed by `validateTypeKeyPhasesV1` after
+    `encodeAnonymousTypeRankKeyV1` is defined below. -/
+def validateTypeKeyPhasesPrefixV1 (types : Array TypeDeclV1) :
     Except TypeKeyValidationFailureV1 Unit := do
   liftTypeKeyValidationPhaseV1 .namedPrefix
     (validateNamedPrefixRankV1 types)
@@ -744,38 +744,34 @@ def validateTypeKeyPhasesV1 (types : Array TypeDeclV1) :
   liftTypeKeyValidationPhaseV1 .namedBodyCycle
     (validateNamedBodyOptionCycleLegalityV1 types)
 
-/-- Compose the sole production TypeKey seam from success of its four exact
-    subphases. Each premise is a result of the production implementation, not
-    a parallel TypeKey-validity predicate. -/
-theorem validateTypeKeyPhasesV1_eq_ok_of_phases (types : Array TypeDeclV1)
+/-- Compose the TypeKey prefix seam from its four exact subphases. -/
+theorem validateTypeKeyPhasesPrefixV1_eq_ok_of_phases (types : Array TypeDeclV1)
     (hNamedPrefix : validateNamedPrefixRankV1 types = .ok ())
     (hPrimitive : validatePrimitiveAnonymousTypeKeyUniquenessV1 types = .ok ())
     (hRecursive : validateRecursiveAnonymousTypeKeyUniquenessV1 types = .ok ())
     (hNamedBody : validateNamedBodyOptionCycleLegalityV1 types = .ok ()) :
-    validateTypeKeyPhasesV1 types = .ok () := by
-  simp only [validateTypeKeyPhasesV1, hNamedPrefix, hPrimitive, hRecursive,
+    validateTypeKeyPhasesPrefixV1 types = .ok () := by
+  simp only [validateTypeKeyPhasesPrefixV1, hNamedPrefix, hPrimitive, hRecursive,
     hNamedBody, liftTypeKeyValidationPhaseV1, Bind.bind, Except.bind]
 
 /-! ### Isolated SPEC §5 `typeKey` byte form
 
     Pins the canonical `typeKey(tag, fields)` / `nameBytes` framing from
-    SPEC-SEM-WIRE-001 §5. This encoder is **not** called from
-    `validateSemanticProgramStructureV1`, does not reject unused TypeDecls,
-    does not reorder or rank-check `types`, and does not replace the
-    fixed-size structural-class signature interning above. Pretty names,
-    hashes, locale sort, and final TypeId are not sort keys. -/
+    SPEC-SEM-WIRE-001 §5. Rank checking consumes the same byte form via
+    `encodeAnonymousTypeRankKeyV1` / `validateAnonymousTypeKeyRankV1`.
+    Pretty names, hashes, locale sort, and final TypeId are not sort keys. -/
 
 /-- SPEC `typeKey` frame: `u16le(ASCII(tag).size) || ASCII(tag) ||
-    u32le(fields.size) || concat(u32le(field.size) || field)`. -/
+    u32le(fields.size) || concat(u32le(field.size) || field)`.
+    Pure fold (no `Id.run`) so closed-table certificates stay kernel-checkable. -/
 private def typeKeyFrameBytesV1 (tag : String) (fields : Array ByteArray) :
-    ByteArray := Id.run do
+    ByteArray :=
   let tagBytes := tag.toUTF8
-  let mut out :=
-    (encodeU16le (UInt16.ofNat tagBytes.size)).append tagBytes
-  out := out.append (encodeU32le (UInt32.ofNat fields.size))
-  for field in fields do
-    out := out.append ((encodeU32le (UInt32.ofNat field.size)).append field)
-  pure out
+  let header :=
+    ((encodeU16le (UInt16.ofNat tagBytes.size)).append tagBytes).append
+      (encodeU32le (UInt32.ofNat fields.size))
+  fields.foldl (init := header) fun out field =>
+    out.append ((encodeU32le (UInt32.ofNat field.size)).append field)
 
 /-- Closure / top-level tags only. Nested helpers are excluded. -/
 private def isTypeKeyClosureTagV1 (tag : String) : Bool :=
@@ -802,13 +798,49 @@ private def encodeTypeKeyFrameCheckedV1 (tag : String)
   else
     err .badType
 
+/-- Closed Bool anonymous rank key (`typeKey("bool", [])`). Pinned concrete
+    bytes so product certificates never depend on `String.toUTF8` reduction
+    or `native_decide` / `Lean.ofReduceBool`. -/
+def typeKeyBoolRankBytesV1 : ByteArray :=
+  ByteArray.mk #[4, 0, 98, 111, 111, 108, 0, 0, 0, 0]
+
+/-- Closed UInt64 anonymous rank key (`typeKey("uint", [u16le 64])`). -/
+def typeKeyUInt64RankBytesV1 : ByteArray :=
+  ByteArray.mk #[4, 0, 117, 105, 110, 116, 1, 0, 0, 0, 2, 0, 0, 0, 64, 0]
+
+/-- Closed Unit anonymous rank key (`typeKey("unit", [])`). -/
+def typeKeyUnitRankBytesV1 : ByteArray :=
+  ByteArray.mk #[4, 0, 117, 110, 105, 116, 0, 0, 0, 0]
+
+/-- Closed Principal anonymous rank key (`typeKey("principal", [])`). -/
+def typeKeyPrincipalRankBytesV1 : ByteArray :=
+  ByteArray.mk #[9, 0, 112, 114, 105, 110, 99, 105, 112, 97, 108, 0, 0, 0, 0]
+
+/-- Engineering string rank frame (`typeKey("string", [])`) for
+    `stringExtension = true`. -/
+def typeKeyStringRankBytesV1 : ByteArray :=
+  ByteArray.mk #[6, 0, 115, 116, 114, 105, 110, 103, 0, 0, 0, 0]
+
 /-- SPEC `typeKey` of one TypeId. Named Struct/Enum emit `named` + reserved
     `u32le` id and do not expand the body. Anonymous Struct/Enum expand as
     `struct`/`enum` with nested helpers. Child TypeIds are resolved against
     `types` (index = TypeId); OOR fails closed. Fuel is `maxNesting` (256)
-    and is consumed on each nested TypeId. -/
+    and is consumed on each nested TypeId.
+
+    `stringExtension = false` is the pinned SPEC §5 byte form (`.string` is
+    not a SPEC §4.2 tag → `.badType`). `stringExtension = true` additionally
+    frames the engineering `.string` TypeShape as `typeKey("string", [])` so
+    the product anonymous rank key is total over every shape the Normalize
+    interner can produce; the `"string"` tag stays outside
+    `isTypeKeyClosureTagV1` and is framed directly, so the SPEC test hooks
+    keep rejecting it.
+
+    Leaf Bool / Unit / UInt64 / string frames return pinned concrete bytes
+    (same bit pattern as `typeKeyFrameBytesV1`) so InlineProofAudit product
+    certificates stay free of `native_decide`. -/
 private def encodeTypeKeyFromTypeIdV1 (types : Array TypeDeclV1)
-    (typeId : TypeIdV1) : Nat → Except SemanticWireErrorV1 ByteArray
+    (typeId : TypeIdV1) (stringExtension : Bool) :
+    Nat → Except SemanticWireErrorV1 ByteArray
   | 0 => err .limitExceeded
   | fuel + 1 => do
       match types[typeId.toNat]? with
@@ -822,38 +854,48 @@ private def encodeTypeKeyFromTypeIdV1 (types : Array TypeDeclV1)
               encodeTypeKeyFrameCheckedV1 "named"
                 #[encodeU32le decl.id] false
           | _, .bool =>
-              encodeTypeKeyFrameCheckedV1 "bool" #[] false
+              pure typeKeyBoolRankBytesV1
+          | _, .uint 64 =>
+              pure typeKeyUInt64RankBytesV1
           | _, .uint w =>
               encodeTypeKeyFrameCheckedV1 "uint" #[encodeU16le w] false
           | _, .int w =>
               encodeTypeKeyFrameCheckedV1 "int" #[encodeU16le w] false
           | _, .principal =>
-              encodeTypeKeyFrameCheckedV1 "principal" #[] false
+              pure typeKeyPrincipalRankBytesV1
           | _, .unit =>
-              encodeTypeKeyFrameCheckedV1 "unit" #[] false
+              pure typeKeyUnitRankBytesV1
           | _, .string =>
-              err .badType
+              if stringExtension then
+                pure typeKeyStringRankBytesV1
+              else
+                err .badType
           | _, .bytes len =>
               encodeTypeKeyFrameCheckedV1 "bytes" #[encodeU32le len] false
           | _, .field spec => do
               let idB ← encodeString spec.id.value
               encodeTypeKeyFrameCheckedV1 "field" #[idB, spec.modulusBE] false
           | _, .array element length => do
-              let child ← encodeTypeKeyFromTypeIdV1 types element fuel
+              let child ←
+                encodeTypeKeyFromTypeIdV1 types element stringExtension fuel
               encodeTypeKeyFrameCheckedV1 "array"
                 #[child, encodeU32le length] false
           | _, .map key value => do
-              let keyB ← encodeTypeKeyFromTypeIdV1 types key fuel
-              let valueB ← encodeTypeKeyFromTypeIdV1 types value fuel
+              let keyB ←
+                encodeTypeKeyFromTypeIdV1 types key stringExtension fuel
+              let valueB ←
+                encodeTypeKeyFromTypeIdV1 types value stringExtension fuel
               encodeTypeKeyFrameCheckedV1 "map" #[keyB, valueB] false
           | _, .option element => do
-              let child ← encodeTypeKeyFromTypeIdV1 types element fuel
+              let child ←
+                encodeTypeKeyFromTypeIdV1 types element stringExtension fuel
               encodeTypeKeyFrameCheckedV1 "option" #[child] false
           | none, .struct fields => do
               let mut items : Array ByteArray := #[]
               for f in fields do
                 let nameB ← encodeString f.name
-                let child ← encodeTypeKeyFromTypeIdV1 types f.typeId fuel
+                let child ←
+                  encodeTypeKeyFromTypeIdV1 types f.typeId stringExtension fuel
                 let item ← encodeTypeKeyFrameCheckedV1 "struct-field"
                   #[nameB, child] true
                 items := items.push item
@@ -866,7 +908,7 @@ private def encodeTypeKeyFromTypeIdV1 (types : Array TypeDeclV1)
                   encodeU32le (UInt32.ofNat v.payloadTypes.size)
                 for payload in v.payloadTypes do
                   let payloadKey ←
-                    encodeTypeKeyFromTypeIdV1 types payload fuel
+                    encodeTypeKeyFromTypeIdV1 types payload stringExtension fuel
                   packed := packed.append
                     ((encodeU32le (UInt32.ofNat payloadKey.size)).append
                       payloadKey)
@@ -880,7 +922,481 @@ private def encodeTypeKeyFromTypeIdV1 (types : Array TypeDeclV1)
     fuel `maxNesting`. -/
 def encodeTypeKeyBytesForTestV1 (types : Array TypeDeclV1)
     (typeId : TypeIdV1) : Except SemanticWireErrorV1 ByteArray :=
-  encodeTypeKeyFromTypeIdV1 types typeId maxNesting
+  encodeTypeKeyFromTypeIdV1 types typeId false maxNesting
+
+/-- Product anonymous canonical-rank key (Normalize TypeKey rank cutover,
+    Stage A). Exactly the SPEC §5 `typeKey` byte form plus the engineering
+    `string` frame (`typeKey("string", [])`) so the key is total over every
+    TypeShape the Normalize interner produces. Named Struct/Enum anchors use
+    reserved-prefix ids only, and anonymous children expand structurally, so
+    the key of an anonymous TypeDecl never depends on anonymous TypeId
+    numbering — the unsigned-lex sort over these keys is well defined before
+    the final ids are assigned. -/
+def encodeAnonymousTypeRankKeyV1 (types : Array TypeDeclV1)
+    (typeId : TypeIdV1) : Except SemanticWireErrorV1 ByteArray :=
+  encodeTypeKeyFromTypeIdV1 types typeId true maxNesting
+
+/-- Adjacent unsigned-lex strict ascent over an already-encoded key list. -/
+def checkAnonymousTypeKeyRankListV1 :
+    List ByteArray → Except SemanticWireErrorV1 Unit
+  | [] => pure ()
+  | [_] => pure ()
+  | a :: b :: rest => do
+      match compareByteArrayLex a b with
+      | .lt => checkAnonymousTypeKeyRankListV1 (b :: rest)
+      | _ => err .nonCanonical
+
+/-- Two distinct ascending keys pass the list rank checker. -/
+theorem checkAnonymousTypeKeyRankListV1_two_eq_ok
+    (k0 k1 : ByteArray)
+    (hlt : compareByteArrayLex k0 k1 = .lt) :
+    checkAnonymousTypeKeyRankListV1 [k0, k1] = .ok () := by
+  simp [checkAnonymousTypeKeyRankListV1, hlt, Pure.pure, Except.pure,
+    Bind.bind, Except.bind]
+
+/-- Three distinct ascending keys pass the list rank checker. -/
+theorem checkAnonymousTypeKeyRankListV1_three_eq_ok
+    (k0 k1 k2 : ByteArray)
+    (h01 : compareByteArrayLex k0 k1 = .lt)
+    (h12 : compareByteArrayLex k1 k2 = .lt) :
+    checkAnonymousTypeKeyRankListV1 [k0, k1, k2] = .ok () := by
+  simp [checkAnonymousTypeKeyRankListV1, h01, h12, Pure.pure, Except.pure,
+    Bind.bind, Except.bind]
+
+/-- Leading named contiguous-prefix length (anonymous suffix starts here). -/
+private def namedTypePrefixCountListV1 : List TypeDeclV1 → Nat
+  | [] => 0
+  | d :: rest =>
+      if d.name.isSome then namedTypePrefixCountListV1 rest + 1 else 0
+
+def namedTypePrefixCountV1 (types : Array TypeDeclV1) : Nat :=
+  namedTypePrefixCountListV1 types.toList
+
+/-- Anonymous rank keys for the suffix list starting at absolute index `start`. -/
+private def collectAnonymousTypeRankKeysListV1
+    (types : Array TypeDeclV1) :
+    List TypeDeclV1 → Nat → Except SemanticWireErrorV1 (List ByteArray)
+  | [], _ => pure []
+  | d :: rest, i =>
+      if d.name.isSome then
+        err .nonCanonical
+      else do
+        let key ← encodeAnonymousTypeRankKeyV1 types (UInt32.ofNat i)
+        let restKeys ← collectAnonymousTypeRankKeysListV1 types rest (i + 1)
+        pure (key :: restKeys)
+
+/-- Anonymous rank keys from `start` through the end of `types`, in table
+    order. Named rows inside the suffix fail closed. -/
+def collectAnonymousTypeRankKeysFromV1
+    (types : Array TypeDeclV1) (start : Nat) :
+    Except SemanticWireErrorV1 (List ByteArray) :=
+  collectAnonymousTypeRankKeysListV1 types (types.toList.drop start) start
+
+/-- SPEC §5 anonymous suffix rank: after the named contiguous prefix, every
+    anonymous TypeDecl must appear in strictly ascending unsigned-lex order
+    of `encodeAnonymousTypeRankKeyV1` (the same key Normalize uses). Wrong
+    order is `.nonCanonical`. This is the `anonymousRank` subphase. -/
+def validateAnonymousTypeKeyRankV1
+    (types : Array TypeDeclV1) : Except SemanticWireErrorV1 Unit := do
+  let keys ← collectAnonymousTypeRankKeysFromV1 types (namedTypePrefixCountV1 types)
+  checkAnonymousTypeKeyRankListV1 keys
+
+private theorem encodeTypeKeyFromTypeIdV1_bool
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) (stringExtension : Bool)
+    (fuel : Nat) (id : TypeIdV1)
+    (hget : types[typeId.toNat]? = some { id := id, name := none, shape := .bool }) :
+    encodeTypeKeyFromTypeIdV1 types typeId stringExtension (fuel + 1) =
+      .ok typeKeyBoolRankBytesV1 := by
+  simp [encodeTypeKeyFromTypeIdV1, hget, Pure.pure, Except.pure]
+
+private theorem encodeTypeKeyFromTypeIdV1_uint64
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) (stringExtension : Bool)
+    (fuel : Nat) (id : TypeIdV1)
+    (hget : types[typeId.toNat]? =
+      some { id := id, name := none, shape := .uint 64 }) :
+    encodeTypeKeyFromTypeIdV1 types typeId stringExtension (fuel + 1) =
+      .ok typeKeyUInt64RankBytesV1 := by
+  simp [encodeTypeKeyFromTypeIdV1, hget, Pure.pure, Except.pure]
+
+private theorem encodeTypeKeyFromTypeIdV1_unit
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) (stringExtension : Bool)
+    (fuel : Nat) (id : TypeIdV1)
+    (hget : types[typeId.toNat]? =
+      some { id := id, name := none, shape := .unit }) :
+    encodeTypeKeyFromTypeIdV1 types typeId stringExtension (fuel + 1) =
+      .ok typeKeyUnitRankBytesV1 := by
+  simp [encodeTypeKeyFromTypeIdV1, hget, Pure.pure, Except.pure]
+
+private theorem encodeTypeKeyFromTypeIdV1_principal
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) (stringExtension : Bool)
+    (fuel : Nat) (id : TypeIdV1)
+    (hget : types[typeId.toNat]? =
+      some { id := id, name := none, shape := .principal }) :
+    encodeTypeKeyFromTypeIdV1 types typeId stringExtension (fuel + 1) =
+      .ok typeKeyPrincipalRankBytesV1 := by
+  simp [encodeTypeKeyFromTypeIdV1, hget, Pure.pure, Except.pure]
+
+/-- Encode the Bool anonymous rank key at a concrete table index. -/
+theorem encodeAnonymousTypeRankKeyV1_bool
+    (types : Array TypeDeclV1) (i : Nat) (id : TypeIdV1)
+    (hget : types[i]? = some { id := id, name := none, shape := .bool })
+    (hi : (UInt32.ofNat i).toNat = i) :
+    encodeAnonymousTypeRankKeyV1 types (UInt32.ofNat i) =
+      .ok typeKeyBoolRankBytesV1 := by
+  have hget' : types[(UInt32.ofNat i).toNat]? =
+      some { id := id, name := none, shape := .bool } := by
+    simpa [hi] using hget
+  simpa [encodeAnonymousTypeRankKeyV1, maxNesting, show (256 : Nat) = 255 + 1 from rfl]
+    using encodeTypeKeyFromTypeIdV1_bool types (UInt32.ofNat i) true 255 id hget'
+
+/-- Encode the UInt64 anonymous rank key at a concrete table index. -/
+theorem encodeAnonymousTypeRankKeyV1_uint64
+    (types : Array TypeDeclV1) (i : Nat) (id : TypeIdV1)
+    (hget : types[i]? = some { id := id, name := none, shape := .uint 64 })
+    (hi : (UInt32.ofNat i).toNat = i) :
+    encodeAnonymousTypeRankKeyV1 types (UInt32.ofNat i) =
+      .ok typeKeyUInt64RankBytesV1 := by
+  have hget' : types[(UInt32.ofNat i).toNat]? =
+      some { id := id, name := none, shape := .uint 64 } := by
+    simpa [hi] using hget
+  simpa [encodeAnonymousTypeRankKeyV1, maxNesting, show (256 : Nat) = 255 + 1 from rfl]
+    using encodeTypeKeyFromTypeIdV1_uint64 types (UInt32.ofNat i) true 255 id hget'
+
+/-- Encode the Unit anonymous rank key at a concrete table index. -/
+theorem encodeAnonymousTypeRankKeyV1_unit
+    (types : Array TypeDeclV1) (i : Nat) (id : TypeIdV1)
+    (hget : types[i]? = some { id := id, name := none, shape := .unit })
+    (hi : (UInt32.ofNat i).toNat = i) :
+    encodeAnonymousTypeRankKeyV1 types (UInt32.ofNat i) =
+      .ok typeKeyUnitRankBytesV1 := by
+  have hget' : types[(UInt32.ofNat i).toNat]? =
+      some { id := id, name := none, shape := .unit } := by
+    simpa [hi] using hget
+  simpa [encodeAnonymousTypeRankKeyV1, maxNesting, show (256 : Nat) = 255 + 1 from rfl]
+    using encodeTypeKeyFromTypeIdV1_unit types (UInt32.ofNat i) true 255 id hget'
+
+/-- Encode the Principal anonymous rank key at a concrete table index. -/
+theorem encodeAnonymousTypeRankKeyV1_principal
+    (types : Array TypeDeclV1) (i : Nat) (id : TypeIdV1)
+    (hget : types[i]? = some { id := id, name := none, shape := .principal })
+    (hi : (UInt32.ofNat i).toNat = i) :
+    encodeAnonymousTypeRankKeyV1 types (UInt32.ofNat i) =
+      .ok typeKeyPrincipalRankBytesV1 := by
+  have hget' : types[(UInt32.ofNat i).toNat]? =
+      some { id := id, name := none, shape := .principal } := by
+    simpa [hi] using hget
+  simpa [encodeAnonymousTypeRankKeyV1, maxNesting, show (256 : Nat) = 255 + 1 from rfl]
+    using encodeTypeKeyFromTypeIdV1_principal types (UInt32.ofNat i) true 255 id hget'
+
+/-- Unsigned-lex: Bool typeKey sorts before UInt64 typeKey. -/
+theorem compare_typeKeyBool_typeKeyUInt64_ltV1 :
+    compareByteArrayLex typeKeyBoolRankBytesV1 typeKeyUInt64RankBytesV1 = .lt := by
+  rw [compareByteArrayLex]
+  change compareByteArrayLexLoopV1 typeKeyBoolRankBytesV1 typeKeyUInt64RankBytesV1
+      (Nat.min typeKeyBoolRankBytesV1.size typeKeyUInt64RankBytesV1.size) 0 = .lt
+  simp only [typeKeyBoolRankBytesV1, typeKeyUInt64RankBytesV1, ByteArray.size]
+  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 0 (by decide) (by decide)]
+  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 1 (by decide) (by decide)]
+  apply compareByteArrayLexLoopV1_eq_lt
+  · decide
+  · decide
+
+/-- Unsigned-lex: UInt64 typeKey sorts before Unit typeKey. -/
+theorem compare_typeKeyUInt64_typeKeyUnit_ltV1 :
+    compareByteArrayLex typeKeyUInt64RankBytesV1 typeKeyUnitRankBytesV1 = .lt := by
+  rw [compareByteArrayLex]
+  change compareByteArrayLexLoopV1 typeKeyUInt64RankBytesV1 typeKeyUnitRankBytesV1
+      (Nat.min typeKeyUInt64RankBytesV1.size typeKeyUnitRankBytesV1.size) 0 = .lt
+  simp only [typeKeyUInt64RankBytesV1, typeKeyUnitRankBytesV1, ByteArray.size]
+  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 0 (by decide) (by decide)]
+  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 1 (by decide) (by decide)]
+  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 2 (by decide) (by decide)]
+  apply compareByteArrayLexLoopV1_eq_lt
+  · decide
+  · decide
+
+/-- Unsigned-lex: Bool typeKey sorts before Unit typeKey. -/
+theorem compare_typeKeyBool_typeKeyUnit_ltV1 :
+    compareByteArrayLex typeKeyBoolRankBytesV1 typeKeyUnitRankBytesV1 = .lt := by
+  rw [compareByteArrayLex]
+  change compareByteArrayLexLoopV1 typeKeyBoolRankBytesV1 typeKeyUnitRankBytesV1
+      (Nat.min typeKeyBoolRankBytesV1.size typeKeyUnitRankBytesV1.size) 0 = .lt
+  simp only [typeKeyBoolRankBytesV1, typeKeyUnitRankBytesV1, ByteArray.size]
+  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 0 (by decide) (by decide)]
+  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 1 (by decide) (by decide)]
+  apply compareByteArrayLexLoopV1_eq_lt
+  · decide
+  · decide
+
+/-- Unsigned-lex: Unit typeKey sorts before Principal typeKey (tag-length first). -/
+theorem compare_typeKeyUnit_typeKeyPrincipal_ltV1 :
+    compareByteArrayLex typeKeyUnitRankBytesV1 typeKeyPrincipalRankBytesV1 = .lt := by
+  rw [compareByteArrayLex]
+  change compareByteArrayLexLoopV1 typeKeyUnitRankBytesV1 typeKeyPrincipalRankBytesV1
+      (Nat.min typeKeyUnitRankBytesV1.size typeKeyPrincipalRankBytesV1.size) 0 = .lt
+  simp only [typeKeyUnitRankBytesV1, typeKeyPrincipalRankBytesV1, ByteArray.size]
+  -- tag length 4 < 9 at index 0
+  apply compareByteArrayLexLoopV1_eq_lt
+  · decide
+  · decide
+
+/-- Kernel certificate: anonymous table `#[Bool, UInt64]` passes rank. -/
+theorem validateAnonymousTypeKeyRankV1_bool_uint64_eq_ok
+    (t0 t1 : TypeDeclV1)
+    (h0 : t0 = { id := 0, name := none, shape := .bool })
+    (h1 : t1 = { id := 1, name := none, shape := .uint 64 }) :
+    validateAnonymousTypeKeyRankV1 #[t0, t1] = .ok () := by
+  subst h0; subst h1
+  have hnamed :
+      namedTypePrefixCountV1
+        #[{ id := (0 : TypeIdV1), name := none, shape := .bool },
+          { id := (1 : TypeIdV1), name := none, shape := .uint 64 }] = 0 := by
+    simp [namedTypePrefixCountV1, namedTypePrefixCountListV1]
+  have hk0 :=
+    encodeAnonymousTypeRankKeyV1_bool
+      #[{ id := (0 : TypeIdV1), name := none, shape := .bool },
+        { id := (1 : TypeIdV1), name := none, shape := .uint 64 }]
+      0 0 (by simp) (by decide)
+  have hk1 :=
+    encodeAnonymousTypeRankKeyV1_uint64
+      #[{ id := (0 : TypeIdV1), name := none, shape := .bool },
+        { id := (1 : TypeIdV1), name := none, shape := .uint 64 }]
+      1 1 (by simp) (by decide)
+  have hkeys :
+      collectAnonymousTypeRankKeysFromV1
+        #[{ id := (0 : TypeIdV1), name := none, shape := .bool },
+          { id := (1 : TypeIdV1), name := none, shape := .uint 64 }] 0 =
+        .ok [typeKeyBoolRankBytesV1, typeKeyUInt64RankBytesV1] := by
+    unfold collectAnonymousTypeRankKeysFromV1
+    simp only [collectAnonymousTypeRankKeysListV1, Array.toList, List.drop]
+    rw [hk0, hk1]
+    rfl
+
+  simp [validateAnonymousTypeKeyRankV1, hnamed, hkeys,
+    checkAnonymousTypeKeyRankListV1_two_eq_ok _ _ compare_typeKeyBool_typeKeyUInt64_ltV1,
+    Bind.bind, Except.bind]
+
+/-- Kernel certificate: anonymous table `#[Bool, UInt64, Unit]` passes rank. -/
+theorem validateAnonymousTypeKeyRankV1_bool_uint64_unit_eq_ok
+    (t0 t1 t2 : TypeDeclV1)
+    (h0 : t0 = { id := 0, name := none, shape := .bool })
+    (h1 : t1 = { id := 1, name := none, shape := .uint 64 })
+    (h2 : t2 = { id := 2, name := none, shape := .unit }) :
+    validateAnonymousTypeKeyRankV1 #[t0, t1, t2] = .ok () := by
+  subst h0; subst h1; subst h2
+  let types : Array TypeDeclV1 :=
+    #[{ id := (0 : TypeIdV1), name := none, shape := .bool },
+      { id := (1 : TypeIdV1), name := none, shape := .uint 64 },
+      { id := (2 : TypeIdV1), name := none, shape := .unit }]
+  have hnamed : namedTypePrefixCountV1 types = 0 := by
+    simp [types, namedTypePrefixCountV1, namedTypePrefixCountListV1]
+  have hk0 := encodeAnonymousTypeRankKeyV1_bool types 0 0 (by simp [types]) (by decide)
+  have hk1 := encodeAnonymousTypeRankKeyV1_uint64 types 1 1 (by simp [types]) (by decide)
+  have hk2 := encodeAnonymousTypeRankKeyV1_unit types 2 2 (by simp [types]) (by decide)
+  have hkeys :
+      collectAnonymousTypeRankKeysFromV1 types 0 =
+        .ok [typeKeyBoolRankBytesV1, typeKeyUInt64RankBytesV1, typeKeyUnitRankBytesV1] := by
+    unfold collectAnonymousTypeRankKeysFromV1
+    simp only [collectAnonymousTypeRankKeysListV1, types, Array.toList, List.drop]
+    rw [hk0, hk1, hk2]
+    rfl
+
+  simp [validateAnonymousTypeKeyRankV1, types, hnamed, hkeys,
+    checkAnonymousTypeKeyRankListV1_three_eq_ok _ _ _
+      compare_typeKeyBool_typeKeyUInt64_ltV1 compare_typeKeyUInt64_typeKeyUnit_ltV1,
+    Bind.bind, Except.bind]
+
+/-- Kernel certificate: anonymous table `#[Bool, Unit, Principal]` passes rank. -/
+theorem validateAnonymousTypeKeyRankV1_bool_unit_principal_eq_ok
+    (t0 t1 t2 : TypeDeclV1)
+    (h0 : t0 = { id := 0, name := none, shape := .bool })
+    (h1 : t1 = { id := 1, name := none, shape := .unit })
+    (h2 : t2 = { id := 2, name := none, shape := .principal }) :
+    validateAnonymousTypeKeyRankV1 #[t0, t1, t2] = .ok () := by
+  subst h0; subst h1; subst h2
+  have hnamed :
+      namedTypePrefixCountV1
+        #[{ id := (0 : TypeIdV1), name := none, shape := .bool },
+          { id := (1 : TypeIdV1), name := none, shape := .unit },
+          { id := (2 : TypeIdV1), name := none, shape := .principal }] = 0 := by
+    simp [namedTypePrefixCountV1, namedTypePrefixCountListV1]
+  have hk0 :=
+    encodeAnonymousTypeRankKeyV1_bool
+      #[{ id := (0 : TypeIdV1), name := none, shape := .bool },
+        { id := (1 : TypeIdV1), name := none, shape := .unit },
+        { id := (2 : TypeIdV1), name := none, shape := .principal }]
+      0 0 (by simp) (by decide)
+  have hk1 :=
+    encodeAnonymousTypeRankKeyV1_unit
+      #[{ id := (0 : TypeIdV1), name := none, shape := .bool },
+        { id := (1 : TypeIdV1), name := none, shape := .unit },
+        { id := (2 : TypeIdV1), name := none, shape := .principal }]
+      1 1 (by simp) (by decide)
+  have hk2 :=
+    encodeAnonymousTypeRankKeyV1_principal
+      #[{ id := (0 : TypeIdV1), name := none, shape := .bool },
+        { id := (1 : TypeIdV1), name := none, shape := .unit },
+        { id := (2 : TypeIdV1), name := none, shape := .principal }]
+      2 2 (by simp) (by decide)
+  have hkeys :
+      collectAnonymousTypeRankKeysFromV1
+        #[{ id := (0 : TypeIdV1), name := none, shape := .bool },
+          { id := (1 : TypeIdV1), name := none, shape := .unit },
+          { id := (2 : TypeIdV1), name := none, shape := .principal }] 0 =
+        .ok [typeKeyBoolRankBytesV1, typeKeyUnitRankBytesV1,
+          typeKeyPrincipalRankBytesV1] := by
+    unfold collectAnonymousTypeRankKeysFromV1
+    simp only [collectAnonymousTypeRankKeysListV1, Array.toList, List.drop]
+    rw [hk0, hk1, hk2]
+    rfl
+  simp [validateAnonymousTypeKeyRankV1, hnamed, hkeys,
+    checkAnonymousTypeKeyRankListV1_three_eq_ok _ _ _
+      compare_typeKeyBool_typeKeyUnit_ltV1 compare_typeKeyUnit_typeKeyPrincipal_ltV1,
+    Bind.bind, Except.bind]
+
+/-- Boolean observation of anonymous rank success (tests / non-product only;
+    product certificates must use the kernel lemmas above — `native_decide`
+    introduces `Lean.ofReduceBool`, which InlineProofAudit rejects). -/
+def isOkAnonymousTypeKeyRankV1 (types : Array TypeDeclV1) : Bool :=
+  match validateAnonymousTypeKeyRankV1 types with
+  | .ok () => true
+  | .error _ => false
+
+theorem validateAnonymousTypeKeyRankV1_eq_ok_of_isOk
+    (types : Array TypeDeclV1)
+    (h : isOkAnonymousTypeKeyRankV1 types = true) :
+    validateAnonymousTypeKeyRankV1 types = .ok () := by
+  unfold isOkAnonymousTypeKeyRankV1 at h
+  split at h
+  · assumption
+  · exact (Bool.noConfusion h)
+
+/-- Child TypeIds embedded in one TypeShape (named-body / anonymous closure
+    edges). -/
+private def typeShapeChildTypeIdsV1 (shape : TypeShapeV1) : Array TypeIdV1 :=
+  match shape with
+  | .array element _ => #[element]
+  | .map key value => #[key, value]
+  | .option element => #[element]
+  | .struct fields => fields.map (·.typeId)
+  | .enum variants =>
+      Id.run do
+        let mut out : Array TypeIdV1 := #[]
+        for v in variants do
+          out := out.append v.payloadTypes
+        pure out
+  | _ => #[]
+
+/-- Mark one TypeId and transitively every shape-child TypeId as used. -/
+private def markTypeIdUsedV1 (types : Array TypeDeclV1)
+    (used : Array Bool) (typeId : TypeIdV1) : Array Bool :=
+  Id.run do
+    let mut used := used
+    let mut work : Array TypeIdV1 := #[typeId]
+    let mut cursor := 0
+    while cursor < work.size do
+      let id := work[cursor]!
+      cursor := cursor + 1
+      let i := id.toNat
+      if i < used.size && !used[i]! then
+        used := used.set! i true
+        match types[i]? with
+        | none => pure ()
+        | some decl =>
+            for child in typeShapeChildTypeIdsV1 decl.shape do
+              work := work.push child
+    pure used
+
+/-- Collect Core type-slot roots from a SemanticProgramData carrier. -/
+private def collectCoreTypeSlotRootsV1 (data : SemanticProgramDataV1) :
+    Array TypeIdV1 := Id.run do
+  let mut roots : Array TypeIdV1 := #[]
+  for c in data.constants do
+    roots := roots.push c.typeId
+  for s in data.logicalState do
+    roots := roots.push s.typeId
+  for e in data.events do
+    for f in e.fields do
+      roots := roots.push f.typeId
+  for e in data.errors do
+    for f in e.fields do
+      roots := roots.push f.typeId
+  for callable in data.callables do
+    for p in callable.params do
+      roots := roots.push p.typeId
+    roots := roots.push callable.result.typeId
+    for block in callable.blocks do
+      for bp in block.params do
+        roots := roots.push bp.typeId
+      for instr in block.instructions do
+        match instr.result with
+        | some vd => roots := roots.push vd.typeId
+        | none => pure ()
+        match instr.op with
+        | .literal typeId _ => roots := roots.push typeId
+        | .construct typeId _ _ => roots := roots.push typeId
+        | .checkedCast _ toType => roots := roots.push toType
+        | _ => pure ()
+  pure roots
+
+/-- SPEC §5 usage closure: every anonymous TypeDecl must be reached from a
+    named body field/payload or a Core type slot (transitively through shape
+    children). Unused anonymous rows are `.nonCanonical`. Named prefix rows
+    are always retained as declaration anchors. -/
+def validateAnonymousTypeUsageClosureV1
+    (data : SemanticProgramDataV1) : Except SemanticWireErrorV1 Unit := do
+  let types := data.types
+  if types.isEmpty then
+    return ()
+  let mut used : Array Bool := Array.replicate types.size false
+  -- Named bodies are closure roots (and stay marked used as anchors).
+  let mut i := 0
+  for decl in types do
+    if decl.name.isSome then
+      used := used.set! i true
+      for child in typeShapeChildTypeIdsV1 decl.shape do
+        used := markTypeIdUsedV1 types used child
+    i := i + 1
+  for root in collectCoreTypeSlotRootsV1 data do
+    used := markTypeIdUsedV1 types used root
+  i := 0
+  for decl in types do
+    if decl.name.isNone && !used[i]! then
+      return ← err .nonCanonical
+    i := i + 1
+  pure ()
+
+/-- Full production TypeKey seam over a `types` table: prefix uniqueness/cycle
+    phases, then anonymous SPEC `typeKey` rank. Core/named usage closure is a
+    subsequent StructureV1 phase (`validateAnonymousTypeUsageClosureV1`) because
+    it requires the full SemanticProgramData carrier. -/
+def validateTypeKeyPhasesV1 (types : Array TypeDeclV1) :
+    Except TypeKeyValidationFailureV1 Unit := do
+  validateTypeKeyPhasesPrefixV1 types
+  liftTypeKeyValidationPhaseV1 .anonymousRank
+    (validateAnonymousTypeKeyRankV1 types)
+
+/-- Compose the types-table TypeKey seam from prefix success and rank success. -/
+theorem validateTypeKeyPhasesV1_eq_ok_of_phases
+    (types : Array TypeDeclV1)
+    (hPrefix : validateTypeKeyPhasesPrefixV1 types = .ok ())
+    (hRank : validateAnonymousTypeKeyRankV1 types = .ok ()) :
+    validateTypeKeyPhasesV1 types = .ok () := by
+  simp only [validateTypeKeyPhasesV1, hPrefix, hRank,
+    liftTypeKeyValidationPhaseV1, Bind.bind, Except.bind]
+
+/-- Convenience: compose from the four prefix premises plus rank. -/
+theorem validateTypeKeyPhasesV1_eq_ok_of_prefix_phases
+    (types : Array TypeDeclV1)
+    (hNamedPrefix : validateNamedPrefixRankV1 types = .ok ())
+    (hPrimitive : validatePrimitiveAnonymousTypeKeyUniquenessV1 types = .ok ())
+    (hRecursive : validateRecursiveAnonymousTypeKeyUniquenessV1 types = .ok ())
+    (hNamedBody : validateNamedBodyOptionCycleLegalityV1 types = .ok ())
+    (hRank : validateAnonymousTypeKeyRankV1 types = .ok ()) :
+    validateTypeKeyPhasesV1 types = .ok () := by
+  exact validateTypeKeyPhasesV1_eq_ok_of_phases types
+    (validateTypeKeyPhasesPrefixV1_eq_ok_of_phases types
+      hNamedPrefix hPrimitive hRecursive hNamedBody) hRank
 
 /-- Test-only top-level `typeKey` tag/frame hook. Nested helpers and
     unknown tags are rejected (`allowNestedHelper = false`). Not a
@@ -888,5 +1404,10 @@ def encodeTypeKeyBytesForTestV1 (types : Array TypeDeclV1)
 def encodeTypeKeyFrameForTestV1 (tag : String) (fields : Array ByteArray) :
     Except SemanticWireErrorV1 ByteArray :=
   encodeTypeKeyFrameCheckedV1 tag fields false
+
+/-- Test-only frame oracle for the engineering `string` rank frame (the
+    checked frame hook intentionally keeps rejecting the `"string"` tag). -/
+def encodeStringRankFrameForTestV1 : ByteArray :=
+  typeKeyStringRankBytesV1
 
 end ProofForgeV2.Semantic.WireV1

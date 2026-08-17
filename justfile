@@ -1239,7 +1239,7 @@ target-negative: build
     mkdir -p build
     # unknown target — exact log
     if lake env .lake/build/bin/proof-forge-next build Examples/StateCell.lean --module Examples.StateCell --target ghost-target -o build/v2/ghost-negative > build/ghost-negative.log 2>&1; then echo "unknown target unexpectedly built" >&2; exit 1; fi
-    printf '%s\n' "uncaught exception: PF-TARGET-UNKNOWN: unknown target 'ghost-target'" > build/ghost-negative.expected
+    printf '%s\n' "unknown target 'ghost-target'" > build/ghost-negative.expected
     cmp -s build/ghost-negative.expected build/ghost-negative.log
     test ! -e build/v2/ghost-negative
     # --network usage error — exact log

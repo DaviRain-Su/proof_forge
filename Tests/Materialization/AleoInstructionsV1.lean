@@ -2669,7 +2669,9 @@ unsafe def testAggregateViewQueryDescriptorFamilyAndFailClosed : IO Unit := do
      "  init() do\n" ++
      "    count := 0\n" ++
      "  view peek() : UInt64 do\n" ++
-     "    for i in 0 ..< 1 bounded 1 do\n" ++
+     -- Literal loop endpoints carry no expected integer type (TypeCheckV1
+     -- infers the width from the start expression), so use state reads.
+     "    for i in count ..< count bounded 1 do\n" ++
      "      assert true\n" ++
      "    return count\n")
     "Tests.AleoAggViewFor" viewForbiddenNeedleV1

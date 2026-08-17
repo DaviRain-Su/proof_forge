@@ -173,8 +173,8 @@ private def contextCallerInPureFnSource : String :=
   "  view get() : UInt64 do\n" ++
   "    return 0\n"
 
-/-- ADR-0031 S1: context.unixTimeSeconds stays FC on CPI profile.
-    Uses pf.assets so capability admits; Plan must still reject unixTime. -/
+/-- CAP-2: context.unixTimeSeconds admits on CPI profile (Clock.unix_timestamp).
+    Uses pf.assets so capability admits; Plan must succeed. -/
 private def contextUnixTimeSource : String :=
   wrapProgram "UnixTimeView" <|
     "  view now() : UInt64 do\n" ++
@@ -662,11 +662,15 @@ private unsafe def testContextCallerFailClosed : IO Unit := do
             s!"caller pureFn compile should fail, got {e.render}"
       | .ok _ =>
           throw <| IO.userError "caller pureFn unexpectedly compiled"
-  -- unixTimeSeconds stays FC at Plan on CPI profile
+  -- CAP-2: unixTimeSeconds admits at Plan on CPI profile (syscall, no site).
   let cTime ← compileSource contextUnixTimeSource "UnixTimeView"
   let capTime ← productCapabilityOf cTime
-  expectPlanRejectContains (productPlanFromCapabilityV1 capTime)
-    "unixTimeSeconds" "unixTimeSeconds must stay FC on CPI profile"
+  let timePlan ← expectPlanOk (productPlanFromCapabilityV1 capTime)
+    "unixTimeSeconds product Plan"
+  let timeCand := SolanaCpiProductPlanV1.candidateOf timePlan
+  expect timeCand.cpiSites.isEmpty "unixTimeSeconds: zero CPI sites"
+  expect timeCand.contextReadSites.isEmpty
+    "unixTimeSeconds: no caller context site"
   -- ADR-0032 U1: retired plan/elf shims are not selectable.
   for profile in #[CodegenProfileId.solanaSbpfPlanV1,
       CodegenProfileId.solanaSbpfElfV1] do

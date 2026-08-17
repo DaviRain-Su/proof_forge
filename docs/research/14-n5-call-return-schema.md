@@ -51,7 +51,11 @@ To admit typed returns without lying about the wire model, at least one of:
 3. **Target-only ABI without Semantic**  
    Forbidden: frontend/Semantic must stay target-neutral (AGENTS).
 
-## Decision for this engineering slice
+## Decision for this engineering slice — 2026-08-02 snapshot, superseded
+
+（该切片决策已被 N-CALL-RET cutover 执行并取代：方案 (1) schema upgrade 已落地。
+本文**不再是** live N-5 design pointer；live 事实见
+[`semantic-program-wire.md`](../specs/semantic-program-wire.md) L555–560 与 backlog N-CALL-RET 行。）
 
 - **Do not** invent a dual reader or silent schema fork.  
 - **Keep** void ExternalCall/Schedule fail-closed for result-producing forms.  
@@ -60,7 +64,10 @@ To admit typed returns without lying about the wire model, at least one of:
 - Implementation of (1) is a **follow-on** shared-core cutover (Normalize + Wire
   + Reference + Tests together); target ABI is a later leaf after schema freezes.
 
-## Product pins (already / N-5)
+## Product pins (already / N-5) — 2026-08-02 snapshot, superseded
+
+（现产品：`Op.ExternalCall` optional result（N-CALL-RET）已开，Wire step-j 接受
+serializable scalar result；value-position `call` 已进 ProgramV1。下列为 cutover 前 pins。）
 
 - Product `call` / `schedule` with UInt64 args lower and freeze S2
   `effect.synchronous-call` / `effect.asynchronous-workflow`.  

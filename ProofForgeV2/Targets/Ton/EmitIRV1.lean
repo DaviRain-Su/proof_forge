@@ -14,6 +14,8 @@ TON-owned TVM/Tolk recipe IR:
     dest=`(0, SHA-256(UTF-8 target path) as uint256)` stub, body=
     `op32 · query_id=0 · arg64*` (see `Statement.promiseAccount` docstring)
 * revert → `throw(error_code)`
+* CAP-5 `pf.crypto.sha256` → Tolk `slice.bitsHash()` (TVM `SHA256U`)
+    over the Semantic UInt256 32-byte little-endian image; never `string_hash`
 
 Not sandbox/mainnet runtime (TON-3). Not formal D4.
 -/
@@ -135,6 +137,10 @@ inductive Operation where
   | boolNot (destination source : Nat)
   | boolAnd (destination lhs rhs : Nat)
   | boolOr (destination lhs rhs : Nat)
+  /-- CAP-5: SHA-256 of the Semantic UInt256 little-endian 32-byte image
+      via Tolk `slice.bitsHash()` (TVM `SHA256U`). `source` is the UInt256
+      temp; `destination` receives the digest as uint256. -/
+  | sha256 (destination source : Nat)
   deriving BEq, Inhabited, Repr
 
 structure MethodIR where
@@ -197,6 +203,10 @@ private partial def lowerExpr (next : Nat)
           { operations := #[.literal next 0], value := next, next := next + 1 }
   | .blockUnixTimeSeconds =>
       { operations := #[.blockUnixTimeSeconds next], value := next, next := next + 1 }
+  | .sha256 operand =>
+      let op := lowerExpr next paramAsTemp localEnv operand
+      { operations := op.operations ++ #[.sha256 op.next op.value]
+        value := op.next, next := op.next + 1 }
   | .stateLoad fieldIndex =>
       { operations := #[.loadState next fieldIndex], value := next, next := next + 1 }
   | .narrowStateLoad _ fieldIndex =>
@@ -737,6 +747,17 @@ private def uintWidthRangeCheck (bitWidth : Nat) (dst : String) : String :=
 private def uintWidthMask (bitWidth : Nat) : String :=
   s!"((1 << {bitWidth}) - 1)"
 
+/-- CAP-5: build the Semantic UInt256 little-endian 32-byte image
+    (valueBytes[0] = least-significant byte) as a builder, then
+    `beginParse().bitsHash()` = TVM `SHA256U` of those data bits.
+    Must not emit FunC `string_hash` or cell representation hash. -/
+private def emitSha256LeBitsHash (dest src : String) : String := Id.run do
+  let mut chain := "beginCell()"
+  for i in [:32] do
+    chain := chain ++ s!".storeUint(({src} >> {8 * i}) & 255, 8)"
+  chain := chain ++ ".endCell().beginParse().bitsHash()"
+  s!"val {dest} = {chain};\n"
+
 private def int64RangeCheck (dst : String) : String :=
   -- signed Int64 range on int257
   s!"assert (-(1 << 63) <= {dst} && {dst} < (1 << 63)) throw {errOverflow};"
@@ -795,6 +816,9 @@ private partial def renderOps (plan : Plan) (method? : Option MethodIR)
         -- unixtime as int (~1.7e9). No UInt64 range guard: always ≪ 2^64.
         -- (Bare `now()` is not a 1.4 symbol; the stdlib method is authoritative.)
         out := out ++ pad ++ s!"val {tempName dest} = blockchain.now();\n"
+    | .sha256 dest source =>
+        -- CAP-5: SHA256U over the 32-byte LE image. See emitSha256LeBitsHash.
+        out := out ++ pad ++ emitSha256LeBitsHash (tempName dest) (tempName source)
     | .loadParam dest inputOffset =>
         let pname :=
           match method?, fn? with

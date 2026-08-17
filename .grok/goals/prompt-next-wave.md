@@ -13,7 +13,11 @@
 
 ---
 
-## OBJECTIVE（读三次）
+## OBJECTIVE（读三次）——**HISTORICAL，禁止执行**
+
+（以下为 2026-08 drain 时期的历史文本，仅留档。queue 已零 `pending`，
+**成功不再定义为 drain**；不要按本节行动。当前下一刀见
+[`docs/plan/capability-layer-tasks.md`](../../docs/plan/capability-layer-tasks.md) 与 `AGENTS.md` Next task。）
 
 你是 **ProofForge 下一波工程执行器**。
 
@@ -142,10 +146,12 @@ COMPLETED:
   - ID @ sha
 BLOCKED: (none | ID: reason)
 BUDGET_STOP: yes|no
-NEXT: <id|EMPTY|FORMAL_C3>
+NEXT: <id|EMPTY>
 PUSHED: no
 QUEUE_UPDATED: yes
 FORMAL_UNCHANGED: yes
 ```
 
-`NEXT=FORMAL_C3` 仅当 Track A drain-complete 且下一步只能走 formal 仪式。
+**`NEXT=FORMAL_C3` 已废除（2026-08-16）**：queue 空 ≠ 进入 formal 仪式。C-3 仍
+blocked（资格/host），不得由 Goal/worker 报告或启动。queue 空时 `NEXT=EMPTY`，
+后续工作只从 `docs/plan/capability-layer-tasks.md` / `AGENTS.md` Next task 取。

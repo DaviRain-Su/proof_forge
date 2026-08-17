@@ -221,7 +221,7 @@ Cardano 式 eUTxO（datum + redeemer + script）：
 **禁止**：
 
 - 用「输出了 Script 字节」声称与 EVM/Solana Counter 语义等价。  
-- 把 UTXO 接进现有九个 materializer 的 Plan 类型。  
+- 把 UTXO 接进现有十二个 materializer 的 Plan 类型。
 - 未先 ADR 就扩 `ExecutionHost` / registry。
 
 #### 对「能做吗」的直接回答

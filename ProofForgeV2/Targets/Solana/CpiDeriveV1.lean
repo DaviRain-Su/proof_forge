@@ -827,12 +827,14 @@ private def collectRawEnvReadSites
     invariant / initializer fail closed.
     ADR-0031 S2 residual: `context.blockHeight` (`Clock.slot` via
     `sol_get_clock_sysvar`; physical ≈400ms slot, **not** logical block
-    number) is admitted on this sole product profile. Clock is a syscall —
-    no account role, no context site row, no `pf_caller` demand; the body
-    op lowers through the existing full-body `Expr.clockSlot` path
+    number) is admitted on this sole product profile. CAP-2 / CAP-D-SOL-TIME:
+    `context.unixTimeSeconds` (`Clock.unix_timestamp` i64@32, raw bits as
+    UInt64) is admitted the same way. Clock is a syscall — no account role,
+    no context site row, no `pf_caller` demand; the body op lowers through
+    the full-body `Expr.clockSlot` / `Expr.clockUnixTimestamp` path
     (LowerSemanticV1 → EmitIRV1 → EmitSbpfAsmV1). Normalize already fails
-    closed on ContextRead outside init/entry/view. `unixTimeSeconds`
-    (2026-08-04 product decision) and unknown keys stay fail closed. -/
+    closed on ContextRead outside init/entry/view. Unknown keys stay fail
+    closed. -/
 private def collectRawContextReadSites
     (data : SemanticProgramDataV1) :
     CompileResult (Array RawContextReadSiteV1) := do
@@ -861,8 +863,10 @@ private def collectRawContextReadSites
               -- UInt64 result check and `Expr.clockSlot` emission.
               pure ()
             else if key == unixTimeSecondsContextKeyV1 then
-              deriveFail
-                "CPI derive: context.unixTimeSeconds is not admitted on solana-sbpf-cpi-elf-v1 (Clock sysvar binding deferred)"
+              -- CAP-2: same syscall, Clock.unix_timestamp i64@32 → u64.
+              -- Body lowering owns the UInt64 result check and
+              -- `Expr.clockUnixTimestamp` emission.
+              pure ()
             else
               deriveFail
                 s!"unsupported Solana semantic shape: unknown ContextRead key '{key.value}'"

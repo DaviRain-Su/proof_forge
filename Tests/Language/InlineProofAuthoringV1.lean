@@ -805,7 +805,7 @@ run_cmd do
     callable and TypeIds from the generated semantic subject. -/
 example : TypedCallableSurface.Model.add.invocation 3 #[] = ({
     callableId := 0
-    args := #[{ typeId := 0, valueBytes := encodeU64le 3 }]
+    args := #[{ typeId := 1, valueBytes := encodeU64le 3 }]
     context := #[]
   } : InvocationV1) := rfl
 
@@ -1051,10 +1051,10 @@ theorem stateChangingPreservationSurface_sync_callable_shape :
       params := #[{
         valueId := 0
         name := "amount"
-        typeId := 0
+        typeId := 1
         visibility := .public_
       }]
-      result := { typeId := 0, visibility := .public_ }
+      result := { typeId := 1, visibility := .public_ }
       entryBlock := 0
       blocks := #[{
         id := 0
@@ -1062,7 +1062,7 @@ theorem stateChangingPreservationSurface_sync_callable_shape :
         instructions := #[
           { result := none, op := .stateStore 0 0 },
           { result := none, op := .stateStore 1 0 },
-          { result := some { valueId := 1, typeId := 0 },
+          { result := some { valueId := 1, typeId := 1 },
             op := .stateLoad 1 }
         ]
         terminator := .return_ (some 1)
@@ -1195,11 +1195,11 @@ theorem StateChangingPreservationSurfaceProof.sync_returned_post_eq
         exact Except.ok.inj hdecodePre
       have hcanonical :
           validateValueBytesV1
-              StateChangingPreservationSurface.Proof.subjectDataV1.types 0
+              StateChangingPreservationSurface.Proof.subjectDataV1.types 1
               (encodeU64le amount) = .ok () := by
         apply validateValueBytesV1_uint64_of_size
-          StateChangingPreservationSurface.Proof.subjectDataV1.types 0
-          (StateChangingPreservationSurface.Proof.subjectDataV1.types[0])
+          StateChangingPreservationSurface.Proof.subjectDataV1.types 1
+          (StateChangingPreservationSurface.Proof.subjectDataV1.types[1])
           (encodeU64le amount)
         · rfl
         · rfl
@@ -1216,7 +1216,7 @@ theorem StateChangingPreservationSurfaceProof.sync_returned_post_eq
           admitted logicalPre logicalPost
           StateChangingPreservationSurface.Proof.subjectDataV1
           (encodeU64le pre.reserves) (encodeU64le pre.shares)
-          (encodeU64le amount) 0 "reserves" "shares" "amount" 0
+          (encodeU64le amount) 1 "reserves" "shares" "amount" 0
           (some "sync") invocation.context gateContext responses vault
           (StateChangingPreservationSurface.Model.sync.encodeResult result)
           effects hadmittedData
@@ -1323,9 +1323,9 @@ theorem StateChangingPreservationSurfaceProof.aggregate :
           initialLogicalStateV1_double_uint64_no_initializer_eq_ok
             StateChangingPreservationSurface.Proof.subjectProgramV1
             StateChangingPreservationSurface.Proof.subjectDataV1
-            (StateDeclV1.mk 0 "reserves" 0 .public_)
-            (StateDeclV1.mk 1 "shares" 0 .public_)
-            (TypeDeclV1.mk 0 none (.uint 64))
+            (StateDeclV1.mk 0 "reserves" 1 .public_)
+            (StateDeclV1.mk 1 "shares" 1 .public_)
+            (TypeDeclV1.mk 1 none (.uint 64))
             hvalidate rfl rfl rfl rfl hnoInitializerAny rfl rfl
       let typedInitial : StateChangingPreservationSurface.Model.State := {
         reserves := 0
@@ -1339,8 +1339,8 @@ theorem StateChangingPreservationSurfaceProof.aggregate :
         simpa [typedInitial, initial, hzeroEncode] using
           encodeLogicalStateValuesV1_double_uint64_eq_ok
             StateChangingPreservationSurface.Proof.subjectDataV1
-            (StateDeclV1.mk 0 "reserves" 0 .public_)
-            (StateDeclV1.mk 1 "shares" 0 .public_)
+            (StateDeclV1.mk 0 "reserves" 1 .public_)
+            (StateDeclV1.mk 1 "shares" 1 .public_)
             (encodeU64le 0) (encodeU64le 0) true rfl rfl rfl rfl rfl
       have hconforms :
           StateConformsV1
@@ -1467,7 +1467,7 @@ example : TypedCallableSurface.Model.alive.decodeResult
 
 /-- A payload with another lowered TypeId is rejected before projection. -/
 example : TypedCallableSurface.Model.alive.decodeResult (some {
-    typeId := 0
+    typeId := 1
     valueBytes := encodeBool true
   }) = .error .nonCanonical := by
   rfl
@@ -1475,7 +1475,7 @@ example : TypedCallableSurface.Model.alive.decodeResult (some {
 /-- The exact Bool TypeId is still insufficient when production canonical
     valueBytes validation rejects the payload. -/
 example : TypedCallableSurface.Model.alive.decodeResult (some {
-    typeId := 1
+    typeId := 0
     valueBytes := ByteArray.mk #[2]
   }) = .error .nonCanonical := by
   rfl
@@ -1495,7 +1495,7 @@ example
       TypedCallableRelationV1
         TypedCallableSurface.Model.encodeState
         (fun value : UInt64 => some {
-          typeId := 0
+          typeId := 1
           valueBytes := encodeU64le value
         })
         subject pre
@@ -1516,7 +1516,7 @@ example
       TypedCallableRelationV1
         TypedCallableSurface.Model.encodeState
         (fun value : Bool => some {
-          typeId := 1
+          typeId := 0
           valueBytes := encodeBool value
         })
         subject pre
@@ -1617,7 +1617,7 @@ example : TypedInitializerSurface.Model.State → Prop :=
 
 example : TypedInitializerSurface.Model.init.invocation 7 #[] = ({
     callableId := 0
-    args := #[{ typeId := 0, valueBytes := encodeU64le 7 }]
+    args := #[{ typeId := 1, valueBytes := encodeU64le 7 }]
     context := #[]
   } : InvocationV1) := rfl
 
@@ -1710,7 +1710,7 @@ example : NonzeroInitializerSurface.Model.get.invocation #[] = ({
 
 example : NonzeroInitializerSurface.Model.init.invocation 9 #[] = ({
     callableId := 1
-    args := #[{ typeId := 0, valueBytes := encodeU64le 9 }]
+    args := #[{ typeId := 1, valueBytes := encodeU64le 9 }]
     context := #[]
   } : InvocationV1) := rfl
 

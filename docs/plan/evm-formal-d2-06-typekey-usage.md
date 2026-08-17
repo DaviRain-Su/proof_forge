@@ -97,15 +97,16 @@ Do **not** reject unused rows. Do **not** reorder or rank-check `types`.
 | | |
 |---|---|
 | Why this one | It is the missing SPEC artifact (`## 5` byte-form block) that later rank/usage work must consume. It does not change acceptance, so `cfgOpTypes`, Sem001/002/003, and entry-gate fat tables stay legal. |
-| Why not usage/rank gates | Unused rejection and decoder-side rank would fail the shared hand-built tables cited above. That needs an explicit product decision (migrate fixtures vs Normalize-only). |
-| Allowlist | `ProofForgeV2/Semantic/Wire/TypeKeyV1.lean` (private SPEC `typeKey` encoder only; keep the existing structural-class signature for interning). `Tests/Semantic/WireV1.lean` (tag/framing/width/length/nested-child positives; pretty-name and TypeId-as-key negatives). Comments in `StructureV1.lean` / `WireV1.lean` if they still call rank “the next hole” without naming this pin. SBOM refresh if `ProofForgeV2/**` changes. |
-| Why safe | Structure gate, encoder acceptance, Normalize, and Sem00x carriers are unchanged. Formal TASK/TST stay pending. |
+| Why not usage/rank gates | **Superseded 2026-08-17:** owner accepted staged cutover. Normalize emits SPEC anonymous rank (Stage A); production subjects + `cfgOpTypes` migrated (Stage B); structure gate now includes `anonymousRank` (Stage C). Usage-closure validator exists but StructureV1 wiring waits on unused-row fixture purge. |
+| Allowlist | `ProofForgeV2/Semantic/Wire/TypeKeyV1.lean` (SPEC `typeKey` encoder + `validateAnonymousTypeKeyRankV1` / `validateAnonymousTypeUsageClosureV1`). `Tests/Semantic/WireV1.lean` (`cfgOpTypes` SPEC order). SBOM refresh if `ProofForgeV2/**` changes. |
+| Why safe | Rank gate matches Normalize emit. Formal TASK/TST stay pending. |
 
-If a later wave wants unused rejection or rank as a **structure** gate, stop and
-get a product decision first. This inventory does not authorize that gate.
+**2026-08-17 update:** product decision authorized structure **rank**. Usage
+rejection remains a follow-on after tight fixtures. This inventory no longer
+blocks the rank gate.
 
 ## Non-claims
 
-No formal TASK/TST status change. No TypeKey usage/rank structure gate in this
-wave. No Anvil lossless. No second Semantic serializer. No accepted-PRD
-expansion. No EV / `TASK-D1-01` ceremony.
+No formal TASK/TST status change. Rank structure gate is engineering-only.
+Usage-closure StructureV1 wiring still open. No Anvil lossless. No second
+Semantic serializer. No accepted-PRD expansion. No EV / `TASK-D1-01` ceremony.

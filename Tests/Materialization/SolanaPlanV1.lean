@@ -3519,10 +3519,9 @@ private unsafe def testOptionState
     s!"OptionState IDL must declare getOpt, got: {idl}"
   IO.println "  OptionState Option UInt64 state Plan/IR/SBPF pin ok"
 
-/-- ADR-0031 S2: `context.blockHeight` lowers on ordinary Solana to
-    `Clock.slot` via `sol_get_clock_sysvar` (physical ≈400ms slot, **not**
-    logical block number). View-safe; Plan/IR/SBPF pin; wrong result type and
-    still-deferred keys fail closed. -/
+/-- ADR-0031 S2 + CAP-2: `context.blockHeight` → `Clock.slot`;
+    `context.unixTimeSeconds` → `Clock.unix_timestamp` (i64@32 as u64).
+    View-safe; Plan/IR/SBPF pin; wrong result type and caller stay fail closed. -/
 private unsafe def testContextReadBlockHeight
     (session : Language.Loader.ParserSession) : IO Unit := do
   let sourceText :=
@@ -3608,7 +3607,7 @@ private unsafe def testContextReadBlockHeight
           | .ok _ =>
               throw <| IO.userError
                 "height-box: Bool-typed context.blockHeight must fail closed"
-  -- unixTimeSeconds still FC on ordinary Solana.
+  -- CAP-2 / CAP-D-SOL-TIME: unixTimeSeconds admits Clock.unix_timestamp.
   let unixSrc :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -3622,15 +3621,26 @@ private unsafe def testContextReadBlockHeight
     "end ProofForgeV2.Examples\n"
   let compiledUnix ← compileSource session unixSrc
     "Examples.UnixBox" "<solana-unix-box>"
-  match planSolana compiledUnix with
-  | .error e =>
-      expect
-        (e.render.contains "unixTimeSeconds" || e.render.contains "unix-time" ||
-          e.render.contains "ContextRead" || e.render.contains "not admitted")
-        s!"unixTimeSeconds must stay FC on ordinary Solana, got {e.render}"
-  | .ok _ =>
-      throw <| IO.userError
-        "unixTimeSeconds must fail closed on ordinary Solana pilot"
+  let unixPlan ← liftResult (planSolana compiledUnix)
+  let unixView ← findHandler unixPlan "now"
+  let viewHasTime := unixView.body.any fun s =>
+    match s with
+    | .returnValue .clockUnixTimestamp => true
+    | _ => false
+  expect viewHasTime "unix-box: view must return clockUnixTimestamp"
+  let unixIr ← liftResult (irSolana compiledUnix)
+  let unixViewIR ← findHandlerIR unixIr "now"
+  expect (unixViewIR.operations.any fun
+      | .clockUnixTimestamp _ => true
+      | _ => false)
+    "unix-box: IR now view must contain clockUnixTimestamp op"
+  let unixAsm ← liftResult (emitSbpfAsmV1 unixIr)
+  expect (unixAsm.contains "call sol_get_clock_sysvar")
+    "unix-box: SBPF must call sol_get_clock_sysvar"
+  expect (unixAsm.contains "clock_unix_timestamp")
+    "unix-box: SBPF must annotate clock_unix_timestamp"
+  expect (unixAsm.contains "unix_timestamp @32")
+    "unix-box: SBPF must load Clock.unix_timestamp at offset 32"
   -- caller still FC on ordinary (legacy) profiles.
   let callerSrc :=
     "import ProofForgeV2\n\n" ++

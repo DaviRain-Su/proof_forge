@@ -2489,6 +2489,56 @@ theorem decodeTypes_uint64_bool_table_of_encode_midV1
     { id := 1, name := none, shape := .bool } b uintB boolB left right nesting
     (by decide) huint hbool henc hinv0 hinv1
 
+/-- SPEC §5 canonical-rank variant: anonymous Bool sorts before anonymous
+    UInt64, so the production table is `[Bool@0, UInt64@1]`. -/
+theorem decodeTypes_bool_uint64_table_of_encode_midV1
+    (boolB uintB : ByteArray)
+    (hbool : encodeTypeDeclV1 { id := 0, name := none, shape := .bool } = .ok boolB)
+    (huint : encodeTypeDeclV1 { id := 1, name := none, shape := .uint 64 } = .ok uintB)
+    (b left right : ByteArray) (nesting : Nat)
+    (hdepth : nesting + 1 < maxNesting)
+    (henc : encodeArray encodeTypeDeclV1
+      #[{ id := 0, name := none, shape := .bool }, { id := 1, name := none, shape := .uint 64 }] = .ok b) :
+    decodeArray maxTableElements decodeTypeDeclV1
+        ⟨left ++ b ++ right, left.size, nesting⟩ =
+      .ok (#[{ id := 0, name := none, shape := .bool },
+          { id := 1, name := none, shape := .uint 64 }],
+        ⟨left ++ b ++ right, left.size + b.size, nesting⟩) := by
+  have hinv0 :
+      decodeTypeDeclV1 ⟨left ++ encodeU32le 2 ++ boolB ++ uintB ++ right,
+          left.size + 4, nesting⟩ =
+        .ok ({ id := 0, name := none, shape := .bool },
+          ⟨left ++ encodeU32le 2 ++ boolB ++ uintB ++ right,
+            left.size + 4 + boolB.size, nesting⟩) := by
+    have hmid := decodeTypeDecl_bool_none_of_encode_midV1 0 boolB
+      (left ++ encodeU32le 2) (uintB ++ right) nesting hdepth hbool
+    have hin :
+        (left ++ encodeU32le 2) ++ boolB ++ (uintB ++ right) =
+          left ++ encodeU32le 2 ++ boolB ++ uintB ++ right := by
+      simp [ByteArray.append_assoc]
+    have hsz : (left ++ encodeU32le 2).size = left.size + 4 := by
+      simp [ByteArray.size_append, encodeU32le_sizeV1]
+    simpa [hin, hsz, ByteArray.append_assoc] using hmid
+  have hinv1 :
+      decodeTypeDeclV1 ⟨left ++ encodeU32le 2 ++ boolB ++ uintB ++ right,
+          left.size + 4 + boolB.size, nesting⟩ =
+        .ok ({ id := 1, name := none, shape := .uint 64 },
+          ⟨left ++ encodeU32le 2 ++ boolB ++ uintB ++ right,
+            left.size + 4 + boolB.size + uintB.size, nesting⟩) := by
+    have hmid := decodeTypeDecl_uint_none_of_encode_midV1 1 64 uintB
+      (left ++ encodeU32le 2 ++ boolB) right nesting hdepth huint
+    have hin :
+        (left ++ encodeU32le 2 ++ boolB) ++ uintB ++ right =
+          left ++ encodeU32le 2 ++ boolB ++ uintB ++ right := by
+      simp [ByteArray.append_assoc]
+    have hsz : (left ++ encodeU32le 2 ++ boolB).size = left.size + 4 + boolB.size := by
+      simp [ByteArray.size_append, encodeU32le_sizeV1]
+    simpa [hin, hsz] using hmid
+  exact decodeArray_of_encodeArray_two_ok_midV1 encodeTypeDeclV1 decodeTypeDeclV1
+    maxTableElements { id := 0, name := none, shape := .bool }
+    { id := 1, name := none, shape := .uint 64 } b boolB uintB left right nesting
+    (by decide) hbool huint henc hinv0 hinv1
+
 /-- Exact mid-offset inversion for the public state declaration leaf used by the
     non-callable root table package. -/
 theorem decodeStateDecl_public_of_encode_midV1
@@ -2677,23 +2727,24 @@ theorem exactAt_stateDecl_publicV1
 /-- Exact singleton public state table inversion. -/
 theorem decodeStateDecl_singleton_public_table_of_encode_midV1
     (stateName : String) (hval : validateIdentifierComponent stateName = .ok ())
+    (typeId : UInt32)
     (stateB : ByteArray)
-    (hstate : encodeStateDeclV1 { id := 0, name := stateName, typeId := 0, visibility := .public_ } = .ok stateB)
+    (hstate : encodeStateDeclV1 { id := 0, name := stateName, typeId, visibility := .public_ } = .ok stateB)
     (b left right : ByteArray) (nesting : Nat)
     (hdepth : nesting + 1 < maxNesting)
     (henc : encodeArray encodeStateDeclV1
-      #[{ id := 0, name := stateName, typeId := 0, visibility := .public_ }] = .ok b) :
+      #[{ id := 0, name := stateName, typeId, visibility := .public_ }] = .ok b) :
     decodeArray maxTableElements decodeStateDeclV1
         ⟨left ++ b ++ right, left.size, nesting⟩ =
-      .ok (#[{ id := 0, name := stateName, typeId := 0, visibility := .public_ }],
+      .ok (#[{ id := 0, name := stateName, typeId, visibility := .public_ }],
         ⟨left ++ b ++ right, left.size + b.size, nesting⟩) := by
   have hinv :
       decodeStateDeclV1 ⟨left ++ encodeU32le 1 ++ stateB ++ right,
           left.size + 4, nesting⟩ =
-        .ok ({ id := 0, name := stateName, typeId := 0, visibility := .public_ },
+        .ok ({ id := 0, name := stateName, typeId, visibility := .public_ },
           ⟨left ++ encodeU32le 1 ++ stateB ++ right,
             left.size + 4 + stateB.size, nesting⟩) := by
-    have hmid := decodeStateDecl_public_of_encode_midV1 0 0 stateName hval stateB
+    have hmid := decodeStateDecl_public_of_encode_midV1 0 typeId stateName hval stateB
       (left ++ encodeU32le 1) right nesting hdepth hstate
     have hin : (left ++ encodeU32le 1) ++ stateB ++ right =
         left ++ encodeU32le 1 ++ stateB ++ right := by simp [ByteArray.append_assoc]
@@ -2701,7 +2752,7 @@ theorem decodeStateDecl_singleton_public_table_of_encode_midV1
       simp [ByteArray.size_append, encodeU32le_sizeV1]
     simpa [hin, hsz] using hmid
   exact decodeArray_of_encodeArray_one_ok_midV1 encodeStateDeclV1 decodeStateDeclV1
-    maxTableElements { id := 0, name := stateName, typeId := 0, visibility := .public_ }
+    maxTableElements { id := 0, name := stateName, typeId, visibility := .public_ }
     b stateB left right nesting (by decide) hstate henc hinv
 
 /-- Exact singleton invariant table inversion from the InvariantDecl codec. -/

@@ -204,6 +204,8 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   | .callerPrincipalLeaf accountIndex leafIndex =>
       pure ((((encodeU8 52).append (← encodeNatAsU32le accountIndex)).append
         (← encodeNatAsU32le leafIndex)))
+  -- CAP-2: Clock.unix_timestamp i64@32 via the same syscall (tag 53).
+  | .clockUnixTimestamp => pure (encodeU8 53)
 
 private partial def encodeStatement (stmt : Statement) : Except String ByteArray := do
   match stmt with

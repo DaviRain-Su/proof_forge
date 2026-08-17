@@ -33,7 +33,7 @@ normative: false
 3. **ABI 精确**：当前 sha256 叶锁定 `UInt256→UInt256`（32B word）；`Bytes` / 流式 / 多块 **另 profile**。  
 4. **Fail closed 优于假绑定**：无原生 host 的 target（例：CosmWasm 无 sha256 host）必须 Plan FC，不得用弱原语冒充（TON `string_hash`、Noir 电路压缩、Aleo BHP 等已钉诚实拒绝）。  
 5. **电路/zkVM/应用链**：Noir/OpenVM/Cairo/risc0/sp1 若开放，必须标 **约束/guest 原语** 而非「链上哈希已发生」；Aleo/Psy 已有平台专用 `pf.crypto.hash*` 等，**不得**与 S5 sha256 混成同一 SupportClaim。  
-6. **不扩 accepted PRD**；不改 ADR-0036 的 9+3 工程范围叙事（除非另 ADR）。
+6. **不扩 accepted PRD**；不改 ADR-0036（仍 `proposed`）的工程范围叙事——现为 12 implemented + 0 design-only（除非另 ADR）。
 
 ---
 

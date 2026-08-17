@@ -24,12 +24,15 @@ one is Int64; mixing fails closed); Array UInt64 N or Array Int64 N∈1..8
 state flattens to N i64 Wasm globals (element follows signedNumeric; no
 Candid `vec`); Option UInt64 2-leaf and named Struct/Enum flatten to extra
 i64 globals (no Candid `opt`/`record`/`variant`); Map stays fail closed;
-`init`/entry(mutate)/view;
+CAP-1b Principal identity storage (9 i64 leaves, ADR-0025-class
+`u32le(len)‖bytes`, max 29); `init`/entry(mutate)/view;
 single-block callable bodies; checked `+`/`-`/`*`/`/`/`%` and comparisons
-(literal/param/stateLoad/store/return; Bool results). View-only Array
-UInt64 N / Option UInt64 / named Struct·Enum returns flatten to a Candid
-positional tuple `(nat64, …)` (consecutive LE i64 reply; no `record`/`opt`/`vec`).
-`Op.ContextRead` admits only `context.unixTimeSeconds`.
+(literal/param/stateLoad/store/return; Bool results; Principal `==`/`!=`
+only). View-only Array UInt64 N / Option UInt64 / named Struct·Enum
+returns flatten to a Candid positional tuple `(nat64, …)` (consecutive
+LE i64 reply; no `record`/`opt`/`vec`). `Op.ContextRead` admits
+`context.unixTimeSeconds` and `context.caller` on init/entry
+(query/view caller is named `ICP-VIEW-CALLER` fail-closed).
 Everything else — pureFn, invariants, events, errors, emit,
 sync call, schedule, residual ContextRead keys, `Op.Commit`, Map,
 entry aggregate return, Principal/Bytes return, Int8/16/32, UInt8/16/128/256,

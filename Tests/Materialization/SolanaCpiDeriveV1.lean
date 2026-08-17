@@ -200,7 +200,9 @@ private def blockHeightSource : String :=
   "  view height() : UInt64 do\n" ++
   "    return context.blockHeight\n"
 
-/-- context.unixTimeSeconds stays fail closed on the product profile. -/
+/-- CAP-2 / CAP-D-SOL-TIME: body-only program reading `context.unixTimeSeconds`
+    (Clock.unix_timestamp i64@32 via the same `sol_get_clock_sysvar` as
+    blockHeight; no account role). -/
 private def unixTimeSource : String :=
   "import ProofForgeV2\n" ++
   "open ProofForgeV2.Language\n" ++
@@ -208,8 +210,22 @@ private def unixTimeSource : String :=
   "  state pad : UInt64\n" ++
   "  init() do\n" ++
   "    pad := 0\n" ++
+  "  entry stamp() : UInt64 do\n" ++
+  "    pad := context.unixTimeSeconds\n" ++
+  "    return pad\n" ++
   "  view now() : UInt64 do\n" ++
   "    return context.unixTimeSeconds\n"
+
+/-- Residual: `context.chainId` stays fail closed (no Solana numeric chain id). -/
+private def chainIdSource : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program CpiChainId where\n" ++
+  "  state pad : UInt64\n" ++
+  "  init() do\n" ++
+  "    pad := 0\n" ++
+  "  view cid() : UInt64 do\n" ++
+  "    return context.chainId\n"
 
 /-- SYS-S5-SOLANA product route: stateful UInt256↔UInt256 `pf.crypto.sha256`
     (same shape as SolanaPlanV1 Sha256Sol). Must skip CpiDerive non-approved
@@ -615,9 +631,12 @@ private unsafe def testContextBlockHeightProductOpen
   expect ((asm.contents.splitOn "clock_slot").length > 1)
     "blockHeight asm must annotate clock_slot"
 
-/-- 2026-08-04 product decision: `context.unixTimeSeconds` stays fail closed
-    on `solana-sbpf-cpi-elf-v1` (exact diagnostic pinned). -/
-private unsafe def testContextUnixTimeSecondsStillClosed
+/-- CAP-2 / CAP-D-SOL-TIME (2026-08-16): `context.unixTimeSeconds` is admitted
+    on `solana-sbpf-cpi-elf-v1` via `Clock.unix_timestamp` (i64 at byte offset
+    32 of the Clock sysvar). Same `sol_get_clock_sysvar` as blockHeight; the
+    i64 bits are loaded into a u64 register with no extra sign/range guard.
+    Body-only Plan: zero CPI sites, zero caller context sites, no `pf_caller`. -/
+private unsafe def testContextUnixTimeSecondsProductOpen
     (session : Language.Loader.ParserSession) : IO Unit := do
   let compiled ← compileSource session unixTimeSource
     "Tests.CpiUnixTime" "<cpi-unix-time>"
@@ -625,11 +644,42 @@ private unsafe def testContextUnixTimeSecondsStillClosed
   let capability ← expectCompileOk
     (resolveEngineeringRequirementsV1 selection compiled)
     "resolver admits unix-time wire-owned row (target-independent)"
+  let plan ← expectCompileOk (productPlanFromCapabilityV1 capability)
+    "product Plan admits context.unixTimeSeconds"
+  let c := SolanaCpiProductPlanV1.candidateOf plan
+  expect c.cpiSites.isEmpty "unixTimeSeconds: zero CPI sites"
+  expect c.contextReadSites.isEmpty
+    "unixTimeSeconds: no caller context site (syscall read, no signer role)"
+  expect (!c.accountRoles.any fun r =>
+      match r.keyPolicy with | .handlerCaller => true | _ => false)
+    "unixTimeSeconds: no pf_caller role demanded"
+  let files ← expectCompileOk (buildFromCapability capability)
+    "unixTimeSeconds buildFromCapability"
+  let some asm := files.find? (·.path == "CpiUnixTime.s") |
+    throw <| IO.userError "missing CpiUnixTime.s"
+  expect ((asm.contents.splitOn "call sol_get_clock_sysvar").length > 1)
+    "unixTimeSeconds asm must call sol_get_clock_sysvar"
+  expect ((asm.contents.splitOn "clock_unix_timestamp").length > 1)
+    "unixTimeSeconds asm must annotate clock_unix_timestamp"
+  expect ((asm.contents.splitOn "unix_timestamp @32").length > 1)
+    "unixTimeSeconds asm must load Clock.unix_timestamp at offset 32"
+  expect ((asm.contents.splitOn "clock_slot").length == 1)
+    "unixTimeSeconds asm must not annotate clock_slot (blockHeight-only)"
+
+/-- Residual: `context.chainId` stays fail closed (exact diagnostic pinned). -/
+private unsafe def testContextChainIdStillClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let compiled ← compileSource session chainIdSource
+    "Tests.CpiChainId" "<cpi-chain-id>"
+  let selection ← cpiSelection
+  let capability ← expectCompileOk
+    (resolveEngineeringRequirementsV1 selection compiled)
+    "resolver admits chain-id wire-owned row (target-independent)"
   expectCompileErrorContains
     (productPlanFromCapabilityV1 capability)
     "PF-PLAN-INVARIANT"
-    "CPI derive: context.unixTimeSeconds is not admitted on solana-sbpf-cpi-elf-v1 (Clock sysvar binding deferred)"
-    "unixTimeSeconds stays fail closed on the product profile"
+    "unknown ContextRead key 'proof-forge.context.chain-id.v1'"
+    "chainId stays fail closed on the product profile"
 
 /-- SYS-S5-SOLANA: product capability materialize admits `pf.crypto.sha256`
     after CpiDerive skips the host-syscall leaf (not "non-approved API").
@@ -729,7 +779,8 @@ unsafe def run : IO Unit := do
   testContextCallerPrincipal session
   testScheduleRejected session
   testContextBlockHeightProductOpen session
-  testContextUnixTimeSecondsStillClosed session
+  testContextUnixTimeSecondsProductOpen session
+  testContextChainIdStillClosed session
   testCryptoSha256ProductRoute session
   testCryptoKeccak256ProductRoute session
   testWrongProfileRejected session

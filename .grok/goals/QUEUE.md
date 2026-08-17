@@ -1,5 +1,7 @@
 # Goal slice queue (engineering only) — **HISTORICAL seed**
-> Live drain is now `.grok/next-wave-queue.md` + `/goal @.grok/goals/prompt-next-wave.md`.
+> **两个 Goal 入口均已退役（2026-08-15/16）**：`.grok/next-wave-queue.md` 已零 `pending`，
+> `/goal @.grok/goals/prompt-next-wave.md` 不得再执行。当前下一刀见
+> `docs/plan/capability-layer-tasks.md` 与 `AGENTS.md` Next task。
 > This file is navigation-only for the 2026-08-02 master drain. Do not resume it from BUILD-1.
 > Generated for `/goal` + workflows. Formal F-*/Q-*/C-3 excluded.
 > Master goal (retired): `.grok/goals/prompt-master-queue.md`

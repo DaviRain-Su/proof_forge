@@ -61,11 +61,11 @@ private theorem returnedCallablesV1
       data.callables[0] overlay context isInitializer hgate
     rw [hadmittedData'] at _hdecode
     change gateInvocation admitted pre invocation =
-      .ready (literalReturnCallableV1 0 .view (some viewName) 1 (encodeU8 1)
+      .ready (literalReturnCallableV1 0 .view (some viewName) 0 (encodeU8 1)
         .public_ none) overlay context isInitializer at hgate
     rw [hisInitializer] at hgate
     have hpostEq := postEqPre_of_readyLiteralReturnV1 admitted pre post
-      invocation data overlay 1 (encodeU8 1) 0 (some viewName) context
+      invocation data overlay 0 (encodeU8 1) 0 (some viewName) context
       responses vault value effects hadmittedData' rfl rfl hgate hstep
     simpa [hpostEq] using heval
   | ⟨1, _⟩ =>
@@ -216,18 +216,18 @@ theorem preservationTheorem_of_subjectBodyV1
     have hinitial : initialLogicalStateV1 program = .ok initial := by
       simpa [initial, zero, data] using
         initialLogicalStateV1_triple_uint64_no_initializer_eq_ok program data
-          (StateDeclV1.mk 0 state0Name 0 .public_)
-          (StateDeclV1.mk 1 state1Name 0 .public_)
-          (StateDeclV1.mk 2 state2Name 0 .public_)
-          (TypeDeclV1.mk 0 none (.uint 64)) hvalidate rfl rfl rfl rfl
+          (StateDeclV1.mk 0 state0Name 1 .public_)
+          (StateDeclV1.mk 1 state1Name 1 .public_)
+          (StateDeclV1.mk 2 state2Name 1 .public_)
+          (TypeDeclV1.mk 1 none (.uint 64)) hvalidate rfl rfl rfl rfl
           (by rfl) hnoInitAny rfl rfl rfl
     have hencode : encodeLogicalStateValuesV1 data true
         #[zero, zero, zero] = .ok initial := by
       simpa [initial, zero] using
         encodeLogicalStateValuesV1_triple_uint64_eq_ok data
-          (StateDeclV1.mk 0 state0Name 0 .public_)
-          (StateDeclV1.mk 1 state1Name 0 .public_)
-          (StateDeclV1.mk 2 state2Name 0 .public_)
+          (StateDeclV1.mk 0 state0Name 1 .public_)
+          (StateDeclV1.mk 1 state1Name 1 .public_)
+          (StateDeclV1.mk 2 state2Name 1 .public_)
           zero zero zero true rfl rfl rfl rfl rfl rfl rfl
     have hdecode := decodeLogicalStateValuesV1_of_encodeLogicalStateValuesV1
       data true #[zero, zero, zero] initial hencode
@@ -236,7 +236,7 @@ theorem preservationTheorem_of_subjectBodyV1
         #[zero, zero, zero] hvalidate rfl hdecode
     have hrun : runInvariantCallableV1 data 1 initial = .returnedTrue :=
       runInvariantCallableV1_eq_returnedTrue_of_single_nullary_literal_true
-        data initial #[zero, zero, zero] 1 1 (some literalInvariantName)
+        data initial #[zero, zero, zero] 1 0 (some literalInvariantName)
         .public_ none rfl hdecode rfl rfl rfl
     have heval : evalInvariantV1 program 0 initial = .returnedTrue :=
       evalInvariantV1_eq_of_validated_selection program data 0
@@ -361,18 +361,18 @@ theorem preservationTheorem_of_subjectBodyV1_ord1
     have hinitial : initialLogicalStateV1 program = .ok initial := by
       simpa [initial, zero, data] using
         initialLogicalStateV1_triple_uint64_no_initializer_eq_ok program data
-          (StateDeclV1.mk 0 state0Name 0 .public_)
-          (StateDeclV1.mk 1 state1Name 0 .public_)
-          (StateDeclV1.mk 2 state2Name 0 .public_)
-          (TypeDeclV1.mk 0 none (.uint 64)) hvalidate rfl rfl rfl rfl
+          (StateDeclV1.mk 0 state0Name 1 .public_)
+          (StateDeclV1.mk 1 state1Name 1 .public_)
+          (StateDeclV1.mk 2 state2Name 1 .public_)
+          (TypeDeclV1.mk 1 none (.uint 64)) hvalidate rfl rfl rfl rfl
           (by rfl) hnoInitAny rfl rfl rfl
     have hencode : encodeLogicalStateValuesV1 data true
         #[zero, zero, zero] = .ok initial := by
       simpa [initial, zero] using
         encodeLogicalStateValuesV1_triple_uint64_eq_ok data
-          (StateDeclV1.mk 0 state0Name 0 .public_)
-          (StateDeclV1.mk 1 state1Name 0 .public_)
-          (StateDeclV1.mk 2 state2Name 0 .public_)
+          (StateDeclV1.mk 0 state0Name 1 .public_)
+          (StateDeclV1.mk 1 state1Name 1 .public_)
+          (StateDeclV1.mk 2 state2Name 1 .public_)
           zero zero zero true rfl rfl rfl rfl rfl rfl rfl
     have hdecode := decodeLogicalStateValuesV1_of_encodeLogicalStateValuesV1
       data true #[zero, zero, zero] initial hencode
@@ -381,7 +381,7 @@ theorem preservationTheorem_of_subjectBodyV1_ord1
         #[zero, zero, zero] hvalidate rfl hdecode
     have heval : evalInvariantV1 program 1 initial = .returnedTrue :=
       (evalInvariantV1_returnedTrue_iff_two_state_bytes_eq program data 1 1
-        eqInvariantName initial #[zero, zero, zero] zero zero 2 0 1 1 2
+        eqInvariantName initial #[zero, zero, zero] zero zero 2 1 0 1 2
         (some eqInvariantName) .public_ .public_ .public_ state1Name
         state2Name hvalidate rfl hdecode rfl rfl rfl rfl rfl rfl rfl).2 rfl
     exact ⟨initial, hinitial, hconforms, heval⟩
@@ -490,16 +490,16 @@ theorem evalInvariantV1_ord2_not_returnedTrue_of_subjectBodyV1
       #[zero, zero, zero] = .ok productAllZeroInitialV1 := by
     simpa [productAllZeroInitialV1, zero] using
       encodeLogicalStateValuesV1_triple_uint64_eq_ok data
-        (StateDeclV1.mk 0 state0Name 0 .public_)
-        (StateDeclV1.mk 1 state1Name 0 .public_)
-        (StateDeclV1.mk 2 state2Name 0 .public_)
+        (StateDeclV1.mk 0 state0Name 1 .public_)
+        (StateDeclV1.mk 1 state1Name 1 .public_)
+        (StateDeclV1.mk 2 state2Name 1 .public_)
         zero zero zero true rfl rfl rfl rfl rfl rfl rfl
   have hdecode := decodeLogicalStateValuesV1_of_encodeLogicalStateValuesV1
     data true #[zero, zero, zero] productAllZeroInitialV1 hencode
   have hiff :=
     evalInvariantV1_returnedTrue_iff_two_state_bytes_ne program data 2 2
       neInvariantName productAllZeroInitialV1 #[zero, zero, zero] zero zero
-      3 0 1 1 2 (some neInvariantName) .public_ .public_ .public_
+      3 1 0 1 2 (some neInvariantName) .public_ .public_ .public_
       state1Name state2Name hvalidate rfl hdecode rfl rfl rfl rfl rfl rfl rfl
   intro heval
   exact (hiff.mp heval) rfl
@@ -591,10 +591,10 @@ theorem not_preservationBaseNoInitializerV1_ord2_of_subjectBodyV1
   have hproduct : initialLogicalStateV1 program = .ok productAllZeroInitialV1 := by
     simpa [productAllZeroInitialV1, data] using
       initialLogicalStateV1_triple_uint64_no_initializer_eq_ok program data
-        (StateDeclV1.mk 0 state0Name 0 .public_)
-        (StateDeclV1.mk 1 state1Name 0 .public_)
-        (StateDeclV1.mk 2 state2Name 0 .public_)
-        (TypeDeclV1.mk 0 none (.uint 64)) hvalidate rfl rfl rfl rfl
+        (StateDeclV1.mk 0 state0Name 1 .public_)
+        (StateDeclV1.mk 1 state1Name 1 .public_)
+        (StateDeclV1.mk 2 state2Name 1 .public_)
+        (TypeDeclV1.mk 1 none (.uint 64)) hvalidate rfl rfl rfl rfl
         (by rfl) hnoInitAny rfl rfl rfl
   have heq : initial = productAllZeroInitialV1 :=
     Except.ok.inj (hinitial.symm.trans hproduct)

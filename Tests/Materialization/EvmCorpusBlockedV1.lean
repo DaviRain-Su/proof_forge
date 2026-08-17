@@ -84,7 +84,7 @@ private def digestHex (d : Digest) : IO String :=
 private def expectedSourceHash : String :=
   "1056bb66a65115bdbbd38655c85e53b5f9abe84a7a13ada2b7f3bed4d2b9db64"
 private def expectedSemanticHash : String :=
-  "4874d5f6e5b589a26f3175920fee6aa06d59009be8d8c38a45bdc3bd8c14dd75"
+  "314a123c426560ef1980005fa95f22b2cc95b338f79de556638939fb5f73fdf9"
 
 /-- Corpus fixture path (project-relative; sole Ownable-like authority). -/
 private def ownableSourcePath : FilePath :=

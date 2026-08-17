@@ -2437,7 +2437,7 @@ private def projectEscrowHandler
               "Escrow CPI IR rejects context.blockHeight (Clock.slot via sol_get_clock_sysvar is ordinary elf path; CPI product leaf deferred)"
           else if key == unixTimeSecondsContextKeyV1 then
             tFail
-              "Escrow CPI IR rejects context.unixTimeSeconds (Clock sysvar binding deferred)"
+              "Escrow CPI IR rejects context.unixTimeSeconds (Clock.unix_timestamp via sol_get_clock_sysvar is full-body path; escrow composite leaf deferred)"
           else
             tFail s!"Escrow CPI IR rejects unknown ContextRead key '{key.value}'"
         unless isAnonPrincipal data.types vd.typeId do

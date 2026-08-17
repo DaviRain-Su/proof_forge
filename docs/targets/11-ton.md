@@ -17,7 +17,7 @@ Phase 1 四目标范围；accepted/engineering scope 边界见 **ADR-0036**。
 ## 0. 工程状态（2026-08-04）
 
 **已实现（engineering TON-1/TON-2，branch `integrate/ton-2`）**：ADR-0024 接入 TON 时为
-8 implemented + 3 design-only；当前在 ADR-0026/Quint 后为 **9 implemented + 3 design-only**。
+8 implemented + 3 design-only（ADR-0024 接入时），后经 ADR-0026/Quint 为 9+3；当前（2026-08-14 起）为 **12 implemented + 0 design-only**。
 TON profile `ton-tolk-boc-v1`；六轴为（`tvm`/`transactionAtomic`/
 `cellHashmap`/`asynchronousActor`/`noProof`/`tonChain`）；`Targets/Ton/**` target-owned
 Plan/IR/Tolk emitter——c4 扁平 struct cell 状态（无 dict）、`onInternalMessage` op 分发
@@ -29,6 +29,10 @@ Finalize 经 locked `tolk 1.4.2` 产 `.fif` + `abi.json` + `symbolTypes.json`，
 `PROOF_FORGE_FIFTLIB`——**不得**放进 tool-root）产 **真实 BoC**；Counter e2e
 `deployable=true` + `inspect` exact closure 通过。
 **capability**：sync call 显式 fail closed（纯异步 actor，不伪装）；async/event 开。
+**CAP-5（2026-08-16，CAP-D-TON-SHA）**：feature freeze 仅解冻一项——exact `pf.crypto.sha256`
+（UInt256→UInt256）经 Tolk `slice.bitsHash()`（TVM `SHA256U`）绑定 Semantic UInt256
+32-byte little-endian image；**不**发射 `string_hash`/representation hash；keccak256 与其余
+`pf.crypto.*`、`pf.assets` 及其余 freeze 项不变。
 TON-4 已把 `schedule` 降为 Plan/IR `promiseAccount` 与 Tolk `createMessage`：NoBounce、
 value=0、`SEND_MODE_PAY_FEES_SEPARATELY`、destination=`(0,SHA-256(UTF-8 target path))`
 stub、body=`op32 · query_id=0 · UInt64 args`；仅 init/mutate，view/pureFn FC。它是诚实的

@@ -290,10 +290,15 @@ inductive Expr where
   /-- ADR-0031 S2: physical slot height via host `sol_get_clock_sysvar` →
       `Clock.slot` (first u64 of the 40-byte Clock sysvar). **Not** a logical
       block number: Solana slots are ≈400ms physical slots. No Clock account
-      meta is required (syscall fills a stack buffer). View-safe. UInt64-typed.
-      Ordinary `solana-sbpf-plan-v1` / `solana-sbpf-elf-v1` path; CPI product
-      profile still fail-closed on this key (separate residual). -/
+      meta is required (syscall fills a stack buffer). View-safe. UInt64-typed. -/
   | clockSlot
+  /-- CAP-2 / CAP-D-SOL-TIME: host `sol_get_clock_sysvar` →
+      `Clock.unix_timestamp` (i64 at byte offset 32 of the 40-byte Clock
+      sysvar). Loaded into a u64 register with no extra sign/range guard
+      (same discipline as `clockSlot`). Negative host timestamps appear as
+      two's-complement u64 bit patterns. Stake-weighted Clock, not a trusted
+      wall clock. No Clock account meta. View-safe. UInt64-typed. -/
+  | clockUnixTimestamp
   /-- ADR-0032 U1 full-body hybrid: one leaf of a 9-leaf Principal wire
       (`u32le(32)||pubkey32`) materialised from account `accountIndex` key.
       `leafIndex` 0 = length 32; 1..4 = LE u64 key words; 5..8 = zero high tail.
@@ -567,8 +572,9 @@ emitted. Real multi-account CPI is only on opt-in `solana-sbpf-cpi-elf-v1`
 (catalog-owned static QN + explicit roles/PDA; #125 product activation).
 B-3 Principal remains storage-identity only (u32-prefixed body ≠ 32-byte pubkey).
 ADR-0031 S2: `context.blockHeight` → `Clock.slot` via `sol_get_clock_sysvar`
-(≈400ms physical slot, **not** logical block number). `context.caller` remains
-CPI-profile-only; `context.unixTimeSeconds` still fail-closed on this pilot. -/
+(≈400ms physical slot, **not** logical block number). CAP-2: `context.unixTimeSeconds`
+→ `Clock.unix_timestamp` (i64@32, raw bits as UInt64). `context.caller` remains
+CPI-profile-only. -/
 
 /-- Solana pilot type-closure carrier (shared `PilotTypeClosureV1`).
     Body multi-width admits UInt8/16/32/64; state/params admit
@@ -3527,7 +3533,8 @@ private def lowerBlockInstructionsV1
         values := ← appendResultValueV1 result.typeId values result value
     -- N5: Commit = identity passthrough.
     -- ADR-0031 S2: ContextRead `context.blockHeight` → Clock.slot (syscall);
-    -- caller stays CPI-only; unixTimeSeconds still deferred on this pilot.
+    -- CAP-2: `context.unixTimeSeconds` → Clock.unix_timestamp (i64@32);
+    -- caller stays CPI-only.
     | .commit valueId, some result => do
         unless pilotContextPolicyCommitIdentity.admitCommitIdentity do
           throw <| .planInvariant .solana
@@ -3546,12 +3553,13 @@ private def lowerBlockInstructionsV1
           leafByteWidth := operand.leafByteWidth
         }
     | .contextRead key, some result =>
-        -- ADR-0031 S1–S2 (Solana ordinary pilot):
+        -- ADR-0031 S1–S2 + CAP-2 (Solana product / full-body):
         --   * `context.blockHeight` → `sol_get_clock_sysvar` → Clock.slot
         --     (physical ≈400ms slot; **not** logical block number). View-safe.
+        --   * `context.unixTimeSeconds` → same syscall → Clock.unix_timestamp
+        --     (i64@32 loaded as u64; no extra sign/range guard). View-safe.
         --   * `context.caller` → exact CPI profile only (pf_caller role);
         --     legacy plan/elf fail closed.
-        --   * `context.unixTimeSeconds` → Clock.unix_timestamp deferred.
         if key == blockHeightContextKeyV1 then
           -- pureFn ContextRead is already fail-closed at Normalize; handlers
           -- (init/entry/view) admit the host sysvar read.
@@ -3560,6 +3568,20 @@ private def lowerBlockInstructionsV1
               "unsupported Solana semantic shape: ContextRead context.blockHeight result must be UInt64"
           values := ← appendResultValueV1 result.typeId values result {
             expr := .clockSlot
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+            isBool := false
+            isUInt32 := false
+            isInt := false
+            bitWidth := 64
+          }
+        else if key == unixTimeSecondsContextKeyV1 then
+          unless result.typeId == types.uint64TypeId do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: ContextRead context.unixTimeSeconds result must be UInt64"
+          values := ← appendResultValueV1 result.typeId values result {
+            expr := .clockUnixTimestamp
             depth := 1
             expandedNodes := 1
             dependencies := #[]
@@ -3583,9 +3605,6 @@ private def lowerBlockInstructionsV1
             leafExprs := leafExprs.push (.callerPrincipalLeaf 1 leafIdx)
           let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
           values := ← appendResultValueV1 result.typeId values result value
-        else if key == unixTimeSecondsContextKeyV1 then
-          throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: ContextRead context.unixTimeSeconds is not admitted (Clock.unix_timestamp binding deferred)"
         else
           throw <| .planInvariant .solana
             s!"unsupported Solana semantic shape: unknown ContextRead key '{key.value}'"

@@ -11,7 +11,7 @@ open ProofForgeV2.Language
 -- `sol_get_clock_sysvar` syscall (physical ≈400ms slot, **not** a logical
 -- block number). No Clock account meta (syscall read). `pad` state pins the
 -- entry store path (`stamp`) alongside the view-safe read (`height`).
--- `context.unixTimeSeconds` stays fail closed (2026-08-04 product decision).
+-- `context.unixTimeSeconds` is a separate CAP-2 fixture (`UnixTimeSeconds`).
 program BlockHeight where
   state pad : UInt64
 

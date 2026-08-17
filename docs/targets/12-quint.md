@@ -75,7 +75,8 @@ and/or/not、`pureCall`、bare assert、zero-payload declared revert（failure c
 Reference↔Quint formal 差分、formal D3/D4 完成、accepted PRD 扩面、跨 target 资产互通完成。
 
 > Lean registry、resolver、`Targets/Quint/**` materializer 与聚合 dispatch 已落地；
-> 当前 registry 为 **12 = 9 implemented + 3 design-only**、**9 materializers**。
+> 当前 registry 为 **12 = 12 implemented + 0 design-only**、**12 materializers**（2026-08-14 起；
+> 本 dossier 撰写时曾为 9+3）。
 > 这只证明 `.qnt` source materialization 与工程 output closure，不证明 verify/ITF/MBT。
 
 ## 1. 身份与来源

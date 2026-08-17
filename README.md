@@ -163,7 +163,7 @@ Resolve → Materialize。失败 **fail closed**，禁止降级或 legacy fallba
 同一 `StateCell` 语义；`--target` 只改变物化与制品编码。
 
 - **Accepted PRD Phase 1 范围（四目标）**：EVM / Solana / NEAR / Noir。工程 registry
-  扩大到 Aleo / Psy / Quint / CosmWasm / TON 的范围边界由 **ADR-0036** 固定，
+  扩大到 Aleo / Psy / Quint / CosmWasm / TON / Soroban / OpenVM / ICP 的范围边界由 **ADR-0036**（仍 `proposed`）主张收口，
   **不得**把后五者静默读成 accepted Phase 1 范围扩张。
 - **Engineering registry（代码事实）**：**12 = 12 implemented + 0 design-only**。十二个
   materializer：EVM、Solana、NEAR、Noir、Aleo、Psy、Quint、CosmWasm、TON、Soroban、OpenVM、ICP；design-only：无。
