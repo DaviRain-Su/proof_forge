@@ -207,6 +207,72 @@ private def validateCheck
   validateExpr ck.condition .bool "check condition" paramCount stateCount assetOpCount
     remaining paramIsPrincipal signed
 
+private partial def validateBodyStatements
+    (owner : String) (resultKind : ResultKind)
+    (paramCount stateCount remaining0 : Nat)
+    (paramIsPrincipal : Array Bool) (signed : Bool)
+    (body : Array Statement) : CompileResult Nat := do
+  let numeric : ExprType := if signed then .int64 else .uint64
+  let mut remaining := remaining0
+  let mut seen : Array Nat := #[]
+  for stmt in body do
+    match stmt with
+    | .store fi e =>
+        unless fi < stateCount do
+          planError s!"Quint {owner} store references an unknown state field"
+        if seen.contains fi then
+          planError s!"Quint {owner} store list has duplicate field indices"
+        seen := seen.push fi
+        remaining ←
+          validateExpr e numeric "store value" paramCount stateCount 0 remaining
+            paramIsPrincipal signed
+    | .ifThenElse cond thenBody elseBody =>
+        remaining ←
+          validateExpr cond .bool "if condition" paramCount stateCount 0 remaining
+            paramIsPrincipal signed
+        remaining ←
+          validateBodyStatements owner resultKind paramCount stateCount remaining
+            paramIsPrincipal signed thenBody
+        remaining ←
+          validateBodyStatements owner resultKind paramCount stateCount remaining
+            paramIsPrincipal signed elseBody
+    | .returnValue e =>
+        unless resultKind == .uint64 || resultKind == .int64 || resultKind == .bool do
+          planError s!"Quint {owner} Unit/aggregate result must not return a scalar"
+        let expected :=
+          match resultKind with
+          | .int64 => ExprType.int64
+          | .bool => .bool
+          | _ => .uint64
+        remaining ←
+          validateExpr e expected "return value" paramCount stateCount 0 remaining
+            paramIsPrincipal signed
+    | .returnAggregate leaves =>
+        match resultKind with
+        | .aggregate n =>
+            unless leaves.size == n do
+              planError s!"Quint {owner} aggregate return must have exactly {n} leaves"
+            for e in leaves do
+              remaining ←
+                validateExpr e numeric "aggregate return leaf" paramCount stateCount 0
+                  remaining paramIsPrincipal signed
+        | _ =>
+            planError s!"Quint {owner} cannot return an aggregate"
+    | .returnNone =>
+        unless resultKind == .unit do
+          planError s!"Quint {owner} non-Unit result must return a value"
+  pure remaining
+
+private partial def bodyUsesVaultNativeV1 (body : Array Statement) : Bool :=
+  body.any fun stmt =>
+    match stmt with
+    | .store _ e | .returnValue e => exprUsesVaultNativeV1 e
+    | .ifThenElse cond thenBody elseBody =>
+        exprUsesVaultNativeV1 cond ||
+          bodyUsesVaultNativeV1 thenBody || bodyUsesVaultNativeV1 elseBody
+    | .returnAggregate leaves => leaves.any exprUsesVaultNativeV1
+    | .returnNone => false
+
 private def validateStores
     (stores : Array (Nat × Expr)) (stateCount paramCount remaining0 : Nat)
     (paramIsPrincipal : Array Bool) (signed : Bool) : CompileResult Nat := do
@@ -316,12 +382,22 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
           ent.paramIsPrincipal signed
       if exprUsesVaultNativeV1 ck.condition then
         anyVaultUse := true
-    exprBudget ←
-      validateStores ent.stores plan.states.size ent.params.size exprBudget
-        ent.paramIsPrincipal signed
-    for (_fi, se) in ent.stores do
-      if exprUsesVaultNativeV1 se then
+    if !ent.body.isEmpty then
+      unless ent.stores.isEmpty && ent.result?.isNone do
+        planError
+          s!"Quint entry '{ent.name}' CFG body must not carry stores or result?"
+      exprBudget ←
+        validateBodyStatements ent.name ent.resultKind ent.params.size
+          plan.states.size exprBudget ent.paramIsPrincipal signed ent.body
+      if bodyUsesVaultNativeV1 ent.body then
         anyVaultUse := true
+    else
+      exprBudget ←
+        validateStores ent.stores plan.states.size ent.params.size exprBudget
+          ent.paramIsPrincipal signed
+      for (_fi, se) in ent.stores do
+        if exprUsesVaultNativeV1 se then
+          anyVaultUse := true
     let terminalMarkerCount := ent.checks.foldl
       (fun n ck => if isTerminalRevertKind ck.kind then n + 1 else n) 0
     if ent.terminalRevert then
@@ -335,6 +411,9 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
           planError s!"Quint entry '{ent.name}' terminalRevert requires a terminal-revert check"
     else unless terminalMarkerCount == 0 do
       planError s!"Quint entry '{ent.name}' has a terminal-revert marker without terminalRevert"
+    if !ent.body.isEmpty then
+      pure ()
+    else
     match ent.resultKind, ent.result?, ent.terminalRevert with
     | .unit, none, _ => pure ()
     | .unit, some _, _ =>

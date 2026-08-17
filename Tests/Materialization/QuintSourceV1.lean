@@ -1264,23 +1264,103 @@ unsafe def testFailClosedMultiblock : IO Unit := do
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
     "program Branch where\n" ++
-    "  entry pick(c : UInt64, a : UInt64, b : UInt64) : UInt64 do\n" ++
-    "    if c > 0 then\n" ++
-    "      return a\n" ++
-    "    else\n" ++
-    "      return b\n"
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry apply(choice : UInt64) : UInt64 do\n" ++
+    "    match choice with\n" ++
+    "    | 0 => do\n" ++
+    "      return count\n" ++
+    "    | 1 => do\n" ++
+    "      count := count + 1\n" ++
+    "    | other => do\n" ++
+    "      count := other\n" ++
+    "    return count\n"
   let parsed ← liftResult (← session.selectProgramV1
-    source "<quint-if>" "Tests.QuintIf" none)
+    source "<quint-match>" "Tests.QuintMatch" none)
   match Compiler.compileValidatedSourceV1 parsed with
   | .error _ => pure ()
   | .ok compiled =>
       match planQuint compiled with
       | .error (.planInvariant .quint msg) =>
-          expect (msg.contains "one block" || msg.contains "multi" ||
-              msg.contains "block" || msg.contains "outside Q0")
-            s!"multi-block must fail closed, got: {msg}"
+          expect (msg.contains "one block" || msg.contains "multi-block")
+            s!"match/switch must fail closed, got: {msg}"
       | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
-      | .ok _ => throw <| IO.userError "multi-block if must fail closed at Quint plan"
+      | .ok _ => throw <| IO.userError "match/switch must fail closed at Quint plan"
+
+unsafe def testIfFlow : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program IfFlow where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    if count > 0 then\n" ++
+    "      count := count + delta\n" ++
+    "    else\n" ++
+    "      count := delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-if-flow>" "Tests.QuintIfFlow" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  let some bump := plan.entries.find? (·.name == "bump") |
+    throw <| IO.userError "IfFlow: missing bump"
+  expect (bump.stores.isEmpty && bump.result?.isNone)
+    "IfFlow bump must use CFG body, not flat stores/result?"
+  expect (bump.body == #[
+      .ifThenElse (.compare .gt (.stateLoad 0) (.litU64 0))
+        #[.store 0 (.arith .add (.stateLoad 0) (.param 0))]
+        #[.store 0 (.param 0)],
+      .returnValue (.stateLoad 0)])
+    s!"IfFlow bump shape mismatch: {repr bump.body}"
+  liftResult <| Targets.Quint.validatePlan plan
+  let files ← liftResult <| buildQuint compiled
+  let some qntFile := files.find? (fun f => f.path == "IfFlow.qnt") |
+    throw <| IO.userError "IfFlow: missing IfFlow.qnt"
+  expect (qntFile.contents.contains "if ")
+    "IfFlow Quint must render an if from the flattened ite store"
+  let branchSrc :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BranchFlow where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    if count > 0 then\n" ++
+    "      count := count + delta\n" ++
+    "    else\n" ++
+    "      count := delta\n" ++
+    "    return count\n" ++
+    "  entry apply(choice : UInt64) : UInt64 do\n" ++
+    "    match choice with\n" ++
+    "    | 0 => do\n" ++
+    "      return count\n" ++
+    "    | 1 => do\n" ++
+    "      count := count + 1\n" ++
+    "    | other => do\n" ++
+    "      count := other\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let branchParsed ← liftResult (← session.selectProgramV1
+    branchSrc "<quint-branch-flow>" "Tests.QuintBranchFlow" none)
+  let branchCompiled ← liftResult <| Compiler.compileValidatedSourceV1 branchParsed
+  match planQuint branchCompiled with
+  | .error (.planInvariant .quint msg) =>
+      expect (msg.contains "exactly one block" || msg.contains "multi-block")
+        s!"BranchFlow must stay exactly-one-block, got: {msg}"
+  | .error e =>
+      throw <| IO.userError s!"BranchFlow: expected quint planInvariant, got {e.render}"
+  | .ok _ =>
+      throw <| IO.userError "BranchFlow must still fail closed at T9a"
+  IO.println "  ✓ IfFlow if-diamond; BranchFlow still exactly-one-block"
 
 /-- Fail closed: constants are not silently substituted by a second evaluator. -/
 unsafe def testFailClosedConstant : IO Unit := do
@@ -2155,6 +2235,7 @@ unsafe def run : IO Unit := do
   testFailClosedInt32
   testFailClosedUInt32
   testFailClosedMultiblock
+  testIfFlow
   testFailClosedConstant
   testFailClosedContextReadAttachedValue
   testFailClosedEvent

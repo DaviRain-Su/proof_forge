@@ -322,8 +322,89 @@ private def lastResultName (entryName : String) : String :=
 private def lastResultLeafName (entryName : String) (i : Nat) : String :=
   s!"pf_last_{entryName}_result_{i}"
 
+private def flattenArm (owner : String) (arm : Array Statement) :
+    CompileResult (Array (Nat × Expr) × Option Expr) := do
+  let mut stores : Array (Nat × Expr) := #[]
+  let mut result? : Option Expr := none
+  for stmt in arm do
+    match stmt with
+    | .store fi e =>
+        if stores.any (fun (i, _) => i == fi) then
+          planError s!"Quint entry '{owner}' CFG arm has a duplicate store"
+        stores := stores.push (fi, e)
+    | .returnValue e =>
+        unless result?.isNone do
+          planError s!"Quint entry '{owner}' CFG arm has multiple returns"
+        result? := some e
+    | .returnNone =>
+        result? := none
+    | .returnAggregate _ =>
+        planError
+          s!"Quint entry '{owner}' aggregate return in CFG flatten is outside Q0"
+    | .ifThenElse .. =>
+        planError s!"Quint entry '{owner}' nested if in CFG flatten is outside Q0"
+  pure (stores, result?)
+
+private def lookupStore (stores : Array (Nat × Expr)) (fi : Nat) : Option Expr :=
+  stores.findSome? fun (i, e) => if i == fi then some e else none
+
+private def mergeIteStores
+    (cond : Expr) (thenS elseS : Array (Nat × Expr)) : Array (Nat × Expr) :=
+  Id.run do
+    let mut maxFi := 0
+    for (fi, _) in thenS do
+      if fi > maxFi then maxFi := fi
+    for (fi, _) in elseS do
+      if fi > maxFi then maxFi := fi
+    let mut out : Array (Nat × Expr) := #[]
+    for fi in [0:maxFi + 1] do
+      match lookupStore thenS fi, lookupStore elseS fi with
+      | none, none => pure ()
+      | t?, e? =>
+          let t := t?.getD (.stateLoad fi)
+          let e := e?.getD (.stateLoad fi)
+          out := out.push (fi, .ite cond t e)
+    pure out
+
+private def compileBodyToFlat (owner : String) (body : Array Statement) :
+    CompileResult (Array (Nat × Expr) × Option Expr) := do
+  let mut stores : Array (Nat × Expr) := #[]
+  let mut result? : Option Expr := none
+  for stmt in body do
+    match stmt with
+    | .ifThenElse cond thenBody elseBody =>
+        let (ts, tr) ← flattenArm owner thenBody
+        let (es, er) ← flattenArm owner elseBody
+        stores := stores ++ mergeIteStores cond ts es
+        match tr, er with
+        | some a, some b =>
+            unless result?.isNone do
+              planError s!"Quint entry '{owner}' CFG body has multiple results"
+            result? := some (.ite cond a b)
+        | none, none => pure ()
+        | _, _ =>
+            planError
+              s!"Quint entry '{owner}' if arms must both return or both continue"
+    | .store fi e =>
+        stores := stores.push (fi, e)
+    | .returnValue e =>
+        unless result?.isNone do
+          planError s!"Quint entry '{owner}' CFG body has multiple results"
+        result? := some e
+    | .returnNone =>
+        result? := none
+    | .returnAggregate _ =>
+        planError
+          s!"Quint entry '{owner}' aggregate return in CFG flatten is outside Q0"
+  pure (stores, result?)
+
 private def emitEntryBranch (plan : Plan) (ent : PlanEntry) :
     CompileResult QActionBranch := do
+  let (flatStores, flatResult?) ←
+    if ent.body.isEmpty then
+      pure (ent.stores, ent.result?)
+    else
+      compileBodyToFlat ent.name ent.body
   let mut emittedParams : Array String := #[]
   let mut nondets : Array QNondetBind := #[]
   for i in [0:ent.params.size] do
@@ -343,10 +424,10 @@ private def emitEntryBranch (plan : Plan) (ent : PlanEntry) :
     emitCheckCascade plan emittedParams externalOkNames ent.checks #[] 0
   let mut pures := pures
   -- Optional result pure (scalar) or per-leaf pures (aggregate).
-  let resultPure? ← match ent.resultKind, ent.result? with
+  let resultPure? ← match ent.resultKind, flatResult? with
     | .aggregate n, _ => do
         let src := if ent.leaves.isEmpty then
-          match ent.result? with | some e => #[e] | none => #[]
+          match flatResult? with | some e => #[e] | none => #[]
         else ent.leaves
         unless src.size == n do
           planError
@@ -430,7 +511,7 @@ private def emitEntryBranch (plan : Plan) (ent : PlanEntry) :
             }
   -- Business state: success → post store / identity; failure → pre-state stutter
   let mut written : Array Nat := #[]
-  for (fi, e) in ent.stores do
+  for (fi, e) in flatStores do
     written := written.push fi
     let post ← lowerExpr plan emittedParams #[] externalOkNames e
     let post := rewriteMaxBound post
