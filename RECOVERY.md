@@ -142,7 +142,7 @@ ProgramV1 command/export/v2 仍为 sole 源表面。
 产品路径仍为进程内单次 read → `Loader` → `Normalize` → `compile` → `certifyInlineProofV1`
 → capability；十二个 materializer Plan body 已直连 retained `SemanticProgramV1`，`CompiledSemanticV1`
 + `ProgramRequirementsV1` sole freeze + engineering resolver/capability 已接线。registry
-**13 = 13 implemented + 0 design-only**，resolver **16** rows。LH-1…28
+**13 = 13 implemented + 0 design-only**，resolver **17** rows。LH-1…28
 engineering packaging/corpus pin 已完成（含 LH-13 Sem003 trap+unconsumed `218ddc447`）；
 **不**关闭 formal TST。完整 ProgramV1→Semantic 表面与 Reference 全 op 仍未闭合。formal D1–D4 仍为 0/27；
 C-3 / Anvil lossless 仍 blocked/fail closed（FC）；ADR-0036 仍 proposed。

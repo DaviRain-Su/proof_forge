@@ -156,9 +156,9 @@
       "sha256": "fb2e21f10118b307adc77bbe743f2b5ad5b2c81ade37850861d674e03018c685"
     },
     {
-      "bytes": 10497,
+      "bytes": 10946,
       "path": "ProofForgeV2/Core/TargetIdentityV1.lean",
-      "sha256": "2052c9c2f1b06528a1e4087b6987e9eae84c11c69c024ebb45425e4ab0306802"
+      "sha256": "6428b5278db733557bc4e5a3590845f13ae518cb3611c139835c32656219e1eb"
     },
     {
       "bytes": 6506,
@@ -901,9 +901,9 @@
       "sha256": "dd852e0f802a2b20f3a9e9392abbaab9b22423c70fb00c8588c78cf19e31227f"
     },
     {
-      "bytes": 7824,
+      "bytes": 7845,
       "path": "ProofForgeV2/Targets/DescriptorDataV1.lean",
-      "sha256": "b0de0d7f52aec49a50925671710ce52966e047c5ec8b0b1e1664db4d6d1465b2"
+      "sha256": "7af9cecd1cf19c25fb056f085598ac64bc4805a7a4da5f6a1291f7ee02cf538e"
     },
     {
       "bytes": 9533,
@@ -1236,9 +1236,9 @@
       "sha256": "9e5bd4ff47f8ba07c2fa40d0fd2bdd3c07d0ad97a4eae00c49e23afd36f9d74a"
     },
     {
-      "bytes": 39531,
+      "bytes": 39767,
       "path": "ProofForgeV2/Targets/RequirementResolverV1.lean",
-      "sha256": "82a2cc4c2be686960358f2708f6cc42f01476144f5da0d0734a2f78292a77d0a"
+      "sha256": "77124a2af1c9208984427dbb2284239e6b273c0e18531984a6d85dfc39d9f0ed"
     },
     {
       "bytes": 3452,
@@ -1526,9 +1526,9 @@
       "sha256": "0c2ef1db0efea01981317694a262d79399825da8d6638da61364e71899977aca"
     },
     {
-      "bytes": 24441,
+      "bytes": 24779,
       "path": "ProofForgeV2/Targets/TargetRegistryV1.lean",
-      "sha256": "bccbb5139084b2e975f3fdd324406d23988fbe7d2881a50d9070d7f5c77531b3"
+      "sha256": "93d2f374372c9e606933551482863af53cec03a36534040b21602fe86948877b"
     },
     {
       "bytes": 1650,
@@ -1571,9 +1571,9 @@
       "sha256": "78bd12f3945903d1492d6ce5c5fcaa2462ad1cc9b15375fc32a035bf78b353b6"
     },
     {
-      "bytes": 1071,
+      "bytes": 10556,
       "path": "ProofForgeV2/Targets/Xrpl/FinalizeV1.lean",
-      "sha256": "83b170898b8fd52b8559ab9607fb29bddfcbc84b1c66c6f3bd3c18fbd54ea0c8"
+      "sha256": "d4ea55fe36b2179ae76469391e24674b983b3df24b280f473d51c910e4654424"
     },
     {
       "bytes": 38512,

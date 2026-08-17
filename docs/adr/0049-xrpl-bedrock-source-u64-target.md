@@ -49,7 +49,8 @@ EVM-first formal lighthouse，不关闭 formal 0/27。
    - `call` = `synchronous-message`
    - `proof` = `no-proof`
    - `settlement` = `xrpl-chain`
-   `CodegenProfileId` wire = `xrpl-bedrock-source-u64-v1`（sole / default）；
+   `CodegenProfileId` wire = `xrpl-bedrock-source-u64-v1`（default；ADR-0050 另开
+   opt-in `xrpl-bedrock-wasm-u64-v1`，本 profile 仍为 default）；
    `ArtifactEncoding` = `xrplBedrockSource`；
    `AcceptanceProfileRef` = `research.xrpl.v1`；
    maturity = **`source-only`**。
@@ -91,8 +92,8 @@ EVM-first formal lighthouse，不关闭 formal 0/27。
    - 不得发射 `#[xrpl_function]`、`host_storage`、或 OpenVM/`soroban_sdk`
      模板。
 7. **诚实边界**：AlphaNet ≠ 主网。Q0 不生成 ABI JSON、不生成
-   `ContractCreate` 交易、不写 Tool Lock。resolver 从 15 行增为 **16** 行。
-   formal D1–D4 仍为 0/27。
+   `ContractCreate` 交易、不写 Tool Lock。resolver 在本 ADR 交付时从 15 行增为
+   **16** 行；ADR-0050 再增为 **17**。formal D1–D4 仍为 0/27。
 
 ## 后果
 

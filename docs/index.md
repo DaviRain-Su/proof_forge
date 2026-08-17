@@ -20,15 +20,16 @@ normative: true
 `CompiledSemanticV1` → **`certifyInlineProofV1`** → capability Plan/IR → 工程制品/disk
 closure（无 `--proof-bundle*`）。
 工程 registry **13 = 13 implemented + 0 design-only**；**十三个 materializer**
-（含 ADR-0044 Soroban source-only S0、ADR-0045/0046 OpenVM O0/O1、ADR-0049 XRPL Q0）。
+（含 ADR-0044 Soroban source-only S0、ADR-0045/0046 OpenVM O0/O1、ADR-0049/0050 XRPL Q0/Q1）。
 （EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/CosmWasm/TON/Soroban/OpenVM/ICP/XRPL）均直连 retained `SemanticProgramV1`。
 Quint：source-only `.qnt` + zero-tool finalize；OpenVM O0：controlled Rust guest + catalog +
 zero-tool finalize（默认 profile；无 prove；ADR-0045）；opt-in `openvm-guest-elf-v1`（ADR-0046）可经锁定
 `cargo-openvm` 产出 ELF/`.vmexe`；ICP：Wasm + Candid + host-optional PocketIC（ADR-0047）；
-XRPL Q0：Bedrock-shaped `{name}.rs` + zero-tool finalize（ADR-0049；非 AlphaNet/主网）；
+XRPL Q0：Bedrock-shaped `{name}.rs` + zero-tool finalize（ADR-0049）；opt-in
+`xrpl-bedrock-wasm-u64-v1` 经 ambient rustc 产出 `.wasm` extra（ADR-0050；仍非 AlphaNet/主网）；
 CosmWasm：WAT + locked check + mock 28 tests +
 wasmd Docker rung-1；TON：Tolk/BoC + sandbox 10/10（schedule `createMessage` PARTIAL）。**Accepted PRD Phase 1 仍为四目标**
-（EVM/Solana/NEAR/Noir）；其余 engineering leaves 由 **ADR-0036**（现 13+0）与 **ADR-0044/0045/0046/0047/0049**
+（EVM/Solana/NEAR/Noir）；其余 engineering leaves 由 **ADR-0036**（现 13+0）与 **ADR-0044/0045/0046/0047/0049/0050**
 固定为非 accepted 扩面，formal lighthouse=EVM-first。Normalize 为扩展中的
 子集（超出最初 Counter-only S1，仍非完整语言面）。前端监督层已于 2026-08-01 移除。
 

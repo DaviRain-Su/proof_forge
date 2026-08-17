@@ -14,8 +14,9 @@ normative: false
 > Verify docs with `just docs-check`. Do **not**
 > `lake build proof_forge_next_tests_shard_*`.
 
-Wave 2 (option A, source-only Q0) started after product “yes”.
-Wave 3+ still needs a second yes.
+Wave 2 (option A, source-only Q0) shipped as ADR-0049.
+Wave 3 XRPL-9 (option B, opt-in WASM) shipped as ADR-0050.
+XRPL-10+ still needs a second yes.
 
 ## Wave 0 — inventory (this change)
 
@@ -41,13 +42,13 @@ Same skeleton as Soroban S0 / OpenVM O0:
 | **XRPL-5** | target-owned Plan/IR → one `{name}.rs` Bedrock-shaped guest | `Targets/Xrpl/**` | **done** (StateCell UInt64; unknown profile `PF-PROFILE-UNKNOWN`) |
 | **XRPL-6** | Finalize zero-tool: `extraFiles=[]`, `deployable=false`, evidence names no bedrock/rustc/AlphaNet | `FinalizeV1` + `XrplPlanV1` | **done** (honesty pin) |
 | **XRPL-7** | Named FC: ContextRead, `pf.crypto.*`, call/schedule, escrow/vault, Hooks, EVM | same suite | **done** (diagnostics cite QN / shape) |
-| **XRPL-8** | docs: TARGET-INDEX row, matrix §1e stub, ADR-0036 count, SBOM | docs + `just sbom-package-files-refresh` | docs updated; SBOM refresh still host-side |
+| **XRPL-8** | docs: TARGET-INDEX row, matrix §1e, ADR-0036 count, SBOM | docs + surgical SBOM rehash | **done**（§1e 钉 4-key / Q0 语言 FC / Q1 extra / 非 AlphaNet·T9·CAP） |
 
 ## Wave 3 — opt-in only (product yes)
 
 | ID | Objective | Gate |
 |---|---|---|
-| **XRPL-9** | locked rustc → `.wasm` extra (`deployable` still false) | XRPL-3 = B |
+| **XRPL-9** | **done** (ADR-0050)：opt-in `xrpl-bedrock-wasm-u64-v1`；ambient rustc → `.wasm` extra；`deployable` still false | XRPL-3 = B |
 | **XRPL-10** | host-optional AlphaNet `ContractCreate` companion | never ordinary `just ci`; never mainnet |
 | **XRPL-11** | Smart Escrow / Vault as **separate** profiles or TargetIds | not folded into XRPL-4 |
 

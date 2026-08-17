@@ -9,11 +9,12 @@ normative: false
 
 # Target Dossier：XRPL（Bedrock / XLS-0101）
 
-状态：`proposed` / engineering source-only Q0（ADR-0049）
+状态：`proposed` / engineering source-only Q0 + opt-in WASM Q1（ADR-0049/0050）
 Target ID：`xrpl`
 成熟度 ceiling：`research`
-阶段：engineering implemented source-only。`pf build --target xrpl` 发射
-`{name}.rs`；`deployable=false`。**无** rustc / bedrock / AlphaNet / 主网。
+阶段：engineering implemented。默认 `pf build --target xrpl` 发射 `{name}.rs`
+（zero-tool）；`--profile xrpl-bedrock-wasm-u64-v1` 可经 ambient rustc 附加
+`.wasm` extra。`deployable=false`。**无** bedrock / AlphaNet / 主网。
 
 规划：[`../plan/xrpl-bedrock-wasm-gap.md`](../plan/xrpl-bedrock-wasm-gap.md) ·
 任务：[`../plan/xrpl-bedrock-wasm-tasks.md`](../plan/xrpl-bedrock-wasm-tasks.md)。
@@ -75,7 +76,7 @@ Q0 **一律 fail closed**：`call`/`schedule`、ContextRead、`pf.crypto.*`、
 | 层 | 事实 | Q0 产品面 |
 |---|---|---|
 | 源 | Rust + Bedrock `@xrpl-function` 注解 | **可**发射受控模板 |
-| WASM | `cargo` `wasm32-unknown-unknown` | Q0 **不**在 Finalize 调 rustc |
+| WASM | `cargo` `wasm32-unknown-unknown` | Q0 **不**调 rustc；Q1 opt-in 才调 ambient cargo |
 | 部署 | `ContractCreate` via bedrock `deploy.js` / xrpl.js | Q0 `deployable=false` |
 | 网络 | local / AlphaNet | 不得写 mainnet |
 | ABI | 链上 Functions + 源注解 | 研究；不进 resolver |
@@ -84,5 +85,4 @@ Q0 **一律 fail closed**：`call`/`schedule`、ContextRead、`pf.crypto.*`、
 
 已进 `TargetRegistryV1` 为第 13 个 implemented materializer（ADR-0049）。不扩
 accepted PRD。不关 formal。不把 AlphaNet 实验写成主网智能合约。不把 EVM
-侧链或 Hooks 算作本 target 完成度。B/C（locked WASM / AlphaNet deploy）需
-后续独立批准。
+侧链或 Hooks 算作本 target 完成度。C（AlphaNet deploy）需后续独立批准。Q1 WASM extra 见 ADR-0050。

@@ -26,15 +26,16 @@ normative: false
 数据来源：产品测试（EvmSmoke/Mollusk/NoirRelationModel 等）+ LowerSemanticV1 代码扫描。
 **初版可能不精确**——每个 wave worker 须核对并修正自己 target 行的真实边界。
 
-> **Registry 计数（当前工程事实，2026-08-14）**：工程 registry **12 = 12
-> implemented + 0 design-only**。十二个 materializer 均有 `materializeResult` dispatch：
-> EVM / Solana / NEAR / Noir / Aleo / Psy / Quint / CosmWasm / TON / Soroban / OpenVM / ICP。
-> 下列 §1 主表保留原六 target 细格；**CosmWasm/TON 的真实 MVP 范围见 §1b，Quint 见 §1c**。
+> **Registry 计数（当前工程事实，2026-08-17）**：工程 registry **13 = 13
+> implemented + 0 design-only**。十三个 materializer 均有 `materializeResult` dispatch：
+> EVM / Solana / NEAR / Noir / Aleo / Psy / Quint / CosmWasm / TON / Soroban / OpenVM / ICP / XRPL。
+> 下列 §1 主表保留原六 target 细格；**CosmWasm/TON 的真实 MVP 范围见 §1b，Quint 见 §1c，
+> Soroban/OpenVM/ICP 见 §1d，XRPL 见 §1e**。
 > compile / mock / sandbox / host-only Quint typecheck **不是** formal 或 hermetic。
 >
 > **双轨**：accepted PRD Phase 1 范围仍为 **EVM/Solana/NEAR/Noir**；
-> 其余八个为 engineering leaves，**不**自动扩 accepted scope
->（ADR-0036——**仍 `proposed`**——主张 engineering 12+0 不静默改写 accepted scope，formal lighthouse=EVM-first）。
+> 其余九个为 engineering leaves，**不**自动扩 accepted scope
+>（ADR-0036——**仍 `proposed`**——主张 engineering 13+0 不静默改写 accepted scope，formal lighthouse=EVM-first）。
 
 ## 1. 语义 op 覆盖矩阵（wire Op × target；原六 materializer 细格）
 
@@ -152,6 +153,15 @@ normative: false
 | **OpenVM** | default `openvm-guest-source-v1`；opt-in `openvm-guest-elf-v1` | 受控 guest tree（O0 zero-tool）；O1 locked `cargo-openvm` 2.0.1 → ELF+`.vmexe` extras 仍 `deployable=false`；T3 scalar const 内联 + Bytes N；**T4 Principal 9 叶 identity**（≠ host address）；**T5 named Struct/Enum 叶 flatten**；**T6 Array/Option/named view 叶返回**（guest `(u64, …)` 连续写出；不新开 prove/IO ABI）；**T7 entry 叶返回**（同一 N 叶通道）；**T8b Bytes N view 叶返回**；**T9a/T9b if-diamond + `switchOn`**（guest if / if-chain；臂内 store）；**T9c `forLoop`**（counted guest `loop` + bound `Err`） | keygen/execute/prove/verify；UInt64 ContextRead 四键 / `pf.crypto.*` / nativeVaultBalance named no-host；不可约 CFG / 臂内 call·emit；Principal result/`self` / Bytes **entry** / Map return 仍 FC；caller 仅 init/entry |
 | **ICP** | sole `icp-wasm-candid-u64-v1` | Counter/StateCell `.wat`+`.did`；locked wat2wasm `{name}.wasm` `deployable=true`；host-optional PocketIC；**CAP-1a** `unixTimeSeconds`→`ic0.time` ns÷10⁹（init/update/query）；**CAP-1b** `caller`→`ic0.msg_caller_size/copy`（ADR-0025 Principal identity；query/view FC）；T3 scalar const 内联 + Bytes N（N extra i64 globals，无 Candid `vec nat8`）；**T4 Principal 9 叶 identity**（9 extra i64 globals，无 Candid `principal`）；**T5 Option UInt64 2 叶 identity**（`o_tag`/`o_p0` extra i64 globals，无 Candid `opt`）；**T5 named Struct/Enum 叶 flatten**（extra i64 globals，无 Candid `record`/`variant`）；**T6 view 叶返回 = Candid 位置元组**（`.did` `-> (nat64, nat64) query`；WAT 连续 encode 多个 LE i64；**禁止** `record`/`opt`/`vec`/`variant`）；**T7 entry 叶返回**（同构位置元组 update，非 query）；**T8a Map UInt64 cap-8**（24 extra i64 globals，ite/bool mux + assert，无 Candid `map`/`vec`）；**T8b Bytes N view 叶返回**（位置元组，无 Candid `vec nat8`）；**T9a/T9b if-diamond + `switchOn`**（Wasm `if` / if-chain；臂内 store；无 Candid `variant` match ABI）；**T9c `forLoop`**（counted Wasm `loop`/`br` + bound `unreachable`） | PocketIC 不进 Finalize；sync+event FC；async advertise-only；`blockHeight`/`attachedValue`/`chainId` / `pf.crypto.*` / nativeVaultBalance named no-host；不可约 CFG / 臂内 call·emit；Principal result/`self` / Bytes **entry** / Map return 仍 FC；`caller` 仅 init/entry（CAP-1b） |
 
+## 1e. XRPL 工程 MVP 真实范围
+
+> 第 13 个 registry-implemented materializer。这里只钉包装层诚实边界，**不是**
+> Soroban/OpenVM/ICP 语言面同级，也不是 formal SupportClaim。
+
+| Target | Profile | 已开 | 诚实 FC / 非声称 |
+|---|---|---|---|
+| **XRPL** | default `xrpl-bedrock-source-u64-v1`；opt-in `xrpl-bedrock-wasm-u64-v1` | public UInt64/Bool/Unit Counter/StateCell Bedrock-shaped `{name}.rs`；精确 4-key（`failure.atomic-rollback` / `state.persistent` / `value.bool` / `value.checked-arithmetic`）；两 profile 共享同一 Plan/IR/base `.rs`；默认 Finalize 零 extras、`deployable=false`；Q1 经 ambient rustc/cargo 在临时 crate 包装 `.rs`，产出 extra `xrpl-build/{program}.wasm`（craft `xrpl-wasm-std` rev `ffbe88da…`，triple `wasm32-unknown-unknown`）；缺 rustc/cargo/wasm target → `PF-TOOLCHAIN-MISSING` | Q0 语言面：`loopBounds` / branch / switch / const / Bytes / Principal / named / 叶返回 / if-match-for **仍 FC**（无 `emitRegion` walker）；ContextRead / `pf.crypto.*` / call / schedule / invariant **named FC**；**不**开 CAP-1a/1b/3/4 叶（host 键未冻）；**不是** AlphaNet / `ContractCreate` / bedrock CLI / 主网；**不是** Tool Lock rustc；不可部署 |
+
 ## 2. 验收/差分覆盖矩阵
 
 | 验收门 | EVM | Solana | NEAR | Noir | Psy | Aleo | Quint | CosmWasm | TON | Soroban | OpenVM | ICP |
@@ -217,7 +227,7 @@ normative: false
 
 | ID | 缺口 | 现状 | wave 归属 |
 |---|---|---|---|
-| **D-1** | registry target 表 | **已随 ICP ADR-0047 刷新**：engineering seed = **12 implemented + 0 design-only**（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`/`quint`/`cosmwasm`/`ton`/`soroban`/`openvm`/`icp`）；十二 materializer 均有 Plan/IR/dispatch；resolver 15 rows（EVM×2、Noir×2、OpenVM×2、其余各一）。ADR-0036 固定 accepted Phase-1 四-target 不静默扩面，formal lighthouse=EVM-first | MatrixSync + ADR-0044/45/46/47 |
+| **D-1** | registry target 表 | **已随 XRPL ADR-0049/0050 刷新**：engineering seed = **13 implemented + 0 design-only**（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`/`quint`/`cosmwasm`/`ton`/`soroban`/`openvm`/`icp`/`xrpl`）；十三 materializer 均有 Plan/IR/dispatch；resolver 17 rows（EVM×2、Noir×2、OpenVM×2、XRPL×2、其余各一）。ADR-0036 固定 accepted Phase-1 四-target 不静默扩面，formal lighthouse=EVM-first | MatrixSync + ADR-0044/45/46/47/49/50 |
 | **D-2** | 成熟度声明 | **已闭合并随 ADR-0035 + 后三 target 刷新**：EVM locked solc + G4 Anvil 工程差分；NEAR locked `wat2wasm` + near-sandbox receipt；Solana SBPF+Mollusk；Noir locked nargo compile-only；Aleo sole `aleo-instructions-v1` zero-tool Instructions；Psy sole `psy-dpn-v1` zero-tool DPN；**CosmWasm** WAT+wat2wasm+check+mock + wasmd rung-1；**TON** Tolk/BoC+sandbox；**Quint** `.qnt` zero-tool；**Soroban** S0 source-only `.rs` zero-tool（auth/TTL/Wasm FC）；**OpenVM** O0 guest-source zero-tool + opt-in O1 locked `cargo-openvm` ELF/VmExe（prove FC）；**ICP** locked wat2wasm `.wasm`+`.did` + host-optional PocketIC。以上均**非** formal/hermetic/Stage-0 maturity | MatrixSync + ADR-0044/45/46/47 |
 
 ## 4. Wave 队列（按优先级 + 可并行性）

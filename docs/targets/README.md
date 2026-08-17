@@ -3,14 +3,14 @@ id: TARGET-INDEX
 title: Target 研究与实现档案
 status: proposed
 owner: architecture
-updated: 2026-08-13
+updated: 2026-08-17
 normative: true
 ---
 
 # Target 研究与实现档案
 
 状态：`proposed`
-更新日期：2026-08-13
+更新日期：2026-08-17
 
 本目录按执行语义而不是文件后缀组织目标。`family` 是阅读视图，编译器实际依据多轴 `TargetDescriptor` 和 exact `SupportClaim` 决策。
 
@@ -27,7 +27,7 @@ normative: true
 > 2. **Engineering implemented leaves** 另有 `aleo` / `psy` / `cosmwasm` / `ton` /
 >    `quint` / `soroban` / `openvm` / `icp` / `xrpl`（十三个 materializer 均已可寻址并
 >    materialize，**不**等于 accepted 产品范围已扩）。二者
->    边界由 **ADR-0036**（**仍 `proposed`**，engineering 12+0 / accepted PRD 仍四目标）主张收口；不得因表格「implement」字样静默扩大
+>    边界由 **ADR-0036**（**仍 `proposed`**，engineering 13+0 / accepted PRD 仍四目标）主张收口；不得因表格「implement」字样静默扩大
 >    accepted scope。`quint` 为 ADR-0026 冻结并已接线的 source-only model surface；
 >    `soroban` 为 ADR-0044 source-only S0（`.rs` recipe，zero-tool）；
 >    `openvm` 为 ADR-0045/0046 O0 guest-source + opt-in O1 ELF；
@@ -50,7 +50,7 @@ normative: true
 | `cairo` | zkVM (Cairo VM) | research (ADR-0017) | `research` | dossier + RPT-026 Plan/Q0；**无** materializer；Starknet syscall Q0 FC；非 accepted 扩面 | [Cairo](13-cairo.md) · [RPT-026](../research/26-zkvm-trio-cairo-risc0-sp1-design.md) |
 | `risc0` | zkVM (RISC-V) | research (ADR-0017) | `research` | dossier + RPT-026；OpenVM 后第二叶候选 A；无 materializer | [RISC Zero](14-risc0.md) · [RPT-026](../research/26-zkvm-trio-cairo-risc0-sp1-design.md) |
 | `sp1` | zkVM (RISC-V) | research (ADR-0017) | `research` | dossier + RPT-026；OpenVM 后第二叶候选 B；无 materializer | [SP1](15-sp1.md) · [RPT-026](../research/26-zkvm-trio-cairo-risc0-sp1-design.md) |
-| `xrpl` | XRPL smart-features (WASM) | engineering implemented (ADR-0049 Q0) | `research` | retained-V1 Plan/IR → Bedrock-shaped `{name}.rs`；profile `xrpl-bedrock-source-u64-v1`；resolver 仅 4-key；zero-tool finalize；`deployable=false`；**非** Wasm/AlphaNet/主网/Hooks/EVM 侧链/OpenVM | [XRPL](16-xrpl.md) · [ADR-0049](../adr/0049-xrpl-bedrock-source-u64-target.md) · [gap](../plan/xrpl-bedrock-wasm-gap.md) |
+| `xrpl` | XRPL smart-features (WASM) | engineering implemented (ADR-0049 Q0 / ADR-0050 Q1) | `research` | retained-V1 Plan/IR → Bedrock-shaped `{name}.rs`；default `xrpl-bedrock-source-u64-v1` zero-tool；opt-in `xrpl-bedrock-wasm-u64-v1` ambient rustc → `.wasm` extra；resolver 仅 4-key；`deployable=false`；**非** AlphaNet/主网/Hooks/EVM 侧链/OpenVM | [XRPL](16-xrpl.md) · [ADR-0049](../adr/0049-xrpl-bedrock-source-u64-target.md) · [ADR-0050](../adr/0050-xrpl-bedrock-wasm-q1.md) · [gap](../plan/xrpl-bedrock-wasm-gap.md) |
 
 > **并行车道（2026-08-13）**：`feature-soroban` / `feature-icp` / `feature-zkvm(OpenVM)`
 > 为实现叶；本目录 Cairo/RISC0/SP1 为 **research dossier**，不抢那些 registry 改动。
