@@ -1532,6 +1532,52 @@ unsafe def testMaybeMatch : IO Unit := do
   liftResult <| Targets.Soroban.validatePlan plan
   IO.println "  ✓ MaybeMatch Option tag switch"
 
+unsafe def testLoopSum : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program LoopSum where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry addUp(n : UInt64) : UInt64 do\n" ++
+    "    let limit : UInt64 := n + 4\n" ++
+    "    for i in n ..< limit bounded 8 do\n" ++
+    "      count := count + i\n" ++
+    "    return count\n" ++
+    "  entry scan(n : UInt64) : UInt64 do\n" ++
+    "    for i in n ..< n bounded 2 do\n" ++
+    "      count := count + 1\n" ++
+    "    return count\n" ++
+    "  entry addUpTight(n : UInt64) : UInt64 do\n" ++
+    "    for i in n ..< n + 4 bounded 3 do\n" ++
+    "      count := count + i\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-loop-sum>" "Tests.SorobanLoopSum" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  let some addUp := plan.entries.find? (·.name == "addUp") |
+    throw <| IO.userError "LoopSum: missing addUp"
+  let hasFor :=
+    addUp.body.any fun s =>
+      match s with
+      | .forLoop _ _ _ _ maxIt _ => maxIt == 8
+      | _ => false
+  expect hasFor "LoopSum addUp must lower bounded-for to forLoop max=8"
+  liftResult <| Targets.Soroban.validatePlan plan
+  let files ← liftResult <| buildSoroban compiled
+  let some rsFile := files.find? (fun f => f.path == "LoopSum.rs") |
+    throw <| IO.userError "LoopSum: missing LoopSum.rs"
+  expect (rsFile.contents.contains "loop {" &&
+      rsFile.contents.contains "loop bound exceeded" &&
+      !rsFile.contents.contains "while true")
+    "LoopSum Rust must render a counted loop trap, not an unbounded while"
+  IO.println "  ✓ LoopSum bounded-for"
+
 unsafe def run : IO Unit := do
   testStateCellSorobanSource
   testInt64CellSorobanSource
@@ -1577,6 +1623,7 @@ unsafe def run : IO Unit := do
   testIfFlow
   testBranchFlow
   testMaybeMatch
+  testLoopSum
   IO.println "Tests.Materialization.SorobanPlanV1: ok"
 
 end Tests.Materialization.SorobanPlanV1

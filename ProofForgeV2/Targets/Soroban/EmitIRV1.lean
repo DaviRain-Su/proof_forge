@@ -64,6 +64,8 @@ inductive RStatement where
   | expr (value : RExpr)
   | returnExpr (value : RExpr)
   | ifThenElse (cond : RExpr) (thenBody elseBody : Array RStatement)
+  | forLoop (varName : String) (initial cond update : RExpr)
+      (maxIterations : Nat) (body : Array RStatement)
   deriving BEq, Inhabited, Repr
 
 structure RFn where
@@ -148,6 +150,8 @@ private partial def lowerExpr
       unless limbIndex < 4 do
         planError "Soroban IR sha256 limb index must be 0..3"
       pure (.name s!"pf_sha256_{siteIndex}_l{limbIndex}")
+  | .temp index =>
+      pure (.name s!"pf_t{index}")
   | .arith op l r => do
       let rl ← lowerExpr plan params stateLocals l
       let rr ← lowerExpr plan params stateLocals r
@@ -292,6 +296,13 @@ private partial def emitPlanStatements
             defaultBody
         let sw ← emitPlanStatements plan params stateLocals folded
         out := out ++ sw
+    | .forLoop varTemp initial condition update maxIterations body =>
+        let initE ← lowerExpr plan params stateLocals initial
+        let condE ← lowerExpr plan params stateLocals condition
+        let updE ← lowerExpr plan params stateLocals update
+        let bodyStmts ← emitPlanStatements plan params stateLocals body
+        out := out.push
+          (.forLoop s!"pf_t{varTemp}" initE condE updE maxIterations bodyStmts)
     | .returnValue e =>
         let re ← lowerExpr plan params stateLocals e
         out := out.push (.returnExpr re)
@@ -514,6 +525,28 @@ private partial def renderStatementLines (signed : Bool) (ind : Nat)
         for stmt in elseBody do
           lines := lines ++ renderStatementLines signed (ind + 4) stmt
         lines := lines.push (indent ind "}")
+      lines
+  | .forLoop varName initial cond update maxIterations body => Id.run do
+      let ty := rustNumericTy signed
+      let iter := s!"{varName}_iter"
+      let mut lines :=
+        #[indent ind s!"let mut {varName}: {ty} = {renderExpr signed initial};",
+          indent ind s!"let mut {iter}: u64 = 0;",
+          indent ind "loop {"]
+      lines := lines.push
+        (indent (ind + 4)
+          ("if " ++ iter ++ " >= " ++ toString maxIterations ++
+            "_u64 { panic!(\"loop bound exceeded\"); }"))
+      lines := lines.push
+        (indent (ind + 4) ("if !(" ++ renderExpr signed cond ++ ") { break; }"))
+      for stmt in body do
+        lines := lines ++ renderStatementLines signed (ind + 4) stmt
+      lines := lines.push
+        (indent (ind + 4) (varName ++ " = " ++ renderExpr signed update ++ ";"))
+      lines := lines.push
+        (indent (ind + 4)
+          (iter ++ " = " ++ iter ++ ".checked_add(1).expect(\"overflow\");"))
+      lines := lines.push (indent ind "}")
       lines
 
 private def renderFn (signed : Bool) (f : RFn) : Array String := Id.run do

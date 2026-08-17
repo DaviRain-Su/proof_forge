@@ -71,6 +71,7 @@ private partial def inferExprType
       unless fieldIndex < stateCount do
         planError s!"Soroban plan {what} references unknown state field {fieldIndex}"
       pure (numeric, remaining)
+  | .temp _ => pure (numeric, remaining)
   | .arith _ lhs rhs => do
       let (lhsTy, remaining) ←
         inferExprType lhs what paramCount stateCount remaining signed sha256SiteCount
@@ -138,7 +139,7 @@ private def validateExpr
     if depth > maxExprDepth then
       planError s!"Soroban plan {what} expression exceeds depth limit"
     match current with
-    | .litU64 _ | .litBool _ | .param _ | .stateLoad _
+    | .litU64 _ | .litBool _ | .param _ | .stateLoad _ | .temp _
     | .unixTimeSeconds | .blockHeight | .sha256Limb _ _ =>
         pure ()
     | .arith op lhs rhs =>
@@ -258,6 +259,19 @@ private partial def validateBodyStatements
         remaining ←
           validateBodyStatements owner resultKind paramCount stateCount remaining
             signed sha256SiteCount defaultBody
+    | .forLoop _ initial condition update _ body =>
+        remaining ←
+          validateExpr initial numeric "for initial" paramCount stateCount remaining
+            signed sha256SiteCount
+        remaining ←
+          validateExpr condition .bool "for condition" paramCount stateCount remaining
+            signed sha256SiteCount
+        remaining ←
+          validateExpr update numeric "for update" paramCount stateCount remaining
+            signed sha256SiteCount
+        remaining ←
+          validateBodyStatements owner resultKind paramCount stateCount remaining
+            signed sha256SiteCount body
     | .returnValue e =>
         let expected :=
           match resultKind with
