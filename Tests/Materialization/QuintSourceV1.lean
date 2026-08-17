@@ -808,27 +808,149 @@ unsafe def testOptionReturnFc : IO Unit := do
         s!"Option entry return must cite outside Q0, got: {msg}"
   | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
   | .ok _ => throw <| IO.userError "Option entry return must fail closed at Quint plan"
-  let viewSource :=
+
+/-- ArrViewRet: view-only Array UInt64 2 returns a Quint int tuple. -/
+unsafe def testArrViewRet : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
-    "program OptView where\n" ++
+    "program ArrViewRet where\n" ++
+    "  state slots : Array UInt64 2\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
+    "  view peek() : Array UInt64 2 do\n" ++
+    "    return slots\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-arr-view-ret>" "Tests.QuintArrViewRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  let some v := plan.views[0]? |
+    throw <| IO.userError "ArrViewRet must emit a view"
+  expect (v.resultKind == .aggregate 2)
+    s!"ArrViewRet view must be aggregate 2, got {repr v.resultKind}"
+  expect (v.leaves.size == 2) "ArrViewRet must carry two return leaves"
+  liftResult <| Targets.Quint.validatePlan plan
+  let files ← liftResult <| buildQuint compiled
+  expect (!files.isEmpty) "ArrViewRet must emit nonempty files"
+  let some qntFile := files.find? (·.path == "ArrViewRet.qnt") |
+    throw <| IO.userError "quint: missing ArrViewRet.qnt"
+  expect (qntFile.contents.contains "pure def pf_view_peek: (int, int) =")
+    "ArrViewRet must emit a Quint int-tuple view"
+  expect (qntFile.contents.contains "pf_state_slots_0")
+    "ArrViewRet tuple must read slots_0"
+  expect (qntFile.contents.contains "pf_state_slots_1")
+    "ArrViewRet tuple must read slots_1"
+  expect (!qntFile.contents.contains "List[")
+    "ArrViewRet must not invent a native Quint List"
+
+/-- OptViewRet: view-only Option UInt64 returns tag+payload as a Quint tuple. -/
+unsafe def testOptViewRet : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptViewRet where\n" ++
     "  state o : Option UInt64\n" ++
     "  init() do\n" ++
     "    o := Option.none()\n" ++
-    "  entry setNone() : UInt64 do\n" ++
-    "    o := Option.none()\n" ++
-    "    return 0\n" ++
     "  view peek() : Option UInt64 do\n" ++
     "    return o\n"
-  let parsedView ← liftResult (← session.selectProgramV1
-    viewSource "<quint-opt-view>" "Tests.QuintOptView" none)
-  let compiledView ← liftResult <| Compiler.compileValidatedSourceV1 parsedView
-  match planQuint compiledView with
-  | .error (.planInvariant .quint msg) =>
-      expect (msg.contains "Option return is outside Q0")
-        s!"Option view return must cite outside Q0, got: {msg}"
-  | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
-  | .ok _ => throw <| IO.userError "Option view return must fail closed at Quint plan"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-opt-view-ret>" "Tests.QuintOptViewRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  let some v := plan.views[0]? |
+    throw <| IO.userError "OptViewRet must emit a view"
+  expect (v.resultKind == .aggregate 2)
+    s!"OptViewRet view must be aggregate 2, got {repr v.resultKind}"
+  expect (v.leaves.size == 2) "OptViewRet must carry tag+payload leaves"
+  liftResult <| Targets.Quint.validatePlan plan
+  let files ← liftResult <| buildQuint compiled
+  expect (!files.isEmpty) "OptViewRet must emit nonempty files"
+  let some qntFile := files.find? (·.path == "OptViewRet.qnt") |
+    throw <| IO.userError "quint: missing OptViewRet.qnt"
+  expect (qntFile.contents.contains "pure def pf_view_peek: (int, int) =")
+    "OptViewRet must emit a Quint int-tuple view"
+  expect (qntFile.contents.contains "pf_state_o_tag")
+    "OptViewRet tuple must read o_tag"
+  expect (qntFile.contents.contains "pf_state_o_p0")
+    "OptViewRet tuple must read o_p0"
+  expect (!qntFile.contents.contains "List[")
+    "OptViewRet must not invent a native Quint List"
+
+/-- PointViewRet: view-only named Struct returns flattened field leaves. -/
+unsafe def testPointViewRet : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PointViewRet where\n" ++
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  state p : Point\n" ++
+    "  init() do\n" ++
+    "    p := Point.new(0, 0)\n" ++
+    "  view getPoint() : Point do\n" ++
+    "    return p\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-point-view-ret>" "Tests.QuintPointViewRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  let some v := plan.views[0]? |
+    throw <| IO.userError "PointViewRet must emit a view"
+  expect (v.resultKind == .aggregate 2)
+    s!"PointViewRet view must be aggregate 2, got {repr v.resultKind}"
+  expect (v.leaves.size == 2) "PointViewRet must carry two field leaves"
+  liftResult <| Targets.Quint.validatePlan plan
+  let files ← liftResult <| buildQuint compiled
+  expect (!files.isEmpty) "PointViewRet must emit nonempty files"
+  let some qntFile := files.find? (·.path == "PointViewRet.qnt") |
+    throw <| IO.userError "quint: missing PointViewRet.qnt"
+  expect (qntFile.contents.contains "pure def pf_view_getPoint: (int, int) =")
+    "PointViewRet must emit a Quint int-tuple view"
+  expect (qntFile.contents.contains "pf_state_p_x")
+    "PointViewRet tuple must read p_x"
+  expect (qntFile.contents.contains "pf_state_p_y")
+    "PointViewRet tuple must read p_y"
+
+/-- MaybeViewRet: view-only named Enum returns tag+payload as a Quint tuple. -/
+unsafe def testMaybeViewRet : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MaybeViewRet where\n" ++
+    "  enum Maybe where\n" ++
+    "    | None\n" ++
+    "    | Some(UInt64)\n" ++
+    "  state m : Maybe\n" ++
+    "  init() do\n" ++
+    "    m := Maybe.None()\n" ++
+    "  view peek() : Maybe do\n" ++
+    "    return m\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-maybe-view-ret>" "Tests.QuintMaybeViewRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  let some v := plan.views[0]? |
+    throw <| IO.userError "MaybeViewRet must emit a view"
+  expect (v.resultKind == .aggregate 2)
+    s!"MaybeViewRet view must be aggregate 2, got {repr v.resultKind}"
+  expect (v.leaves.size == 2) "MaybeViewRet must carry tag+payload leaves"
+  liftResult <| Targets.Quint.validatePlan plan
+  let files ← liftResult <| buildQuint compiled
+  expect (!files.isEmpty) "MaybeViewRet must emit nonempty files"
+  let some qntFile := files.find? (·.path == "MaybeViewRet.qnt") |
+    throw <| IO.userError "quint: missing MaybeViewRet.qnt"
+  expect (qntFile.contents.contains "pure def pf_view_peek: (int, int) =")
+    "MaybeViewRet must emit a Quint int-tuple view"
+  expect (qntFile.contents.contains "pf_state_m_tag")
+    "MaybeViewRet tuple must read m_tag"
+  expect (qntFile.contents.contains "pf_state_m_p0")
+    "MaybeViewRet tuple must read m_p0"
 
 /-- signedNumeric Int64 programs cannot carry Option state. -/
 unsafe def testSignedNumericOptionFc : IO Unit := do
@@ -1886,6 +2008,10 @@ unsafe def run : IO Unit := do
   testOptionInt64PayloadFc
   testOptionBoolPayloadFc
   testOptionReturnFc
+  testArrViewRet
+  testOptViewRet
+  testPointViewRet
+  testMaybeViewRet
   testSignedNumericOptionFc
   testMapMiniFlatten
   testMapInt64Flatten

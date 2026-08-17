@@ -186,6 +186,9 @@ inductive ResultKind where
   | uint64
   | int64
   | bool
+  /-- View-only flattened return (1..8 UInt64/Int64 leaves). Entry/pureFn stay
+      fail closed. -/
+  | aggregate (leafCount : Nat)
   deriving BEq, Inhabited, Repr
 
 structure PlanState where
@@ -221,7 +224,12 @@ structure PlanView where
   name : String
   params : Array String
   resultKind : ResultKind
+  /-- Scalar result, or first aggregate leaf (digest-stable). -/
   value : Expr
+  /-- Aggregate leaves when `resultKind = .aggregate n`; empty for scalars. -/
+  leaves : Array Expr := #[]
+  /-- Parallel to `leaves`: true when the leaf is Int64. Empty for scalars. -/
+  leafIsInt : Array Bool := #[]
   deriving BEq, Inhabited, Repr
 
 structure PlanInvariant where
@@ -655,6 +663,93 @@ private def flattenNamedLeafSpecsV1
       | _ =>
           planError
             "unsupported Quint semantic shape: named type must be Struct or Enum"
+
+/-- Parallel signedness marks for named Struct/Enum flatten (tag is unsigned). -/
+private def flattenNamedLeafIsIntV1
+    (typeDecls : Array TypeDeclV1) (types : QuintTypeClosureV1)
+    (typeId : TypeIdV1) : CompileResult (Array Bool) := do
+  if isUInt64Type types typeId then
+    return #[false]
+  if isInt64Type types typeId then
+    return #[true]
+  unless types.isNamedAggregate typeId do
+    planError
+      "unsupported Quint semantic shape: named aggregate leaf must be UInt64, Int64, or named Struct/Enum"
+  match typeDecls[typeId.toNat]? with
+  | none =>
+      planError
+        s!"unsupported Quint semantic shape: missing TypeDecl for aggregate {typeId}"
+  | some decl =>
+      match decl.shape with
+      | .struct fields => do
+          unless fields.size > 0 do
+            planError
+              "unsupported Quint semantic shape: named Struct requires at least one field"
+          let mut out : Array Bool := #[]
+          for f in fields do
+            unless isUInt64Type types f.typeId || isInt64Type types f.typeId do
+              planError
+                "unsupported Quint semantic shape: named Struct field must be UInt64 or Int64 (nested named stay fail closed)"
+            out := out.push (isInt64Type types f.typeId)
+          pure out
+      | .enum variants => do
+          unless variants.size > 0 do
+            planError
+              "unsupported Quint semantic shape: named Enum requires at least one variant"
+          let mut maxPay : Nat := 0
+          for v in variants do
+            unless v.payloadTypes.size ≤ 1 do
+              planError
+                "unsupported Quint semantic shape: named Enum variant admits at most one UInt64/Int64 payload"
+            for pt in v.payloadTypes do
+              unless isUInt64Type types pt || isInt64Type types pt do
+                planError
+                  "unsupported Quint semantic shape: named Enum payload must be UInt64 or Int64 (nested named stay fail closed)"
+            if v.payloadTypes.size > maxPay then maxPay := v.payloadTypes.size
+          let mut out : Array Bool := #[false]
+          for i in [0:maxPay] do
+            let mut seen : Option Bool := none
+            for v in variants do
+              match v.payloadTypes[i]? with
+              | none => pure ()
+              | some pt =>
+                  let isInt := isInt64Type types pt
+                  match seen with
+                  | none => seen := some isInt
+                  | some prev =>
+                      unless prev == isInt do
+                        planError
+                          "unsupported Quint semantic shape: named Enum payload slot mixes Int64 and UInt64"
+            out := out.push (seen.getD false)
+          pure out
+      | _ =>
+          planError
+            "unsupported Quint semantic shape: named type must be Struct or Enum"
+
+/-- View-only aggregate return: Array UInt64 N / Option UInt64 / named
+    Struct·Enum (UInt64/Int64 leaves). Map/Bytes stay fail closed. -/
+private def viewAggregateLeafIsIntV1
+    (typeDecls : Array TypeDeclV1) (types : QuintTypeClosureV1)
+    (typeId : TypeIdV1) (signedNumeric : Bool) :
+    CompileResult (Option (Array Bool)) := do
+  if isAnonymousOptionTypeIdV1 typeDecls typeId then
+    requireOptionUInt64V1 typeDecls types typeId signedNumeric
+    return some #[false, false]
+  if types.isNamedAggregate typeId then
+    let marks ← flattenNamedLeafIsIntV1 typeDecls types typeId
+    return some marks
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .array elTid len, name := none, .. } =>
+      unless isUInt64Type types elTid do
+        planError
+          "unsupported Quint semantic shape: Array view return element must be UInt64"
+      let n := len.toNat
+      unless 1 ≤ n && n ≤ 8 do
+        planError
+          s!"unsupported Quint semantic shape: Array UInt64 N view return must be 1..8 (got {n})"
+      return some (Array.replicate n false)
+  | _ =>
+      return none
 
 /-- Physical PlanState leaves after Array/Option/named flatten. `leavesOf[logicalId]`
     is the dense field-index list (`name`, `name_0`..`name_{N-1}`,
@@ -1191,12 +1286,30 @@ private def lookupPureFn (idx : CallableIndex) (id : CallableIdV1) :
 
 private def resultKindOf
     (typeDecls : Array TypeDeclV1) (types : QuintTypeClosureV1)
-    (typeId : TypeIdV1) (owner : String) :
+    (typeId : TypeIdV1) (owner : String)
+    (signedNumeric : Bool) (allowViewAggregate : Bool) :
     CompileResult ResultKind := do
   if isUnitType types typeId then pure .unit
   else if isInt64Type types typeId then pure .int64
   else if isUInt64Type types typeId then pure .uint64
   else if isBoolType types typeId then pure .bool
+  else if allowViewAggregate then
+    match ← viewAggregateLeafIsIntV1 typeDecls types typeId signedNumeric with
+    | some marks => do
+        let n := marks.size
+        unless 1 ≤ n && n ≤ 8 do
+          planError
+            s!"{owner} aggregate return must have 1..8 leaves (got {n})"
+        pure (.aggregate n)
+    | none =>
+        if isAnonymousOptionTypeIdV1 typeDecls typeId then
+          planError s!"{owner} Option return is outside Q0"
+        else if types.isNamedAggregate typeId then
+          planError s!"{owner} named Struct/Enum return is outside Q0"
+        else if types.isContainer typeId then
+          planError
+            s!"{owner} Array/Map return is outside Q0 (only Array/Map UInt64 state flattens; no native Quint List/Map)"
+        else planError s!"{owner} result must be public Unit, UInt64, Int64, or Bool"
   else if isAnonymousOptionTypeIdV1 typeDecls typeId then
     planError s!"{owner} Option return is outside Q0"
   else if types.isNamedAggregate typeId then
@@ -1966,6 +2079,7 @@ private def makePlanFromSemanticDataV1
         unless isIdentifier name do
           planError s!"pureFn '{name}' is not a safe identifier"
         let rk ← resultKindOf data.types types callable.result.typeId s!"pureFn '{name}'"
+          signedNumeric false
         unless callable.result.visibility == .public_ do
           planError s!"pureFn '{name}' result must be public"
         let (_params, paramIsPrincipal, _checks, stores, assetOps, ret?, endedRevert,
@@ -2000,6 +2114,8 @@ private def makePlanFromSemanticDataV1
             planError s!"pureFn '{name}' non-Unit return is missing"
         | .uint64, some _, true | .int64, some _, true | .bool, some _, true =>
             planError s!"pureFn '{name}' revert path cannot carry a return value"
+        | .aggregate _, _, _ =>
+            planError s!"pureFn '{name}' aggregate return is outside Q0"
     | .initializer => do
         unless initializer.isNone do
           planError "unsupported Quint semantic shape: at most one initializer"
@@ -2035,6 +2151,7 @@ private def makePlanFromSemanticDataV1
         unless isIdentifier name do
           planError s!"entry '{name}' is not a safe identifier"
         let rk ← resultKindOf data.types types callable.result.typeId s!"entry '{name}'"
+          signedNumeric false
         unless callable.result.visibility == .public_ do
           planError s!"entry '{name}' result must be public"
         let (params, paramIsPrincipal, checks, stores, assetOps, ret?, endedRevert,
@@ -2062,6 +2179,8 @@ private def makePlanFromSemanticDataV1
               planError s!"entry '{name}' non-Unit return is missing"
           | .uint64, some _, true | .int64, some _, true | .bool, some _, true =>
               planError s!"entry '{name}' revert path cannot carry a return value"
+          | .aggregate _, _, _ =>
+              planError s!"entry '{name}' aggregate return is outside Q0"
         if bodyUsesVault then
           usesVaultNative := true
         entryActionIndex := entryActionIndex + 1
@@ -2078,8 +2197,9 @@ private def makePlanFromSemanticDataV1
         unless isIdentifier name do
           planError s!"view '{name}' is not a safe identifier"
         let rk ← resultKindOf data.types types callable.result.typeId s!"view '{name}'"
+          signedNumeric true
         unless rk != .unit do
-          planError s!"view '{name}' result must be UInt64, Int64, or Bool"
+          planError s!"view '{name}' result must be UInt64, Int64, Bool, or a view-only aggregate"
         unless callable.result.visibility == .public_ do
           planError s!"view '{name}' result must be public"
         let (params, paramIsPrincipal, checks, stores, assetOps, ret?, endedRevert,
@@ -2103,14 +2223,38 @@ private def makePlanFromSemanticDataV1
         let tv ← match ret? with
           | some v => pure v
           | none => planError s!"view '{name}' must return a value"
-        let value ← match rk with
-          | .uint64 => requireTy tv .uint64 s!"view '{name}' result"
-          | .int64 => requireTy tv .int64 s!"view '{name}' result"
-          | .bool => requireTy tv .bool s!"view '{name}' result"
-          | .unit => planError s!"view '{name}' result must be UInt64, Int64, or Bool"
+        let (value, leaves, leafIsInt) ← match rk with
+          | .uint64 => do
+              let e ← requireTy tv .uint64 s!"view '{name}' result"
+              pure (e, #[], #[])
+          | .int64 => do
+              let e ← requireTy tv .int64 s!"view '{name}' result"
+              pure (e, #[], #[])
+          | .bool => do
+              let e ← requireTy tv .bool s!"view '{name}' result"
+              pure (e, #[], #[])
+          | .unit =>
+              planError s!"view '{name}' result must be UInt64, Int64, Bool, or a view-only aggregate"
+          | .aggregate n => do
+              unless isAggregateValue tv && tv.leaves.size == n do
+                planError
+                  s!"view '{name}' aggregate return must flatten to exactly {n} leaves"
+              let some head := tv.leaves[0]? |
+                planError s!"view '{name}' aggregate return is empty"
+              let marks ←
+                match ← viewAggregateLeafIsIntV1 data.types types
+                    callable.result.typeId signedNumeric with
+                | some m =>
+                    unless m.size == n do
+                      planError
+                        s!"view '{name}' aggregate signedness length must match leaf count"
+                    pure m
+                | none =>
+                    planError s!"view '{name}' aggregate return type is not admitted"
+              pure (head, tv.leaves, marks)
         if bodyUsesVault then
           usesVaultNative := true
-        views := views.push { name, params, resultKind := rk, value }
+        views := views.push { name, params, resultKind := rk, value, leaves, leafIsInt }
     | .invariant => do
         let name ← match callable.name with
           | some n => pure n
@@ -2143,8 +2287,8 @@ private def makePlanFromSemanticDataV1
           | none => planError s!"invariant '{name}' must return Bool"
         let value ← requireTy tv .bool s!"invariant '{name}' result"
         invariants := invariants.push { name, checks, value }
-  unless entries.size > 0 do
-    planError "unsupported Quint semantic shape: at least one entry is required"
+  unless entries.size > 0 || views.size > 0 do
+    planError "unsupported Quint semantic shape: at least one entry or view is required"
   pure {
     programName
     sourceHash

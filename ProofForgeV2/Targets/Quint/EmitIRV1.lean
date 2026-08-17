@@ -42,6 +42,8 @@ inductive QExpr where
   | call (callee : String) (args : Array QExpr)
   | ifThenElse (cond thenE elseE : QExpr)
   | primed (id : String)
+  /-- View-only flattened return: Quint tuple of ints (no native List/Option). -/
+  | tuple (elems : Array QExpr)
   deriving BEq, Inhabited, Repr
 
 /-- One local value binding inside an action block (`val x = e`).
@@ -248,6 +250,7 @@ private partial def rewriteMaxBound : QExpr → QExpr
   | .call c args => .call c (args.map rewriteMaxBound)
   | .ifThenElse c t e =>
       .ifThenElse (rewriteMaxBound c) (rewriteMaxBound t) (rewriteMaxBound e)
+  | .tuple elems => .tuple (elems.map rewriteMaxBound)
   | other => other
 
 private def freshPure (pfx : String) (n : Nat) : String :=
@@ -383,6 +386,9 @@ private def emitEntryBranch (plan : Plan) (ent : PlanEntry) :
             target := lastResultName ent.name
             value := .name (lastResultName ent.name)
           }
+      | .aggregate _, _ =>
+          -- Entry aggregate is rejected at plan; keep instrumentation exhaustive.
+          pure ()
     else
       for i in [0:other.params.size] do
         assigns := assigns.push {
@@ -396,6 +402,7 @@ private def emitEntryBranch (plan : Plan) (ent : PlanEntry) :
             target := lastResultName other.name
             value := .name (lastResultName other.name)
           }
+      | .aggregate _ => pure ()
   -- Business state: success → post store / identity; failure → pre-state stutter
   let mut written : Array Nat := #[]
   for (fi, e) in ent.stores do
@@ -493,6 +500,7 @@ private def emitInitBranch (plan : Plan) (init : PlanInit) :
           target := lastResultName ent.name
           value := .boolLit false
         }
+    | .aggregate _ => pure ()
   pure { nondets, pures := #[], assigns }
 
 private def lower (plan : Plan) : CompileResult IR := do
@@ -522,6 +530,7 @@ private def lower (plan : Plan) : CompileResult IR := do
         decls := decls.push (.varDecl (lastResultName ent.name) "int")
     | .bool =>
         decls := decls.push (.varDecl (lastResultName ent.name) "bool")
+    | .aggregate _ => pure ()
   -- Views as pure defs under a target-owned namespace. Parameters are indexed
   -- target names so source shadowing cannot capture a business state variable.
   let mut viewIndex : Nat := 0
@@ -529,11 +538,25 @@ private def lower (plan : Plan) : CompileResult IR := do
     let mut emittedParams : Array String := #[]
     for i in [0:v.params.size] do
       emittedParams := emittedParams.push s!"pf_view_arg_{viewIndex}_{i}"
-    let body ← lowerExpr plan emittedParams #[] #[] v.value
     let params := emittedParams.map (fun n => (n, "int"))
-    let ret := match v.resultKind with
-      | .bool => "bool"
-      | _ => "int"
+    let (ret, body) ← match v.resultKind with
+      | .bool => do
+          let body ← lowerExpr plan emittedParams #[] #[] v.value
+          pure ("bool", body)
+      | .aggregate n => do
+          let src := if v.leaves.isEmpty then #[v.value] else v.leaves
+          unless src.size == n do
+            planError
+              s!"Quint view '{v.name}' aggregate emit leaf count must be {n}"
+          let mut elems : Array QExpr := #[]
+          for e in src do
+            elems := elems.push (← lowerExpr plan emittedParams #[] #[] e)
+          let retTy :=
+            "(" ++ String.intercalate ", " (List.replicate n "int") ++ ")"
+          pure (retTy, QExpr.tuple elems)
+      | .unit | .uint64 | .int64 => do
+          let body ← lowerExpr plan emittedParams #[] #[] v.value
+          pure ("int", body)
     decls := decls.push (.pureDef (emittedViewName v.name) params ret body)
     viewIndex := viewIndex + 1
   -- Invariants as val (business state only; vault is not an invariant root)
@@ -558,13 +581,25 @@ private def lower (plan : Plan) : CompileResult IR := do
         stores := #[]
       }
       decls := decls.push (.actionInit br)
-  -- step action: one branch per entry
+  -- step action: one branch per entry. View-only programs stutter.
   let mut branches : Array QActionBranch := #[]
   for ent in plan.entries do
     let br ← emitEntryBranch plan ent
     branches := branches.push br
-  unless branches.size > 0 do
-    planError "Quint IR requires at least one entry branch"
+  if branches.isEmpty then
+    let mut assigns : Array QAssign := #[]
+    assigns := assigns.push { target := "pf_last_action", value := .intLit "0" }
+    assigns := assigns.push { target := "pf_last_ok", value := .boolLit true }
+    assigns := assigns.push { target := "pf_last_failure", value := .intLit "0" }
+    for i in [0:plan.states.size] do
+      let sn ← stateVar plan i
+      assigns := assigns.push { target := sn, value := .name sn }
+    if plan.usesVaultNative then
+      assigns := assigns.push {
+        target := "pf_vault_native"
+        value := .name "pf_vault_native"
+      }
+    branches := branches.push { nondets := #[], pures := #[], assigns }
   decls := decls.push (.actionStep branches)
   let module_ : QModule := {
     -- Module identity is target-owned so a source program name can never
@@ -639,6 +674,9 @@ private partial def renderExprPrec (requested : Nat) : QExpr → String
       wrapExpr requested 5
         s!"if ({renderExprPrec 0 c}) {renderExprPrec 0 t} else {renderExprPrec 0 e}"
   | .primed id => wrapExpr requested 80 s!"{id}'"
+  | .tuple elems =>
+      let inner := String.intercalate ", " (elems.map (renderExprPrec 0)).toList
+      "(" ++ inner ++ ")"
 
 private def renderExpr (expr : QExpr) : String :=
   renderExprPrec 0 expr

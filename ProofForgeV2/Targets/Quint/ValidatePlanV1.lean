@@ -267,8 +267,8 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     planError "Quint plan exceeds the view limit"
   unless plan.invariants.size ≤ maxInvariants do
     planError "Quint plan exceeds the invariant limit"
-  unless plan.entries.size > 0 do
-    planError "Quint plan requires at least one entry"
+  unless plan.entries.size > 0 || plan.views.size > 0 do
+    planError "Quint plan requires at least one entry or view"
   let signed := plan.signedNumeric
   let mut exprBudget := maxPlanExprNodes
   -- Flattened Array (`name_i`) and Option (`name_tag`/`name_p0`) leaves are
@@ -362,6 +362,8 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     | .uint64, none, true | .int64, none, true | .bool, none, true => pure ()
     | .uint64, none, false | .int64, none, false | .bool, none, false =>
         planError s!"Quint entry '{ent.name}' non-Unit result is missing without terminal revert"
+    | .aggregate _, _, _ =>
+        planError s!"Quint entry '{ent.name}' cannot return an aggregate"
   let mut viewNames : Array String := #[]
   for v in plan.views do
     unless isSafeIdent v.name do
@@ -372,20 +374,47 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     validateParams v.params
     if exprUsesVaultNativeV1 v.value then
       anyVaultUse := true
+    for leaf in v.leaves do
+      if exprUsesVaultNativeV1 leaf then
+        anyVaultUse := true
     match v.resultKind with
     | .unit => planError s!"Quint view '{v.name}' cannot have Unit result"
     | .uint64 =>
+        unless v.leaves.isEmpty && v.leafIsInt.isEmpty do
+          planError s!"Quint view '{v.name}' scalar result must not carry aggregate leaves"
         exprBudget ←
           validateExpr v.value .uint64 "view value" v.params.size plan.states.size 0
             exprBudget #[] signed
     | .int64 =>
+        unless v.leaves.isEmpty && v.leafIsInt.isEmpty do
+          planError s!"Quint view '{v.name}' scalar result must not carry aggregate leaves"
         exprBudget ←
           validateExpr v.value .int64 "view value" v.params.size plan.states.size 0
             exprBudget #[] signed
     | .bool =>
+        unless v.leaves.isEmpty && v.leafIsInt.isEmpty do
+          planError s!"Quint view '{v.name}' scalar result must not carry aggregate leaves"
         exprBudget ←
           validateExpr v.value .bool "view value" v.params.size plan.states.size 0
             exprBudget #[] signed
+    | .aggregate n =>
+        unless 1 ≤ n && n ≤ 8 do
+          planError s!"Quint view '{v.name}' aggregate return must have 1..8 leaves"
+        unless v.leaves.size == n && v.leafIsInt.size == n do
+          planError
+            s!"Quint view '{v.name}' aggregate leaves must match resultKind leaf count"
+        unless v.leaves[0]? == some v.value do
+          planError
+            s!"Quint view '{v.name}' aggregate value must equal the first leaf"
+        for i in [0:n] do
+          let some e := v.leaves[i]? |
+            planError s!"Quint view '{v.name}' aggregate leaf {i} is missing"
+          let some isInt := v.leafIsInt[i]? |
+            planError s!"Quint view '{v.name}' aggregate signedness {i} is missing"
+          let ty := if isInt then ExprType.int64 else ExprType.uint64
+          exprBudget ←
+            validateExpr e ty "view aggregate leaf" v.params.size plan.states.size 0
+              exprBudget #[] signed
   -- ADR-0030 E2: usesVaultNative covers entry asset ops AND env-read vaultNative
   -- expressions in entries/views (not only nonempty assetOps).
   unless plan.usesVaultNative == anyVaultUse do
