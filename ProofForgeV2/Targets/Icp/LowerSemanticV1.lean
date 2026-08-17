@@ -1580,7 +1580,7 @@ private partial def emitRegion
                 nextTemp := acc.nextTemp + 1
                 env := envInsert acc.env inductionParam.valueId (mkScalar (.temp varTemp)) }
             let acc ←
-              lowerBlockInstructions data types layout allowStateWrite signedNumeric
+              lowerBlockInstructions data types layout mode allowStateWrite signedNumeric
                 header acc
             unless acc.overlay.entries.isEmpty && acc.asserts.isEmpty do
               planError

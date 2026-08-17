@@ -981,9 +981,9 @@
       "sha256": "8f63357410c1dcdab76d7f12a5d08ee7aba5bfcf2b593652b3d02eee041cc89d"
     },
     {
-      "bytes": 103936,
+      "bytes": 103941,
       "path": "ProofForgeV2/Targets/Icp/LowerSemanticV1.lean",
-      "sha256": "1293142f382f7e8f701754b289479cf4505a74422dada42a8ec415f1460073f7"
+      "sha256": "541a84c40e12e562c5901b664088e09e8551952d3cbf9ee1ebd9b6ca4fe5dfd7"
     },
     {
       "bytes": 1533,
