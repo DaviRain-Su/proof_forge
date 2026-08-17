@@ -1,9 +1,13 @@
 /-
-  XRPL Q0 target leaf tests (ADR-0049): Plan/IR/emitter over retained
-  SemanticProgramV1. Uses planFromCompiledSemanticV1 / buildFromCompiledSemanticV1
-  plus the full capability/materialize/finalize product path.
+  XRPL Q0/Q1 target leaf tests (ADR-0049 + ADR-0050): Plan/IR/emitter over
+  retained SemanticProgramV1. Uses planFromCompiledSemanticV1 /
+  buildFromCompiledSemanticV1 plus the full capability/materialize/finalize
+  product path for both the default zero-tool source profile and the opt-in
+  `xrpl-bedrock-wasm-u64-v1` build profile.
 -/
+import ProofForgeV2
 import ProofForgeV2.Targets.Xrpl
+import ProofForgeV2.Targets.Xrpl.FinalizeV1
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Core.TargetIdentityV1
 import Tests.Language.ParserSession
@@ -127,13 +131,109 @@ unsafe def testMaterializeDeterminism : IO Unit := do
       | .error e => throw <| IO.userError e
   | .error e => throw <| IO.userError e
 
-unsafe def testSelectionBindsSoleProfile : IO Unit := do
+unsafe def testSelectionBindsDefaultSourceProfile : IO Unit := do
   let selection ← liftResult <|
     Targets.BuildSelectionV1.resolveBuildSelectionV1 TargetId.xrpl none
   expect (selection.codegenProfile == CodegenProfileId.xrplBedrockSourceU64V1)
-    "XRPL selection must bind its sole source profile"
+    "XRPL selection must bind the default source profile"
   expect (selection.kind == TargetKind.xrpl)
     "XRPL selection must bind TargetKind.xrpl"
+
+private unsafe def wasmCompiledStateCell : IO CompiledSemanticV1 := do
+  let session ← Tests.Language.ParserSession.shared
+  let parsed ← liftResult (← session.selectProgramV1
+    stateCellSource "<xrpl-wasm>" "Tests.XrplWasm" none)
+  liftResult <| Compiler.compileValidatedSourceV1 parsed
+
+/-- ADR-0050 Q1: selecting the explicit wasm profile shares the exact same
+    Plan/base `{name}.rs` as the default source profile. -/
+unsafe def testWasmProfileSelection : IO Unit := do
+  let compiled ← wasmCompiledStateCell
+  let selection ← liftResult <|
+    Targets.BuildSelectionV1.resolveBuildSelectionV1
+      TargetId.xrpl (some CodegenProfileId.xrplBedrockWasmU64V1)
+  expect (selection.codegenProfile == CodegenProfileId.xrplBedrockWasmU64V1)
+    "XRPL selection must bind the explicit wasm profile when requested"
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Xrpl.planFromCapability capability
+  expect (plan.programName == "StateCell")
+    "XRPL wasm profile must retain the compiled artifact name"
+  let artifacts ← liftResult <| Targets.materializeResult capability
+  expect (MaterializedArtifactsV1.codegenProfileIdOf artifacts ==
+      CodegenProfileId.xrplBedrockWasmU64V1)
+    "XRPL wasm materialize must bind the wasm profile"
+  let files := MaterializedArtifactsV1.filesOf artifacts
+  expect (files.size == 1)
+    "XRPL wasm profile must emit the same single .rs base file as the source profile"
+  expect (files[0]!.path == "StateCell.rs")
+    "XRPL wasm profile must keep StateCell.rs as the base artifact"
+
+/-- ADR-0050 Q1 Finalize: missing rustc/cargo fails closed with
+    `PF-TOOLCHAIN-MISSING`; when ambient cargo is present, the
+    `wasm32-unknown-unknown` extra is staged at `xrpl-build/{program}.wasm`.
+    Host-optional in the success arm: cargo may be present without the wasm
+    target or a fetchable craft rev, so a build failure there is an honest
+    skip rather than a hard failure. -/
+unsafe def testWasmProfileFinalize : IO Unit := do
+  let compiled ← wasmCompiledStateCell
+  let selection ← liftResult <|
+    Targets.BuildSelectionV1.resolveBuildSelectionV1
+      TargetId.xrpl (some CodegenProfileId.xrplBedrockWasmU64V1)
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let artifacts ← liftResult <| Targets.materializeResult capability
+  let files := MaterializedArtifactsV1.filesOf artifacts
+  IO.FS.withTempDir fun stagingDir => do
+    for f in files do
+      let path := stagingDir / f.path
+      if let some parent := path.parent then
+        IO.FS.createDirAll parent
+      IO.FS.writeFile path f.contents
+    let cargo? ← Targets.Xrpl.FinalizeV1.resolveCargoPathV1
+    let rustc? ← Targets.Xrpl.FinalizeV1.resolveRustcPathV1
+    match cargo?, rustc? with
+    | none, _ | _, none => do
+        let outcome ←
+          try
+            let _ ← Targets.finalizeMaterializedArtifactsV1 capability artifacts stagingDir
+            pure (Except.ok () : Except String Unit)
+          catch e => pure (Except.error (toString e))
+        match outcome with
+        | .ok () =>
+            throw <| IO.userError "XRPL wasm finalize must fail without rustc/cargo"
+        | .error msg =>
+            expect (msg.contains "PF-TOOLCHAIN-MISSING")
+              s!"missing rustc/cargo must fail closed with PF-TOOLCHAIN-MISSING, got: {msg}"
+    | some path, some _ => do
+        let outcome ←
+          try
+            let finalized ←
+              Targets.finalizeMaterializedArtifactsV1 capability artifacts stagingDir
+            pure (Except.ok finalized : Except String FinalizedArtifactsV1)
+          catch e => pure (Except.error (toString e))
+        match outcome with
+        | .error msg =>
+            if msg.contains "PF-TOOLCHAIN-MISSING" then
+              IO.println
+                s!"  skipped: ambient cargo present but wasm32-unknown-unknown missing: {msg}"
+            else
+              IO.println
+                s!"  skipped: ambient cargo present but XRPL wasm build failed: {msg}"
+        | .ok finalized =>
+            expect (!FinalizedArtifactsV1.deployableOf finalized)
+              "XRPL wasm finalization must remain non-deployable"
+            let extras := FinalizedArtifactsV1.extraFilesOf finalized
+            expect (extras == #["xrpl-build/StateCell.wasm"])
+              s!"XRPL wasm extras must use the stable xrpl-build/* path, got {extras}"
+            let wasmBytes ← IO.FS.readBinFile (stagingDir / "xrpl-build" / "StateCell.wasm")
+            expect (!wasmBytes.isEmpty) "XRPL wasm extra must be nonempty"
+            let note := FinalizedArtifactsV1.evidenceNoteOf finalized
+            expect (note.contains "wasm32-unknown-unknown" &&
+                note.contains "ContractCreate" &&
+                note.contains Targets.Xrpl.FinalizeV1.xrplWasmStdGitRevV1)
+              "XRPL wasm finalization evidence must name the triple, craft rev, and ContractCreate boundary"
+            IO.println s!"  XRPL wasm profile: built with ambient cargo at {path}"
 
 unsafe def testUnknownProfileFailClosed : IO Unit := do
   match CodegenProfileId.parse? "not-a-real-profile-v1" with
@@ -235,7 +335,9 @@ unsafe def testInt64FailClosed : IO Unit := do
 unsafe def run : IO Unit := do
   testStateCellXrplSource
   testMaterializeDeterminism
-  testSelectionBindsSoleProfile
+  testSelectionBindsDefaultSourceProfile
+  testWasmProfileSelection
+  testWasmProfileFinalize
   testUnknownProfileFailClosed
   testInvariantFailClosed
   testCallFailClosed

@@ -237,10 +237,16 @@ def openvmGuestSourceV1 : CodegenProfileId := ⟨"openvm-guest-source-v1"⟩
     runs `cargo openvm build` to stage RV32IM ELF + `.vmexe` extras. Remains
     `deployable=false`; no keygen/execute/prove/verify product claim. -/
 def openvmGuestElfV1 : CodegenProfileId := ⟨"openvm-guest-elf-v1"⟩
-/-- ADR-0049 sole XRPL Q0 profile: target-owned Plan → Bedrock-shaped Rust
+/-- ADR-0049 default XRPL Q0 profile: target-owned Plan → Bedrock-shaped Rust
     `.rs` source recipe. Zero-tool finalize; deployable=false; not Wasm,
-    not AlphaNet, not mainnet, not Hooks, not EVM sidechain. -/
+    not AlphaNet, not mainnet, not Hooks, not EVM sidechain. ADR-0050 keeps
+    this the default when the opt-in WASM profile is added. -/
 def xrplBedrockSourceU64V1 : CodegenProfileId := ⟨"xrpl-bedrock-source-u64-v1"⟩
+/-- Explicit XRPL opt-in profile (ADR-0050 Q1). Same Plan/`.rs` emission as
+    `xrplBedrockSourceU64V1`; Finalize resolves ambient rustc/cargo and
+    builds `wasm32-unknown-unknown` extras. Remains `deployable=false`; no
+    bedrock / ContractCreate / AlphaNet / mainnet product claim. -/
+def xrplBedrockWasmU64V1 : CodegenProfileId := ⟨"xrpl-bedrock-wasm-u64-v1"⟩
 
 end CodegenProfileId
 

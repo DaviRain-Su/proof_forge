@@ -587,8 +587,13 @@ def initialRegistrationRowsV1 : Array TargetRegistrationDataV1 :=
     row .ton (semanticsAxesOfKindV1 .ton)
       #[CodegenProfileId.tonTolkBocV1]
       (some CodegenProfileId.tonTolkBocV1),
+    -- XRPL dual profiles (ASCII ascending: source-u64 < wasm-u64);
+    -- default remains zero-tool source. Same Plan / `.rs` base surface; the
+    -- explicit WASM profile builds a `wasm32-unknown-unknown` extra during
+    -- Finalize (ADR-0050 Q1; deployable=false; no AlphaNet/mainnet).
     row .xrpl (semanticsAxesOfKindV1 .xrpl)
-      #[CodegenProfileId.xrplBedrockSourceU64V1]
+      #[CodegenProfileId.xrplBedrockSourceU64V1,
+        CodegenProfileId.xrplBedrockWasmU64V1]
       (some CodegenProfileId.xrplBedrockSourceU64V1)
   ]
 

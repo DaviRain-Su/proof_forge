@@ -329,8 +329,8 @@ private def mkImplementedRow
     supported
   }
 
-/-- Shipped sixteen-row seed body (canonical targetId order: aleo, cosmwasm,
-    evm×2, icp, near, noir×2, openvm×2, psy, quint, solana, soroban, ton, xrpl). Aleo
+/-- Shipped seventeen-row seed body (canonical targetId order: aleo, cosmwasm,
+    evm×2, icp, near, noir×2, openvm×2, psy, quint, solana, soroban, ton, xrpl×2). Aleo
     and Psy each expose one direct target IR profile. OpenVM (both
     `openvm-guest-elf-v1` ADR-0046 and `openvm-guest-source-v1` ADR-0045) admits
     exactly `state.persistent`, `failure.atomic-rollback`, `value.bool`, and
@@ -525,8 +525,11 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
     -- ADR-0044: sole Soroban S0 source-only profile (ASCII: soroban < ton).
     mkImplementedRow .soroban CodegenProfileId.sorobanSourceU64V1 sorobanRequests,
     mkImplementedRow .ton CodegenProfileId.tonTolkBocV1 withoutSync,
-    -- ADR-0049: sole XRPL Q0 source-only profile (ASCII: ton < xrpl).
-    mkImplementedRow .xrpl CodegenProfileId.xrplBedrockSourceU64V1 xrplRequests
+    -- ADR-0049/0050: XRPL dual profiles share the exact 4-key subset; the
+    -- WASM profile's ambient rustc build is a Finalize/profile selection,
+    -- not a new requirement id. ASCII ascending: source-u64 < wasm-u64.
+    mkImplementedRow .xrpl CodegenProfileId.xrplBedrockSourceU64V1 xrplRequests,
+    mkImplementedRow .xrpl CodegenProfileId.xrplBedrockWasmU64V1 xrplRequests
   ]
 
 /-- Frozen product seed as `CompileResult`. Binders surface seed errors first —

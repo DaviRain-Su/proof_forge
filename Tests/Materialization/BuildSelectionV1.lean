@@ -220,6 +220,8 @@ private def testGrammar : IO Unit := do
     "well-known ICP Wasm+Candid profile constant"
   expect (CodegenProfileId.xrplBedrockSourceU64V1 == (← parseProfile "xrpl-bedrock-source-u64-v1"))
     "well-known XRPL Bedrock Q0 profile constant"
+  expect (CodegenProfileId.xrplBedrockWasmU64V1 == (← parseProfile "xrpl-bedrock-wasm-u64-v1"))
+    "well-known XRPL Bedrock Q1 wasm profile constant"
   expect (TargetId.parse? "quint" == some TargetId.quint)
     "well-known Quint target constant"
   expect (TargetId.parse? "soroban" == some TargetId.soroban)

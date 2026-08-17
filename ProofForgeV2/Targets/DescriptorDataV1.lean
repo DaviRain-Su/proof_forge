@@ -105,9 +105,9 @@ def openvm : TargetDescriptor :=
   descriptorFromRegistryAxes .openvm .openvmGuestSource
     CodegenProfileId.openvmGuestSourceV1
 
-/-- XRPL Q0 (ADR-0049): source-only Bedrock-shaped Rust dialect `.rs`.
-    Zero-tool finalize; deployable=false. Must not reuse OpenVM/NEAR/Soroban
-    Plan or claim Wasm / AlphaNet / mainnet. -/
+/-- XRPL Q0/Q1 (ADR-0049/0050): Bedrock-shaped Rust dialect `.rs`.
+    Default finalize zero-tool; wasm profile may build via ambient rustc.
+    Must not reuse OpenVM/NEAR/Soroban Plan or claim AlphaNet / mainnet. -/
 def xrpl : TargetDescriptor :=
   descriptorFromRegistryAxes .xrpl .xrplBedrockSource
     CodegenProfileId.xrplBedrockSourceU64V1
