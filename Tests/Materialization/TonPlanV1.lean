@@ -35,7 +35,7 @@
   Array/Map/Option of Int8/16/32 and Map of UInt128 / Opt of UInt256,
   UInt128/256 shifts/bitwise, Map/Bytes returns, N>8,
   nested/narrow-element containers, Option params, invariants,
-  Field/Principal).
+  Field). Principal 9-leaf wire identity is admitted (T4; ≠address).
 
   Registered in Tests/Shards/Targets. Not @ton/sandbox runtime (TON-3).
   Not formal D4.
@@ -2929,6 +2929,41 @@ private unsafe def testScalarConstInline
     (planTon strCompiled)
   IO.println "  ✓ Ton scalar const inline + String FC pin ok"
 
+/-- T4: Principal state/params flatten to 9 UInt64 identity leaves. Return FC. -/
+private unsafe def testPrincipalIdentityLeaves
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "PrincipalMix" <|
+    "  state owner : Principal\n\n" ++
+    "  init(initial : Principal) do\n" ++
+    "    owner := initial\n\n" ++
+    "  entry set(who : Principal) : Bool do\n" ++
+    "    owner := who\n" ++
+    "    return true\n\n" ++
+    "  entry eq(a : Principal, b : Principal) : Bool do\n" ++
+    "    return a == b\n\n" ++
+    "  entry matchesOwner(who : Principal) : Bool do\n" ++
+    "    return owner == who\n"
+  let compiled ← compileSource session source "Examples.PrincipalMix" "<ton-principal>"
+  let plan ← liftResult (planTon compiled)
+  expect (plan.storage.fields.size == 9)
+    s!"Principal state must flatten to 9 leaves, got {plan.storage.fields.size}"
+  expect (plan.storage.fields[0]!.name == "owner_len")
+    s!"Principal leaf 0 must be owner_len, got {plan.storage.fields[0]!.name}"
+  expect (plan.storage.fields[1]!.name == "owner_w0")
+    s!"Principal leaf 1 must be owner_w0, got {plan.storage.fields[1]!.name}"
+  expect (plan.storage.fields[8]!.name == "owner_w7")
+    s!"Principal leaf 8 must be owner_w7, got {plan.storage.fields[8]!.name}"
+  let retSource := wrapProgram "PrincipalReturn" <|
+    "  state owner : Principal\n\n" ++
+    "  init(initial : Principal) do\n" ++
+    "    owner := initial\n\n" ++
+    "  view getOwner() : Principal do\n" ++
+    "    return owner\n"
+  let compiledRet ← compileSource session retSource "Examples.PrincipalReturn" "<ton-principal-ret>"
+  expectPlanErrorContaining "PrincipalReturn" "Principal"
+    (planTon compiledRet)
+  IO.println "  ✓ Ton Principal 9-leaf identity + return FC"
+
 unsafe def run : IO Unit := do
   IO.println "TonPlanV1"
   let session ← Tests.Language.ParserSession.shared
@@ -2977,6 +3012,7 @@ unsafe def run : IO Unit := do
   testEnvReadNativeStayFailClosed session
   testUnknownProfileFailClosed
   testScalarConstInline session
+  testPrincipalIdentityLeaves session
   IO.println "TonPlanV1: all checks passed"
 
 end Tests.Materialization.TonPlanV1

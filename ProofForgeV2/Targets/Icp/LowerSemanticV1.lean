@@ -155,7 +155,7 @@ private def icpTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt64/Int64 widths are supported"
   unsupportedShapeDetail :=
-    "only anonymous UInt64, Int64, UInt8 (Bytes element), Bool, Unit, Array UInt64 N state flatten, and Bytes N (N i64 globals, low-8, no Candid vec nat8) are supported (narrow Int/Field/Principal/aggregates/Map/Option/String fail closed on the ICP-2 Counter/StateCell envelope)"
+    "only anonymous UInt64, Int64, UInt8 (Bytes element), Bool, Unit, Array UInt64 N state flatten, Bytes N (N i64 globals, low-8, no Candid vec nat8), and Principal 9-leaf identity (9 i64 globals, not Candid principal) are supported (narrow Int/Field/aggregates/Map/Option/String fail closed on the ICP-2 Counter/StateCell envelope)"
 
 private def pilotUintWidthPolicyU64U32Index : PilotUintWidthPolicy where
   admittedWidths := #[64, 32, 8]
@@ -168,7 +168,7 @@ private def validateIcpTypeClosureV1
     pilotUintWidthPolicyU64U32Index
     (intPolicy := pilotIntWidthPolicyI64)
     (fieldPolicy := pilotFieldPolicyNone)
-    (principalPolicy := pilotPrincipalPolicyNone)
+    (principalPolicy := pilotPrincipalPolicyAdmit)
     (containerPolicy := pilotContainerStatePolicyArrayBytes)
 
 private def maxIdentifierBytes : Nat := 200
@@ -203,6 +203,28 @@ private def isUInt32Type (types : IcpTypeClosureV1) (typeId : TypeIdV1) : Bool :
 
 private def isUInt8Type (types : IcpTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   types.uintTypeIdAt 8 == some typeId
+
+private def isPrincipalType (types : IcpTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  types.principalTypeId == some typeId
+
+private def principalDataWordCountV1 : Nat := 8
+private def principalMaxPayloadBytesV1 : Nat := 64
+private def principalLeafCountV1 : Nat := 1 + principalDataWordCountV1
+
+private def flattenPrincipalLeafNamesV1 (namePrefix : String) :
+    CompileResult (Array String) := do
+  let lenName :=
+    if namePrefix.isEmpty then "len" else namePrefix ++ "_len"
+  unless isIdentifier lenName do
+    planError s!"state name '{lenName}' is not a safe identifier"
+  let mut out : Array String := #[lenName]
+  for i in [0:principalDataWordCountV1] do
+    let wName :=
+      if namePrefix.isEmpty then s!"w{i}" else namePrefix ++ "_w" ++ toString i
+    unless isIdentifier wName do
+      planError s!"state name '{wName}' is not a safe identifier"
+    out := out.push wName
+  pure out
 
 /-- CosmWasm/Quint-style Array UInt64 N flatten: `some n` for admitted 1..8;
     `none` for scalars. Nested/narrow/Map/Bytes/N=0/N>8 fail closed. -/
@@ -258,25 +280,35 @@ private def makeStateLayoutV1
       planError "unsupported ICP semantic shape: state ids must match declaration order"
     unless isIdentifier st.name do
       planError s!"state name '{st.name}' is not a safe identifier"
-    match ← arrayUInt64LenV1 data.types types st.typeId signedNumeric with
-    | some n =>
-        if states.size + n > maxStateFields then
-          planError "unsupported ICP semantic shape: state field count exceeds limit"
-        let mut leaves : Array Nat := #[]
-        for i in [0:n] do
-          let leafName := st.name ++ "_" ++ toString i
-          unless isIdentifier leafName do
-            planError s!"state name '{leafName}' is not a safe identifier"
-          leaves := leaves.push states.size
-          states := states.push { name := leafName }
-        leavesOf := leavesOf.push leaves
-    | none =>
-        requirePublicUInt64OrInt64State icpPlanErr types st
-        if states.size + 1 > maxStateFields then
-          planError "unsupported ICP semantic shape: state field count exceeds limit"
-        let fi := states.size
-        states := states.push { name := st.name }
-        leavesOf := leavesOf.push #[fi]
+    if isPrincipalType types st.typeId then
+      if states.size + principalLeafCountV1 > maxStateFields then
+        planError "unsupported ICP semantic shape: state field count exceeds limit"
+      let leafSpecs ← flattenPrincipalLeafNamesV1 st.name
+      let mut leaves : Array Nat := #[]
+      for leafName in leafSpecs do
+        leaves := leaves.push states.size
+        states := states.push { name := leafName }
+      leavesOf := leavesOf.push leaves
+    else
+      match ← arrayUInt64LenV1 data.types types st.typeId signedNumeric with
+      | some n =>
+          if states.size + n > maxStateFields then
+            planError "unsupported ICP semantic shape: state field count exceeds limit"
+          let mut leaves : Array Nat := #[]
+          for i in [0:n] do
+            let leafName := st.name ++ "_" ++ toString i
+            unless isIdentifier leafName do
+              planError s!"state name '{leafName}' is not a safe identifier"
+            leaves := leaves.push states.size
+            states := states.push { name := leafName }
+          leavesOf := leavesOf.push leaves
+      | none =>
+          requirePublicUInt64OrInt64State icpPlanErr types st
+          if states.size + 1 > maxStateFields then
+            planError "unsupported ICP semantic shape: state field count exceeds limit"
+          let fi := states.size
+          states := states.push { name := st.name }
+          leavesOf := leavesOf.push #[fi]
   unless states.size ≤ maxStateFields do
     planError "unsupported ICP semantic shape: state field count exceeds limit"
   pure { states, leavesOf }
@@ -305,14 +337,19 @@ private def noteIntegerDomain
 -- ---------------------------------------------------------------------------
 
 /-- Scalar Plan Expr plus optional Array flatten leaves. Empty `leaves` is a
-    scalar; nonempty is an Array UInt64 N aggregate (not a Candid vec). -/
+    scalar; nonempty is an Array UInt64 N aggregate (not a Candid vec) or
+    Principal 9-leaf identity (not a Candid principal). -/
 private structure LoweredValue where
   expr : Expr
   leaves : Array Expr
+  isPrincipal : Bool := false
   deriving BEq, Inhabited
 
 private def isArrayValue (v : LoweredValue) : Bool :=
-  !v.leaves.isEmpty
+  !v.leaves.isEmpty && !v.isPrincipal
+
+private def isPrincipalValue (v : LoweredValue) : Bool :=
+  v.isPrincipal && v.leaves.size == principalLeafCountV1
 
 private def mkScalar (e : Expr) : LoweredValue :=
   { expr := e, leaves := #[] }
@@ -320,9 +357,42 @@ private def mkScalar (e : Expr) : LoweredValue :=
 private def mkArrayLeaves (leaves : Array Expr) : LoweredValue :=
   { expr := leaves[0]?.getD (.literal 0), leaves }
 
+private def mkPrincipalLeaves (leaves : Array Expr) : LoweredValue :=
+  { expr := leaves[0]?.getD (.literal 0), leaves, isPrincipal := true }
+
+private def decodePrincipalLiteralLeavesV1 (bytes : ByteArray) :
+    CompileResult (Array Expr) := do
+  unless bytes.size ≥ 4 do
+    planError
+      "unsupported ICP semantic shape: Principal literal valueBytes too short"
+  let len :=
+    (bytes.get! 0).toNat + (bytes.get! 1).toNat * 256 +
+      (bytes.get! 2).toNat * 65536 + (bytes.get! 3).toNat * 16777216
+  unless bytes.size == 4 + len do
+    planError
+      "unsupported ICP semantic shape: Principal literal valueBytes length framing mismatch"
+  unless 1 ≤ len do
+    planError
+      "unsupported ICP semantic shape: Principal body shorter than 1 byte"
+  unless len ≤ principalMaxPayloadBytesV1 do
+    planError
+      s!"unsupported ICP semantic shape: Principal longer than {principalMaxPayloadBytesV1} bytes (identity bound)"
+  let payload := bytes.extract 4 bytes.size
+  let mut leaves : Array Expr := #[.literal (UInt64.ofNat len)]
+  for w in [0:principalDataWordCountV1] do
+    let mut word : Nat := 0
+    let mut place : Nat := 1
+    for b in [0:8] do
+      let idx := w * 8 + b
+      let byte := if idx < payload.size then (payload.get! idx).toNat else 0
+      word := word + byte * place
+      place := place * 256
+    leaves := leaves.push (.literal (UInt64.ofNat word))
+  pure leaves
+
 private def requireScalar (v : LoweredValue) (what : String) : CompileResult Expr := do
-  if isArrayValue v then
-    planError s!"unsupported ICP semantic shape: {what} cannot be an Array aggregate"
+  if isArrayValue v || isPrincipalValue v then
+    planError s!"unsupported ICP semantic shape: {what} cannot be an Array/Principal aggregate"
   pure v.expr
 
 private structure ValueEnv where
@@ -358,7 +428,7 @@ private def overlayFinalStores
     match layout.leavesOf[sid.toNat]? with
     | none => pure ()
     | some phys =>
-        if isArrayValue v then
+        if !v.leaves.isEmpty then
           for i in [0:phys.size] do
             match phys[i]?, v.leaves[i]? with
             | some fi, some e =>
@@ -446,8 +516,14 @@ private def lowerLiteral
   else if isUInt8Type types typeId then
     let v ← decodeUInt8LiteralLe icpPlanErr "ICP" valueBytes
     pure (mkScalar (.literal v))
+  else if isBoolType types typeId then
+    let b ← decodeBoolLiteralBit icpPlanErr "ICP" valueBytes
+    pure (mkScalar (.literal (if b then 1 else 0)))
+  else if isPrincipalType types typeId then
+    let leaves ← decodePrincipalLiteralLeavesV1 valueBytes
+    pure (mkPrincipalLeaves leaves)
   else
-    planError "unsupported ICP semantic shape: literal type is outside UInt64/Int64/UInt32/UInt8"
+    planError "unsupported ICP semantic shape: literal type is outside UInt64/Int64/UInt32/UInt8/Bool/Principal"
 
 private def literalIndexNatV1 (v : LoweredValue) : CompileResult Nat := do
   let e ← requireScalar v "Array index"
@@ -528,6 +604,8 @@ private partial def lowerInstructions
               | none =>
                   if phys.size == 1 then
                     mkScalar (.stateLoad phys[0]!)
+                  else if isPrincipalType types vd.typeId then
+                    mkPrincipalLeaves (phys.map (fun fi => .stateLoad fi))
                   else
                     mkArrayLeaves (phys.map (fun fi => .stateLoad fi))
             acc := { acc with env := envInsert acc.env vd.valueId value }
@@ -540,24 +618,40 @@ private partial def lowerInstructions
         unless stateId.toNat < data.logicalState.size do
           planError "unsupported ICP semantic shape: stateStore references unknown state"
         let phys ← physicalLeaves layout stateId
-        if isArrayValue v then
+        if !v.leaves.isEmpty then
           unless v.leaves.size == phys.size do
-            planError "unsupported ICP semantic shape: stateStore Array leaf count mismatch"
+            planError "unsupported ICP semantic shape: stateStore leaf count mismatch"
         else
           unless phys.size == 1 do
-            planError "unsupported ICP semantic shape: stateStore scalar into Array state"
+            planError "unsupported ICP semantic shape: stateStore scalar into Array/Principal state"
         acc := { acc with overlay := overlayInsert acc.overlay stateId v }
     | .binary op lhs rhs => do
         let lv ← match envLookup acc.env lhs with
-          | some v => requireScalar v "binary lhs"
+          | some v => pure v
           | none => planError "unsupported ICP semantic shape: binary lhs undefined"
         let rv ← match envLookup acc.env rhs with
-          | some v => requireScalar v "binary rhs"
+          | some v => pure v
           | none => planError "unsupported ICP semantic shape: binary rhs undefined"
-        let e ← lowerBinary op lv rv
-        match instr.result with
-        | none => planError "unsupported ICP semantic shape: binary must produce a value"
-        | some vd => acc := { acc with env := envInsert acc.env vd.valueId (mkScalar e) }
+        if isPrincipalValue lv && isPrincipalValue rv then
+          unless op == .eq || op == .ne do
+            planError "unsupported ICP semantic shape: Principal comparison only supports eq/ne"
+          let mut accEq : Expr :=
+            .compare .eq lv.leaves[0]! rv.leaves[0]!
+          for i in [1:principalLeafCountV1] do
+            accEq := .checkedMul accEq (.compare .eq lv.leaves[i]! rv.leaves[i]!)
+          let e :=
+            if op == .ne then .compare .eq accEq (.literal 0) else accEq
+          let e ← checkedExprNodes "principal comparison" e
+          match instr.result with
+          | none => planError "unsupported ICP semantic shape: binary must produce a value"
+          | some vd => acc := { acc with env := envInsert acc.env vd.valueId (mkScalar e) }
+        else
+          let le ← requireScalar lv "binary lhs"
+          let re ← requireScalar rv "binary rhs"
+          let e ← lowerBinary op le re
+          match instr.result with
+          | none => planError "unsupported ICP semantic shape: binary must produce a value"
+          | some vd => acc := { acc with env := envInsert acc.env vd.valueId (mkScalar e) }
     | .contextRead key => do
         match instr.result with
         | none =>
@@ -685,12 +779,23 @@ private def seedParamEnv (types : IcpTypeClosureV1) (owner : String)
   let mut names : Array String := #[]
   let mut i : Nat := 0
   for p in callable.params do
-    requirePublicUInt64OrInt64Param icpPlanErr types owner p
     unless isIdentifier p.name do
       planError s!"parameter '{p.name}' in {owner} is not a safe identifier"
-    env := envInsert env p.valueId (mkScalar (.param i))
-    names := names.push p.name
-    i := i + 1
+    if isPrincipalType types p.typeId then
+      unless p.visibility == .public_ do
+        planError s!"parameter '{p.name}' in {owner} is not public"
+      let leafSpecs ← flattenPrincipalLeafNamesV1 p.name
+      let mut leafExprs : Array Expr := #[]
+      for leafName in leafSpecs do
+        names := names.push leafName
+        leafExprs := leafExprs.push (.param i)
+        i := i + 1
+      env := envInsert env p.valueId (mkPrincipalLeaves leafExprs)
+    else
+      requirePublicUInt64OrInt64Param icpPlanErr types owner p
+      env := envInsert env p.valueId (mkScalar (.param i))
+      names := names.push p.name
+      i := i + 1
   unless names.size ≤ maxParams do
     planError s!"{owner} parameter count exceeds limit"
   if hasDuplicates names then
@@ -710,6 +815,9 @@ private def lowerCallableBody
       let phys ← physicalLeaves layout st.id
       if phys.size == 1 then
         overlay0 := overlayInsert overlay0 st.id (mkScalar (.literal 0))
+      else if isPrincipalType types st.typeId then
+        overlay0 := overlayInsert overlay0 st.id
+          (mkPrincipalLeaves (phys.map (fun _ => .literal 0)))
       else
         overlay0 := overlayInsert overlay0 st.id
           (mkArrayLeaves (phys.map (fun _ => .literal 0)))
@@ -731,6 +839,8 @@ private def resultKindOf
   else if isBoolType types typeId then pure .bool
   else if isInt64Type types typeId then pure .int64
   else if isUInt64Type types typeId then pure .uint64
+  else if isPrincipalType types typeId then
+    planError s!"{owner} Principal return is outside ICP-2"
   else planError s!"{owner} result must be public Unit, UInt64, Int64, or Bool"
 
 private def makePlanFromSemanticDataV1

@@ -151,6 +151,8 @@ structure TypedExpr where
   isOption : Bool := false
   /-- True when `leaves` is dense Map UInt64 cap-8 (24 occ/key/val). -/
   isMap : Bool := false
+  /-- True when `leaves` is Principal 9-leaf wire identity. -/
+  isPrincipal : Bool := false
   deriving BEq, Inhabited, Repr
 
 /-- Success condition (Bool) that must hold; evaluated in array order. -/
@@ -227,7 +229,7 @@ private def openvmTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt64/Int64 widths are supported"
   unsupportedShapeDetail :=
-    "only anonymous UInt64, Int64, UInt8 (Bytes element), Bool, Unit, Array UInt64 N state flatten, Option UInt64 2-leaf flatten, Map UInt64 UInt64 cap-8 flatten, and Bytes N (N UInt64 low-8 leaves) are supported (narrow Int/Field/Principal/aggregates/nested Option fail closed)"
+    "only anonymous UInt64, Int64, UInt8 (Bytes element), Bool, Unit, Array UInt64 N state flatten, Option UInt64 2-leaf flatten, Map UInt64 UInt64 cap-8 flatten, Bytes N (N UInt64 low-8 leaves), and Principal 9-leaf identity (owner_len+w0..w7, not address) are supported (narrow Int/Field/aggregates/nested Option fail closed)"
 
 /-- User-facing uint domain stays UInt64. UInt32 is intern-only: Normalize
     always internShape `uint 32` for Array IndexGet/IndexSet literals. -/
@@ -242,7 +244,7 @@ private def validateOpenVmTypeClosureV1
     pilotUintWidthPolicyU64U32Index
     (intPolicy := pilotIntWidthPolicyI64)
     (fieldPolicy := pilotFieldPolicyNone)
-    (principalPolicy := pilotPrincipalPolicyNone)
+    (principalPolicy := pilotPrincipalPolicyAdmit)
     (containerPolicy := pilotContainerStatePolicyArrayMapBytes)
 
 private def maxIdentifierBytes : Nat := 200
@@ -296,17 +298,72 @@ private def isUInt32Type (types : OpenVmTypeClosureV1) (typeId : TypeIdV1) : Boo
 private def isUInt8Type (types : OpenVmTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   types.uintTypeIdAt 8 == some typeId
 
+private def isPrincipalType (types : OpenVmTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  types.principalTypeId == some typeId
+
 /-- Dense Map UInt64 UInt64 pilot: cap-8 × (occ, key, val) = 24 UInt64 leaves. -/
 private def mapPilotCapacityV1 : Nat := 8
 private def mapSlotsPerEntryV1 : Nat := 3
 private def mapPilotLeafCountV1 : Nat :=
   mapPilotCapacityV1 * mapSlotsPerEntryV1
 
+private def principalDataWordCountV1 : Nat := 8
+private def principalMaxPayloadBytesV1 : Nat := 64
+private def principalLeafCountV1 : Nat := 1 + principalDataWordCountV1
+
+private def flattenPrincipalLeafNamesV1 (namePrefix : String) :
+    CompileResult (Array String) := do
+  let lenName :=
+    if namePrefix.isEmpty then "len" else namePrefix ++ "_len"
+  unless isIdentifier lenName do
+    planError s!"state name '{lenName}' is not a safe identifier"
+  let mut out : Array String := #[lenName]
+  for i in [0:principalDataWordCountV1] do
+    let wName :=
+      if namePrefix.isEmpty then s!"w{i}" else namePrefix ++ "_w" ++ toString i
+    unless isIdentifier wName do
+      planError s!"state name '{wName}' is not a safe identifier"
+    out := out.push wName
+  pure out
+
+private def decodePrincipalLiteralLeavesV1 (bytes : ByteArray) :
+    CompileResult (Array Expr) := do
+  unless bytes.size ≥ 4 do
+    planError
+      "unsupported OpenVM semantic shape: Principal literal valueBytes too short"
+  let len :=
+    (bytes.get! 0).toNat + (bytes.get! 1).toNat * 256 +
+      (bytes.get! 2).toNat * 65536 + (bytes.get! 3).toNat * 16777216
+  unless bytes.size == 4 + len do
+    planError
+      "unsupported OpenVM semantic shape: Principal literal valueBytes length framing mismatch"
+  unless 1 ≤ len do
+    planError
+      "unsupported OpenVM semantic shape: Principal body shorter than 1 byte"
+  unless len ≤ principalMaxPayloadBytesV1 do
+    planError
+      s!"unsupported OpenVM semantic shape: Principal longer than {principalMaxPayloadBytesV1} bytes (identity bound)"
+  let payload := bytes.extract 4 bytes.size
+  let mut leaves : Array Expr := #[.litU64 (UInt64.ofNat len)]
+  for w in [0:principalDataWordCountV1] do
+    let mut word : Nat := 0
+    let mut place : Nat := 1
+    for b in [0:8] do
+      let idx := w * 8 + b
+      let byte := if idx < payload.size then (payload.get! idx).toNat else 0
+      word := word + byte * place
+      place := place * 256
+    leaves := leaves.push (.litU64 (UInt64.ofNat word))
+  pure leaves
+
 private def isAggregateValue (v : TypedExpr) : Bool :=
   !v.leaves.isEmpty
 
+private def isPrincipalValue (v : TypedExpr) : Bool :=
+  v.isPrincipal && v.leaves.size == principalLeafCountV1
+
 private def isArrayValue (v : TypedExpr) : Bool :=
-  isAggregateValue v && !v.isOption && !v.isMap
+  isAggregateValue v && !v.isOption && !v.isMap && !v.isPrincipal
 
 private def isOptionValue (v : TypedExpr) : Bool :=
   v.isOption && v.leaves.size == 2
@@ -337,6 +394,16 @@ private def mkMapLeaves (leaves : Array Expr) (nodes : Nat) : TypedExpr :=
     leaves
     isOption := false
     isMap := true }
+
+/-- T4: 9 unsigned UInt64 identity leaves. Not a host address. -/
+private def mkPrincipalLeaves (leaves : Array Expr) (nodes : Nat) : TypedExpr :=
+  { ty := .uint64
+    expr := leaves[0]?.getD (.litU64 0)
+    expandedNodes := nodes
+    leaves
+    isOption := false
+    isMap := false
+    isPrincipal := true }
 
 /-- True when `typeId` is an anonymous Option TypeDecl. Option is never
     pushed to `containerTypeIds`; state planning owns the 2-leaf layout. -/
@@ -557,6 +624,17 @@ private def makeStateLayoutV1
       leavesOf := leavesOf.push leaves
       optionOf := optionOf.push false
       isMapOf := isMapOf.push true
+    else if isPrincipalType types st.typeId then
+      if states.size + principalLeafCountV1 > maxStateFields then
+        planError "unsupported OpenVM semantic shape: state field count exceeds limit"
+      let leafSpecs ← flattenPrincipalLeafNamesV1 st.name
+      let mut leaves : Array Nat := #[]
+      for leafName in leafSpecs do
+        leaves := leaves.push states.size
+        states := states.push { name := leafName }
+      leavesOf := leavesOf.push leaves
+      optionOf := optionOf.push false
+      isMapOf := isMapOf.push false
     else
       match ← arrayUInt64LenV1 data.types types st.typeId signedNumeric with
       | some n =>
@@ -738,8 +816,11 @@ private def lowerLiteral
   else if isBoolType types typeId then
     let b ← decodeBoolLiteralBit openvmPlanErr "OpenVM" valueBytes
     pure { ty := .bool, expr := .litBool b, expandedNodes := 1 }
+  else if isPrincipalType types typeId then
+    let leaves ← decodePrincipalLiteralLeavesV1 valueBytes
+    pure (mkPrincipalLeaves leaves leaves.size)
   else
-    planError "unsupported OpenVM semantic shape: literal type is outside UInt64/Int64/UInt32/UInt8/Bool"
+    planError "unsupported OpenVM semantic shape: literal type is outside UInt64/Int64/UInt32/UInt8/Bool/Principal"
 
 /-- Signed range on the two's-complement bit pattern. Emission uses Rust
     `i64::checked_*` and drops this Plan check as a redundant guard. -/
@@ -840,6 +921,17 @@ private def lowerBinary
         pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
           #[{ kind := .divByZero, condition := cond }])
   | .eq | .ne | .lt | .le | .gt | .ge => do
+      if isPrincipalValue lhs && isPrincipalValue rhs then
+        unless op == .eq || op == .ne do
+          planError "unsupported OpenVM semantic shape: Principal comparison only supports eq/ne"
+        let mut acc : Expr :=
+          .compare .eq lhs.leaves[0]! rhs.leaves[0]!
+        for i in [1:principalLeafCountV1] do
+          acc := .boolAnd acc (.compare .eq lhs.leaves[i]! rhs.leaves[i]!)
+        if op == .ne then
+          acc := .boolNot acc
+        let nodes ← binaryExprNodes "principal comparison" lhs rhs
+        return ({ ty := .bool, expr := acc, expandedNodes := nodes }, #[])
       unless lhs.ty == rhs.ty do
         planError "unsupported OpenVM semantic shape: comparison operands must share a type"
       unless lhs.ty == .uint64 || lhs.ty == .int64 || lhs.ty == .bool do
@@ -891,6 +983,8 @@ private def resultKindOf
   else if isInt64Type types typeId then pure .int64
   else if isUInt64Type types typeId then pure .uint64
   else if isBoolType types typeId then pure .bool
+  else if isPrincipalType types typeId then
+    planError s!"{owner} Principal return is outside O0"
   else if isAnonymousOptionTypeIdV1 typeDecls typeId then
     planError s!"{owner} Option return is outside O0"
   else if types.isContainer typeId then
@@ -960,6 +1054,8 @@ private partial def lowerInstructions
                     mkOptionLeaves (phys.map (fun fi => .stateLoad fi)) phys.size
                   else if isMapState layout stateId then
                     mkMapLeaves (phys.map (fun fi => .stateLoad fi)) phys.size
+                  else if isPrincipalType types vd.typeId then
+                    mkPrincipalLeaves (phys.map (fun fi => .stateLoad fi)) phys.size
                   else
                     mkArrayLeaves (phys.map (fun fi => .stateLoad fi)) phys.size
             acc := { acc with env := envInsert acc.env vd.valueId value }
@@ -1273,17 +1369,28 @@ private def seedParamEnv
     if types.isContainer p.typeId then
       planError
         s!"{owner} Array/Map params are outside O0 (only Array/Map UInt64 state flattens)"
-    requirePublicUInt64OrInt64Param openvmPlanErr types owner p
     unless isIdentifier p.name do
       planError s!"parameter '{p.name}' is not a safe identifier"
-    let ty : ExprType := if isInt64Type types p.typeId then .int64 else .uint64
-    env := envInsert env p.valueId {
-      ty
-      expr := .param i
-      expandedNodes := 1
-    }
-    names := names.push p.name
-    i := i + 1
+    unless p.visibility == .public_ do
+      planError s!"{owner} parameters must be public"
+    if isPrincipalType types p.typeId then
+      let leafSpecs ← flattenPrincipalLeafNamesV1 p.name
+      let mut leafExprs : Array Expr := #[]
+      for leafName in leafSpecs do
+        names := names.push leafName
+        leafExprs := leafExprs.push (.param i)
+        i := i + 1
+      env := envInsert env p.valueId (mkPrincipalLeaves leafExprs leafExprs.size)
+    else
+      requirePublicUInt64OrInt64Param openvmPlanErr types owner p
+      let ty : ExprType := if isInt64Type types p.typeId then .int64 else .uint64
+      env := envInsert env p.valueId {
+        ty
+        expr := .param i
+        expandedNodes := 1
+      }
+      names := names.push p.name
+      i := i + 1
   unless names.size ≤ maxParams do
     planError "unsupported OpenVM semantic shape: parameter count exceeds limit"
   pure (env, names)
@@ -1313,6 +1420,8 @@ private def lowerCallableBody
           overlay0 := overlayInsert overlay0 st.id (mkOptionLeaves zeros phys.size)
         else if isMapState layout st.id then
           overlay0 := overlayInsert overlay0 st.id (mkMapLeaves zeros phys.size)
+        else if isPrincipalType types st.typeId then
+          overlay0 := overlayInsert overlay0 st.id (mkPrincipalLeaves zeros phys.size)
         else
           overlay0 := overlayInsert overlay0 st.id (mkArrayLeaves zeros phys.size)
   let acc0 : BodyAccum := emptyBodyAccum env0 overlay0

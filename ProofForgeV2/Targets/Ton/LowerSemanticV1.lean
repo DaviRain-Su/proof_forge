@@ -676,7 +676,7 @@ private def tonTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt{8,16,32,64,128,256} and Int{8,16,32,64} integer types are supported (Int128/256 fail closed)"
   unsupportedShapeDetail :=
-    "only UInt{8,16,32,64,128,256}, Int{8,16,32,64}, Unit, Bool, named Struct/Enum, and anonymous Array/Map/Bytes/Option are supported (no Field/Principal; Int128/256 fail closed)"
+    "only UInt{8,16,32,64,128,256}, Int{8,16,32,64}, Unit, Bool, Principal (9-leaf wire identity), named Struct/Enum, and anonymous Array/Map/Bytes/Option are supported (no Field; Int128/256 fail closed)"
 
 /-- Ton multi-width + aggregate type closure.
     **Named Struct/Enum** via `pilotNamedAggregateStatePolicyAdmit` (flatten to
@@ -703,7 +703,7 @@ private def validateTonTypeClosureV1
   validatePilotTypeClosure tonPlanErr tonTypeClosureWording types
     tonUintWidthPolicyV1
     (intPolicy := pilotIntWidthPolicyNarrow)
-    (principalPolicy := pilotPrincipalPolicyNone)
+    (principalPolicy := pilotPrincipalPolicyAdmit)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
     (containerPolicy := pilotContainerStatePolicyArrayMapBytes)
 

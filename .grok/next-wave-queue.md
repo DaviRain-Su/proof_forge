@@ -52,6 +52,8 @@ Goal: lift envelope-4 toward mid-tier (CW/TON/Aleo/Psy), then mid-tier toward th
 | T3-CONST | main | Scalar `Op.Constant` inline via existing `Op.Literal` on EVM/Solana(product)/Noir/TON/Quint/Soroban/OpenVM/ICP. String/aggregate/Principal const + Solana `Cpi*IR` empty-table stay FC | **committed** `9454bcec9` |
 | T3-ALEO-PRIN | main | Aleo 9-leaf Principal wire identity (`owner_len`+`w0..w7`, ≠address/Field). Return / caller→address stay FC | **committed** `9454bcec9` |
 | T3-ENV4-BYTES | main | Quint/Soroban/OpenVM/ICP Bytes N as N UInt64 low-8 leaves. No Candid `vec nat8`. Bytes return stay FC | **committed** `9454bcec9` |
+| T4-TON-PRIN | main | TON `pilotPrincipalPolicyAdmit`; reuse existing 9-leaf flatten (`owner_len`+`w0..w7`, ≠ TON address). Return / caller stay FC | **landed** |
+| T4-ENV4-PRIN | main | Quint/Soroban/OpenVM/ICP Principal 9-leaf identity. Quint keeps pf.assets `.principal` packing. ICP = 9 i64 globals, no Candid `principal`. Return / caller stay FC | **landed** |
 
 **File lock:** workers must not edit `Tests/Materialization/Targets.lean` or another target's tree. `FieldComparison*` is a main-agent serial slice (`FC-PRESERVE`), not a parallel leaf. Main agent integrates WideInt64 / OptInt / ArrInt / MapInt needles after each leaf lands.
 
@@ -169,7 +171,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | MAT-COMM-STATE-QS | done | N1 commitment-state: CW/TON admit; Noir + Quint/Soroban/ICP/OpenVM FC. **Not** B-COMMIT-ZK |
 | MAT-FIELD-QS | done | N2b Field bn254_fr 12-target: EVM/Noir admit; other ten Plan FC. Aleo names BLS12-377≠bn254 (same class as Psy Goldilocks). **Not** opening Field |
 | MAT-OPT-QS | done | N-A4 Option UInt64 state 12-target: eight admit; Quint/Soroban/ICP/OpenVM envelope FC. **Not** opening Option |
-| MAT-PRIN-QS | done | N2c Principal identity-storage 12-target: EVM/Solana/NEAR/Noir/Psy + CosmWasm admit; Aleo/TON/Quint/Soroban/ICP/OpenVM FC. **Not** opening Principal / remap |
+| MAT-PRIN-QS | done | N2c Principal identity-storage 12-target: T4 opened TON + envelope-4 (Quint/Soroban/OpenVM/ICP) on the same 9-leaf wire identity. Return / caller remap stay FC |
 | MAT-STRUCT-QS | done | N3 named Struct PointBox 12-target: six flatten-to-leaf + CW/TON admit; Quint/Soroban/ICP/OpenVM envelope FC. **Not** opening Struct |
 | MAT-ARRAY-QS | done | Array UInt64 2 ArrayBox 12-target: six flatten-to-leaf + CW/TON admit; Quint/Soroban/ICP/OpenVM envelope FC. **Not** opening Array |
 | MAT-RET-QS | done | B-RET-ABI PairRet view-return 12-target: seven admit; Aleo view-over-state + Quint/Soroban/ICP/OpenVM FC. PairRetEntry Aleo pin kept. **Not** opening aggregate return |

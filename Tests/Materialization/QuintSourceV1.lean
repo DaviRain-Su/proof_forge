@@ -543,6 +543,53 @@ unsafe def testBytesBoxFlatten : IO Unit := do
   let files ← liftResult <| buildQuint compiled
   expect (!files.isEmpty) "BytesBox must materialize Quint files"
 
+/-- T4: Principal → 9 unsigned UInt64 identity leaves. Return FC. -/
+unsafe def testPrincipalIdentityLeaves : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PrincipalMix where\n" ++
+    "  state owner : Principal\n" ++
+    "  init(initial : Principal) do\n" ++
+    "    owner := initial\n" ++
+    "  entry set(who : Principal) : Bool do\n" ++
+    "    owner := who\n" ++
+    "    return true\n" ++
+    "  entry eq(a : Principal, b : Principal) : Bool do\n" ++
+    "    return a == b\n" ++
+    "  entry matchesOwner(who : Principal) : Bool do\n" ++
+    "    return owner == who\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-principal>" "Tests.QuintPrincipal" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  expect (!plan.signedNumeric) "PrincipalMix stays unsigned"
+  expect (plan.states.map (·.name) ==
+      #["owner_len", "owner_w0", "owner_w1", "owner_w2", "owner_w3",
+        "owner_w4", "owner_w5", "owner_w6", "owner_w7"])
+    "Principal must flatten to owner_len + owner_w0..w7"
+  liftResult <| Targets.Quint.validatePlan plan
+  let files ← liftResult <| buildQuint compiled
+  expect (!files.isEmpty) "PrincipalMix must materialize Quint files"
+  let retSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PrincipalReturn where\n" ++
+    "  state owner : Principal\n" ++
+    "  init(initial : Principal) do\n" ++
+    "    owner := initial\n" ++
+    "  view getOwner() : Principal do\n" ++
+    "    return owner\n"
+  let parsedRet ← liftResult (← session.selectProgramV1
+    retSource "<quint-principal-ret>" "Tests.QuintPrincipalReturn" none)
+  let compiledRet ← liftResult <| Compiler.compileValidatedSourceV1 parsedRet
+  match planQuint compiledRet with
+  | .ok _ => throw <| IO.userError "Principal return must fail closed"
+  | .error e =>
+      expect (!(e.render.isEmpty))
+        s!"Principal return must fail closed, got {e.render}"
+
 /-- N=9 exceeds the 1..8 flatten cap. -/
 unsafe def testArrayN9FailClosed : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -1742,6 +1789,7 @@ unsafe def run : IO Unit := do
   testMixedInt64UInt64Fc
   testArraySlotsFlatten
   testBytesBoxFlatten
+  testPrincipalIdentityLeaves
   testArrInt64Flatten
   testArrayN9FailClosed
   testArrayInt64N9FailClosed

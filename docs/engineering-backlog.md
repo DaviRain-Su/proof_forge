@@ -676,8 +676,9 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-15 | **MAT-COMM-STATE-QS**：N1 commitment state 补 CW/TON admit；Noir+Quint/Soroban/ICP/OpenVM FC。**不**关 B-COMMIT-ZK |
 | 2026-08-15 | **MAT-FIELD-QS**：N2b Field bn254_fr 十二 target 补齐。EVM/Noir admit；其余十个 Plan FC。Aleo 钉 BLS12-377≠bn254（与 Psy Goldilocks 同类）。**不**开 Field |
 | 2026-08-15 | **MAT-OPT-QS**：N-A4 Option UInt64 state 十二 target 补齐。八个 admit；Quint/Soroban/ICP/OpenVM envelope FC。**不**开 Option |
-| 2026-08-15 | **MAT-PRIN-QS**：N2c Principal identity-storage 十二 target 补齐。EVM/Solana/NEAR/Noir/Psy + CosmWasm admit；当时 Aleo/TON/Quint/Soroban/ICP/OpenVM FC。**T3** 已开 Aleo 9-leaf identity（≠address）；TON/envelope-4 仍 FC |
-| 2026-08-16 | **T3**：scalar const 内联八 target；Aleo Principal 9-leaf identity（≠address）；envelope-4 Bytes N（N UInt64 低 8 位）。TON/envelope-4 Principal 与 CAP-D 仍 FC |
+| 2026-08-15 | **MAT-PRIN-QS**：N2c Principal identity-storage 十二 target 补齐。EVM/Solana/NEAR/Noir/Psy + CosmWasm admit；当时 Aleo/TON/Quint/Soroban/ICP/OpenVM FC。**T3** 已开 Aleo 9-leaf identity（≠address）；**T4** 已开 TON + 信封-4（Quint/Soroban/OpenVM/ICP）同构 9 叶 identity（≠ address / Candid `principal`）；return / caller 映射仍 FC |
+| 2026-08-16 | **T3**：scalar const 内联八 target；Aleo Principal 9-leaf identity（≠address）；envelope-4 Bytes N（N UInt64 低 8 位）。TON/envelope-4 Principal 当时仍 FC |
+| 2026-08-16 | **T4**：TON + 信封-4 Principal 9 叶 identity 存储（`owner_len`+`w0..w7`）。Quint 保留 pf.assets `.principal` 打包；ICP 为 9 extra i64 global、无 Candid `principal`。return / caller / 容器-of-Principal / CAP-D 仍 FC |
 | 2026-08-15 | **MAT-STRUCT-QS**：N3 named Struct PointBox 十二 target 补齐。六 flatten-to-leaf + CW/TON admit；Quint/Soroban/ICP/OpenVM envelope FC。**不**开 Struct |
 | 2026-08-15 | **MAT-ARRAY-QS**：Array UInt64 2 ArrayBox 十二 target 补齐。六 flatten-to-leaf + CW/TON admit；Quint/Soroban/ICP/OpenVM envelope FC。**不**开 Array |
 | 2026-08-15 | **MAT-RET-QS**：B-RET-ABI PairRet view-return 十二 target 补齐。七个 admit；Aleo view-over-state + Quint/Soroban/ICP/OpenVM FC。PairRetEntry Aleo pin 保留。**不**开 aggregate return |

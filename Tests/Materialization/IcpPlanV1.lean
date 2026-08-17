@@ -831,6 +831,47 @@ private unsafe def testArrayInt64ReturnFailClosed
     (planFromCompiledSemanticV1 compiled)
   IO.println "  ✓ Array Int64 return fail closed"
 
+private unsafe def testPrincipalIdentityLeaves
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "PrincipalMix" <|
+    "  state owner : Principal\n\n" ++
+    "  init(initial : Principal) do\n" ++
+    "    owner := initial\n\n" ++
+    "  entry set(who : Principal) : Bool do\n" ++
+    "    owner := who\n" ++
+    "    return true\n\n" ++
+    "  entry eq(a : Principal, b : Principal) : Bool do\n" ++
+    "    return a == b\n\n" ++
+    "  entry matchesOwner(who : Principal) : Bool do\n" ++
+    "    return owner == who\n"
+  let compiled ← compileSource session src "Examples.PrincipalMix" "<icp-principal>"
+  let plan ← liftResult <| planFromCompiledSemanticV1 compiled
+  expect (plan.signedNumeric == false) "PrincipalMix stays unsigned"
+  expect (plan.states.size == 9) "Principal flattens to nine i64 globals"
+  expect (plan.states[0]!.name == "owner_len") "leaf owner_len"
+  expect (plan.states[8]!.name == "owner_w7") "leaf owner_w7"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"PrincipalMix plan must validate: {e.render}"
+  let files ← liftResult <| buildFromCompiledSemanticV1 compiled
+  let wat ← findFile files "PrincipalMix.wat"
+  let did ← findFile files "PrincipalMix.did"
+  expect (wat.contains "(global $g_state_0 (mut i64)") "wat global 0"
+  expect (wat.contains "(global $g_state_8 (mut i64)") "wat global 8"
+  expect (!wat.contains "principal") "no Candid principal in wat"
+  expect (!did.contains "principal") "no Candid principal in did"
+  let retSrc := wrapProgram "PrincipalReturn" <|
+    "  state owner : Principal\n\n" ++
+    "  init(initial : Principal) do\n" ++
+    "    owner := initial\n\n" ++
+    "  view getOwner() : Principal do\n" ++
+    "    return owner\n"
+  let compiledRet ← compileSource session retSrc
+    "Examples.PrincipalReturn" "<icp-principal-ret>"
+  expectPlanErrorContaining "PrincipalReturn" "Principal"
+    (planFromCompiledSemanticV1 compiledRet)
+  IO.println "  ✓ Principal 9-leaf identity (nine i64 globals; no Candid principal)"
+
 unsafe def run : IO Unit := do
   IO.println "IcpPlanV1"
   let session ← Tests.Language.ParserSession.shared
@@ -862,6 +903,7 @@ unsafe def run : IO Unit := do
   testRegistryDispatch session
   testCapabilityProductPath session
   testUnknownProfileFailClosed
+  testPrincipalIdentityLeaves session
   IO.println "IcpPlanV1: all checks passed"
 
 end Tests.Materialization.IcpPlanV1

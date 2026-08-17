@@ -97,6 +97,31 @@ private def planAleo (compiled : CompiledSemanticV1) : CompileResult Targets.Ale
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
   Targets.Aleo.planFromCapability capability
 
+private def planTon (compiled : CompiledSemanticV1) : CompileResult Targets.Ton.Plan := do
+  let selection ← resolveBuildSelectionV1 TargetId.ton none
+  let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
+  Targets.Ton.planFromCapability capability
+
+private def planQuint (compiled : CompiledSemanticV1) : CompileResult Targets.Quint.Plan := do
+  let selection ← resolveBuildSelectionV1 TargetId.quint none
+  let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
+  Targets.Quint.planFromCapability capability
+
+private def planSoroban (compiled : CompiledSemanticV1) : CompileResult Targets.Soroban.Plan := do
+  let selection ← resolveBuildSelectionV1 TargetId.soroban none
+  let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
+  Targets.Soroban.planFromCapability capability
+
+private def planOpenVm (compiled : CompiledSemanticV1) : CompileResult Targets.OpenVM.Plan := do
+  let selection ← resolveBuildSelectionV1 TargetId.openvm none
+  let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
+  Targets.OpenVM.planFromCapability capability
+
+private def planIcp (compiled : CompiledSemanticV1) : CompileResult Targets.Icp.Plan := do
+  let selection ← resolveBuildSelectionV1 TargetId.icp none
+  let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
+  Targets.Icp.planFromCapability capability
+
 /-- Capability-gated production IR inspection (S6 repair; not TargetIrFixtures). -/
 private def irEvm (compiled : CompiledSemanticV1) : CompileResult Targets.Evm.IR := do
   let selection ← resolveBuildSelectionV1 TargetId.evm none
@@ -4146,9 +4171,10 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
   expect (psyPlan.stateFieldNames[0]! == "owner_len")
     s!"Psy Principal leaf 0 must be owner_len, got {psyPlan.stateFieldNames[0]!}"
   -- Extra seven from probe; CosmWasm admits identity storage (files nonempty).
-  -- T3: Aleo admits the same 9-leaf wire identity (not address). TON/Quint/
-  -- Soroban/ICP/OpenVM stay FC. Not remapping Principal → pubkey / account-id /
-  -- Field / Aleo address.
+  -- T3: Aleo admits the same 9-leaf wire identity (not address). T4: TON
+  -- and envelope-4 (Quint/Soroban/OpenVM/ICP) admit the same layout.
+  -- Not remapping Principal → pubkey / account-id / Field / Aleo address /
+  -- TON address / Candid principal.
   let prinCw ← liftResult <| materializeSelected TargetId.cosmwasm prinCompiled
   expect (!(MaterializedArtifactsV1.filesOf prinCw).isEmpty)
     "N2c principal: CosmWasm must materialize Principal identity storage"
@@ -4162,19 +4188,56 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     s!"T3 Aleo Principal leaf 0 must be owner_len, got {aleoPlan.stateFieldNames[0]!}"
   expect (aleoPlan.stateFieldNames[8]! == "owner_w7")
     s!"T3 Aleo Principal leaf 8 must be owner_w7, got {aleoPlan.stateFieldNames[8]!}"
-  for target in [TargetId.quint, TargetId.ton, TargetId.soroban,
-      TargetId.icp, TargetId.openvm] do
-    match materializeSelected target prinCompiled with
-    | .ok _ =>
-        throw <| IO.userError s!"N2c principal: {target} must decline Principal"
-    | .error e =>
-        expect ((e.render).contains "Principal" ||
-            (e.render).contains "unsupported" ||
-            (e.render).contains "pilot" ||
-            (e.render).contains "public" ||
-            (e.render).contains "anonymous" ||
-            (e.render).contains "identity")
-          s!"N2c principal {target} message must cite Principal/identity boundary, got {e.render}"
+  let prinTon ← liftResult <| materializeSelected TargetId.ton prinCompiled
+  expect (!(MaterializedArtifactsV1.filesOf prinTon).isEmpty)
+    "N2c principal: TON must materialize Principal identity storage"
+  let tonPlan ← liftResult <| planTon prinCompiled
+  expect (tonPlan.storage.fields.size == 9)
+    s!"T4 TON Principal must flatten to 9 UInt64 leaves, got {tonPlan.storage.fields.size}"
+  expect (tonPlan.storage.fields[0]!.name == "owner_len")
+    s!"T4 TON Principal leaf 0 must be owner_len, got {tonPlan.storage.fields[0]!.name}"
+  expect (tonPlan.storage.fields[8]!.name == "owner_w7")
+    s!"T4 TON Principal leaf 8 must be owner_w7, got {tonPlan.storage.fields[8]!.name}"
+  let prinQuint ← liftResult <| materializeSelected TargetId.quint prinCompiled
+  expect (!(MaterializedArtifactsV1.filesOf prinQuint).isEmpty)
+    "N2c principal: Quint must materialize Principal identity storage"
+  let quintPlan ← liftResult <| planQuint prinCompiled
+  expect (quintPlan.states.size == 9)
+    s!"T4 Quint Principal must flatten to 9 UInt64 leaves, got {quintPlan.states.size}"
+  expect (quintPlan.states[0]!.name == "owner_len")
+    s!"T4 Quint Principal leaf 0 must be owner_len, got {quintPlan.states[0]!.name}"
+  expect (quintPlan.states[8]!.name == "owner_w7")
+    s!"T4 Quint Principal leaf 8 must be owner_w7, got {quintPlan.states[8]!.name}"
+  let prinSoroban ← liftResult <| materializeSelected TargetId.soroban prinCompiled
+  expect (!(MaterializedArtifactsV1.filesOf prinSoroban).isEmpty)
+    "N2c principal: Soroban must materialize Principal identity storage"
+  let sorobanPlan ← liftResult <| planSoroban prinCompiled
+  expect (sorobanPlan.states.size == 9)
+    s!"T4 Soroban Principal must flatten to 9 UInt64 leaves, got {sorobanPlan.states.size}"
+  expect (sorobanPlan.states[0]!.name == "owner_len")
+    s!"T4 Soroban Principal leaf 0 must be owner_len, got {sorobanPlan.states[0]!.name}"
+  expect (sorobanPlan.states[8]!.name == "owner_w7")
+    s!"T4 Soroban Principal leaf 8 must be owner_w7, got {sorobanPlan.states[8]!.name}"
+  let prinOpenVm ← liftResult <| materializeSelected TargetId.openvm prinCompiled
+  expect (!(MaterializedArtifactsV1.filesOf prinOpenVm).isEmpty)
+    "N2c principal: OpenVM must materialize Principal identity storage"
+  let openvmPlan ← liftResult <| planOpenVm prinCompiled
+  expect (openvmPlan.states.size == 9)
+    s!"T4 OpenVM Principal must flatten to 9 UInt64 leaves, got {openvmPlan.states.size}"
+  expect (openvmPlan.states[0]!.name == "owner_len")
+    s!"T4 OpenVM Principal leaf 0 must be owner_len, got {openvmPlan.states[0]!.name}"
+  expect (openvmPlan.states[8]!.name == "owner_w7")
+    s!"T4 OpenVM Principal leaf 8 must be owner_w7, got {openvmPlan.states[8]!.name}"
+  let prinIcp ← liftResult <| materializeSelected TargetId.icp prinCompiled
+  expect (!(MaterializedArtifactsV1.filesOf prinIcp).isEmpty)
+    "N2c principal: ICP must materialize Principal identity storage"
+  let icpPlan ← liftResult <| planIcp prinCompiled
+  expect (icpPlan.states.size == 9)
+    s!"T4 ICP Principal must flatten to 9 i64 globals, got {icpPlan.states.size}"
+  expect (icpPlan.states[0]!.name == "owner_len")
+    s!"T4 ICP Principal leaf 0 must be owner_len, got {icpPlan.states[0]!.name}"
+  expect (icpPlan.states[8]!.name == "owner_w7")
+    s!"T4 ICP Principal leaf 8 must be owner_w7, got {icpPlan.states[8]!.name}"
   -- B-3 honesty pin survives T12: storage is wire identity leaves, not a
   -- 32-byte pubkey reinterpretation. Positive Solana materialize proves the
   -- leaf layout; wording still documents the non-match in Envelope diagnostics

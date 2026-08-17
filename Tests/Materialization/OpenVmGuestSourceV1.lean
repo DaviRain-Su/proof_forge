@@ -558,27 +558,52 @@ unsafe def testFailClosedPfAssets : IO Unit := do
           throw <| IO.userError s!"expected unsupportedRequirementV1, got {e.render}"
       | .ok _ => throw <| IO.userError "pf.assets must fail at OpenVM capability resolution"
 
-/-- Fail closed: Principal-typed parameters are outside O0. -/
-unsafe def testFailClosedPrincipal : IO Unit := do
+/-- T4: Principal identity storage flattens to 9 UInt64 leaves. Return stays FC. -/
+unsafe def testPrincipalIdentityLeaves : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
-    "program PrincipalUse where\n" ++
-    "  entry id(p : Principal) : Bool do\n" ++
-    "    return true\n"
+    "program PrincipalMix where\n" ++
+    "  state owner : Principal\n" ++
+    "  init(initial : Principal) do\n" ++
+    "    owner := initial\n" ++
+    "  entry set(who : Principal) : Bool do\n" ++
+    "    owner := who\n" ++
+    "    return true\n" ++
+    "  entry eq(a : Principal, b : Principal) : Bool do\n" ++
+    "    return a == b\n" ++
+    "  entry matchesOwner(who : Principal) : Bool do\n" ++
+    "    return owner == who\n"
   let parsed ← liftResult (← session.selectProgramV1
     source "<openvm-principal>" "Tests.OpenVmPrincipal" none)
-  match Compiler.compileValidatedSourceV1 parsed with
-  | .error _ => pure ()
-  | .ok compiled =>
-      match planOpenVm compiled with
-      | .error (.planInvariant .openvm msg) =>
-          expect (msg.contains "UInt64" || msg.contains "parameter" ||
-              msg.contains "public")
-            s!"Principal parameter must fail closed, got: {msg}"
-      | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
-      | .ok _ => throw <| IO.userError "Principal parameter must fail closed at OpenVM plan"
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planOpenVm compiled
+  expect (!plan.signedNumeric) "PrincipalMix stays unsigned"
+  expect (plan.states.map (·.name) ==
+      #["owner_len", "owner_w0", "owner_w1", "owner_w2", "owner_w3",
+        "owner_w4", "owner_w5", "owner_w6", "owner_w7"])
+    "Principal must flatten to owner_len + owner_w0..w7"
+  liftResult <| Targets.OpenVM.validatePlan plan
+  let files ← liftResult <| buildOpenVm compiled
+  expect (!files.isEmpty) "PrincipalMix must materialize OpenVM files"
+  let retSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PrincipalReturn where\n" ++
+    "  state owner : Principal\n" ++
+    "  init(initial : Principal) do\n" ++
+    "    owner := initial\n" ++
+    "  view getOwner() : Principal do\n" ++
+    "    return owner\n"
+  let parsedRet ← liftResult (← session.selectProgramV1
+    retSource "<openvm-principal-ret>" "Tests.OpenVmPrincipalReturn" none)
+  let compiledRet ← liftResult <| Compiler.compileValidatedSourceV1 parsedRet
+  match planOpenVm compiledRet with
+  | .ok _ => throw <| IO.userError "Principal return must fail closed"
+  | .error e =>
+      expect (e.render.contains "Principal")
+        s!"Principal return must cite Principal, got {e.render}"
 
 /-- Homogeneous UInt64 mul/div/mod emit checked Rust ops. -/
 unsafe def testMulDivModAdmit : IO Unit := do
@@ -1334,7 +1359,7 @@ unsafe def run : IO Unit := do
   testFailClosedEmit
   testFailClosedInvariant
   testFailClosedPfAssets
-  testFailClosedPrincipal
+  testPrincipalIdentityLeaves
   testMulDivModAdmit
   testSignedMulAdmit
   testFailClosedBitNot

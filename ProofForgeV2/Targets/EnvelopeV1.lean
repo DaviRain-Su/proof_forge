@@ -266,8 +266,9 @@ def pilotFieldPolicyGoldilocks : PilotFieldPolicy where
     address). T12 extends the same leaf storage pilot to Solana/NEAR/Noir
     (still not pubkey/account-id/Field reinterpretation). Psy and Aleo admit
     the same 9-leaf wire identity (`pilotPrincipalPolicyAdmit`); Aleo uses
-    UInt64 words, not `address` / Field. TON and envelope-4 stay
-    `pilotPrincipalPolicyNone`.
+    UInt64 words, not `address` / Field. T4 opens TON and envelope-4
+    (Quint/Soroban/OpenVM/ICP) on the same 9-leaf storage identity;
+    Principal return and host-address remapping stay fail closed.
 
     Default is fail-closed. A target may set `admitPrincipal := true` only
     when it can store and byte-compare the wire encoding without

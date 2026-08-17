@@ -113,8 +113,9 @@ normative: false
 | named Struct/Enum state + aggregate view return | **LOWERED** | view multi-stack tuple≤8 leaves；entry aggregate FC |
 | Array/Map/Bytes state | **LOWERED** | Array UInt64；dense Map UInt64 cap-8；fixed Bytes N；c4 flatten |
 | anonymous Array/Option view result | **LOWERED** | `Array UInt64 N`(1..8) / `Option UInt64`；entry、Map/Bytes/nested/非 UInt64 FC |
-| ContextRead | **PARTIAL** | `unixTimeSeconds` OPEN（`blockchain.now()`）；`attachedValue`/`chainId`/`self` named no-host FC；`caller` 因 Principal 可能在 type-closure 先拒 |
-| Commit · nonempty invariants · Field/Principal/String interface | **FAIL-CLOSED** | scalar `Op.Constant` 已 LOWERED（T3）；Option UInt64 state 已 LOWERED（B-OPT-STATE） |
+| ContextRead | **PARTIAL** | `unixTimeSeconds` OPEN（`blockchain.now()`）；`attachedValue`/`chainId`/`self`/`caller` named no-host FC（T4 已 Admit Principal 存储，不映射 TON address） |
+| Principal state/params | **LOWERED** | T4：9 叶 `owner_len`+`w0..w7` identity（≠ TON address）；return / caller→address 仍 FC |
+| Commit · nonempty invariants · Field/String interface | **FAIL-CLOSED** | scalar `Op.Constant` 已 LOWERED（T3）；Option UInt64 state 已 LOWERED（B-OPT-STATE） |
 | 制品 / 验收 | Tolk 1.4.2 → `.fif` + real BoC + `@ton/sandbox` 10/10（含 ScheduleFlow） | **非** 主网 / formal / hermetic |
 
 ## 1c. Quint Q0 executable-model 真实范围（第九 materializer）
@@ -129,7 +130,8 @@ normative: false
 | Array/Option/Map state（齐次 UInt64 或 Int64） | **LOWERED** | N=1..8 Array flatten；Option tag+payload；Map cap-8 occ/key/val；元素/payload/key/value 跟随程序级 signedNumeric；无原生 List/Option/Map；错域混用 / return / N∉1..8 仍 FC |
 | Bytes N state | **LOWERED** | N=1..8 UInt64 叶存低 8 位；IndexGet/Set 复用 Array 字面量下标；param/return/N=0 仍 FC |
 | scalar `Op.Constant` | **LOWERED** | 经已有 `lowerLiteral`（UInt64/Int64/UInt32/Bool）；String/aggregate/Principal const 仍 FC |
-| multi-block/if/match/for、Field/Principal/String/named aggregates | **FAIL-CLOSED** | Q0 不做语义近似 |
+| Principal state/params | **LOWERED** | T4：9×UInt64 identity 叶（`owner_len`+`w0..w7`）；pf.assets `transfer` 仍按 `.principal` 在 call site 重装；return / `context.caller`/`self` 仍 FC |
+| multi-block/if/match/for、Field/String/named aggregates | **FAIL-CLOSED** | Q0 不做语义近似 |
 | event/nonzero revert payload/call/schedule/ContextRead/Commit | **FAIL-CLOSED** | zero-payload declared revert 保留 ErrorId（failure code=`256+id`）；resolver 仅 rollback/state/Bool/checked-arithmetic 四键 |
 | 制品 / 验收 | `.qnt` + zero-tool finalize；host-optional exact Quint 0.32 typecheck + TS smoke | 不可部署；非 ITF/MBT/verify/Apalache/formal |
 
@@ -139,9 +141,9 @@ normative: false
 
 | Target | Profile | 已开 | 诚实 FC / 非声称 |
 |---|---|---|---|
-| **Soroban** | sole `soroban-source-u64-v1` | public UInt64/Bool/Unit Counter/StateCell `.rs`；4-key；zero-tool Finalize `deployable=false`；T3 scalar const 内联 + Bytes N（N UInt64 低 8 位叶） | auth/TTL/Wasm/stellar-cli；UInt64 ContextRead 四键 named no-host；`pf.crypto.*` / nativeVaultBalance named no-host；Principal `self`/`caller` 在 type-closure 先拒 |
-| **OpenVM** | default `openvm-guest-source-v1`；opt-in `openvm-guest-elf-v1` | 受控 guest tree（O0 zero-tool）；O1 locked `cargo-openvm` 2.0.1 → ELF+`.vmexe` extras 仍 `deployable=false`；T3 scalar const 内联 + Bytes N | keygen/execute/prove/verify；UInt64 ContextRead 四键 / `pf.crypto.*` / nativeVaultBalance named no-host |
-| **ICP** | sole `icp-wasm-candid-u64-v1` | Counter/StateCell `.wat`+`.did`；locked wat2wasm `{name}.wasm` `deployable=true`；host-optional PocketIC；**CAP-1a** `unixTimeSeconds`→`ic0.time` ns÷10⁹（init/update/query）；T3 scalar const 内联 + Bytes N（N extra i64 globals，无 Candid `vec nat8`） | PocketIC 不进 Finalize；sync+event FC；async advertise-only；`blockHeight`/`attachedValue`/`chainId` / `pf.crypto.*` / nativeVaultBalance named no-host |
+| **Soroban** | sole `soroban-source-u64-v1` | public UInt64/Bool/Unit Counter/StateCell `.rs`；4-key；zero-tool Finalize `deployable=false`；T3 scalar const 内联 + Bytes N（N UInt64 低 8 位叶）；**T4 Principal 9 叶 identity**（`owner_len`+`w0..w7`，≠ Address） | auth/TTL/Wasm/stellar-cli；UInt64 ContextRead 四键 named no-host；`pf.crypto.*` / nativeVaultBalance named no-host；Principal return / `self`/`caller` 仍 FC |
+| **OpenVM** | default `openvm-guest-source-v1`；opt-in `openvm-guest-elf-v1` | 受控 guest tree（O0 zero-tool）；O1 locked `cargo-openvm` 2.0.1 → ELF+`.vmexe` extras 仍 `deployable=false`；T3 scalar const 内联 + Bytes N；**T4 Principal 9 叶 identity**（≠ host address） | keygen/execute/prove/verify；UInt64 ContextRead 四键 / `pf.crypto.*` / nativeVaultBalance named no-host；Principal return / caller 仍 FC |
+| **ICP** | sole `icp-wasm-candid-u64-v1` | Counter/StateCell `.wat`+`.did`；locked wat2wasm `{name}.wasm` `deployable=true`；host-optional PocketIC；**CAP-1a** `unixTimeSeconds`→`ic0.time` ns÷10⁹（init/update/query）；T3 scalar const 内联 + Bytes N（N extra i64 globals，无 Candid `vec nat8`）；**T4 Principal 9 叶 identity**（9 extra i64 globals，无 Candid `principal`） | PocketIC 不进 Finalize；sync+event FC；async advertise-only；`blockHeight`/`attachedValue`/`chainId` / `pf.crypto.*` / nativeVaultBalance named no-host；Principal return / caller 仍 FC |
 
 ## 2. 验收/差分覆盖矩阵
 
@@ -230,7 +232,7 @@ normative: false
 - **AddressBearing**（B-3 followup）：**EVM static-callee open；Solana legacy 已 #111 fail closed** — research 确认 callee 为 static QN 非 dynamic address；EVM resolver 七键 + Plan/IR/emitter 打开；Solana legacy 删除双 call 键且 Plan/IR/SBPF 拒绝旧节点；真实 CPI 见 epic #110；任意 Principal→address 仍 fail closed
 - **EVMOZ-003 / ADR-0025 EVM caller encoding**：**encoding 决策已 accepted** — EVM `context.caller` = `u32le(20)||CALLER`；shared wire 不变；**S1-EVM Plan 已原子 cutover（2026-08-06）**；不解锁 address ABI / Ownable F01 全 OZ 信用 / 他 target 自动镜像
 - **T10 EVM Principal storage**：**已闭合** — EVM `pilotPrincipalPolicyAdmit` + N4-isomorphic leaf storage（len+8×UInt64）；params/state/eq/ne；非 address；多宽 return 仍 fail closed
-- **T12 NEAR/Solana/Noir Principal storage**：**已闭合** — 三 target `pilotPrincipalPolicyAdmit` + 同构 9-leaf layout（Solana account pitch / NEAR 9×KV / Noir 9×u64 inputs）；params/state/eq/ne；非 pubkey/account-id/Field；多宽 return 仍 fail closed；**Aleo T3** 已开同构 9×u64 identity（≠address/Field；return FC）；**Psy PSY-SCALAR-ABI（2026-08-08）** 另开 wire-identity `len`+8×UInt32（max 32B；非 address；return FC）
+- **T12 NEAR/Solana/Noir Principal storage**：**已闭合** — 三 target `pilotPrincipalPolicyAdmit` + 同构 9-leaf layout（Solana account pitch / NEAR 9×KV / Noir 9×u64 inputs）；params/state/eq/ne；非 pubkey/account-id/Field；多宽 return 仍 fail closed；**Aleo T3** 已开同构 9×u64 identity（≠address/Field；return FC）；**T4** 已开 TON + Quint/Soroban/OpenVM/ICP 同构 9 叶（ICP 为 9 i64 globals，无 Candid `principal`；return / caller 仍 FC）；**Psy PSY-SCALAR-ABI（2026-08-08）** 另开 wire-identity `len`+8×UInt32（max 32B；非 address；return FC）
 - **NearWasmAcceptance**（C-1）：**已闭合工程子集** — `Tests/Materialization/NearWasmAcceptance.lean`；locked `wat2wasm` + host-optional `wasm-interp`/`wasmtime`/`wasmer` runtime-load 门
 - **AleoPsyResearch**（C-2）：**已闭合** — `docs/research/15-aleo-psy-compiler-vm.md`（不升格门）
 - **NoirProveResearch**（C-4）：**已闭合** — `docs/research/16-noir-prove-path.md`（不升格 prove/verify）
