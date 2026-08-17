@@ -108,6 +108,8 @@ inductive Expr where
   | principalEq (lhs rhs : Array Expr)
   /-- CAP-1b: leaf-wise `!=` of two 9-leaf Principal wires → Bool 0/1. -/
   | principalNe (lhs rhs : Array Expr)
+  /-- Bounded-for induction slot (T9c). Distinct from params/state. -/
+  | temp (index : Nat)
   | checkedAdd (lhs rhs : Expr)
   | checkedSub (lhs rhs : Expr)
   | checkedMul (lhs rhs : Expr)
@@ -141,6 +143,9 @@ inductive Statement where
       `(scrutinee == value)` arms; `forLoop` arrives in T9c. -/
   | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
       (defaultBody : Array Statement)
+  /-- T9c: Normalize `loopBounds` header with one induction temp. -/
+  | forLoop (varTemp : Nat) (initial condition update : Expr)
+      (maxIterations : Nat) (body : Array Statement)
   | returnValue (value : Expr)
   | returnNone
   /-- Flattened return (Candid positional tuple of i64 leaves). -/
@@ -909,10 +914,11 @@ private structure BodyAccum where
   overlay : StateOverlay
   opCount : Nat
   asserts : Array Expr := #[]
+  nextTemp : Nat := 0
   deriving Inhabited
 
 private def emptyBodyAccum (env : ValueEnv) (overlay : StateOverlay) : BodyAccum :=
-  { env, overlay, opCount := 0, asserts := #[] }
+  { env, overlay, opCount := 0, asserts := #[], nextTemp := 0 }
 
 private def bumpOp (acc : BodyAccum) : CompileResult BodyAccum := do
   if acc.opCount + 1 > maxBodyStatements then
@@ -920,7 +926,7 @@ private def bumpOp (acc : BodyAccum) : CompileResult BodyAccum := do
   pure { acc with opCount := acc.opCount + 1 }
 
 private partial def exprNodes : Expr → Nat
-  | .literal _ | .param _ | .stateLoad _ | .unixTimeSeconds
+  | .literal _ | .param _ | .stateLoad _ | .unixTimeSeconds | .temp _
   | .callerPrincipalLen | .callerPrincipalWord _
   | .paramPrincipalLen _ | .paramPrincipalWord .. => 1
   | .principalEq lhs rhs | .principalNe lhs rhs =>
@@ -997,7 +1003,7 @@ private partial def lowerBlockInstructions
     (signedNumeric : Bool) (block : BlockV1)
     (acc0 : BodyAccum) :
     CompileResult BodyAccum := do
-  unless block.params.isEmpty do
+  unless block.params.isEmpty || block.params.size == 1 do
     planError "unsupported ICP semantic shape: block parameters are outside ICP-2"
   let mut acc := acc0
   for instr in block.instructions do
@@ -1432,7 +1438,60 @@ private def returnStmts (ret? : Option LoweredValue) : CompileResult (Array Stat
 private inductive RegionCont where
   | join (blockId : Nat)
   | closed
+  | latch (update : Expr)
   deriving BEq, Inhabited
+
+private def findLoopBoundV1 (loopBounds : Array LoopBoundV1) (headerId : Nat) :
+    Option LoopBoundV1 :=
+  loopBounds.find? (fun lb => lb.header.toNat == headerId)
+
+private def isLoopHeaderV1 (loopBounds : Array LoopBoundV1) (blockId : Nat) : Bool :=
+  (findLoopBoundV1 loopBounds blockId).isSome
+
+private def joinOf : RegionCont → Option Nat
+  | .join j => some j
+  | .closed | .latch _ => none
+
+private def validateCallableLoopsV1
+    (types : IcpTypeClosureV1) (callable : CallableV1) : CompileResult Unit := do
+  let mut blockParamCount : Nat := 0
+  for block in callable.blocks do
+    if block.params.isEmpty then
+      pure ()
+    else
+      unless block.params.size == 1 do
+        planError
+          "unsupported ICP semantic shape: loop header must carry exactly one block param"
+      let some p := block.params[0]? |
+        planError
+          "unsupported ICP semantic shape: loop header must carry exactly one block param"
+      unless isUInt64Type types p.typeId || isInt64Type types p.typeId do
+        planError
+          "unsupported ICP semantic shape: loop induction must be public UInt64/Int64"
+      unless isLoopHeaderV1 callable.loopBounds block.id.toNat do
+        planError
+          "unsupported ICP semantic shape: block parameters require a loopBounds header entry"
+      blockParamCount := blockParamCount + 1
+  for lb in callable.loopBounds do
+    let some header := callable.blocks[lb.header.toNat]? |
+      planError "unsupported ICP semantic shape: loopBounds header is out of range"
+    unless header.params.size == 1 do
+      planError
+        "unsupported ICP semantic shape: loopBounds header must have one block param"
+    let some latch := callable.blocks[lb.backEdgeFrom.toNat]? |
+      planError
+        "unsupported ICP semantic shape: loopBounds backEdgeFrom is out of range"
+    match latch.terminator with
+    | .jump target =>
+        unless target.blockId == lb.header && target.args.size == 1 do
+          planError
+            "unsupported ICP semantic shape: loop latch must jump to its header with one arg"
+    | _ =>
+        planError
+          "unsupported ICP semantic shape: loop latch terminator must be a jump"
+    unless lb.maxIterations.toNat ≤ 4096 do
+      planError
+        "unsupported ICP semantic shape: loop maxIterations exceeds the wire ceiling"
 
 private def flushRegion
     (layout : StateLayout) (acc : BodyAccum) : Array Statement × BodyAccum :=
@@ -1450,15 +1509,15 @@ private def lookupReturn
       | some v => pure (some v)
       | none => planError "unsupported ICP semantic shape: return value undefined"
 
-/-- T9a/T9b region walker: straight ops, empty-arg `jump` → join, Bool
-    `branch` → `ifThenElse`, `switch` → `switchOn` (default required).
-    `loopBounds` stay on the historical single-block error so LoopSum
-    needles do not flip. -/
+/-- T9a–T9c region walker: straight ops, empty-arg `jump` → join,
+    latch jump → `.latch`, Bool `branch` → `ifThenElse`, `switch` →
+    `switchOn`, `loopBounds` header → `forLoop`. -/
 private partial def emitRegion
     (data : SemanticProgramDataV1) (types : IcpTypeClosureV1)
     (layout : StateLayout) (mode : MethodMode) (allowStateWrite : Bool)
     (signedNumeric : Bool)
-    (callable : CallableV1) (fuel : Nat) (blockId : Nat)
+    (callable : CallableV1) (enclosingHeader : Option Nat)
+    (fuel : Nat) (blockId : Nat)
     (acc0 : BodyAccum) :
     CompileResult (Array Statement × BodyAccum × Option LoweredValue × RegionCont) := do
   match fuel with
@@ -1479,11 +1538,90 @@ private partial def emitRegion
           let retStmts ← returnStmts ret?
           pure (stmts ++ retStmts, acc, ret?, .closed)
       | .jump target => do
-          unless target.args.isEmpty do
-            planError
-              "unsupported ICP semantic shape: jump args / block-param phi are outside ICP-2"
-          let (stmts, acc) := flushRegion layout acc
-          pure (stmts, acc, none, .join target.blockId.toNat)
+          let targetId := target.blockId.toNat
+          if enclosingHeader == some targetId then
+            unless target.args.size == 1 do
+              planError
+                "unsupported ICP semantic shape: loop latch must carry exactly one induction arg"
+            let (stmts, acc) := flushRegion layout acc
+            let some updateVid := target.args[0]? |
+              planError
+                "unsupported ICP semantic shape: loop latch must carry exactly one induction arg"
+            let update ← match envLookup acc.env updateVid with
+              | some v => requireScalar v "loop update"
+              | none =>
+                  planError "unsupported ICP semantic shape: loop update undefined"
+            pure (stmts, acc, none, .latch update)
+          else if isLoopHeaderV1 callable.loopBounds targetId then
+            let some lb := findLoopBoundV1 callable.loopBounds targetId |
+              planError "unsupported ICP semantic shape: missing loopBounds for loop header"
+            unless target.args.size == 1 do
+              planError
+                "unsupported ICP semantic shape: loop pre-header must jump with one start arg"
+            let (preStmts, acc) := flushRegion layout acc
+            let some startVid := target.args[0]? |
+              planError
+                "unsupported ICP semantic shape: loop pre-header must jump with one start arg"
+            let initial ← match envLookup acc.env startVid with
+              | some v => requireScalar v "loop start"
+              | none =>
+                  planError "unsupported ICP semantic shape: loop start value undefined"
+            let some header := callable.blocks[targetId]? |
+              planError "unsupported ICP semantic shape: loop header block is missing"
+            unless header.params.size == 1 do
+              planError
+                "unsupported ICP semantic shape: loop header must carry exactly one block param"
+            let some inductionParam := header.params[0]? |
+              planError
+                "unsupported ICP semantic shape: loop header must carry exactly one block param"
+            let varTemp := acc.nextTemp
+            let acc :=
+              { acc with
+                nextTemp := acc.nextTemp + 1
+                env := envInsert acc.env inductionParam.valueId (mkScalar (.temp varTemp)) }
+            let acc ←
+              lowerBlockInstructions data types layout allowStateWrite signedNumeric
+                header acc
+            unless acc.overlay.entries.isEmpty && acc.asserts.isEmpty do
+              planError
+                "unsupported ICP semantic shape: loop header may not contain effect instructions"
+            match header.terminator with
+            | .branch condId thenT elseT => do
+                unless thenT.args.isEmpty && elseT.args.isEmpty do
+                  planError
+                    "unsupported ICP semantic shape: loop branch targets must carry empty args"
+                let cond ← match envLookup acc.env condId with
+                  | some v => requireScalar v "loop condition"
+                  | none =>
+                      planError
+                        "unsupported ICP semantic shape: loop condition undefined"
+                let (bodyStmts, acc1, _bodyRet, bodyCont) ←
+                  emitRegion data types layout mode allowStateWrite signedNumeric
+                    callable (some targetId) fuel' thenT.blockId.toNat acc
+                let update ← match bodyCont with
+                  | .latch e => pure e
+                  | .closed =>
+                      planError
+                        "unsupported ICP semantic shape: loop body closed without a latch"
+                  | .join _ =>
+                      planError
+                        "unsupported ICP semantic shape: loop body must end at its latch jump"
+                let forStmt :=
+                  Statement.forLoop varTemp initial cond update
+                    lb.maxIterations.toNat bodyStmts
+                let (rest, acc2, restRet, restCont) ←
+                  emitRegion data types layout mode allowStateWrite signedNumeric
+                    callable enclosingHeader fuel' elseT.blockId.toNat acc1
+                pure (preStmts ++ #[forStmt] ++ rest, acc2, restRet, restCont)
+            | _ =>
+                planError
+                  "unsupported ICP semantic shape: loop header terminator must be a branch"
+          else
+            unless target.args.isEmpty do
+              planError
+                "unsupported ICP semantic shape: jump args / block-param phi are outside ICP-2"
+            let (stmts, acc) := flushRegion layout acc
+            pure (stmts, acc, none, .join targetId)
       | .branch condId thenT elseT => do
           unless thenT.args.isEmpty && elseT.args.isEmpty do
             planError
@@ -1495,26 +1633,30 @@ private partial def emitRegion
           let (preStmts, acc) := flushRegion layout acc
           let (thenStmts, acc1, thenRet, thenCont) ←
             emitRegion data types layout mode allowStateWrite signedNumeric
-              callable fuel' thenT.blockId.toNat acc
-          let thenJoin : Option Nat :=
-            match thenCont with
-            | .closed => none
-            | .join j => some j
+              callable enclosingHeader fuel' thenT.blockId.toNat acc
+          match thenCont with
+          | .latch _ =>
+              planError
+                "unsupported ICP semantic shape: latch jump is only valid as a loop body end"
+          | .closed | .join _ => pure ()
+          let thenJoin := joinOf thenCont
           if thenJoin == some elseT.blockId.toNat then
             let (rest, acc2, restRet, restCont) ←
               emitRegion data types layout mode allowStateWrite signedNumeric
-                callable fuel' elseT.blockId.toNat acc1
+                callable enclosingHeader fuel' elseT.blockId.toNat acc1
             pure
               (preStmts ++ #[.ifThenElse cond thenStmts #[]] ++ rest,
                 acc2, thenRet <|> restRet, restCont)
           else
             let (elseStmts, acc2, elseRet, elseCont) ←
               emitRegion data types layout mode allowStateWrite signedNumeric
-                callable fuel' elseT.blockId.toNat acc1
-            let elseJoin : Option Nat :=
-              match elseCont with
-              | .closed => none
-              | .join j => some j
+                callable enclosingHeader fuel' elseT.blockId.toNat acc1
+            match elseCont with
+            | .latch _ =>
+                planError
+                  "unsupported ICP semantic shape: latch jump is only valid as a loop body end"
+            | .closed | .join _ => pure ()
+            let elseJoin := joinOf elseCont
             match thenJoin, elseJoin with
             | some j1, some j2 => do
                 unless j1 == j2 do
@@ -1522,7 +1664,7 @@ private partial def emitRegion
                     "unsupported ICP semantic shape: branch arms converge on divergent joins"
                 let (rest, acc3, restRet, restCont) ←
                   emitRegion data types layout mode allowStateWrite signedNumeric
-                    callable fuel' j1 acc2
+                    callable enclosingHeader fuel' j1 acc2
                 pure
                   (preStmts ++ #[.ifThenElse cond thenStmts elseStmts] ++ rest,
                     acc3, thenRet <|> elseRet <|> restRet, restCont)
@@ -1533,7 +1675,7 @@ private partial def emitRegion
             | some j, none | none, some j => do
                 let (rest, acc3, restRet, restCont) ←
                   emitRegion data types layout mode allowStateWrite signedNumeric
-                    callable fuel' j acc2
+                    callable enclosingHeader fuel' j acc2
                 pure
                   (preStmts ++ #[.ifThenElse cond thenStmts elseStmts] ++ rest,
                     acc3, thenRet <|> elseRet <|> restRet, restCont)
@@ -1562,24 +1704,30 @@ private partial def emitRegion
             let caseValue ←
               decodeSwitchCaseValue types switchCase.typeId switchCase.valueBytes
             let (body, acc1, armRet, armCont) ←
-              emitRegion data types layout allowStateWrite signedNumeric
-                callable fuel' switchCase.target.blockId.toNat accA
+              emitRegion data types layout mode allowStateWrite signedNumeric
+                callable enclosingHeader fuel' switchCase.target.blockId.toNat accA
             caseBodies := caseBodies.push (caseValue, body)
             accA := acc1
             retAcc := retAcc <|> armRet
             match armCont, joinAcc with
             | .closed, _ => pure ()
+            | .latch _, _ =>
+                planError
+                  "unsupported ICP semantic shape: latch jump is only valid as a loop body end"
             | .join j, none => joinAcc := some j
             | .join j, some j0 =>
                 unless j == j0 do
                   planError
                     "unsupported ICP semantic shape: switch arms converge on divergent joins"
           let (defaultBody, acc2, defaultRet, defaultCont) ←
-            emitRegion data types layout allowStateWrite signedNumeric
-              callable fuel' defaultT.blockId.toNat accA
+            emitRegion data types layout mode allowStateWrite signedNumeric
+              callable enclosingHeader fuel' defaultT.blockId.toNat accA
           retAcc := retAcc <|> defaultRet
           match defaultCont, joinAcc with
           | .closed, _ => pure ()
+          | .latch _, _ =>
+              planError
+                "unsupported ICP semantic shape: latch jump is only valid as a loop body end"
           | .join j, none => joinAcc := some j
           | .join j, some j0 =>
               unless j == j0 do
@@ -1591,8 +1739,8 @@ private partial def emitRegion
               pure (preStmts.push switchStmt, acc2, retAcc, .closed)
           | some j => do
               let (rest, acc3, restRet, restCont) ←
-                emitRegion data types layout allowStateWrite signedNumeric
-                  callable fuel' j acc2
+                emitRegion data types layout mode allowStateWrite signedNumeric
+                  callable enclosingHeader fuel' j acc2
               pure
                 (preStmts.push switchStmt ++ rest, acc3,
                   retAcc <|> restRet, restCont)
@@ -1727,20 +1875,19 @@ private def lowerCallableBody
         expr := rewriteReturnThroughOverlay layout acc.overlay v.expr
         leaves := v.leaves.map (rewriteReturnThroughOverlay layout acc.overlay) })
     pure (paramNames, paramKinds, stores, ret?)
-  else if callable.loopBounds.isEmpty then
+  else do
     unless callable.entryBlock.toNat == 0 do
       planError "unsupported ICP semantic shape: entryBlock must be 0"
+    unless callable.loopBounds.isEmpty do
+      validateCallableLoopsV1 types callable
     let (stmts, _acc, _ret?, cont) ←
       emitRegion data types layout mode allowStateWrite signedNumeric
-        callable callable.blocks.size callable.entryBlock.toNat acc0
+        callable none callable.blocks.size callable.entryBlock.toNat acc0
     unless cont == .closed do
       planError "unsupported ICP semantic shape: CFG walk ended without a return"
     -- Returns are already in-region (T9b). Do not bubble a join ret? that
     -- would append a second trailing return after a closed switch.
     pure (paramNames, paramKinds, stmts, none)
-  else
-    planError
-      "unsupported ICP semantic shape: each callable must have exactly one block (Counter/StateCell envelope has no control flow)"
 
 private def resultKindOf
     (data : SemanticProgramDataV1) (types : IcpTypeClosureV1)

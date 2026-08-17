@@ -1514,6 +1514,46 @@ private unsafe def testMaybeMatch
   | .error e => throw <| IO.userError s!"MaybeMatch plan must validate: {e.render}"
   IO.println "  ✓ MaybeMatch Option tag switch"
 
+private unsafe def testLoopSum
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "LoopSum" <|
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry addUp(n : UInt64) : UInt64 do\n" ++
+    "    let limit : UInt64 := n + 4\n" ++
+    "    for i in n ..< limit bounded 8 do\n" ++
+    "      count := count + i\n" ++
+    "    return count\n\n" ++
+    "  entry scan(n : UInt64) : UInt64 do\n" ++
+    "    for i in n ..< n bounded 2 do\n" ++
+    "      count := count + 1\n" ++
+    "    return count\n\n" ++
+    "  entry addUpTight(n : UInt64) : UInt64 do\n" ++
+    "    for i in n ..< n + 4 bounded 3 do\n" ++
+    "      count := count + i\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let compiled ← compileSource session src "Examples.LoopSum" "<icp-loop-sum>"
+  let plan ← liftResult <| planIcp compiled
+  let addUp ← findMethod plan "addUp"
+  let hasFor :=
+    addUp.body.any fun s =>
+      match s with
+      | .forLoop _ _ _ _ maxIt _ => maxIt == 8
+      | _ => false
+  expect hasFor "LoopSum addUp must lower bounded-for to forLoop max=8"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"LoopSum plan must validate: {e.render}"
+  let files ← liftResult <| filesIcp compiled
+  let wat ← findFile files "LoopSum.wat"
+  expect (wat.contains "(loop $pf_loop" && wat.contains "br " &&
+      wat.contains "unreachable")
+    "LoopSum WAT must render block/loop/br with the bound trap"
+  IO.println "  ✓ LoopSum bounded-for"
+
 unsafe def run : IO Unit := do
   IO.println "IcpPlanV1"
   let session ← Tests.Language.ParserSession.shared
@@ -1565,6 +1605,7 @@ unsafe def run : IO Unit := do
   testIfFlow session
   testBranchFlow session
   testMaybeMatch session
+  testLoopSum session
   IO.println "IcpPlanV1: all checks passed"
 
 end Tests.Materialization.IcpPlanV1

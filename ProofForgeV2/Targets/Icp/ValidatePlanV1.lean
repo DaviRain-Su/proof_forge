@@ -39,7 +39,7 @@ private def isSafeIdent (name : String) : Bool :=
   isAsciiIdentifier maxIdentifierBytes name && !isReserved name
 
 private partial def exprNodeCount : Expr → Nat
-  | .literal _ | .param _ | .stateLoad _ | .unixTimeSeconds
+  | .literal _ | .param _ | .stateLoad _ | .unixTimeSeconds | .temp _
   | .callerPrincipalLen | .callerPrincipalWord _
   | .paramPrincipalLen _ | .paramPrincipalWord .. => 1
   | .principalEq lhs rhs | .principalNe lhs rhs =>
@@ -73,7 +73,7 @@ private def validateExpr
     if depth > maxExprDepth then
       planError s!"ICP plan {what} expression exceeds depth limit"
     match current with
-    | .literal _ | .unixTimeSeconds | .callerPrincipalLen => pure ()
+    | .literal _ | .unixTimeSeconds | .temp _ | .callerPrincipalLen => pure ()
     | .callerPrincipalWord wordIndex =>
         unless wordIndex < icpPrincipalDataWordCountV1 do
           planError s!"ICP plan {what} callerPrincipalWord {wordIndex} is out of range"
@@ -135,6 +135,9 @@ private partial def stmtCount : Statement → Nat
   | .switchOn _ cases defaultBody =>
       1 + (cases.map (fun (_, b) => (b.map stmtCount).foldl (· + ·) 0)).foldl (· + ·) 0 +
         (defaultBody.map stmtCount).foldl (· + ·) 0
+  | .forLoop _ initial cond update _ body =>
+      1 + exprNodeCount initial + exprNodeCount cond + exprNodeCount update +
+        (body.map stmtCount).foldl (· + ·) 0
   | _ => 1
 
 /-- Validate a Statement list: `.assert` / `.store` / T9a `.ifThenElse`,
@@ -190,6 +193,17 @@ private partial def validateRegion
           validateRegion owner resultKind allowStores paramCount stateCount
             remaining defaultBody
         remaining := rd
+    | .forLoop _ initial condition update _ body =>
+        remaining ←
+          validateExpr initial "for initial" paramCount stateCount remaining
+        remaining ←
+          validateExpr condition "for condition" paramCount stateCount remaining
+        remaining ←
+          validateExpr update "for update" paramCount stateCount remaining
+        let (rb, _) ←
+          validateRegion owner resultKind allowStores paramCount stateCount
+            remaining body
+        remaining := rb
     | .returnValue value =>
         sawTerminal := true
         sawTerminalValue := true
@@ -223,6 +237,7 @@ private partial def regionHasReturn (body : Array Statement) : Bool :=
     | .ifThenElse _ t e => regionHasReturn t || regionHasReturn e
     | .switchOn _ cases d =>
         cases.any (fun (_, b) => regionHasReturn b) || regionHasReturn d
+    | .forLoop _ _ _ _ _ body => regionHasReturn body
     | _ => false
 
 private def validateBody

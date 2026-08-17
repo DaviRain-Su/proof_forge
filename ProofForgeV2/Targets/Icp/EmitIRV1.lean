@@ -65,6 +65,11 @@ inductive Operation where
   | storeState (fieldIndex value : Nat)
   /-- T9a: side-effecting Wasm `if`/`else` (no result type). -/
   | ifThenElse (cond : Nat) (thenOps elseOps : Array Operation)
+  /-- T9c: counted Wasm `loop` + `br_if` exit; `iterLocal` traps at maxIterations. -/
+  | forLoop (varLocal iterLocal init : Nat) (maxIterations : Nat)
+      (condOps : Array Operation) (cond : Nat)
+      (bodyOps : Array Operation)
+      (updateOps : Array Operation) (update : Nat)
   deriving BEq, Inhabited, Repr
 
 structure MethodIR where
@@ -128,9 +133,14 @@ private structure LoweredExpr where
   deriving Inhabited
 
 mutual
-private partial def lowerExpr (layout : ParamLayout) (next : Nat) : Expr → LoweredExpr
+private partial def lowerExpr (layout : ParamLayout) (next : Nat)
+    (temps : Array (Nat × Nat)) : Expr → LoweredExpr
   | .literal value => { operations := #[.literal next value], value := next, next := next + 1 }
   | .param index => { operations := #[], value := paramTemp layout index, next := next }
+  | .temp index =>
+      match temps.find? (fun p => p.1 == index) with
+      | some (_, loc) => { operations := #[], value := loc, next := next }
+      | none => { operations := #[.literal next 0], value := next, next := next + 1 }
   | .stateLoad fieldIndex =>
       { operations := #[.stateLoad next fieldIndex], value := next, next := next + 1 }
   | .unixTimeSeconds =>
@@ -152,84 +162,84 @@ private partial def lowerExpr (layout : ParamLayout) (next : Nat) : Expr → Low
         next := next
       }
   | .principalEq lhs rhs =>
-      lowerPrincipalCompare layout next false lhs rhs
+      lowerPrincipalCompare layout next temps false lhs rhs
   | .principalNe lhs rhs =>
-      lowerPrincipalCompare layout next true lhs rhs
+      lowerPrincipalCompare layout next temps true lhs rhs
   | .checkedAdd lhs rhs =>
-      let l := lowerExpr layout next lhs
-      let r := lowerExpr layout l.next rhs
+      let l := lowerExpr layout next temps lhs
+      let r := lowerExpr layout l.next temps rhs
       {
         operations := l.operations ++ r.operations ++ #[.checkedAdd r.next l.value r.value]
         value := r.next
         next := r.next + 1
       }
   | .checkedSub lhs rhs =>
-      let l := lowerExpr layout next lhs
-      let r := lowerExpr layout l.next rhs
+      let l := lowerExpr layout next temps lhs
+      let r := lowerExpr layout l.next temps rhs
       {
         operations := l.operations ++ r.operations ++ #[.checkedSub r.next l.value r.value]
         value := r.next
         next := r.next + 1
       }
   | .checkedMul lhs rhs =>
-      let l := lowerExpr layout next lhs
-      let r := lowerExpr layout l.next rhs
+      let l := lowerExpr layout next temps lhs
+      let r := lowerExpr layout l.next temps rhs
       {
         operations := l.operations ++ r.operations ++ #[.checkedMul r.next l.value r.value]
         value := r.next
         next := r.next + 1
       }
   | .checkedDiv lhs rhs =>
-      let l := lowerExpr layout next lhs
-      let r := lowerExpr layout l.next rhs
+      let l := lowerExpr layout next temps lhs
+      let r := lowerExpr layout l.next temps rhs
       {
         operations := l.operations ++ r.operations ++ #[.checkedDiv r.next l.value r.value]
         value := r.next
         next := r.next + 1
       }
   | .checkedMod lhs rhs =>
-      let l := lowerExpr layout next lhs
-      let r := lowerExpr layout l.next rhs
+      let l := lowerExpr layout next temps lhs
+      let r := lowerExpr layout l.next temps rhs
       {
         operations := l.operations ++ r.operations ++ #[.checkedMod r.next l.value r.value]
         value := r.next
         next := r.next + 1
       }
   | .compare op lhs rhs =>
-      let l := lowerExpr layout next lhs
-      let r := lowerExpr layout l.next rhs
+      let l := lowerExpr layout next temps lhs
+      let r := lowerExpr layout l.next temps rhs
       {
         operations := l.operations ++ r.operations ++ #[.compare r.next op l.value r.value]
         value := r.next
         next := r.next + 1
       }
   | .boolAnd lhs rhs =>
-      let l := lowerExpr layout next lhs
-      let r := lowerExpr layout l.next rhs
+      let l := lowerExpr layout next temps lhs
+      let r := lowerExpr layout l.next temps rhs
       {
         operations := l.operations ++ r.operations ++ #[.boolAnd r.next l.value r.value]
         value := r.next
         next := r.next + 1
       }
   | .boolOr lhs rhs =>
-      let l := lowerExpr layout next lhs
-      let r := lowerExpr layout l.next rhs
+      let l := lowerExpr layout next temps lhs
+      let r := lowerExpr layout l.next temps rhs
       {
         operations := l.operations ++ r.operations ++ #[.boolOr r.next l.value r.value]
         value := r.next
         next := r.next + 1
       }
   | .boolNot operand =>
-      let o := lowerExpr layout next operand
+      let o := lowerExpr layout next temps operand
       {
         operations := o.operations ++ #[.boolNot o.next o.value]
         value := o.next
         next := o.next + 1
       }
   | .ite cond t e =>
-      let c := lowerExpr layout next cond
-      let tv := lowerExpr layout c.next t
-      let ev := lowerExpr layout tv.next e
+      let c := lowerExpr layout next temps cond
+      let tv := lowerExpr layout c.next temps t
+      let ev := lowerExpr layout tv.next temps e
       {
         operations :=
           c.operations ++ tv.operations ++ ev.operations ++
@@ -239,7 +249,7 @@ private partial def lowerExpr (layout : ParamLayout) (next : Nat) : Expr → Low
       }
 
 private partial def lowerPrincipalCompare
-    (layout : ParamLayout) (next : Nat) (negate : Bool)
+    (layout : ParamLayout) (next : Nat) (temps : Array (Nat × Nat)) (negate : Bool)
     (lhs rhs : Array Expr) : LoweredExpr :=
   Id.run do
     let mut ops : Array Operation := #[]
@@ -247,12 +257,12 @@ private partial def lowerPrincipalCompare
     let mut lhsTemps : Array Nat := #[]
     let mut rhsTemps : Array Nat := #[]
     for e in lhs do
-      let lv := lowerExpr layout n e
+      let lv := lowerExpr layout n temps e
       ops := ops ++ lv.operations
       lhsTemps := lhsTemps.push lv.value
       n := lv.next
     for e in rhs do
-      let lv := lowerExpr layout n e
+      let lv := lowerExpr layout n temps e
       ops := ops ++ lv.operations
       rhsTemps := rhsTemps.push lv.value
       n := lv.next
@@ -265,7 +275,8 @@ private partial def lowerPrincipalCompare
       next := n + 1
     }
 
-private partial def lowerStmts (layout : ParamLayout) (next0 : Nat) (body : Array Statement) :
+private partial def lowerStmts (layout : ParamLayout) (next0 : Nat)
+    (temps : Array (Nat × Nat)) (body : Array Statement) :
     Array Operation × Option Nat × Array Nat × Nat := Id.run do
   let mut ops : Array Operation := #[]
   let mut next := next0
@@ -274,17 +285,19 @@ private partial def lowerStmts (layout : ParamLayout) (next0 : Nat) (body : Arra
   for stmt in body do
     match stmt with
     | .assert condition =>
-        let lv := lowerExpr layout next condition
+        let lv := lowerExpr layout next temps condition
         ops := ops ++ lv.operations ++ #[.assertTrue lv.value]
         next := lv.next
     | .store fieldIndex value =>
-        let lv := lowerExpr layout next value
+        let lv := lowerExpr layout next temps value
         ops := ops ++ lv.operations ++ #[.storeState fieldIndex lv.value]
         next := lv.next
     | .ifThenElse condition thenBody elseBody =>
-        let lv := lowerExpr layout next condition
-        let (thenOps, thenRes, thenTemps, next1) := lowerStmts layout lv.next thenBody
-        let (elseOps, elseRes, elseTemps, next2) := lowerStmts layout next1 elseBody
+        let lv := lowerExpr layout next temps condition
+        let (thenOps, thenRes, thenTemps, next1) :=
+          lowerStmts layout lv.next temps thenBody
+        let (elseOps, elseRes, elseTemps, next2) :=
+          lowerStmts layout next1 temps elseBody
         ops := ops ++ lv.operations ++ #[.ifThenElse lv.value thenOps elseOps]
         result? := thenRes <|> elseRes <|> result?
         resultTemps :=
@@ -298,19 +311,37 @@ private partial def lowerStmts (layout : ParamLayout) (next0 : Nat) (body : Arra
             (fun (v, body) acc =>
               #[.ifThenElse (.compare .eq scrutinee (.literal v)) body acc])
             defaultBody
-        let (swOps, swRes, swTemps, next1) := lowerStmts next folded
+        let (swOps, swRes, swTemps, next1) := lowerStmts layout next temps folded
         ops := ops ++ swOps
         result? := swRes <|> result?
         resultTemps := if swTemps.isEmpty then resultTemps else swTemps
         next := next1
+    | .forLoop varTemp initial condition update maxIterations body =>
+        let initL := lowerExpr layout next temps initial
+        let varLocal := initL.next
+        let iterLocal := varLocal + 1
+        let nextA := iterLocal + 1
+        let temps' := temps.push (varTemp, varLocal)
+        let condL := lowerExpr layout nextA temps' condition
+        let (bodyOps, bodyRes, bodyTemps, nextB) :=
+          lowerStmts layout condL.next temps' body
+        let updL := lowerExpr layout nextB temps' update
+        ops := ops ++ initL.operations ++ #[
+          .forLoop varLocal iterLocal initL.value maxIterations
+            condL.operations condL.value
+            bodyOps
+            updL.operations updL.value]
+        result? := bodyRes <|> result?
+        resultTemps := if bodyTemps.isEmpty then resultTemps else bodyTemps
+        next := updL.next
     | .returnValue value =>
-        let lv := lowerExpr layout next value
+        let lv := lowerExpr layout next temps value
         ops := ops ++ lv.operations
         result? := some lv.value
         next := lv.next
     | .returnAggregate leaves =>
         for e in leaves do
-          let lv := lowerExpr layout next e
+          let lv := lowerExpr layout next temps e
           ops := ops ++ lv.operations
           resultTemps := resultTemps.push lv.value
           next := lv.next
@@ -321,7 +352,7 @@ end
 
 private def lowerBody (layout : ParamLayout) (body : Array Statement) :
     Array Operation × Option Nat × Array Nat × Nat :=
-  lowerStmts layout layout.nextTemp body
+  lowerStmts layout layout.nextTemp #[] body
 
 private def lowerMethod (m : Method) : MethodIR :=
   let layout := makeParamLayout m.paramKinds
@@ -603,6 +634,24 @@ private partial def renderOperation (signed : Bool) : Operation → String
         else "      (else\n" ++ elseW ++ "      )\n"
       s!"    (if (i32.eqz (i64.eqz (local.get $t{cond})))\n" ++
         "      (then\n" ++ thenW ++ "      )\n" ++ elseBlock ++ "    )\n"
+  | .forLoop varLocal iterLocal init maxIterations condOps cond bodyOps updateOps update =>
+      let condW := String.join (condOps.map (renderOperation signed)).toList
+      let bodyW := String.join (bodyOps.map (renderOperation signed)).toList
+      let updW := String.join (updateOps.map (renderOperation signed)).toList
+      let exitLab := s!"$pf_exit_{varLocal}"
+      let loopLab := s!"$pf_loop_{varLocal}"
+      s!"    (local.set $t{varLocal} (local.get $t{init}))\n" ++
+      s!"    (local.set $t{iterLocal} (i64.const 0))\n" ++
+      s!"    (block {exitLab}\n" ++
+      s!"      (loop {loopLab}\n" ++
+      s!"        (if (i64.ge_u (local.get $t{iterLocal}) (i64.const {maxIterations})) (then unreachable))\n" ++
+      condW ++
+      s!"        (if (i64.eqz (local.get $t{cond})) (then br {exitLab}))\n" ++
+      bodyW ++
+      updW ++
+      s!"        (local.set $t{varLocal} (local.get $t{update}))\n" ++
+      s!"        (local.set $t{iterLocal} (i64.add (local.get $t{iterLocal}) (i64.const 1)))\n" ++
+      s!"        (br {loopLab})))\n"
 
 private def renderLocals (tempCount : Nat) : String :=
   if tempCount == 0 then ""
@@ -715,6 +764,9 @@ private partial def opUsesUnixTime : Operation → Bool
   | .unixTimeSeconds _ => true
   | .ifThenElse _ thenOps elseOps =>
       thenOps.any opUsesUnixTime || elseOps.any opUsesUnixTime
+  | .forLoop _ _ _ _ condOps _ bodyOps updateOps _ =>
+      condOps.any opUsesUnixTime || bodyOps.any opUsesUnixTime ||
+        updateOps.any opUsesUnixTime
   | _ => false
 
 private def methodUsesUnixTime (m : MethodIR) : Bool :=
@@ -730,6 +782,9 @@ private partial def opUsesCaller : Operation → Bool
   | .callerPrincipalWord .. => true
   | .ifThenElse _ thenOps elseOps =>
       thenOps.any opUsesCaller || elseOps.any opUsesCaller
+  | .forLoop _ _ _ _ condOps _ bodyOps updateOps _ =>
+      condOps.any opUsesCaller || bodyOps.any opUsesCaller ||
+        updateOps.any opUsesCaller
   | _ => false
 
 private def methodUsesCaller (m : MethodIR) : Bool :=
