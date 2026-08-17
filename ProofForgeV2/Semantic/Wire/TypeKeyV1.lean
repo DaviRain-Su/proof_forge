@@ -546,6 +546,18 @@ def validateRecursiveAnonymousTypeKeyUniquenessV1
     j := j + 1
   pure ()
 
+/-- The production recursive-anonymous phase takes its allocation-free success
+    branch when the exact production container scan is empty. -/
+theorem validateRecursiveAnonymousTypeKeyUniquenessV1_eq_ok_of_none
+    (types : Array TypeDeclV1)
+    (hnone : (types.any fun decl =>
+      match decl.shape with
+      | .array _ _ | .map _ _ | .option _ => true
+      | _ => false) = false) :
+    validateRecursiveAnonymousTypeKeyUniquenessV1 types = .ok () := by
+  simp only [validateRecursiveAnonymousTypeKeyUniquenessV1, hnone,
+    Bool.not_false, ↓reduceIte, Pure.pure, Except.pure]
+
 /-! ### named-body Option-cycle legality (SPEC §5)
 
     SPEC §5 requires that every recursive cycle in the type graph pass
@@ -685,6 +697,18 @@ def validateNamedBodyOptionCycleLegalityV1
                       stack := stack.push (0, childIdx)
     root := root + 1
   pure ()
+
+/-- The production named-body cycle phase takes its allocation-free success
+    branch when the exact production edge-source scan is empty. -/
+theorem validateNamedBodyOptionCycleLegalityV1_eq_ok_of_none
+    (types : Array TypeDeclV1)
+    (hnone : (types.any fun decl =>
+      match decl.shape with
+      | .array _ _ | .map _ _ | .struct _ | .enum _ => true
+      | _ => false) = false) :
+    validateNamedBodyOptionCycleLegalityV1 types = .ok () := by
+  simp only [validateNamedBodyOptionCycleLegalityV1, hnone, Bool.not_false,
+    ↓reduceIte, Pure.pure, Except.pure]
 
 /-! ### TypeKey validation phase seam (SPEC §5)
 
@@ -1174,6 +1198,41 @@ theorem validateAnonymousTypeKeyRankV1_bool_uint64_eq_ok
 
   simp [validateAnonymousTypeKeyRankV1, hnamed, hkeys,
     checkAnonymousTypeKeyRankListV1_two_eq_ok _ _ compare_typeKeyBool_typeKeyUInt64_ltV1,
+    Bind.bind, Except.bind]
+
+/-- Kernel certificate: anonymous table `#[UInt64, Unit]` passes rank. -/
+theorem validateAnonymousTypeKeyRankV1_uint64_unit_eq_ok
+    (t0 t1 : TypeDeclV1)
+    (h0 : t0 = { id := 0, name := none, shape := .uint 64 })
+    (h1 : t1 = { id := 1, name := none, shape := .unit }) :
+    validateAnonymousTypeKeyRankV1 #[t0, t1] = .ok () := by
+  subst h0; subst h1
+  have hnamed :
+      namedTypePrefixCountV1
+        #[{ id := (0 : TypeIdV1), name := none, shape := .uint 64 },
+          { id := (1 : TypeIdV1), name := none, shape := .unit }] = 0 := by
+    simp [namedTypePrefixCountV1, namedTypePrefixCountListV1]
+  have hk0 :=
+    encodeAnonymousTypeRankKeyV1_uint64
+      #[{ id := (0 : TypeIdV1), name := none, shape := .uint 64 },
+        { id := (1 : TypeIdV1), name := none, shape := .unit }]
+      0 0 (by simp) (by decide)
+  have hk1 :=
+    encodeAnonymousTypeRankKeyV1_unit
+      #[{ id := (0 : TypeIdV1), name := none, shape := .uint 64 },
+        { id := (1 : TypeIdV1), name := none, shape := .unit }]
+      1 1 (by simp) (by decide)
+  have hkeys :
+      collectAnonymousTypeRankKeysFromV1
+        #[{ id := (0 : TypeIdV1), name := none, shape := .uint 64 },
+          { id := (1 : TypeIdV1), name := none, shape := .unit }] 0 =
+        .ok [typeKeyUInt64RankBytesV1, typeKeyUnitRankBytesV1] := by
+    unfold collectAnonymousTypeRankKeysFromV1
+    simp only [collectAnonymousTypeRankKeysListV1, Array.toList, List.drop]
+    rw [hk0, hk1]
+    rfl
+  simp [validateAnonymousTypeKeyRankV1, hnamed, hkeys,
+    checkAnonymousTypeKeyRankListV1_two_eq_ok _ _ compare_typeKeyUInt64_typeKeyUnit_ltV1,
     Bind.bind, Except.bind]
 
 /-- Kernel certificate: anonymous table `#[Bool, UInt64, Unit]` passes rank. -/

@@ -4811,6 +4811,23 @@ def normalizeProgramV1 (source : ValidatedSourceV1) :
   let data ← lowerProgramDataV1 source
   encodeCarrierV1 data
 
+/-- Compose the sole non-product normalizer from exact successes of its real
+    Typed, lowering, and carrier stages. This is a proof seam over the
+    production functions, not an alternate normalizer. -/
+theorem normalizeProgramV1_eq_ok_of_stages
+    (source : ValidatedSourceV1) (data : SemanticProgramDataV1)
+    (carrier : SemanticProgramV1)
+    (htyped : checkProgramTypedResultV1 source =
+      { diagnostics := #[], ok := true, analysisComplete := true })
+    (hlower : lowerProgramDataV1 source = .ok data)
+    (hcarrier : encodeCarrierV1 data = .ok carrier) :
+    normalizeProgramV1 source = .ok carrier := by
+  unfold normalizeProgramV1
+  rw [htyped]
+  simp only [Bool.true_and, ↓reduceIte]
+  rw [hlower]
+  exact hcarrier
+
 /-- Closed wire-error summary for product diagnostics (no Lean `repr`). -/
 private def renderSemanticWireErrorSummaryV1 : SemanticWireErrorV1 → String
   | .truncated => "truncated"

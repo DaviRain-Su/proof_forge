@@ -321,15 +321,34 @@ second codegen.
     expected AST, second checker, contract-name branch or runtime Boolean is
     accepted. This closes the production Typed gate; canonical carrier encoding
     and the compiler identity mint are the next boundary.
+29. **SOL-0048-D5-STATECELL-SEMANTIC-STRUCTURE-CERTIFICATE** — **done
+    2026-08-17**: composed the exact data produced by the sole StateCell
+    normalizer through every real `validateSemanticProgramStructureV1` phase.
+    The certificate covers production TypeKey/type-table checks, declaration
+    names and callable signatures, CFG reachability, SSA definition/use and
+    dominance, CFG typing/generic phases, invariant closure, requirement and
+    context gates. Two generic TypeKey lemmas expose only the existing
+    validators' allocation-free branch when their exact container scans are
+    empty, and a generic closed-table certificate composes the production
+    anonymous rank for `#[UInt64, Unit]`; none is an alternate validator. The
+    real lowering certificate is retained as one reusable
+    `CertifiedProgramLoweringV1`, and a generic
+    `normalizeProgramV1_eq_ok_of_stages` seam now composes exact successes of
+    the sole Typed/lowering/carrier functions without implementing another
+    normalizer. No expected Semantic AST/IR, contract-name dispatch or runtime
+    Boolean was introduced. This closes `SemanticProgramDataV1` structure
+    acceptance; exact canonical field-byte resource certificates, carrier
+    encoding and compiler identity mint remain open.
 
 D4's four pinned sparse certificates and all four concrete D5 compositions are
 complete, and the generic seam now has a second real contract/HandlerIR shape
 consumer plus its first multiword typed return. The generic bytes→SHA→artifact
 identity proof boundary and a kernel-reducible production emitter core are now
 present. Source binding, the complete production Typed gate and exact
-ProgramV1→SemanticProgramDataV1 normalization are now kernel-certified from the
-real StateCell declaration. The remaining compiler boundary is canonical
-SemanticProgramV1 encoding → `CompiledSemanticV1` identity mint; target
+ProgramV1→SemanticProgramDataV1 normalization, including the complete
+production Semantic structure gate, are now kernel-certified from the real
+StateCell declaration. The remaining compiler boundary is bounded canonical
+SemanticProgramV1 field encoding → `CompiledSemanticV1` identity mint; target
 ownership then continues through the reachable `LowerSemanticV1`/`EmitIRV1`
 path and `validateIR = .ok ()`.
 Until compiler/IR ownership closes, the post-validation emission equation cannot
@@ -343,8 +362,10 @@ Next formalization slices, in order:
    stage fully proof-producing/kernel-replayable for its exact result. The
    emitter core, certificate boundary, real StateCell source binding and
    exact whole-program data normalization certificate are done; the complete
-   production Typed gate is now also discharged. Next close canonical carrier
-   encoding and the compiler identity mint from those same production values;
+   production Typed gate and Semantic structure gate are now also discharged.
+   Next close canonical carrier encoding using compositional per-field resource
+   certificates (not a whole-AST reduction or second encoder), then close the
+   compiler identity mint from those same production values;
    after that totalize/replay `LowerSemanticV1`, `EmitIRV1` and `validateIR`,
    and discharge the StateCell exact post-validation emission equation. Keep
    traversal contract-independent and do not add a proof-only compiler, emitter

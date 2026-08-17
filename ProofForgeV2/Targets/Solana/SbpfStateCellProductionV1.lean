@@ -68,6 +68,11 @@ private theorem exceptToOptionGetSuccessV1 {ε α : Type}
   | error _ => simp [Except.toOption] at success
   | ok _ => rfl
 
+private theorem exceptUnitSuccessV1 {ε : Type}
+    (result : Except ε Unit) (success : result.toOption.isSome = true) :
+    result = .ok () := by
+  simpa using exceptToOptionGetSuccessV1 result success
+
 set_option maxHeartbeats 10000000 in
 set_option maxRecDepth 100000 in
 private theorem stateCellProgramLoweringTablesSomeV1 :
@@ -269,6 +274,78 @@ private def stateCellSemanticProgramDataV1 : SemanticProgramDataV1 :=
     stateCellCallableLoweringState3V1.toBodies
     stateCellProgramFinalizationCoreV1 stateCellProgramRequirementsV1
 
+private def stateCellType0V1 : TypeDeclV1 :=
+  stateCellSemanticProgramDataV1.types[0]'(by decide)
+
+private def stateCellType1V1 : TypeDeclV1 :=
+  stateCellSemanticProgramDataV1.types[1]'(by decide)
+
+private def stateCellState0V1 : StateDeclV1 :=
+  stateCellSemanticProgramDataV1.logicalState[0]'(by decide)
+
+private def stateCellCallable0V1 : CallableV1 :=
+  stateCellSemanticProgramDataV1.callables[0]'(by decide)
+
+private def stateCellCallable1V1 : CallableV1 :=
+  stateCellSemanticProgramDataV1.callables[1]'(by decide)
+
+private def stateCellCallable2V1 : CallableV1 :=
+  stateCellSemanticProgramDataV1.callables[2]'(by decide)
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellTypesV1 :
+    stateCellSemanticProgramDataV1.types =
+      #[stateCellType0V1, stateCellType1V1] := by
+  apply Array.ext
+  · decide
+  · intro index hleft _hright
+    have hsize : stateCellSemanticProgramDataV1.types.size = 2 := by decide
+    rw [hsize] at hleft
+    match index with
+    | 0 => rfl
+    | 1 => rfl
+    | n + 2 =>
+        have : n + 2 < 2 := by
+          simpa using hleft
+        omega
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellCallablesV1 :
+    stateCellSemanticProgramDataV1.callables =
+      #[stateCellCallable0V1, stateCellCallable1V1, stateCellCallable2V1] := by
+  apply Array.ext
+  · decide
+  · intro index hleft _hright
+    have hsize : stateCellSemanticProgramDataV1.callables.size = 3 := by decide
+    rw [hsize] at hleft
+    match index with
+    | 0 => rfl
+    | 1 => rfl
+    | 2 => rfl
+    | n + 3 =>
+        have : n + 3 < 3 := by
+          simpa using hleft
+        omega
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellTypeShapeClassifiersV1 :
+    (match stateCellType0V1.shape with
+      | .array _ _ | .map _ _ | .option _ => true
+      | _ => false) = false ∧
+    (match stateCellType1V1.shape with
+      | .array _ _ | .map _ _ | .option _ => true
+      | _ => false) = false ∧
+    (match stateCellType0V1.shape with
+      | .array _ _ | .map _ _ | .struct _ | .enum _ => true
+      | _ => false) = false ∧
+    (match stateCellType1V1.shape with
+      | .array _ _ | .map _ _ | .struct _ | .enum _ => true
+      | _ => false) = false := by
+  decide
+
 set_option maxHeartbeats 10000000 in
 set_option maxRecDepth 100000 in
 private theorem stateCellProgramFinalizationSuccessV1 :
@@ -287,6 +364,38 @@ private theorem stateCellProgramFinalizationSuccessV1 :
   -- on the assembled data (kernel-evaluated).
   rfl
 
+private def stateCellCertifiedProgramLoweringV1
+    (binding : CanonicalSourceBindingV1
+      StateCell.Source.subjectV1 StateCell.bytes) :
+    CertifiedProgramLoweringV1 binding.validated := {
+  qualifiedName := stateCellQualifiedNameV1
+  qualifiedNameSuccess := by
+    rw [binding.programIdentity_eq]
+    exact stateCellQualifiedNameSuccessV1
+  tables := stateCellProgramLoweringTablesV1
+  tablesSuccess := by
+    rw [binding.program_eq]
+    exact stateCellProgramLoweringTablesSuccessV1
+  bodies := stateCellCallableLoweringState3V1.toBodies
+  bodiesSuccess := by
+    rw [binding.program_eq]
+    exact stateCellProgramCallableBodiesSuccessV1
+  data := stateCellSemanticProgramDataV1
+  finishSuccess := by
+    rw [binding.program_eq]
+    exact stateCellProgramFinalizationSuccessV1
+}
+
+/-- Exact whole-program production lowering for every canonical binding of the
+    real StateCell declaration. The result is the data retained by the existing
+    staged production certificate, not a supplied or copied Semantic AST. -/
+theorem stateCellProgramLoweringSuccessV1
+    (binding : CanonicalSourceBindingV1
+      StateCell.Source.subjectV1 StateCell.bytes) :
+    lowerProgramDataV1 binding.validated =
+      .ok stateCellSemanticProgramDataV1 :=
+  (stateCellCertifiedProgramLoweringV1 binding).lowerProgramData_success
+
 /-- Unconditional kernel certificate for the concrete production StateCell
     source lowering. The witness is assembled from source-order equations for
     the real declaration, `initialize`, `increment`, and `get` items; no
@@ -299,41 +408,497 @@ theorem stateCellProgramLoweringCertificateV1 :
           StateCell.Source.subjectV1 StateCell.bytes = .ok binding ∧
         certifyProgramLoweringV1 binding.validated = .ok certified := by
   rcases stateCellCanonicalSourceBindingV1 with ⟨binding, bindingSuccess⟩
-  have qualifiedNameSuccess :
-      programIdentityToQualifiedNameV1 binding.validated.programIdentity =
-        .ok stateCellQualifiedNameV1 := by
-    rw [binding.programIdentity_eq]
-    exact stateCellQualifiedNameSuccessV1
-  have tablesSuccess :
-      prepareProgramLoweringTablesV1 binding.validated.program =
-        .ok stateCellProgramLoweringTablesV1 := by
-    rw [binding.program_eq]
-    exact stateCellProgramLoweringTablesSuccessV1
-  have bodiesSuccess :
-      lowerProgramCallableBodiesV1 binding.validated.program
-        stateCellProgramLoweringTablesV1 =
-          .ok stateCellCallableLoweringState3V1.toBodies := by
-    rw [binding.program_eq]
-    exact stateCellProgramCallableBodiesSuccessV1
-  have finishSuccess :
-      finishProgramLoweringV1 stateCellQualifiedNameV1 binding.validated.program
-        stateCellProgramLoweringTablesV1
-        stateCellCallableLoweringState3V1.toBodies =
-          .ok stateCellSemanticProgramDataV1 := by
-    rw [binding.program_eq]
-    exact stateCellProgramFinalizationSuccessV1
-  let certified : CertifiedProgramLoweringV1 binding.validated := {
-    qualifiedName := stateCellQualifiedNameV1
-    qualifiedNameSuccess
-    tables := stateCellProgramLoweringTablesV1
-    tablesSuccess
-    bodies := stateCellCallableLoweringState3V1.toBodies
-    bodiesSuccess
-    data := stateCellSemanticProgramDataV1
-    finishSuccess
-  }
+  let certified := stateCellCertifiedProgramLoweringV1 binding
   exact ⟨binding, certified, bindingSuccess,
     certifyProgramLoweringV1_eq_ok certified⟩
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellTypeKeyPhasesSuccessV1 :
+    validateTypeKeyPhasesV1 stateCellSemanticProgramDataV1.types = .ok () := by
+  have htype0 : stateCellType0V1 =
+      { id := 0, name := none, shape := .uint 64 } := by
+    rfl
+  have htype1 : stateCellType1V1 =
+      { id := 1, name := none, shape := .unit } := by
+    rfl
+  apply validateTypeKeyPhasesV1_eq_ok_of_prefix_phases
+  · apply exceptUnitSuccessV1
+    rw [stateCellTypesV1, htype0, htype1]
+    decide
+  · apply exceptUnitSuccessV1
+    rw [stateCellTypesV1, htype0, htype1]
+    decide
+  · apply validateRecursiveAnonymousTypeKeyUniquenessV1_eq_ok_of_none
+    rw [stateCellTypesV1]
+    rcases stateCellTypeShapeClassifiersV1 with ⟨h0, h1, _h2, _h3⟩
+    rw [Array.any_eq_false]
+    intro index hindex
+    match index with
+    | 0 => simpa [h0]
+    | 1 => simpa [h1]
+    | n + 2 =>
+        have : n + 2 < 2 := by simpa using hindex
+        omega
+  · apply validateNamedBodyOptionCycleLegalityV1_eq_ok_of_none
+    rw [stateCellTypesV1]
+    rcases stateCellTypeShapeClassifiersV1 with ⟨_h0, _h1, h2, h3⟩
+    rw [Array.any_eq_false]
+    intro index hindex
+    match index with
+    | 0 => simpa [h2]
+    | 1 => simpa [h3]
+    | n + 2 =>
+        have : n + 2 < 2 := by simpa using hindex
+        omega
+  · rw [stateCellTypesV1]
+    exact validateAnonymousTypeKeyRankV1_uint64_unit_eq_ok
+      stateCellType0V1 stateCellType1V1 htype0 htype1
+
+private theorem stateCellConstantNamesSuccessV1 :
+    validateConstantNameUniquenessV1
+      stateCellSemanticProgramDataV1.constants = .ok () := by
+  simp [validateConstantNameUniquenessV1, checkUniqueDeclarationNamesV1,
+    show stateCellSemanticProgramDataV1.constants.size ≤ 1 by decide,
+    Pure.pure, Except.pure]
+
+private theorem stateCellStateNamesSuccessV1 :
+    validateLogicalStateNameUniquenessV1
+      stateCellSemanticProgramDataV1.logicalState = .ok () := by
+  simp [validateLogicalStateNameUniquenessV1, checkUniqueDeclarationNamesV1,
+    show stateCellSemanticProgramDataV1.logicalState.size ≤ 1 by decide,
+    Pure.pure, Except.pure]
+
+private theorem stateCellEventNamesSuccessV1 :
+    validateEventNameUniquenessV1 stateCellSemanticProgramDataV1.events =
+      .ok () := by
+  simp [validateEventNameUniquenessV1, checkUniqueDeclarationNamesV1,
+    show stateCellSemanticProgramDataV1.events.size ≤ 1 by decide,
+    Pure.pure, Except.pure]
+
+private theorem stateCellErrorNamesSuccessV1 :
+    validateErrorNameUniquenessV1 stateCellSemanticProgramDataV1.errors =
+      .ok () := by
+  simp [validateErrorNameUniquenessV1, checkUniqueDeclarationNamesV1,
+    show stateCellSemanticProgramDataV1.errors.size ≤ 1 by decide,
+    Pure.pure, Except.pure]
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellCallableParameterNamesSuccessV1 :
+    validateCallableParameterNameUniquenessV1
+      stateCellSemanticProgramDataV1.callables = .ok () := by
+  have h0 : stateCellCallable0V1.params.size ≤ 1 := by decide
+  have h1 : stateCellCallable1V1.params.size ≤ 1 := by decide
+  have h2 : stateCellCallable2V1.params.size ≤ 1 := by decide
+  simp [validateCallableParameterNameUniquenessV1, stateCellCallablesV1,
+    h0, h1, h2, Pure.pure, Except.pure, Bind.bind, Except.bind]
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellCallableSignaturePhasesSuccessV1 :
+    validateCallableSignaturePhasesV1 stateCellSemanticProgramDataV1.types
+      stateCellSemanticProgramDataV1.callables = .ok () := by
+  apply validateCallableSignaturePhasesV1_eq_ok_of_phases
+  · apply exceptUnitSuccessV1
+    decide
+  · apply exceptUnitSuccessV1
+    decide
+  · exact stateCellCallableParameterNamesSuccessV1
+  all_goals
+    apply exceptUnitSuccessV1
+    decide
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellCallable0ReachabilitySomeV1 :
+    (validateCallableCfgShapeReachability
+      stateCellCallable0V1).toOption.isSome = true := by
+  decide
+
+private def stateCellCallable0ReachabilityV1 : Array Bool :=
+  (validateCallableCfgShapeReachability stateCellCallable0V1).toOption.get
+    stateCellCallable0ReachabilitySomeV1
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellCallable1ReachabilitySomeV1 :
+    (validateCallableCfgShapeReachability
+      stateCellCallable1V1).toOption.isSome = true := by
+  decide
+
+private def stateCellCallable1ReachabilityV1 : Array Bool :=
+  (validateCallableCfgShapeReachability stateCellCallable1V1).toOption.get
+    stateCellCallable1ReachabilitySomeV1
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellCallable2ReachabilitySomeV1 :
+    (validateCallableCfgShapeReachability
+      stateCellCallable2V1).toOption.isSome = true := by
+  decide
+
+private def stateCellCallable2ReachabilityV1 : Array Bool :=
+  (validateCallableCfgShapeReachability stateCellCallable2V1).toOption.get
+    stateCellCallable2ReachabilitySomeV1
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellCallableReachabilityValuesV1 :
+    stateCellCallable0ReachabilityV1 = #[true] ∧
+      stateCellCallable1ReachabilityV1 = #[true] ∧
+      stateCellCallable2ReachabilityV1 = #[true] := by
+  decide
+
+private def stateCellCallable0DefSitesV1 :=
+  collectValueDefSites stateCellCallable0V1
+
+private def stateCellCallable1DefSitesV1 :=
+  collectValueDefSites stateCellCallable1V1
+
+private def stateCellCallable2DefSitesV1 :=
+  collectValueDefSites stateCellCallable2V1
+
+private def stateCellCallable0BlockV1 : BlockV1 :=
+  stateCellCallable0V1.blocks[0]'(by decide)
+
+private def stateCellCallable1BlockV1 : BlockV1 :=
+  stateCellCallable1V1.blocks[0]'(by decide)
+
+private def stateCellCallable2BlockV1 : BlockV1 :=
+  stateCellCallable2V1.blocks[0]'(by decide)
+
+private def stateCellCallable0Instruction0V1 : InstructionV1 :=
+  stateCellCallable0BlockV1.instructions[0]'(by decide)
+
+private def stateCellCallable1Instruction0V1 : InstructionV1 :=
+  stateCellCallable1BlockV1.instructions[0]'(by decide)
+
+private def stateCellCallable1Instruction1V1 : InstructionV1 :=
+  stateCellCallable1BlockV1.instructions[1]'(by decide)
+
+private def stateCellCallable1Instruction2V1 : InstructionV1 :=
+  stateCellCallable1BlockV1.instructions[2]'(by decide)
+
+private def stateCellCallable1Instruction3V1 : InstructionV1 :=
+  stateCellCallable1BlockV1.instructions[3]'(by decide)
+
+private def stateCellCallable2Instruction0V1 : InstructionV1 :=
+  stateCellCallable2BlockV1.instructions[0]'(by decide)
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellCallableBlockTablesV1 :
+    stateCellCallable0V1.blocks = #[stateCellCallable0BlockV1] ∧
+      stateCellCallable1V1.blocks = #[stateCellCallable1BlockV1] ∧
+      stateCellCallable2V1.blocks = #[stateCellCallable2BlockV1] := by
+  constructor
+  · apply Array.ext
+    · decide
+    · intro index hleft _hright
+      match index with
+      | 0 => rfl
+      | n + 1 =>
+          have hsize : stateCellCallable0V1.blocks.size = 1 := by decide
+          rw [hsize] at hleft
+          omega
+  constructor
+  · apply Array.ext
+    · decide
+    · intro index hleft _hright
+      match index with
+      | 0 => rfl
+      | n + 1 =>
+          have hsize : stateCellCallable1V1.blocks.size = 1 := by decide
+          rw [hsize] at hleft
+          omega
+  · apply Array.ext
+    · decide
+    · intro index hleft _hright
+      match index with
+      | 0 => rfl
+      | n + 1 =>
+          have hsize : stateCellCallable2V1.blocks.size = 1 := by decide
+          rw [hsize] at hleft
+          omega
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellCallableInstructionTablesV1 :
+    stateCellCallable0BlockV1.instructions =
+        #[stateCellCallable0Instruction0V1] ∧
+      stateCellCallable1BlockV1.instructions =
+        #[stateCellCallable1Instruction0V1, stateCellCallable1Instruction1V1,
+          stateCellCallable1Instruction2V1, stateCellCallable1Instruction3V1] ∧
+      stateCellCallable2BlockV1.instructions =
+        #[stateCellCallable2Instruction0V1] := by
+  constructor
+  · apply Array.ext
+    · decide
+    · intro index hleft _hright
+      match index with
+      | 0 => rfl
+      | n + 1 =>
+          have hsize : stateCellCallable0BlockV1.instructions.size = 1 := by decide
+          rw [hsize] at hleft
+          omega
+  constructor
+  · apply Array.ext
+    · decide
+    · intro index hleft _hright
+      have hsize : stateCellCallable1BlockV1.instructions.size = 4 := by decide
+      rw [hsize] at hleft
+      match index with
+      | 0 => rfl
+      | 1 => rfl
+      | 2 => rfl
+      | 3 => rfl
+      | n + 4 => omega
+  · apply Array.ext
+    · decide
+    · intro index hleft _hright
+      match index with
+      | 0 => rfl
+      | n + 1 =>
+          have hsize : stateCellCallable2BlockV1.instructions.size = 1 := by decide
+          rw [hsize] at hleft
+          omega
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellCallableUsesV1 :
+    opValueUses stateCellCallable0Instruction0V1.op = #[0] ∧
+      terminatorValueUses stateCellCallable0BlockV1.terminator = #[] ∧
+      opValueUses stateCellCallable1Instruction0V1.op = #[] ∧
+      opValueUses stateCellCallable1Instruction1V1.op = #[1, 0] ∧
+      opValueUses stateCellCallable1Instruction2V1.op = #[2] ∧
+      opValueUses stateCellCallable1Instruction3V1.op = #[] ∧
+      terminatorValueUses stateCellCallable1BlockV1.terminator = #[3] ∧
+      opValueUses stateCellCallable2Instruction0V1.op = #[] ∧
+      terminatorValueUses stateCellCallable2BlockV1.terminator = #[0] := by
+  decide
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellCallableDefSitesValuesV1 :
+    stateCellCallable0DefSitesV1 = #[(0, 0)] ∧
+      stateCellCallable1DefSitesV1 = #[(0, 0), (1, 0), (2, 0), (3, 0)] ∧
+      stateCellCallable2DefSitesV1 = #[(0, 0)] := by
+  decide
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellCallable0ValueFlowSuccessV1 :
+    validateCallableCfgValueFlow stateCellCallable0V1
+      stateCellCallable0ReachabilityV1 = .ok () := by
+  rw [stateCellCallableReachabilityValuesV1.1]
+  apply validateCallableCfgValueFlow_eq_ok_of_phases stateCellCallable0V1
+      #[true] stateCellCallable0DefSitesV1
+  · rfl
+  · rw [stateCellCallableDefSitesValuesV1.1]
+    apply exceptUnitSuccessV1
+    decide
+  · rw [stateCellCallableDefSitesValuesV1.1]
+    unfold checkValueIdUsesExist
+    rw [stateCellCallableBlockTablesV1.1]
+    rcases stateCellCallableUsesV1 with
+      ⟨hop, hterm, _hop10, _hop11, _hop12, _hop13, _hterm1, _hop2, _hterm2⟩
+    simp [stateCellCallableInstructionTablesV1.1, hop, hterm,
+      Pure.pure, Except.pure, Bind.bind, Except.bind]
+  · rw [stateCellCallableDefSitesValuesV1.1]
+    unfold validateCallableDominanceOfUse
+    rw [stateCellCallableBlockTablesV1.1]
+    apply exceptUnitSuccessV1
+    decide
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellCallable1ValueFlowSuccessV1 :
+    validateCallableCfgValueFlow stateCellCallable1V1
+      stateCellCallable1ReachabilityV1 = .ok () := by
+  rw [stateCellCallableReachabilityValuesV1.2.1]
+  apply validateCallableCfgValueFlow_eq_ok_of_phases stateCellCallable1V1
+      #[true] stateCellCallable1DefSitesV1
+  · rfl
+  · rw [stateCellCallableDefSitesValuesV1.2.1]
+    apply exceptUnitSuccessV1
+    decide
+  · rw [stateCellCallableDefSitesValuesV1.2.1]
+    unfold checkValueIdUsesExist
+    rw [stateCellCallableBlockTablesV1.2.1]
+    rcases stateCellCallableUsesV1 with
+      ⟨_hop0, _hterm0, hop10, hop11, hop12, hop13, hterm, _hop2, _hterm2⟩
+    simp [stateCellCallableInstructionTablesV1.2.1, hop10, hop11, hop12,
+      hop13, hterm, Pure.pure, Except.pure, Bind.bind, Except.bind]
+  · rw [stateCellCallableDefSitesValuesV1.2.1]
+    unfold validateCallableDominanceOfUse
+    rw [stateCellCallableBlockTablesV1.2.1]
+    apply exceptUnitSuccessV1
+    decide
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellCallable2ValueFlowSuccessV1 :
+    validateCallableCfgValueFlow stateCellCallable2V1
+      stateCellCallable2ReachabilityV1 = .ok () := by
+  rw [stateCellCallableReachabilityValuesV1.2.2]
+  apply validateCallableCfgValueFlow_eq_ok_of_phases stateCellCallable2V1
+      #[true] stateCellCallable2DefSitesV1
+  · rfl
+  · rw [stateCellCallableDefSitesValuesV1.2.2]
+    apply exceptUnitSuccessV1
+    decide
+  · rw [stateCellCallableDefSitesValuesV1.2.2]
+    unfold checkValueIdUsesExist
+    rw [stateCellCallableBlockTablesV1.2.2]
+    rcases stateCellCallableUsesV1 with
+      ⟨_hop0, _hterm0, _hop10, _hop11, _hop12, _hop13, _hterm1, hop, hterm⟩
+    simp [stateCellCallableInstructionTablesV1.2.2, hop, hterm,
+      Pure.pure, Except.pure, Bind.bind, Except.bind]
+  · rw [stateCellCallableDefSitesValuesV1.2.2]
+    unfold validateCallableDominanceOfUse
+    rw [stateCellCallableBlockTablesV1.2.2]
+    apply exceptUnitSuccessV1
+    decide
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellCallable0CfgSuccessV1 :
+    validateCallableCfgShape stateCellCallable0V1
+      stateCellSemanticProgramDataV1.types.size
+      stateCellSemanticProgramDataV1.types stateCellSemanticProgramDataV1 =
+        .ok () := by
+  apply validateCallableCfgShape_eq_ok_of_phases
+      stateCellCallable0V1 stateCellSemanticProgramDataV1.types.size
+        stateCellSemanticProgramDataV1.types stateCellSemanticProgramDataV1
+          stateCellCallable0ReachabilityV1
+  · exact exceptToOptionGetSuccessV1 _ stateCellCallable0ReachabilitySomeV1
+  · apply exceptUnitSuccessV1
+    decide
+  · apply exceptUnitSuccessV1
+    decide
+  · exact stateCellCallable0ValueFlowSuccessV1
+  ·
+    apply exceptUnitSuccessV1
+    decide
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellCallable1CfgSuccessV1 :
+    validateCallableCfgShape stateCellCallable1V1
+      stateCellSemanticProgramDataV1.types.size
+      stateCellSemanticProgramDataV1.types stateCellSemanticProgramDataV1 =
+        .ok () := by
+  apply validateCallableCfgShape_eq_ok_of_phases
+      stateCellCallable1V1 stateCellSemanticProgramDataV1.types.size
+        stateCellSemanticProgramDataV1.types stateCellSemanticProgramDataV1
+          stateCellCallable1ReachabilityV1
+  · exact exceptToOptionGetSuccessV1 _ stateCellCallable1ReachabilitySomeV1
+  · apply exceptUnitSuccessV1
+    decide
+  · apply exceptUnitSuccessV1
+    decide
+  · exact stateCellCallable1ValueFlowSuccessV1
+  ·
+    apply exceptUnitSuccessV1
+    decide
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellCallable2CfgSuccessV1 :
+    validateCallableCfgShape stateCellCallable2V1
+      stateCellSemanticProgramDataV1.types.size
+      stateCellSemanticProgramDataV1.types stateCellSemanticProgramDataV1 =
+        .ok () := by
+  apply validateCallableCfgShape_eq_ok_of_phases
+      stateCellCallable2V1 stateCellSemanticProgramDataV1.types.size
+        stateCellSemanticProgramDataV1.types stateCellSemanticProgramDataV1
+          stateCellCallable2ReachabilityV1
+  · exact exceptToOptionGetSuccessV1 _ stateCellCallable2ReachabilitySomeV1
+  · apply exceptUnitSuccessV1
+    decide
+  · apply exceptUnitSuccessV1
+    decide
+  · exact stateCellCallable2ValueFlowSuccessV1
+  ·
+    apply exceptUnitSuccessV1
+    decide
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellGenericCfgSuccessV1 :
+    validateGenericCfgPhasesV1 stateCellSemanticProgramDataV1 = .ok () := by
+  apply validateGenericCfgPhasesV1_three_eq_ok stateCellSemanticProgramDataV1
+      stateCellCallable0V1 stateCellCallable1V1 stateCellCallable2V1
+  · exact stateCellCallablesV1
+  · exact stateCellCallable0CfgSuccessV1
+  · exact stateCellCallable1CfgSuccessV1
+  · exact stateCellCallable2CfgSuccessV1
+  · apply exceptUnitSuccessV1
+    decide
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellInvariantClosureSomeV1 :
+    (validateInvariantClosurePhasesV1
+      stateCellSemanticProgramDataV1.callables).toOption.isSome = true := by
+  decide
+
+private def stateCellInvariantClosureMembersV1 : Array Bool :=
+  (validateInvariantClosurePhasesV1
+    stateCellSemanticProgramDataV1.callables).toOption.get
+      stateCellInvariantClosureSomeV1
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellCfgInvariantPhasesSuccessV1 :
+    validateCfgInvariantPhasesV1 stateCellSemanticProgramDataV1 = .ok () := by
+  apply validateCfgInvariantPhasesV1_eq_ok stateCellSemanticProgramDataV1
+      stateCellInvariantClosureMembersV1
+  · exact stateCellGenericCfgSuccessV1
+  · exact exceptToOptionGetSuccessV1 _ stateCellInvariantClosureSomeV1
+  · apply exceptUnitSuccessV1
+    decide
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellSemanticStructureSuccessV1 :
+    validateSemanticProgramStructureV1 stateCellSemanticProgramDataV1 =
+      .ok () := by
+  apply validateSemanticProgramStructureV1_eq_ok_of_phases
+      stateCellSemanticProgramDataV1 maxCanonicalProgramBytes
+        maxCanonicalProgramBytes
+  · apply exceptUnitSuccessV1
+    decide
+  · apply exceptUnitSuccessV1
+    decide
+  · exact stateCellTypeKeyPhasesSuccessV1
+  · apply exceptUnitSuccessV1
+    decide
+  · apply exceptToOptionGetSuccessV1
+    decide
+  · apply exceptToOptionGetSuccessV1
+    decide
+  · exact stateCellConstantNamesSuccessV1
+  · exact stateCellStateNamesSuccessV1
+  · exact stateCellEventNamesSuccessV1
+  · exact stateCellErrorNamesSuccessV1
+  · apply exceptUnitSuccessV1
+    decide
+  · exact stateCellCallableSignaturePhasesSuccessV1
+  · apply exceptUnitSuccessV1
+    decide
+  · apply exceptUnitSuccessV1
+    decide
+  · exact stateCellCfgInvariantPhasesSuccessV1
+  · apply exceptUnitSuccessV1
+    decide
+  · apply exceptUnitSuccessV1
+    decide
+  · apply exceptUnitSuccessV1
+    decide
+  · apply exceptUnitSuccessV1
+    decide
 
 /-- The concrete values consumed by the existing certified StateCell `get`
     HandlerIR/provider join. The private constructor prevents callers from

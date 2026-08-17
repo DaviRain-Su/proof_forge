@@ -16834,3 +16834,24 @@ normative: false
   准确边界提升为Source canonical binding→完整production Typed acceptance→
   `SemanticProgramDataV1` lowering均已闭合；尚未闭合`encodeCarrierV1`、`CompiledSemanticV1` identity
   mint、Solana Plan/IR lowering、6580-byte emitter equation、103-block SHA或unconditional `get`。
+
+## 2026-08-17 — complete StateCell production Semantic structure certificate
+
+- 真实StateCell source产生的唯一`SemanticProgramDataV1`现在逐阶段通过production
+  `validateSemanticProgramStructureV1`：TypeKey/type table、声明名和signature、CFG reachability、
+  SSA def/use/dominance、CFG typing/generic phases、invariant closure以及requirement/context gates全部有
+  kernel equation。TypeKey新增两个通用success-branch seam，直接复用原validator的
+  `Array.any = false`分支，并复用通用`#[UInt64, Unit]` canonical-rank证书组合远端新增的
+  production anonymous-rank phase；没有第二套validator、expected Semantic AST/IR或按合约名分支。
+- `stateCellCertifiedProgramLoweringV1`成为真实lowering stage equations的唯一可复用证书；
+  `stateCellProgramLoweringSuccessV1`与完整structure composition共用该结果。Normalize新增通用
+  `normalizeProgramV1_eq_ok_of_stages`，只组合唯一Typed/lowering/carrier authority的exact success，
+  不实现第二个normalizer。
+- 对carrier的whole-AST求值实验暴露了Lean kernel资源边界，因此未保留实验代码。下一切片必须使用
+  production field encoders的组合式byte/resource证书，再闭合`encodeCarrierV1`和
+  `CompiledSemanticV1` identity mint；不能以长时间裸`decide`、copied bytes或proof-only encoder绕过。
+- Verification：`ProofForgeV2.Semantic.Wire.TypeKeyV1`、`ProofForgeV2.Semantic.NormalizeV1`与
+  `ProofForgeV2.Targets.Solana.SbpfStateCellProductionV1`单文件kernel检查通过；禁止项扫描与
+  `git diff --check`通过。准确边界提升为Source→完整Typed→唯一Semantic lowering→完整production
+  structure gate；尚未闭合carrier、compiler identity、Solana Plan/IR、emitter exact equation、SHA trace
+  或unconditional `get`。
