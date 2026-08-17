@@ -41,6 +41,10 @@ inductive QExpr where
   | unary (op : QUnaryOp) (operand : QExpr)
   | call (callee : String) (args : Array QExpr)
   | ifThenElse (cond thenE elseE : QExpr)
+  /-- T9c counted for: `{ var i = …; for iter in 0.to(N) { … }; {acc, ok} }`. -/
+  | countedFor (varName : String) (initial cond update : QExpr)
+      (maxIterations : Nat) (accs : Array (String × QExpr × QExpr))
+  | select (base : QExpr) (field : String)
   | primed (id : String)
   /-- View-only flattened return: Quint tuple of ints (no native List/Option). -/
   | tuple (elems : Array QExpr)
@@ -169,6 +173,8 @@ private partial def lowerExpr
       | none => do
           let n ← stateVar plan fi
           pure (.name n)
+  | .temp index =>
+      pure (.name s!"pf_t{index}")
   | .vaultNative => pure (.name "pf_vault_native")
   | .externalOk ordinal => do
       -- Nondet outcome is int {0,1}; Plan treats externalOk as Bool via == 1.
@@ -250,6 +256,11 @@ private partial def rewriteMaxBound : QExpr → QExpr
   | .call c args => .call c (args.map rewriteMaxBound)
   | .ifThenElse c t e =>
       .ifThenElse (rewriteMaxBound c) (rewriteMaxBound t) (rewriteMaxBound e)
+  | .countedFor varName initial cond update maxIterations accs =>
+      .countedFor varName (rewriteMaxBound initial) (rewriteMaxBound cond)
+        (rewriteMaxBound update) maxIterations
+        (accs.map fun (n, i, s) => (n, rewriteMaxBound i, rewriteMaxBound s))
+  | .select b f => .select (rewriteMaxBound b) f
   | .tuple elems => .tuple (elems.map rewriteMaxBound)
   | other => other
 
@@ -381,15 +392,89 @@ private partial def compileBodyToFlat (owner : String) (body : Array Statement) 
     | .returnAggregate _ =>
         planError
           s!"Quint entry '{owner}' aggregate return in CFG flatten is outside Q0"
+    | .forLoop .. =>
+        planError
+          s!"Quint entry '{owner}' nested forLoop flatten is outside Q0"
   pure (stores, result?)
+
+private partial def bodyHasFor (body : Array Statement) : Bool :=
+  body.any fun s =>
+    match s with
+    | .forLoop .. => true
+    | .ifThenElse _ t e => bodyHasFor t || bodyHasFor e
+    | .switchOn _ cases d =>
+        cases.any (fun (_, b) => bodyHasFor b) || bodyHasFor d
+    | _ => false
+
+private def splitTopFor (owner : String) (body : Array Statement) :
+    CompileResult (Array Statement × Statement × Array Statement) := do
+  let mut preStmts : Array Statement := #[]
+  let mut found : Option Statement := none
+  let mut suffix : Array Statement := #[]
+  for stmt in body do
+    match found, stmt with
+    | none, .forLoop .. => found := some stmt
+    | none, _ =>
+        if bodyHasFor #[stmt] then
+          planError
+            s!"Quint entry '{owner}' forLoop may not nest under if/switch"
+        preStmts := preStmts.push stmt
+    | some _, .forLoop .. =>
+        planError
+          s!"Quint entry '{owner}' nested sequential forLoop is outside Q0"
+    | some _, s => suffix := suffix.push s
+  let some fl := found |
+    planError s!"Quint entry '{owner}' counted-for emit missing forLoop"
+  pure (preStmts, fl, suffix)
+
+private def compileCountedForEntry
+    (plan : Plan) (ent : PlanEntry) (emittedParams : Array String)
+    (externalOkNames : Array String) :
+    CompileResult
+      (Array (Nat × Expr) × Option Expr × QExpr × Array (Nat × String)) := do
+  let (preStmts, fl, suffix) ← splitTopFor ent.name ent.body
+  unless preStmts.isEmpty do
+    planError
+      s!"Quint entry '{ent.name}' counted for does not admit prefix statements"
+  let (sufStores, sufResult) ← compileBodyToFlat ent.name suffix
+  unless sufStores.isEmpty do
+    planError
+      s!"Quint entry '{ent.name}' counted for does not admit suffix stores"
+  match fl with
+  | .forLoop varTemp initial cond update maxIt body => do
+      unless body.all (fun s => match s with | .store .. => true | _ => false) do
+        planError
+          s!"Quint entry '{ent.name}' forLoop body must be stores only"
+      let mut accs : Array (String × QExpr × QExpr) := #[]
+      let mut overlay : Array (Nat × String) := #[]
+      let mut stores : Array (Nat × Expr) := #[]
+      for stmt in body do
+        match stmt with
+        | .store fi e =>
+            let accN := s!"pf_acc{fi}"
+            let init ←
+              lowerExpr plan emittedParams overlay externalOkNames (.stateLoad fi)
+            let step ←
+              lowerExpr plan emittedParams overlay externalOkNames e
+            accs := accs.push (accN, rewriteMaxBound init, rewriteMaxBound step)
+            overlay := overlay.push (fi, accN)
+            stores := stores.push (fi, e)
+        | _ => pure ()
+      let initQ ←
+        lowerExpr plan emittedParams overlay externalOkNames initial
+      let condQ ←
+        lowerExpr plan emittedParams overlay externalOkNames cond
+      let updQ ←
+        lowerExpr plan emittedParams overlay externalOkNames update
+      let loopE : QExpr :=
+        .countedFor s!"pf_t{varTemp}" (rewriteMaxBound initQ)
+          (rewriteMaxBound condQ) (rewriteMaxBound updQ) maxIt accs
+      pure (stores, sufResult, loopE, overlay)
+  | _ =>
+      planError s!"Quint entry '{ent.name}' counted-for split lost forLoop"
 
 private def emitEntryBranch (plan : Plan) (ent : PlanEntry) :
     CompileResult QActionBranch := do
-  let (flatStores, flatResult?) ←
-    if ent.body.isEmpty then
-      pure (ent.stores, ent.result?)
-    else
-      compileBodyToFlat ent.name ent.body
   let mut emittedParams : Array String := #[]
   let mut nondets : Array QNondetBind := #[]
   for i in [0:ent.params.size] do
@@ -405,9 +490,32 @@ private def emitEntryBranch (plan : Plan) (ent : PlanEntry) :
     let n := externalOkName ent.actionIndex i
     externalOkNames := externalOkNames.push n
     nondets := nondets.push { name := n, domain := externalOutcomeDomain }
-  let (pures, _c, successName, failureName) ←
+  let mut loopExpr? : Option QExpr := none
+  let mut loopOverlay : Array (Nat × String) := #[]
+  let (flatStores, flatResult?) ←
+    if ent.body.isEmpty then
+      pure (ent.stores, ent.result?)
+    else if bodyHasFor ent.body then
+      let (st, res, loopE, ov) ←
+        compileCountedForEntry plan ent emittedParams externalOkNames
+      loopExpr? := some loopE
+      loopOverlay := ov
+      pure (st, res)
+    else
+      compileBodyToFlat ent.name ent.body
+  let (pures0, _c, success0, failureName) ←
     emitCheckCascade plan emittedParams externalOkNames ent.checks #[] 0
-  let mut pures := pures
+  let mut pures := pures0
+  let mut successName := success0
+  match loopExpr? with
+  | some loopE =>
+      pures := pures.push { name := "pf_loop", value := loopE }
+      pures := pures.push {
+        name := "okLoop"
+        value := .binary .and (.name successName) (.select (.name "pf_loop") "ok")
+      }
+      successName := "okLoop"
+  | none => pure ()
   -- Optional result pure (scalar) or per-leaf pures (aggregate).
   let resultPure? ← match ent.resultKind, flatResult? with
     | .aggregate n, _ => do
@@ -425,7 +533,13 @@ private def emitEntryBranch (plan : Plan) (ent : PlanEntry) :
         pure (none : Option String)
     | _, none => pure (none : Option String)
     | _, some e => do
-        let qe ← lowerExpr plan emittedParams #[] externalOkNames e
+        let qe ←
+          match e, loopOverlay.findSome? (fun (fi, n) =>
+              match e with | .stateLoad f => if f == fi then some n else none | _ => none) with
+          | _, some accN =>
+              pure (QExpr.select (.name "pf_loop") accN)
+          | _, none =>
+              lowerExpr plan emittedParams #[] externalOkNames e
         let qe := rewriteMaxBound qe
         pures := pures.push { name := "resR", value := qe }
         pure (some "resR")
@@ -498,7 +612,12 @@ private def emitEntryBranch (plan : Plan) (ent : PlanEntry) :
   let mut written : Array Nat := #[]
   for (fi, e) in flatStores do
     written := written.push fi
-    let post ← lowerExpr plan emittedParams #[] externalOkNames e
+    let post ←
+      match loopOverlay.findSome? (fun (i, n) => if i == fi then some n else none) with
+      | some accN =>
+          pure (QExpr.select (.name "pf_loop") accN)
+      | none =>
+          lowerExpr plan emittedParams #[] externalOkNames e
     let post := rewriteMaxBound post
     let sn ← stateVar plan fi
     assigns := assigns.push {
@@ -771,6 +890,32 @@ private partial def renderExprPrec (requested : Nat) : QExpr → String
   | .ifThenElse c t e =>
       wrapExpr requested 5
         s!"if ({renderExprPrec 0 c}) {renderExprPrec 0 t} else {renderExprPrec 0 e}"
+  | .select b f =>
+      wrapExpr requested 80 s!"{renderExprPrec 80 b}.{f}"
+  | .countedFor varName initial cond update maxIterations accs =>
+      let accInits :=
+        String.intercalate " "
+          (accs.map fun (n, i, _) =>
+            s!"var {n} = {renderExprPrec 0 i}").toList
+      let accSteps :=
+        String.intercalate " "
+          (accs.map fun (n, _, s) =>
+            s!"{n} = {renderExprPrec 0 s}").toList
+      let recFields :=
+        String.intercalate ", "
+          ((accs.map fun (n, _, _) => s!"{n}: {n}").toList ++ ["ok: pf_ok"])
+      wrapExpr requested 5
+        ("{ " ++
+          "var " ++ varName ++ " = " ++ renderExprPrec 0 initial ++ " " ++
+          (if accInits.isEmpty then "" else accInits ++ " ") ++
+          "var pf_iter = 0 var pf_ok = true " ++
+          "for pf_step in 0.to(" ++ toString maxIterations ++ ") " ++
+          "{ if (pf_iter >= " ++ toString maxIterations ++
+          ") { pf_ok = false } else if (not(" ++
+          renderExprPrec 0 cond ++ ")) { pf_ok = pf_ok } else { " ++
+          (if accSteps.isEmpty then "" else accSteps ++ " ") ++
+          varName ++ " = " ++ renderExprPrec 0 update ++
+          " pf_iter = pf_iter + 1 } } { " ++ recFields ++ " } }")
   | .primed id => wrapExpr requested 80 s!"{id}'"
   | .tuple elems =>
       let inner := String.intercalate ", " (elems.map (renderExprPrec 0)).toList

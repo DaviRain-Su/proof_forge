@@ -45,7 +45,7 @@ private def isSafeIdent (name : String) : Bool :=
 private partial def exprUsesVaultNativeV1 (e : Expr) : Bool :=
   match e with
   | .vaultNative => true
-  | .litU64 _ | .litBool _ | .param _ | .stateLoad _ | .externalOk _ => false
+  | .litU64 _ | .litBool _ | .param _ | .stateLoad _ | .temp _ | .externalOk _ => false
   | .arith _ l r | .compare _ l r | .boolAnd l r | .boolOr l r =>
       exprUsesVaultNativeV1 l || exprUsesVaultNativeV1 r
   | .boolNot o => exprUsesVaultNativeV1 o
@@ -77,6 +77,7 @@ private partial def inferExprType
       unless fieldIndex < stateCount do
         planError s!"Quint plan {what} references unknown state field {fieldIndex}"
       pure (numeric, remaining)
+  | .temp _ => pure (numeric, remaining)
   | .vaultNative => pure (.uint64, remaining)
   | .externalOk ordinal =>
       unless ordinal < assetOpCount do
@@ -163,7 +164,8 @@ private def validateExpr
     if depth > maxExprDepth then
       planError s!"Quint plan {what} expression exceeds depth limit"
     match current with
-    | .litU64 _ | .litBool _ | .param _ | .stateLoad _ | .vaultNative | .externalOk _ =>
+    | .litU64 _ | .litBool _ | .param _ | .stateLoad _ | .temp _
+    | .vaultNative | .externalOk _ =>
         pure ()
     | .arith op lhs rhs =>
         match op with
@@ -247,6 +249,19 @@ private partial def validateBodyStatements
         remaining ←
           validateBodyStatements owner resultKind paramCount stateCount remaining
             paramIsPrincipal signed defaultBody
+    | .forLoop _ initial condition update _ loopBody =>
+        remaining ←
+          validateExpr initial numeric "for initial" paramCount stateCount 0 remaining
+            paramIsPrincipal signed
+        remaining ←
+          validateExpr condition .bool "for condition" paramCount stateCount 0 remaining
+            paramIsPrincipal signed
+        remaining ←
+          validateExpr update numeric "for update" paramCount stateCount 0 remaining
+            paramIsPrincipal signed
+        remaining ←
+          validateBodyStatements owner resultKind paramCount stateCount remaining
+            paramIsPrincipal signed loopBody
     | .returnValue e =>
         unless resultKind == .uint64 || resultKind == .int64 || resultKind == .bool do
           planError s!"Quint {owner} Unit/aggregate result must not return a scalar"
@@ -285,6 +300,9 @@ private partial def bodyUsesVaultNativeV1 (body : Array Statement) : Bool :=
         exprUsesVaultNativeV1 scrut ||
           cases.any (fun (_, b) => bodyUsesVaultNativeV1 b) ||
           bodyUsesVaultNativeV1 defaultBody
+    | .forLoop _ initial cond update _ loopBody =>
+        exprUsesVaultNativeV1 initial || exprUsesVaultNativeV1 cond ||
+          exprUsesVaultNativeV1 update || bodyUsesVaultNativeV1 loopBody
     | .returnAggregate leaves => leaves.any exprUsesVaultNativeV1
     | .returnNone => false
 

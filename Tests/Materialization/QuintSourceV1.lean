@@ -1258,31 +1258,50 @@ unsafe def testFailClosedUInt32 : IO Unit := do
   | .ok _ => throw <| IO.userError "UInt32 must fail closed at Quint plan"
 
 /-- Fail closed: multi-block if. -/
-unsafe def testFailClosedMultiblock : IO Unit := do
+unsafe def testLoopSum : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
     "program LoopSum where\n" ++
-    "  state acc : UInt64\n" ++
-    "  init() do\n" ++
-    "    acc := 0\n" ++
-    "  entry sum(n : UInt64, limit : UInt64) : UInt64 do\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry addUp(n : UInt64) : UInt64 do\n" ++
+    "    let limit : UInt64 := n + 4\n" ++
     "    for i in n ..< limit bounded 8 do\n" ++
-    "      acc := acc + i\n" ++
-    "    return acc\n"
+    "      count := count + i\n" ++
+    "    return count\n" ++
+    "  entry scan(n : UInt64) : UInt64 do\n" ++
+    "    for i in n ..< n bounded 2 do\n" ++
+    "      count := count + 1\n" ++
+    "    return count\n" ++
+    "  entry addUpTight(n : UInt64) : UInt64 do\n" ++
+    "    for i in n ..< n + 4 bounded 3 do\n" ++
+    "      count := count + i\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
   let parsed ← liftResult (← session.selectProgramV1
-    source "<quint-loop>" "Tests.QuintLoop" none)
-  match Compiler.compileValidatedSourceV1 parsed with
-  | .error _ => pure ()
-  | .ok compiled =>
-      match planQuint compiled with
-      | .error (.planInvariant .quint msg) =>
-          expect (msg.contains "one block" || msg.contains "multi-block" ||
-              msg.contains "loop")
-            s!"bounded-for must fail closed, got: {msg}"
-      | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
-      | .ok _ => throw <| IO.userError "bounded-for must fail closed at Quint plan"
+    source "<quint-loop-sum>" "Tests.QuintLoopSum" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  let some addUp := plan.entries.find? (·.name == "addUp") |
+    throw <| IO.userError "LoopSum: missing addUp"
+  let hasFor :=
+    addUp.body.any fun s =>
+      match s with
+      | .forLoop _ _ _ _ maxIt _ => maxIt == 8
+      | _ => false
+  expect hasFor "LoopSum addUp must lower bounded-for to forLoop max=8"
+  liftResult <| Targets.Quint.validatePlan plan
+  let files ← liftResult <| buildQuint compiled
+  let some qnt := files.find? (fun f => f.path == "LoopSum.qnt") |
+    throw <| IO.userError "LoopSum: missing LoopSum.qnt"
+  expect (qnt.contents.contains "for " &&
+      !qnt.contents.contains "while true")
+    "LoopSum Quint must render a counted for, not an unbounded while"
+  IO.println "  ✓ LoopSum bounded-for"
 
 unsafe def testIfFlow : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -1321,42 +1340,7 @@ unsafe def testIfFlow : IO Unit := do
     throw <| IO.userError "IfFlow: missing IfFlow.qnt"
   expect (qntFile.contents.contains "if ")
     "IfFlow Quint must render an if from the flattened ite store"
-  let branchSrc :=
-    "import ProofForgeV2\n" ++
-    "open ProofForgeV2.Language\n" ++
-    "program BranchFlow where\n" ++
-    "  state count : UInt64\n" ++
-    "  init(initial : UInt64) do\n" ++
-    "    count := initial\n" ++
-    "  entry bump(delta : UInt64) : UInt64 do\n" ++
-    "    if count > 0 then\n" ++
-    "      count := count + delta\n" ++
-    "    else\n" ++
-    "      count := delta\n" ++
-    "    return count\n" ++
-    "  entry apply(choice : UInt64) : UInt64 do\n" ++
-    "    match choice with\n" ++
-    "    | 0 => do\n" ++
-    "      return count\n" ++
-    "    | 1 => do\n" ++
-    "      count := count + 1\n" ++
-    "    | other => do\n" ++
-    "      count := other\n" ++
-    "    return count\n" ++
-    "  view get() : UInt64 do\n" ++
-    "    return count\n"
-  let branchParsed ← liftResult (← session.selectProgramV1
-    branchSrc "<quint-branch-flow>" "Tests.QuintBranchFlow" none)
-  let branchCompiled ← liftResult <| Compiler.compileValidatedSourceV1 branchParsed
-  match planQuint branchCompiled with
-  | .error (.planInvariant .quint msg) =>
-      expect (msg.contains "exactly one block" || msg.contains "multi-block")
-        s!"BranchFlow must stay exactly-one-block, got: {msg}"
-  | .error e =>
-      throw <| IO.userError s!"BranchFlow: expected quint planInvariant, got {e.render}"
-  | .ok _ =>
-      throw <| IO.userError "BranchFlow must still fail closed at T9a"
-  IO.println "  ✓ IfFlow if-diamond; BranchFlow still exactly-one-block"
+  IO.println "  ✓ IfFlow if-diamond"
 
 unsafe def testBranchFlow : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -2309,7 +2293,7 @@ unsafe def run : IO Unit := do
   testSignedNumericMapFc
   testFailClosedInt32
   testFailClosedUInt32
-  testFailClosedMultiblock
+  testLoopSum
   testIfFlow
   testBranchFlow
   testMaybeMatch

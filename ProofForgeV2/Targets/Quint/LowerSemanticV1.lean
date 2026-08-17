@@ -132,6 +132,8 @@ inductive Expr where
   | litBool (value : Bool)
   | param (index : Nat)
   | stateLoad (fieldIndex : Nat)
+  /-- Bounded-for induction slot (T9c). -/
+  | temp (index : Nat)
   /-- Pre-action target-owned self-vault native balance (UInt64 domain). -/
   | vaultNative
   /-- Nondet external outcome for asset op `ordinal` (Bool; emission binds). -/
@@ -188,6 +190,8 @@ inductive Statement where
   | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
   | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
       (defaultBody : Array Statement)
+  | forLoop (varTemp : Nat) (initial condition update : Expr)
+      (maxIterations : Nat) (body : Array Statement)
   | returnValue (value : Expr)
   | returnNone
   | returnAggregate (leaves : Array Expr)
@@ -1022,6 +1026,7 @@ private structure BodyAccum where
   vaultExpr : Expr
   vaultExpandedNodes : Nat
   opCount : Nat
+  nextTemp : Nat := 0
   /-- ADR-0030 E2: body referenced vaultNative via env-read (or will via asset ops). -/
   usesVaultNative : Bool := false
   deriving Inhabited
@@ -1034,6 +1039,7 @@ private def emptyBodyAccum (env : ValueEnv) (overlay : StateOverlay) : BodyAccum
     vaultExpr := .vaultNative
     vaultExpandedNodes := 1
     opCount := 0
+    nextTemp := 0
     usesVaultNative := false }
 
 private def pushCheck (acc : BodyAccum) (ck : Check) : CompileResult BodyAccum := do
@@ -1362,7 +1368,7 @@ private partial def lowerBlockInstructions
     (block : BlockV1)
     (acc0 : BodyAccum) :
     CompileResult BodyAccum := do
-  unless block.params.isEmpty do
+  unless block.params.isEmpty || block.params.size == 1 do
     planError "unsupported Quint semantic shape: block parameters are outside Q0"
   let mut acc := acc0
   for instr in block.instructions do
@@ -1938,7 +1944,58 @@ private def decodeSwitchCaseValue
 private inductive RegionCont where
   | join (blockId : Nat)
   | closed
+  | latch (update : Expr)
   deriving BEq, Inhabited
+
+private def findLoopBoundV1 (loopBounds : Array LoopBoundV1) (headerId : Nat) :
+    Option LoopBoundV1 :=
+  loopBounds.find? (fun lb => lb.header.toNat == headerId)
+
+private def isLoopHeaderV1 (loopBounds : Array LoopBoundV1) (blockId : Nat) : Bool :=
+  (findLoopBoundV1 loopBounds blockId).isSome
+
+private def joinOf : RegionCont → Option Nat
+  | .join j => some j
+  | .closed | .latch _ => none
+
+private def validateCallableLoopsV1
+    (types : QuintTypeClosureV1) (callable : CallableV1) : CompileResult Unit := do
+  for block in callable.blocks do
+    if block.params.isEmpty then
+      pure ()
+    else
+      unless block.params.size == 1 do
+        planError
+          "unsupported Quint semantic shape: loop header must carry exactly one block param"
+      let some p := block.params[0]? |
+        planError
+          "unsupported Quint semantic shape: loop header must carry exactly one block param"
+      unless isUInt64Type types p.typeId || isInt64Type types p.typeId do
+        planError
+          "unsupported Quint semantic shape: loop induction must be public UInt64/Int64"
+      unless isLoopHeaderV1 callable.loopBounds block.id.toNat do
+        planError
+          "unsupported Quint semantic shape: block parameters require a loopBounds header entry"
+  for lb in callable.loopBounds do
+    let some header := callable.blocks[lb.header.toNat]? |
+      planError "unsupported Quint semantic shape: loopBounds header is out of range"
+    unless header.params.size == 1 do
+      planError
+        "unsupported Quint semantic shape: loopBounds header must have one block param"
+    let some latch := callable.blocks[lb.backEdgeFrom.toNat]? |
+      planError
+        "unsupported Quint semantic shape: loopBounds backEdgeFrom is out of range"
+    match latch.terminator with
+    | .jump target =>
+        unless target.blockId == lb.header && target.args.size == 1 do
+          planError
+            "unsupported Quint semantic shape: loop latch must jump to its header with one arg"
+    | _ =>
+        planError
+          "unsupported Quint semantic shape: loop latch terminator must be a jump"
+    unless lb.maxIterations.toNat ≤ 4096 do
+      planError
+        "unsupported Quint semantic shape: loop maxIterations exceeds the wire ceiling"
 
 private def flushRegion
     (layout : StateLayout) (acc : BodyAccum) : Array Statement × BodyAccum :=
@@ -1969,6 +2026,7 @@ private partial def emitRegion
     (numericTy : ExprType) (layout : StateLayout)
     (allowStateRead allowStateWrite : Bool)
     (forbidChecks : Bool) (inlineDepth : Nat)
+    (enclosingHeader : Option Nat)
     (fuel : Nat) (blockId : Nat) (acc0 : BodyAccum) :
     CompileResult (Array Statement × BodyAccum × RegionCont) := do
   match fuel with
@@ -1988,11 +2046,96 @@ private partial def emitRegion
           let ret? ← lookupReturn acc value
           pure (stmts ++ returnStmts ret?, acc, .closed)
       | .jump target => do
-          unless target.args.isEmpty do
-            planError
-              "unsupported Quint semantic shape: jump args / block-param phi are outside Q0"
-          let (stmts, acc) := flushRegion layout acc
-          pure (stmts, acc, .join target.blockId.toNat)
+          let targetId := target.blockId.toNat
+          if enclosingHeader == some targetId then
+            unless target.args.size == 1 do
+              planError
+                "unsupported Quint semantic shape: loop latch must carry exactly one induction arg"
+            let (stmts, acc) := flushRegion layout acc
+            let some updateVid := target.args[0]? |
+              planError
+                "unsupported Quint semantic shape: loop latch must carry exactly one induction arg"
+            let update ← match envLookup acc.env updateVid with
+              | some v => requireTy v numericTy "loop update"
+              | none =>
+                  planError "unsupported Quint semantic shape: loop update undefined"
+            pure (stmts, acc, .latch update)
+          else if isLoopHeaderV1 callable.loopBounds targetId then
+            let some lb := findLoopBoundV1 callable.loopBounds targetId |
+              planError "unsupported Quint semantic shape: missing loopBounds for loop header"
+            unless target.args.size == 1 do
+              planError
+                "unsupported Quint semantic shape: loop pre-header must jump with one start arg"
+            let (preStmts, acc) := flushRegion layout acc
+            let some startVid := target.args[0]? |
+              planError
+                "unsupported Quint semantic shape: loop pre-header must jump with one start arg"
+            let initial ← match envLookup acc.env startVid with
+              | some v => requireTy v numericTy "loop start"
+              | none =>
+                  planError "unsupported Quint semantic shape: loop start value undefined"
+            let some header := callable.blocks[targetId]? |
+              planError "unsupported Quint semantic shape: loop header block is missing"
+            unless header.params.size == 1 do
+              planError
+                "unsupported Quint semantic shape: loop header must carry exactly one block param"
+            let some inductionParam := header.params[0]? |
+              planError
+                "unsupported Quint semantic shape: loop header must carry exactly one block param"
+            let varTemp := acc.nextTemp
+            let acc :=
+              { acc with
+                nextTemp := acc.nextTemp + 1
+                env := envInsert acc.env inductionParam.valueId {
+                  ty := numericTy
+                  expr := .temp varTemp
+                  expandedNodes := 1
+                } }
+            let acc ←
+              lowerBlockInstructions data types idx callable numericTy layout
+                allowStateRead allowStateWrite forbidChecks inlineDepth header acc
+            unless acc.overlay.entries.isEmpty do
+              planError
+                "unsupported Quint semantic shape: loop header may not contain effect instructions"
+            match header.terminator with
+            | .branch condId thenT elseT => do
+                unless thenT.args.isEmpty && elseT.args.isEmpty do
+                  planError
+                    "unsupported Quint semantic shape: loop branch targets must carry empty args"
+                let cond ← match envLookup acc.env condId with
+                  | some v => requireTy v .bool "loop condition"
+                  | none =>
+                      planError
+                        "unsupported Quint semantic shape: loop condition undefined"
+                let (bodyStmts, acc1, bodyCont) ←
+                  emitRegion data types idx callable numericTy layout
+                    allowStateRead allowStateWrite forbidChecks inlineDepth
+                    (some targetId) fuel' thenT.blockId.toNat acc
+                let update ← match bodyCont with
+                  | .latch e => pure e
+                  | .closed =>
+                      planError
+                        "unsupported Quint semantic shape: loop body closed without a latch"
+                  | .join _ =>
+                      planError
+                        "unsupported Quint semantic shape: loop body must end at its latch jump"
+                let forStmt :=
+                  Statement.forLoop varTemp initial cond update
+                    lb.maxIterations.toNat bodyStmts
+                let (rest, acc2, restCont) ←
+                  emitRegion data types idx callable numericTy layout
+                    allowStateRead allowStateWrite forbidChecks inlineDepth
+                    enclosingHeader fuel' elseT.blockId.toNat acc1
+                pure (preStmts ++ #[forStmt] ++ rest, acc2, restCont)
+            | _ =>
+                planError
+                  "unsupported Quint semantic shape: loop header terminator must be a branch"
+          else
+            unless target.args.isEmpty do
+              planError
+                "unsupported Quint semantic shape: jump args / block-param phi are outside Q0"
+            let (stmts, acc) := flushRegion layout acc
+            pure (stmts, acc, .join targetId)
       | .branch condId thenT elseT => do
           unless thenT.args.isEmpty && elseT.args.isEmpty do
             planError
@@ -2005,16 +2148,18 @@ private partial def emitRegion
           let (thenStmts, acc1, thenCont) ←
             emitRegion data types idx callable numericTy layout
               allowStateRead allowStateWrite forbidChecks inlineDepth
-              fuel' thenT.blockId.toNat acc
-          let thenJoin : Option Nat :=
-            match thenCont with
-            | .closed => none
-            | .join j => some j
+              enclosingHeader fuel' thenT.blockId.toNat acc
+          match thenCont with
+          | .latch _ =>
+              planError
+                "unsupported Quint semantic shape: latch jump is only valid as a loop body end"
+          | .closed | .join _ => pure ()
+          let thenJoin := joinOf thenCont
           if thenJoin == some elseT.blockId.toNat then
             let (rest, acc2, restCont) ←
               emitRegion data types idx callable numericTy layout
                 allowStateRead allowStateWrite forbidChecks inlineDepth
-                fuel' elseT.blockId.toNat acc1
+                enclosingHeader fuel' elseT.blockId.toNat acc1
             pure
               (preStmts ++ #[.ifThenElse cond thenStmts #[]] ++ rest,
                 acc2, restCont)
@@ -2022,11 +2167,13 @@ private partial def emitRegion
             let (elseStmts, acc2, elseCont) ←
               emitRegion data types idx callable numericTy layout
                 allowStateRead allowStateWrite forbidChecks inlineDepth
-                fuel' elseT.blockId.toNat acc1
-            let elseJoin : Option Nat :=
-              match elseCont with
-              | .closed => none
-              | .join j => some j
+                enclosingHeader fuel' elseT.blockId.toNat acc1
+            match elseCont with
+            | .latch _ =>
+                planError
+                  "unsupported Quint semantic shape: latch jump is only valid as a loop body end"
+            | .closed | .join _ => pure ()
+            let elseJoin := joinOf elseCont
             match thenJoin, elseJoin with
             | some j1, some j2 => do
                 unless j1 == j2 do
@@ -2035,7 +2182,7 @@ private partial def emitRegion
                 let (rest, acc3, restCont) ←
                   emitRegion data types idx callable numericTy layout
                     allowStateRead allowStateWrite forbidChecks inlineDepth
-                    fuel' j1 acc2
+                    enclosingHeader fuel' j1 acc2
                 pure
                   (preStmts ++ #[.ifThenElse cond thenStmts elseStmts] ++ rest,
                     acc3, restCont)
@@ -2047,7 +2194,7 @@ private partial def emitRegion
                 let (rest, acc3, restCont) ←
                   emitRegion data types idx callable numericTy layout
                     allowStateRead allowStateWrite forbidChecks inlineDepth
-                    fuel' j acc2
+                    enclosingHeader fuel' j acc2
                 pure
                   (preStmts ++ #[.ifThenElse cond thenStmts elseStmts] ++ rest,
                     acc3, restCont)
@@ -2081,11 +2228,14 @@ private partial def emitRegion
             let (body, acc1, armCont) ←
               emitRegion data types idx callable numericTy layout
                 allowStateRead allowStateWrite forbidChecks inlineDepth
-                fuel' switchCase.target.blockId.toNat accA
+                enclosingHeader fuel' switchCase.target.blockId.toNat accA
             caseBodies := caseBodies.push (caseValue, body)
             accA := acc1
             match armCont, joinAcc with
             | .closed, _ => pure ()
+            | .latch _, _ =>
+                planError
+                  "unsupported Quint semantic shape: latch jump is only valid as a loop body end"
             | .join j, none => joinAcc := some j
             | .join j, some j0 =>
                 unless j == j0 do
@@ -2094,9 +2244,12 @@ private partial def emitRegion
           let (defaultBody, acc2, defaultCont) ←
             emitRegion data types idx callable numericTy layout
               allowStateRead allowStateWrite forbidChecks inlineDepth
-              fuel' defaultT.blockId.toNat accA
+              enclosingHeader fuel' defaultT.blockId.toNat accA
           match defaultCont, joinAcc with
           | .closed, _ => pure ()
+          | .latch _, _ =>
+              planError
+                "unsupported Quint semantic shape: latch jump is only valid as a loop body end"
           | .join j, none => joinAcc := some j
           | .join j, some j0 =>
               unless j == j0 do
@@ -2110,7 +2263,7 @@ private partial def emitRegion
               let (rest, acc3, restCont) ←
                 emitRegion data types idx callable numericTy layout
                   allowStateRead allowStateWrite forbidChecks inlineDepth
-                  fuel' j acc2
+                  enclosingHeader fuel' j acc2
               pure (preStmts.push switchStmt ++ rest, acc3, restCont)
       | .trap .. =>
           planError "unsupported Quint semantic shape: trap terminators are outside Q0"
@@ -2281,20 +2434,20 @@ private def lowerCallableBody
     let usesVault := acc.usesVaultNative || !acc.assetOps.isEmpty
     pure (paramNames, paramIsPrincipal, acc.checks, stores, acc.assetOps, ret?,
       endedRevert, usesVault, #[])
-  else if callable.loopBounds.isEmpty then
+  else
     unless callable.entryBlock.toNat == 0 do
       planError "unsupported Quint semantic shape: entryBlock must be 0"
+    unless callable.loopBounds.isEmpty do
+      validateCallableLoopsV1 types callable
     let (stmts, acc, cont) ←
       emitRegion data types idx callable numericTy layout
-        allowStateRead allowStateWrite forbidChecks 0
+        allowStateRead allowStateWrite forbidChecks 0 none
         callable.blocks.size callable.entryBlock.toNat acc0
     unless cont == .closed do
       planError "unsupported Quint semantic shape: CFG walk ended without a return"
     let usesVault := acc.usesVaultNative || !acc.assetOps.isEmpty
     pure (paramNames, paramIsPrincipal, acc.checks, #[], acc.assetOps, none,
       false, usesVault, stmts)
-  else
-    planError "unsupported Quint semantic shape: each callable must have exactly one block"
 
 private def makePlanFromSemanticDataV1
     (data : SemanticProgramDataV1) (programName : String)
