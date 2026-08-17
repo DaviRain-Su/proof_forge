@@ -60,6 +60,8 @@ Goal: lift envelope-4 toward mid-tier (CW/TON/Aleo/Psy), then mid-tier toward th
 | T7-ENV4-ENTRY-RET | main | Envelope-4 entry Array/Option/named leaf return. Same flatten/tuple as T6. ICP Candid positional `(nat64,…)` update (not query; no `record`/`opt`/`vec`). TON stays FC | **committed** Quint `95491026e` · Soroban `bbb4bd2e2` · OpenVM `635c46f7e` · ICP `d166b2991` |
 | T8a-ICP-MAP | main | ICP Map UInt64 cap-8 as 24 i64 globals (occ/key/val mux + cap-8 assert; no Candid map/vec). Int64 Map and Map return stay FC | **committed** ICP `42790c23f` |
 | T8b-ENV4-BYTES-VIEW | main | Envelope-4 Bytes N view return as N-leaf tuple. Entry Bytes stays FC | **committed** Quint `6866edd2e` · Soroban `34fbee207` · OpenVM `143eb6ed5` · ICP `cf1b55ef8` |
+| T9a-ENV4-IF | main | Envelope-4 if-diamond (`Term.branch` + join). Suite-local IfFlow; do not flip BranchFlow | **committed** ICP `630ae107d` · Soroban `5edc26fea` · OpenVM `e364cd14d` · Quint `a77381cad` |
+| T9b-ENV4-MATCH | main | Envelope-4 `Term.switch` (`switchOn`; integer match + Option/Enum tag). Flip BranchFlow four targets | **committed** ICP `d740c884e` · Soroban `f51062219` · OpenVM `7ad5e887b` · Quint `43ff57102` |
 
 **File lock:** workers must not edit `Tests/Materialization/Targets.lean` or another target's tree. `FieldComparison*` is a main-agent serial slice (`FC-PRESERVE`), not a parallel leaf. Main agent integrates WideInt64 / OptInt / ArrInt / MapInt needles after each leaf lands.
 
@@ -194,7 +196,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | MAT-BOOL-QS | done | BoolPredicate 12-target: ten materialize; Aleo computed-view + ICP Unit/UInt64 view-result FC. Four Plan/IR/IDL pins kept. **Not** a new shape |
 | MAT-EVENT-QS | done | EventFlow 12-target: six admit (incl. CW/TON); Aleo/Quint/Soroban/OpenVM/ICP effect.event FC; Psy typed Cap payload FC. Four Plan/IR pins kept. **Not** opening events |
 | MAT-GUARD-QS | done | Guarded assert+checkedSub 12-target: eleven materialize; ICP add/sub-only envelope FC. Four Plan pins kept. **Not** a new shape |
-| MAT-BRANCH-QS | done | BranchFlow if/match 12-target: eight admit; Quint/Soroban/OpenVM/ICP single-block envelope FC. Four Plan/IR/file pins kept. **Not** opening multi-block CFG |
+| MAT-BRANCH-QS | done | BranchFlow if/match 12-target: eight admit; then T9a/T9b opened Quint/Soroban/OpenVM/ICP if-diamond + switchOn. LoopSum / irreducible / arm call·emit stay FC. Four Plan/IR/file pins kept |
 | MAT-ARITH-QS | done | ArithFlow 12-target: seven admit; Aleo computed-view + Quint/Soroban bitNot + OpenVM/ICP add/sub-only FC. Four Plan/IR pins kept. **Not** opening mul/div/mod/bitNot |
 | MAT-FN-QS | done | FnFlow 12-target: six admit (incl. CW/TON); Aleo/Psy typed payload + Quint/Soroban/OpenVM zero-payload errors + ICP empty-errors FC. Four Plan/IR pins kept. **Not** opening localCall/typed-revert |
 | MAT-ACC-QS | done | Accumulator 12-target: eleven materialize; Aleo reserved `add` identifier FC. Four-target goldens kept. **Not** a rename/shape |

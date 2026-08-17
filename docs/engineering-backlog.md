@@ -679,6 +679,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-16 | **T3**：scalar const 内联八 target；Aleo Principal 9-leaf identity（≠address）；envelope-4 Bytes N（N UInt64 低 8 位）。TON/envelope-4 Principal 当时仍 FC |
 | 2026-08-16 | **T4**：TON + 信封-4 Principal 9 叶 identity 存储（`owner_len`+`w0..w7`）。Quint 保留 pf.assets `.principal` 打包；ICP 为 9 extra i64 global、无 Candid `principal`。return / caller / 容器-of-Principal / CAP-D 仍 FC |
 | 2026-08-17 | **T5**：信封-4 存储拉齐。ICP Option UInt64 2 叶（无 Candid `opt`）；Quint/Soroban/OpenVM/ICP named Struct/Enum 叶 flatten（无 Candid `record`/`variant`）。named/Option return、ICP Map、caller、CAP-D 仍 FC |
+| 2026-08-17 | **T9a/T9b**：信封-4 if-diamond + `Term.switch`。Quint/Soroban/OpenVM/ICP 开 BranchFlow if/match（臂内 store；Quint flatten `ite`）。`loopBounds` / irreducible / 臂内 call·emit 仍 FC |
 | 2026-08-17 | **T8b**：信封-4 Bytes N **view** 叶返回（N 个 UInt64 低 8 位 / Candid 位置元组）。entry Bytes、Principal/Map return、caller、CAP-D 仍 FC |
 | 2026-08-17 | **T8a**：ICP Map UInt64 cap-8 为 24 i64 globals（occ/key/val；Plan `ite`/`bool*` mux + cap-8 assert；无 Candid `map`/`vec`）。Int64-key/value Map 与 Map return 仍 FC |
 | 2026-08-17 | **T7**：信封-4 **entry** 聚合返回。Quint/Soroban/OpenVM/ICP 开 Array UInt64 N / Option UInt64 / named Struct·Enum **entry** 叶返回（与 T6 同构；ICP = Candid 位置元组 update，无 `record`/`opt`/`vec`）。TON 仍 FC（async actor 无返回通道）。PairRetEntry Aleo pin 保留。Principal/Bytes/Map return、caller、CAP-D、formal 仍 FC |
@@ -706,7 +707,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-15 | **MAT-BOOL-QS**：BoolPredicate 十二 target 补齐。十个 materialize；Aleo computed-view 与 ICP Unit/UInt64 view-result FC。四 Plan/IR/IDL pin 保留。**不**开新 shape |
 | 2026-08-15 | **MAT-EVENT-QS**：EventFlow 十二 target 补齐。六个 admit（含 CW/TON）；Aleo/Quint/Soroban/OpenVM/ICP `effect.event` FC；Psy typed Cap payload FC。四 Plan/IR pin 保留。**不**开 events |
 | 2026-08-15 | **MAT-GUARD-QS**：Guarded assert+checkedSub 十二 target 补齐。十一个 materialize；ICP add/sub-only envelope FC。四 Plan pin 保留。**不**开新 shape |
-| 2026-08-15 | **MAT-BRANCH-QS**：BranchFlow if/match 十二 target 补齐。八个 admit；Quint/Soroban/OpenVM/ICP single-block envelope FC。四 Plan/IR/file pin 保留。**不**开 multi-block CFG |
+| 2026-08-15 | **MAT-BRANCH-QS**：BranchFlow if/match 十二 target 补齐。八个 admit；当时 Quint/Soroban/OpenVM/ICP single-block envelope FC。**T9a/T9b** 已开四家 if-diamond + `switchOn`。`loopBounds` / irreducible / 臂内 call·emit 仍 FC。四 Plan/IR/file pin 保留 |
 | 2026-08-15 | **MAT-ARITH-QS**：ArithFlow 十二 target 补齐。七个 admit；Aleo computed-view、Quint/Soroban bitNot、OpenVM/ICP add/sub-only FC。四 Plan/IR pin 保留。**不**开 mul/div/mod/bitNot |
 | 2026-08-15 | **MAT-FN-QS**：FnFlow 十二 target 补齐。六个 admit（含 CW/TON）；Aleo/Psy typed payload、Quint/Soroban/OpenVM zero-payload errors、ICP empty-errors FC。四 Plan/IR pin 保留。**不**开 localCall/typed-revert |
 | 2026-08-15 | **MAT-ACC-QS**：Accumulator 十二 target 补齐。十一个 materialize；Aleo reserved `add` identifier FC。四 target golden 保留。**不**开 rename/shape |

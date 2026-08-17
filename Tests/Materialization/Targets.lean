@@ -1119,20 +1119,15 @@ private unsafe def testBranchingSemanticPlans : IO Unit := do
       applyNr.contents.contains "== 0")
     "branching Noir source must render the switch as an else-if chain"
   -- Extra eight from probe; BranchFlow if/match lighthouse. Aleo/Psy/CW/TON
-  -- admit. Quint/Soroban/OpenVM/ICP stay on the single-block envelope.
-  -- Not opening multi-block CFG; existing four Plan/IR/file pins unchanged.
+  -- plus envelope-4 (T9a/T9b if-diamond + switchOn) admit. LoopSum /
+  -- irreducible CFG / arm call·emit stay fail closed. Existing four
+  -- Plan/IR/file pins unchanged.
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
-      TargetId.aleo, TargetId.psy, TargetId.cosmwasm, TargetId.ton] do
+      TargetId.aleo, TargetId.psy, TargetId.cosmwasm, TargetId.ton,
+      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp] do
     let out ← liftResult <| materializeSelected target compiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"BranchFlow: {target} must materialize"
-  for (target, kind) in #[
-      (TargetId.quint, TargetKind.quint),
-      (TargetId.soroban, TargetKind.soroban),
-      (TargetId.openvm, TargetKind.openvm),
-      (TargetId.icp, TargetKind.icp)] do
-    expectMaterializePlanInvariantV1 "BranchFlow" target kind compiled
-      "exactly one block"
 
 /-- ProgramV1 fn/localCall source text for the Wave E pureCall leaf. -/
 private def fnFlowSourceTextV1 : String :=
