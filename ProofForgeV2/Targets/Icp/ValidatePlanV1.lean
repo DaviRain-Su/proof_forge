@@ -216,7 +216,7 @@ private partial def validateRegion
         sawTerminalValue := true
         match resultKind with
         | .aggregate n =>
-            unless leaves.size == n && 1 ≤ n && n ≤ 8 do
+            unless leaves.size == n && (n == 24 || (1 ≤ n && n ≤ 8)) do
               planError
                 s!"ICP {owner} aggregate return must have exactly {n} leaves"
             for e in leaves do
@@ -302,8 +302,8 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
       planError s!"ICP entry '{ent.name}' must carry MethodMode.mutate"
     match ent.resultKind with
     | .aggregate n =>
-        unless 1 ≤ n && n ≤ 8 do
-          planError s!"ICP entry '{ent.name}' aggregate return must have 1..8 leaves"
+        unless n == 24 || (1 ≤ n && n ≤ 8) do
+          planError s!"ICP entry '{ent.name}' aggregate return must have 1..8 leaves (or 24 for Map)"
     | .unit | .uint64 | .int64 | .bool => pure ()
     validateParams s!"entry '{ent.name}'" ent.params ent.paramKinds
     exprBudget ←
@@ -318,7 +318,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     unless v.mode == .query do
       planError s!"ICP view '{v.name}' must carry MethodMode.query"
     unless v.resultKind == .uint64 || v.resultKind == .int64 || v.resultKind == .bool ||
-        (match v.resultKind with | .aggregate n => 1 ≤ n && n ≤ 8 | _ => false) do
+        (match v.resultKind with | .aggregate n => n == 24 || (1 ≤ n && n ≤ 8) | _ => false) do
       planError s!"ICP view '{v.name}' result must be UInt64, Int64, Bool, or a view-only aggregate"
     validateParams s!"view '{v.name}'" v.params v.paramKinds
     exprBudget ←

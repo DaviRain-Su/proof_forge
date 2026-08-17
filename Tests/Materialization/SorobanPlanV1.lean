@@ -992,7 +992,7 @@ unsafe def testMapInt64ElementFailClosed : IO Unit := do
   | .error e => throw <| IO.userError s!"expected planInvariant .soroban, got {e.render}"
   | .ok _ => throw <| IO.userError "Map Int64 must fail closed at Soroban plan"
 
-/-- Map entry return stays outside S0. -/
+/-- B-RET-MAP: Map return is 24 leaves, not an 8-leaf cap raise. -/
 unsafe def testMapReturnFailClosed : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -1007,12 +1007,22 @@ unsafe def testMapReturnFailClosed : IO Unit := do
   let parsed ← liftResult (← session.selectProgramV1
     source "<soroban-map-ret>" "Tests.SorobanMapRet" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
-  match planSoroban compiled with
-  | .error (.planInvariant .soroban msg) =>
-      expect (msg.contains "Array/Map return is outside S0")
-        s!"Map return must cite Array/Map return is outside S0, got: {msg}"
-  | .error e => throw <| IO.userError s!"expected planInvariant .soroban, got {e.render}"
-  | .ok _ => throw <| IO.userError "Map return must fail closed at Soroban plan"
+  let plan ← liftResult <| planSoroban compiled
+  let some ent := plan.entries[0]? |
+    throw <| IO.userError "MapRet must emit an entry"
+  expect (ent.resultKind == .aggregate 24)
+    s!"MapRet entry must be aggregate 24, got {repr ent.resultKind}"
+  expect (ent.leaves.size == 24) "MapRet must carry 24 Map leaves"
+  liftResult <| Targets.Soroban.validatePlan plan
+  let files ← liftResult <| buildSoroban compiled
+  let some rs := files.find? (·.path == "MapRet.rs") |
+    throw <| IO.userError "soroban: missing MapRet.rs"
+  expect (rs.contents.contains "-> (u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64)")
+    "MapRet must emit a Rust 24-u64 tuple return"
+  expect (rs.contents.contains "symbol_short!(\"m_0\")")
+    "MapRet.rs must use instance key m_0"
+  expect (rs.contents.contains "symbol_short!(\"m_23\")")
+    "MapRet.rs must use instance key m_23"
 
 /-- signedNumeric Int64 programs cannot carry Map state. -/
 unsafe def testSignedNumericMapStateFailClosed : IO Unit := do
@@ -1326,12 +1336,17 @@ unsafe def testBytesViewRet : IO Unit := do
   let entryParsed ← liftResult (← session.selectProgramV1
     entrySrc "<soroban-bytes-entry-ret>" "Tests.SorobanBytesRetEntry" none)
   let entryCompiled ← liftResult <| Compiler.compileValidatedSourceV1 entryParsed
-  match planSoroban entryCompiled with
-  | .error (.planInvariant .soroban msg) =>
-      expect (msg.contains "Bytes return")
-        s!"entry Bytes must cite Bytes return, got: {msg}"
-  | .error e => throw <| IO.userError s!"expected planInvariant .soroban, got {e.render}"
-  | .ok _ => throw <| IO.userError "entry Bytes return must fail closed at Soroban plan"
+  let entryPlan ← liftResult <| planSoroban entryCompiled
+  let some ent := entryPlan.entries[0]? |
+    throw <| IO.userError "BytesRetEntry must emit an entry"
+  expect (ent.resultKind == .aggregate 4)
+    s!"BytesRetEntry entry must be aggregate 4, got {repr ent.resultKind}"
+  liftResult <| Targets.Soroban.validatePlan entryPlan
+  let entryFiles ← liftResult <| buildSoroban entryCompiled
+  let some entryRs := entryFiles.find? (·.path == "BytesRetEntry.rs") |
+    throw <| IO.userError "soroban: missing BytesRetEntry.rs"
+  expect (entryRs.contents.contains "-> (u64, u64, u64, u64)")
+    "BytesRetEntry must emit a Rust 4-u64 tuple return"
 
 unsafe def testOptViewRet : IO Unit := do
   let session ← Tests.Language.ParserSession.shared

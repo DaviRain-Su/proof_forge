@@ -116,7 +116,7 @@ substitution、config commitment、host nondeterminism、unsafe guest code、pro
 
 ## 9. 验证阶梯
 
-- **O0（已完成）**：registry/resolver/Plan/IR/guest-source emit + zero-tool finalize + Counter/StateCell/Int64Cell 正例与 unsupported 负例；工程 `Array UInt64|Int64 N`（N=1..8）state flatten 为标量 `u64`/`i64` 字段；工程 `Option UInt64|Int64` state flatten 为 `{name}_tag`/`{name}_p0`；工程 dense `Map UInt64 UInt64` 或 `Map Int64 Int64` cap-8 flatten 为 24 个标量字段（非 HashMap/Vec；Map return/param/错域 key-value/elf/prove/formal 仍 FC）。不声称 execute/prove。
+- **O0（已完成）**：registry/resolver/Plan/IR/guest-source emit + zero-tool finalize + Counter/StateCell/Int64Cell 正例与 unsupported 负例；工程 `Array UInt64|Int64 N`（N=1..8）state flatten 为标量 `u64`/`i64` 字段；工程 `Option UInt64|Int64` state flatten 为 `{name}_tag`/`{name}_p0`；工程 dense `Map UInt64 UInt64` 或 `Map Int64 Int64` cap-8 flatten 为 24 个标量字段（非 HashMap/Vec；**B-RET-MAP** UInt64 Map return 24 叶已开；Map param/错域 key-value/elf/prove/formal 仍 FC）。不声称 execute/prove。
 - **O1（当前，ADR-0046）**：同一 Plan/IR 上的 opt-in `openvm-guest-elf-v1`；锁定
   `cargo-openvm` 2.0.1 build/transpile guest → RV32IM ELF + `.vmexe` extras；缺失工具
   fail closed（`PF-TOOLCHAIN-MISSING`）；host-optional acceptance（ambient 工具存在时

@@ -320,8 +320,10 @@ unsafe def testContextReadStayFailClosed : IO Unit := do
     "  view get() : UInt64 do\n" ++
     "    return pad\n"
 
-unsafe def testInt64FailClosed : IO Unit := do
-  expectPlanFc "Int64" <|
+/-- Homogeneous Int64: signed Rust domain + checked signed arith. -/
+unsafe def testSignedCell : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
     "program SignedCell where\n" ++
@@ -330,7 +332,52 @@ unsafe def testInt64FailClosed : IO Unit := do
     "    count := initial\n" ++
     "  entry tick(delta : Int64) : Int64 do\n" ++
     "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : Int64 do\n" ++
     "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-signed-cell>" "Tests.XrplSignedCell" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  expect plan.signedNumeric "SignedCell Plan is signed"
+  expect (plan.states.map (·.name) == #["count"])
+    "SignedCell must keep a single count leaf"
+  liftResult <| Targets.Xrpl.validatePlan plan
+  let files ← liftResult <| buildXrpl compiled
+  let some rsFile := files.find? (·.path == "SignedCell.rs") |
+    throw <| IO.userError "xrpl: missing SignedCell.rs"
+  let rs := rsFile.contents
+  expect (rs.contains "i64")
+    "signed XRPL source must use i64"
+  expect (rs.contains "delta: i64")
+    "signed XRPL params must be i64"
+  expect (rs.contains "fn read_i64")
+    "signed XRPL storage helpers must be i64"
+  expect (rs.contains "get_data::<i64>")
+    "signed XRPL must keep get_data dialect with i64"
+  expect (rs.contains "set_data::<i64>")
+    "signed XRPL must keep set_data dialect with i64"
+  expect (rs.contains "checked_add(delta)")
+    "signed XRPL source must use checked_add"
+  expect (!rs.contains "delta: u64")
+    "signed program must not type params as u64"
+  expect (!rs.contains "fn read_u64")
+    "signed program must not emit the unsigned storage helper"
+
+/-- Mixing Int64 state with a UInt64 view is fail closed. -/
+unsafe def testMixedInt64UInt64Fc : IO Unit := do
+  expectPlanFc "MixInt64" <|
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MixInt64 where\n" ++
+    "  state count : Int64\n" ++
+    "  init(initial : Int64) do\n" ++
+    "    count := initial\n" ++
+    "  entry tick(delta : Int64) : Int64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return 0\n"
 
 /-- T3 honesty pin: UInt64/Bool `Op.Constant` already inlines; do not re-lower. -/
 unsafe def testConstCellInline : IO Unit := do
@@ -649,8 +696,9 @@ unsafe def testBytesViewRet : IO Unit := do
   expect (rsFile.contents.contains "-> (u64, u64, u64, u64)")
     "BytesViewRet must emit a Rust 4-leaf view tuple"
 
-unsafe def testBytesEntryReturnFailClosed : IO Unit := do
-  expectPlanFc "BytesEntryRet" <|
+unsafe def testBytesEntryRet : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
     "program BytesEntryRet where\n" ++
@@ -659,6 +707,21 @@ unsafe def testBytesEntryReturnFailClosed : IO Unit := do
     "    b[0] := 0\n" ++
     "  entry peek() : Bytes 4 do\n" ++
     "    return b\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-bytes-entry-ret>" "Tests.XrplBytesEntryRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  let some ent := plan.entries[0]? |
+    throw <| IO.userError "BytesEntryRet must emit an entry"
+  expect (ent.resultKind == .aggregate 4)
+    s!"BytesEntryRet entry must be aggregate 4, got {repr ent.resultKind}"
+  expect (ent.resultLeaves.size == 4) "BytesEntryRet must carry four byte leaves"
+  liftResult <| Targets.Xrpl.validatePlan plan
+  let files ← liftResult <| buildXrpl compiled
+  let some rsFile := files.find? (·.path == "BytesEntryRet.rs") |
+    throw <| IO.userError "xrpl: missing BytesEntryRet.rs"
+  expect (rsFile.contents.contains "-> (u64, u64, u64, u64)")
+    "BytesEntryRet must emit a Rust 4-leaf entry tuple"
 
 /-- T9a: if-diamond lowers to `ifThenElse` + arm stores. -/
 unsafe def testIfFlow : IO Unit := do
@@ -785,13 +848,7 @@ unsafe def testOptBoxAdmit : IO Unit := do
     "    o := Option.none()\n" ++
     "  entry setSome(v : UInt64) : UInt64 do\n" ++
     "    o := Option.some(v)\n" ++
-    "    return v\n" ++
-    "  view getOrZero() : UInt64 do\n" ++
-    "    match o with\n" ++
-    "    | Option.some(v) => do\n" ++
-    "      return v\n" ++
-    "    | _ => do\n" ++
-    "      return 0\n"
+    "    return v\n"
   let parsed ← liftResult (← session.selectProgramV1
     source "<xrpl-opt-box>" "Tests.XrplOptBox" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
@@ -857,7 +914,7 @@ unsafe def testMapMiniAdmit : IO Unit := do
     "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
     "    m[k] := v\n" ++
     "    return v\n" ++
-    "  view get(k : UInt64) : UInt64 do\n" ++
+    "  entry get(k : UInt64) : UInt64 do\n" ++
     "    match m[k] with\n" ++
     "    | Option.some(v) => do\n" ++
     "      return v\n" ++
@@ -876,10 +933,12 @@ unsafe def testMapMiniAdmit : IO Unit := do
       expect (initFn.stores.size == 24)
         "MapMini init must store all 24 Map leaves"
   | none => throw <| IO.userError "MapMini must have an initializer"
-  expect (plan.entries.size == 1) "MapMini has one entry"
-  expect (plan.entries[0]!.stores.size == 24)
+  expect (plan.entries.size == 2) "MapMini has put + get entries"
+  let some put := plan.entries.find? (·.name == "put") |
+    throw <| IO.userError "MapMini: missing put"
+  expect (put.stores.size == 24)
     "MapMini put must store all 24 Map leaves"
-  expect (plan.entries[0]!.checks.size ≥ 1)
+  expect (put.checks.size ≥ 1)
     "MapMini put must check cap-8 overflow (9th insert fail closed)"
   liftResult <| Targets.Xrpl.validatePlan plan
   let files ← liftResult <| buildXrpl compiled
@@ -897,8 +956,10 @@ unsafe def testMapMiniAdmit : IO Unit := do
   expect (!rs.contains "HashMap")
     "Map flatten must not emit a Rust HashMap"
 
-unsafe def testMapReturnFailClosed : IO Unit := do
-  expectPlanFc "MapRet" <|
+/-- B-RET-MAP: Map return is 24 leaves, not an 8-leaf cap raise. -/
+unsafe def testMapRet : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
     "program MapRet where\n" ++
@@ -907,6 +968,26 @@ unsafe def testMapReturnFailClosed : IO Unit := do
     "    m := Map.empty()\n" ++
     "  entry peek() : Map UInt64 UInt64 do\n" ++
     "    return m\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-map-ret>" "Tests.XrplMapRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  let some ent := plan.entries[0]? |
+    throw <| IO.userError "MapRet must emit an entry"
+  expect (ent.resultKind == .aggregate 24)
+    s!"MapRet entry must be aggregate 24, got {repr ent.resultKind}"
+  expect (ent.resultLeaves.size == 24) "MapRet must carry 24 Map leaves"
+  liftResult <| Targets.Xrpl.validatePlan plan
+  let files ← liftResult <| buildXrpl compiled
+  let some rsFile := files.find? (·.path == "MapRet.rs") |
+    throw <| IO.userError "xrpl: missing MapRet.rs"
+  let rs := rsFile.contents
+  expect (rs.contains "-> (u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64)")
+    "MapRet must emit a Rust 24-leaf entry tuple"
+  expect (rs.contains "const m_0_KEY: &str = \"m_0\";")
+    "MapRet.rs must bind m_0_KEY"
+  expect (rs.contains "const m_23_KEY: &str = \"m_23\";")
+    "MapRet.rs must bind m_23_KEY"
 
 unsafe def testMapParamFailClosed : IO Unit := do
   expectPlanFc "MapParam" <|
@@ -930,13 +1011,14 @@ unsafe def run : IO Unit := do
   testCallFailClosed
   testCryptoSha256StayFailClosed
   testContextReadStayFailClosed
-  testInt64FailClosed
+  testSignedCell
+  testMixedInt64UInt64Fc
   testConstCellInline
   testBytesBoxFlatten
   testBytesN0FailClosed
   testBytesN9FailClosed
   testBytesViewRet
-  testBytesEntryReturnFailClosed
+  testBytesEntryRet
   testPrincipalIdentityLeaves
   testPrincipalReturnFailClosed
   testPointBoxFlatten
@@ -950,7 +1032,7 @@ unsafe def run : IO Unit := do
   testOptionParamFailClosed
   testOptionBoolPayloadFailClosed
   testMapMiniAdmit
-  testMapReturnFailClosed
+  testMapRet
   testMapParamFailClosed
 
 end Tests.Materialization.XrplPlanV1

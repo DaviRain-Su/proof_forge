@@ -1154,7 +1154,7 @@ unsafe def testArrViewRet
   expect (!did.contains "variant") "ArrViewRet .did must not emit Candid variant"
   IO.println "  ✓ ArrViewRet view-only Candid positional tuple"
 
-/-- T8b: view-only Bytes 4 return as Candid positional 4-tuple. Entry stays FC. -/
+/-- T8b: Bytes 4 return as Candid positional 4-tuple on view and entry. -/
 unsafe def testBytesViewRet
     (session : Language.Loader.ParserSession) : IO Unit := do
   let src := wrapProgram "BytesRetBox" <|
@@ -1187,9 +1187,20 @@ unsafe def testBytesViewRet
     "    return b\n"
   let compiledEntry ← compileSource session entrySrc
     "Examples.BytesRetEntry" "<icp-bytes-entry-ret>"
-  expectPlanErrorContaining "BytesRetEntry" "Bytes return"
-    (planIcp compiledEntry)
-  IO.println "  ✓ BytesRetBox view-only Candid positional 4-tuple"
+  let entryPlan ← liftResult <| planIcp compiledEntry
+  let some ent := entryPlan.entries[0]? |
+    throw <| IO.userError "BytesRetEntry must emit an entry"
+  expect (ent.resultKind == .aggregate 4)
+    s!"BytesRetEntry entry must be aggregate 4, got {repr ent.resultKind}"
+  match validatePlan entryPlan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"BytesRetEntry plan must validate: {e.render}"
+  let entryFiles ← liftResult <| filesIcp compiledEntry
+  let entryDid ← findFile entryFiles "BytesRetEntry.did"
+  expect (entryDid.contains "-> (nat64, nat64, nat64, nat64);")
+    s!"BytesRetEntry .did must be a positional 4-nat64 update, got:\n{entryDid}"
+  expect (!entryDid.contains "vec") "BytesRetEntry .did must not emit Candid vec"
+  IO.println "  ✓ BytesRetBox view+entry Candid positional 4-tuple"
 
 /-- T6: view-only Option UInt64 return as Candid positional tuple. Entry stays FC. -/
 unsafe def testOptViewRet
@@ -1385,7 +1396,7 @@ private unsafe def testMapInt64ElementFc
   expectPlanErrorContaining "MapInt" "Map state admits only Map UInt64 UInt64"
     (planIcp compiled)
 
-/-- Map entry return stays outside ICP-2 (24-tuple would be dishonest). -/
+/-- B-RET-MAP: Map return is a Candid positional 24-tuple, not a cap raise. -/
 private unsafe def testMapReturnFc
     (session : Language.Loader.ParserSession) : IO Unit := do
   let src := wrapProgram "MapRet" <|
@@ -1395,8 +1406,21 @@ private unsafe def testMapReturnFc
     "  entry peek() : Map UInt64 UInt64 do\n" ++
     "    return m\n"
   let compiled ← compileSource session src "Examples.MapRet" "<icp-map-ret>"
-  expectPlanErrorContaining "MapRet" "Array/Map return"
-    (planIcp compiled)
+  let plan ← liftResult <| planIcp compiled
+  let some ent := plan.entries[0]? |
+    throw <| IO.userError "MapRet must emit an entry"
+  expect (ent.resultKind == .aggregate 24)
+    s!"MapRet entry must be aggregate 24, got {repr ent.resultKind}"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"MapRet plan must validate: {e.render}"
+  let files ← liftResult <| filesIcp compiled
+  let did ← findFile files "MapRet.did"
+  expect (did.contains "-> (nat64, nat64, nat64, nat64, nat64, nat64, nat64, nat64, nat64, nat64, nat64, nat64, nat64, nat64, nat64, nat64, nat64, nat64, nat64, nat64, nat64, nat64, nat64, nat64);")
+    s!"MapRet .did must be a positional 24-nat64 update, got:\n{did}"
+  expect (!did.contains "vec") "MapRet .did must not emit Candid vec"
+  expect (!did.contains "record") "MapRet .did must not emit Candid record"
+  IO.println "  ✓ MapRet entry Candid positional 24-tuple"
 
 /-- T9a: if-diamond only. BranchFlow.apply (match/switch) stays fail closed. -/
 private unsafe def testIfFlow

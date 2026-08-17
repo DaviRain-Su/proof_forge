@@ -21,6 +21,30 @@ open ProofForgeV2.Targets.EnvelopeV1
 private def planError (message : String) : CompileResult α :=
   .error <| .planInvariant .xrpl message
 
+/-- Complete Rust numeric token. Unsigned stays `{n}u64`. Signed uses the
+    UInt64 two's-complement bit pattern as `i64` (special-case `i64::MIN`). -/
+private def rustNumericLit (signed : Bool) (v : UInt64) : String :=
+  if !signed then
+    s!"{v}u64"
+  else
+    let n := v.toNat
+    if n < 9223372036854775808 then
+      s!"{n}i64"
+    else if n == 9223372036854775808 then
+      "i64::MIN"
+    else
+      let mag := (0 - v).toNat
+      s!"-{mag}i64"
+
+private def rustNumericTy (signed : Bool) : String :=
+  if signed then "i64" else "u64"
+
+private def rustReadName (signed : Bool) : String :=
+  if signed then "read_i64" else "read_u64"
+
+private def rustWriteName (signed : Bool) : String :=
+  if signed then "write_i64" else "write_u64"
+
 inductive RCmpOp where
   | eq | ne | lt | le | gt | ge
   deriving BEq, Inhabited, Repr
@@ -217,6 +241,9 @@ private def buildEntryFn (plan : Plan) (ent : PlanEntry) : CompileResult RustFn 
     | .uint64, some e =>
         let rv ← lowerExprToRExpr plan ent.params e
         stmts := stmts.push (.tailI32 rv)
+    | .int64, some e =>
+        let rv ← lowerExprToRExpr plan ent.params e
+        stmts := stmts.push (.tailI32 rv)
     | .bool, some e =>
         let rv ← lowerExprToRExpr plan ent.params e
         stmts := stmts.push (.tailI32 rv)
@@ -313,44 +340,45 @@ private def lower (plan : Plan) : CompileResult IR := do
 private def cmpSym : RCmpOp → String
   | .eq => "==" | .ne => "!=" | .lt => "<" | .le => "<=" | .gt => ">" | .ge => ">="
 
-private partial def renderRExpr : RExpr → String
-  | .litU64 v => s!"{v}u64"
+private partial def renderRExpr (signed : Bool) : RExpr → String
+  | .litU64 v => rustNumericLit signed v
   | .litBool true => "true"
   | .litBool false => "false"
   | .name id => id
   | .checkedAdd l r code =>
-      s!"({renderRExpr l}).checked_add({renderRExpr r}).ok_or({code}i32)?"
+      s!"({renderRExpr signed l}).checked_add({renderRExpr signed r}).ok_or({code}i32)?"
   | .checkedSub l r code =>
-      s!"({renderRExpr l}).checked_sub({renderRExpr r}).ok_or({code}i32)?"
+      s!"({renderRExpr signed l}).checked_sub({renderRExpr signed r}).ok_or({code}i32)?"
   | .checkedMul l r code =>
-      s!"({renderRExpr l}).checked_mul({renderRExpr r}).ok_or({code}i32)?"
+      s!"({renderRExpr signed l}).checked_mul({renderRExpr signed r}).ok_or({code}i32)?"
   | .checkedDiv l r code =>
-      s!"({renderRExpr l}).checked_div({renderRExpr r}).ok_or({code}i32)?"
+      s!"({renderRExpr signed l}).checked_div({renderRExpr signed r}).ok_or({code}i32)?"
   | .checkedMod l r code =>
-      s!"({renderRExpr l}).checked_rem({renderRExpr r}).ok_or({code}i32)?"
+      s!"({renderRExpr signed l}).checked_rem({renderRExpr signed r}).ok_or({code}i32)?"
   | .compareOp op l r =>
-      s!"({renderRExpr l} {cmpSym op} {renderRExpr r})"
-  | .boolAnd l r => s!"({renderRExpr l} && {renderRExpr r})"
-  | .boolOr l r => s!"({renderRExpr l} || {renderRExpr r})"
-  | .boolNot o => s!"(!{renderRExpr o})"
+      s!"({renderRExpr signed l} {cmpSym op} {renderRExpr signed r})"
+  | .boolAnd l r => s!"({renderRExpr signed l} && {renderRExpr signed r})"
+  | .boolOr l r => s!"({renderRExpr signed l} || {renderRExpr signed r})"
+  | .boolNot o => s!"(!{renderRExpr signed o})"
   | .ite c t e =>
-      s!"(if {renderRExpr c} {{ {renderRExpr t} }} else {{ {renderRExpr e} }})"
+      "(if " ++ renderRExpr signed c ++ " { " ++ renderRExpr signed t ++
+        " } else { " ++ renderRExpr signed e ++ " })"
 
 private def indent (n : Nat) (s : String) : String :=
   String.ofList (List.replicate n ' ') ++ s
 
-private partial def renderStmtLines (level : Nat) : RStmt → Array String
+private partial def renderStmtLines (signed : Bool) (level : Nat) : RStmt → Array String
   | .guard cond code =>
       #[indent level
-          ("if !(" ++ renderRExpr cond ++ ") { return Err(" ++
+          ("if !(" ++ renderRExpr signed cond ++ ") { return Err(" ++
             toString code ++ "i32); }")]
   | .storeField field value =>
-      #[indent level ("let " ++ field ++ "_new = " ++ renderRExpr value ++ ";"),
-        indent level ("write_u64(" ++ field ++ "_KEY, " ++ field ++ "_new)?;")]
+      #[indent level ("let " ++ field ++ "_new = " ++ renderRExpr signed value ++ ";"),
+        indent level (rustWriteName signed ++ "(" ++ field ++ "_KEY, " ++ field ++ "_new)?;")]
   | .tailI32 value =>
-      #[indent level ("Ok(" ++ renderRExpr value ++ " as i32)")]
+      #[indent level ("Ok(" ++ renderRExpr signed value ++ " as i32)")]
   | .tailTuple elems =>
-      let inner := String.intercalate ", " (elems.map renderRExpr).toList
+      let inner := String.intercalate ", " (elems.map (renderRExpr signed)).toList
       #[indent level ("(" ++ inner ++ ")")]
   | .tailSuccess =>
       #[indent level "Ok(0)"]
@@ -358,22 +386,23 @@ private partial def renderStmtLines (level : Nat) : RStmt → Array String
       #[indent level
           "unreachable!(\"Q0 template: a prior guard always returns before this point\")"]
   | .ifThenElse cond thenBody elseBody => Id.run do
-      let mut lines := #[indent level ("if " ++ renderRExpr cond ++ " {")]
+      let mut lines := #[indent level ("if " ++ renderRExpr signed cond ++ " {")]
       for stmt in thenBody do
-        lines := lines ++ renderStmtLines (level + 4) stmt
+        lines := lines ++ renderStmtLines signed (level + 4) stmt
       if elseBody.isEmpty then
         lines := lines.push (indent level "}")
       else
         lines := lines.push (indent level "} else {")
         for stmt in elseBody do
-          lines := lines ++ renderStmtLines (level + 4) stmt
+          lines := lines ++ renderStmtLines signed (level + 4) stmt
         lines := lines.push (indent level "}")
       lines
   | .forLoop varName initial cond update maxIterations body => Id.run do
       let iter := varName ++ "_iter"
+      let ty := rustNumericTy signed
       let mut lines :=
-        #[indent level ("let mut " ++ varName ++ ": u64 = " ++
-            renderRExpr initial ++ ";"),
+        #[indent level ("let mut " ++ varName ++ ": " ++ ty ++ " = " ++
+            renderRExpr signed initial ++ ";"),
           indent level ("let mut " ++ iter ++ ": u64 = 0;"),
           indent level "loop {"]
       lines := lines.push
@@ -381,11 +410,11 @@ private partial def renderStmtLines (level : Nat) : RStmt → Array String
           ("if " ++ iter ++ " >= " ++ toString maxIterations ++
             "u64 { return Err(1i32); }"))
       lines := lines.push
-        (indent (level + 4) ("if !(" ++ renderRExpr cond ++ ") { break; }"))
+        (indent (level + 4) ("if !(" ++ renderRExpr signed cond ++ ") { break; }"))
       for stmt in body do
-        lines := lines ++ renderStmtLines (level + 4) stmt
+        lines := lines ++ renderStmtLines signed (level + 4) stmt
       lines := lines.push
-        (indent (level + 4) (varName ++ " = " ++ renderRExpr update ++ ";"))
+        (indent (level + 4) (varName ++ " = " ++ renderRExpr signed update ++ ";"))
       lines := lines.push
         (indent (level + 4)
           (iter ++ " = " ++ iter ++
@@ -393,8 +422,8 @@ private partial def renderStmtLines (level : Nat) : RStmt → Array String
       lines := lines.push (indent level "}")
       lines
 
-private def renderStmt (stmt : RStmt) : Array String :=
-  renderStmtLines 8 stmt
+private def renderStmt (signed : Bool) (stmt : RStmt) : Array String :=
+  renderStmtLines signed 8 stmt
 
 private partial def collectLoadedFields (fn : RustFn) (all : Array String) : Array String :=
   Id.run do
@@ -440,45 +469,47 @@ private partial def collectLoadedFields (fn : RustFn) (all : Array String) : Arr
       acc := walkStmt acc stmt
     pure acc
 
-private def rustTupleType (n : Nat) : String :=
-  if n == 1 then "(u64,)"
+private def rustTupleType (signed : Bool) (n : Nat) : String :=
+  let ty := rustNumericTy signed
+  if n == 1 then s!"({ty},)"
   else
-    let parts := List.replicate n "u64"
+    let parts := List.replicate n ty
     "(" ++ String.intercalate ", " parts ++ ")"
 
-private def renderFn (fn : RustFn) (allFields : Array String) : Array String := Id.run do
+private def renderFn (signed : Bool) (fn : RustFn) (allFields : Array String) : Array String := Id.run do
   let mut lines : Array String := #[]
+  let ty := rustNumericTy signed
   let params := String.intercalate ", "
-    (fn.params.map (fun p => s!"{p}: u64")).toList
+    (fn.params.map (fun p => s!"{p}: {ty}")).toList
   lines := lines.push s!"/// @xrpl-function {fn.name}"
   lines := lines.push "#[unsafe(no_mangle)]"
   let loaded := collectLoadedFields fn allFields
   match fn.tupleArity with
   | some n =>
       lines := lines.push
-        s!"pub extern \"C\" fn {fn.name}({params}) -> {rustTupleType n} {"{"}"
+        s!"pub extern \"C\" fn {fn.name}({params}) -> {rustTupleType signed n} {"{"}"
       for field in loaded do
-        lines := lines.push (indent 4 s!"let {field}_cur = read_u64({field}_KEY);")
+        lines := lines.push (indent 4 s!"let {field}_cur = {rustReadName signed}({field}_KEY);")
       for stmt in fn.stmts do
         match stmt with
         | .storeField field value =>
             lines := lines.push
-              (indent 4 ("let " ++ field ++ "_new = " ++ renderRExpr value ++ ";"))
+              (indent 4 ("let " ++ field ++ "_new = " ++ renderRExpr signed value ++ ";"))
             lines := lines.push
-              (indent 4 ("let _ = write_u64(" ++ field ++ "_KEY, " ++ field ++ "_new);"))
+              (indent 4 ("let _ = " ++ rustWriteName signed ++ "(" ++ field ++ "_KEY, " ++ field ++ "_new);"))
         | .tailTuple elems =>
-            let inner := String.intercalate ", " (elems.map renderRExpr).toList
+            let inner := String.intercalate ", " (elems.map (renderRExpr signed)).toList
             lines := lines.push (indent 4 ("(" ++ inner ++ ")"))
         | other =>
-            lines := lines ++ renderStmt other
+            lines := lines ++ renderStmt signed other
       lines := lines.push "}"
   | none =>
       lines := lines.push s!"pub extern \"C\" fn {fn.name}({params}) -> i32 {"{"}"
       for field in loaded do
-        lines := lines.push (indent 4 s!"let {field}_cur = read_u64({field}_KEY);")
+        lines := lines.push (indent 4 s!"let {field}_cur = {rustReadName signed}({field}_KEY);")
       lines := lines.push (indent 4 "let result: Result<i32, i32> = (|| {")
       for stmt in fn.stmts do
-        lines := lines ++ renderStmt stmt
+        lines := lines ++ renderStmt signed stmt
       lines := lines.push (indent 4 "})();")
       lines := lines.push (indent 4 "match result {")
       lines := lines.push (indent 8 "Ok(code) => code,")
@@ -512,29 +543,31 @@ private def renderContract (ir : IR) : String := Id.run do
     lines := lines.push (rustKeyConst field)
   if !ir.stateFields.isEmpty then
     lines := lines.push ""
-  lines := lines.push "fn read_u64(key: &str) -> u64 {"
+  let signed := ir.sourcePlan.signedNumeric
+  let ty := rustNumericTy signed
+  lines := lines.push s!"fn {rustReadName signed}(key: &str) -> {ty} {"{"}"
   lines := lines.push "    let contract_call = get_current_contract_call();"
   lines := lines.push "    let contract_account = contract_call.get_contract_account().unwrap();"
-  lines := lines.push "    match get_data::<u64>(&contract_account, key) {"
+  lines := lines.push s!"    match get_data::<{ty}>(&contract_account, key) {"{"}"
   lines := lines.push "        Some(value) => value,"
   lines := lines.push "        None => 0,"
   lines := lines.push "    }"
   lines := lines.push "}"
   lines := lines.push ""
-  lines := lines.push "fn write_u64(key: &str, value: u64) -> Result<(), i32> {"
+  lines := lines.push s!"fn {rustWriteName signed}(key: &str, value: {ty}) -> Result<(), i32> {"{"}"
   lines := lines.push "    let contract_call = get_current_contract_call();"
   lines := lines.push "    let contract_account = contract_call.get_contract_account().unwrap();"
-  lines := lines.push "    set_data::<u64>(&contract_account, key, value)"
+  lines := lines.push s!"    set_data::<{ty}>(&contract_account, key, value)"
   lines := lines.push "}"
   lines := lines.push ""
   if let some initFn := ir.initFn then
-    lines := lines ++ renderFn initFn ir.stateFields
+    lines := lines ++ renderFn signed initFn ir.stateFields
     lines := lines.push ""
   for fn in ir.entryFns do
-    lines := lines ++ renderFn fn ir.stateFields
+    lines := lines ++ renderFn signed fn ir.stateFields
     lines := lines.push ""
   for fn in ir.viewFns do
-    lines := lines ++ renderFn fn ir.stateFields
+    lines := lines ++ renderFn signed fn ir.stateFields
     lines := lines.push ""
   pure (String.intercalate "\n" lines.toList)
 

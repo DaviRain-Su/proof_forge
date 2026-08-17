@@ -54,13 +54,19 @@ Same skeleton as Soroban S0 / OpenVM O0:
 | **T5-XRPL-OPTION** | **done** | Option UInt64 2-leaf (`name_tag`/`name_p0`)；param/nested/non-UInt64 FC |
 | **T6-XRPL-VIEW-RET** | **done** | view leaf return Rust `(u64,…)` |
 | **T7-XRPL-ENTRY-RET** | **done** | entry isomorphic leaf return |
-| **T8a-XRPL-MAP** | **done** | Map UInt64 cap-8（24 occ/key/val 叶）；empty/upsert；IndexGet→Option；Map param/return FC |
-| **T8b-XRPL-BYTES-VIEW** | **done** | Bytes N view leaf return；entry Bytes FC |
+| **T8a-XRPL-MAP** | **done** | Map UInt64 cap-8（24 occ/key/val 叶）；empty/upsert；IndexGet→Option；**B-RET-MAP** entry/view 24 叶返回；Map param 仍 FC |
+| **T8b-XRPL-BYTES-VIEW** | **done** | Bytes N view **and entry** leaf return；N=0/N>8 仍 FC |
+| **T-XRPL-INT64** | **done** | homogeneous `signedNumeric` Int64（Option/Map/Array 元跟域）；混 UInt64 FC；窄 Int/Field 仍 FC |
 | **T9a-XRPL-IF** | **done** | `emitRegion` + `ifThenElse` |
 | **T9b-XRPL-SWITCH** | **done** | `Term.switch` → `switchOn` |
 | **T9c-XRPL-FOR** | **done** | `loopBounds` → counted `forLoop` trap |
 
 ## CAP-D wave（ADR-0052；**不开叶**）
+
+Owner 未对 TIME/CALLER 说 yes 前 **禁止编码叶**。yes 之后另批 leaf（不要叫 CAP-7/8/9）：
+`unixTimeSeconds` → `get_parent_ledger_time + 946684800`；`caller` →
+`get_current_contract_call().get_account()`（20B AccountID，仅 entry）。
+SHA 保持 keep-FC。
 
 | ID | Status | Objective |
 |---|---|---|

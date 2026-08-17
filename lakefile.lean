@@ -384,6 +384,21 @@ lean_exe xrpl_plan_v1_focus where
   root := `Tests.Materialization.XrplPlanV1Focus
   supportInterpreter := true
 
+lean_exe quint_source_v1_focus where
+  exeName := "quint-source-v1-focus"
+  root := `Tests.Materialization.QuintSourceV1Focus
+  supportInterpreter := true
+
+lean_exe soroban_plan_v1_focus where
+  exeName := "soroban-plan-v1-focus"
+  root := `Tests.Materialization.SorobanPlanV1Focus
+  supportInterpreter := true
+
+lean_exe openvm_guest_source_v1_focus where
+  exeName := "openvm-guest-source-v1-focus"
+  root := `Tests.Materialization.OpenVmGuestSourceV1Focus
+  supportInterpreter := true
+
 lean_exe cosmwasm_plan_v1_focus where
   exeName := "cosmwasm-plan-v1-focus"
   root := `Tests.Materialization.CosmWasmPlanV1Focus

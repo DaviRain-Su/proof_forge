@@ -581,6 +581,9 @@ private def viewAggregateLeafIsIntV1
         planError
           s!"unsupported ICP semantic shape: Bytes N view return must be 1..8 (got {n})"
       return some (Array.replicate n false)
+  | some { shape := .map .., name := none, .. } => do
+      requireMapUInt64V1 typeDecls types typeId
+      return some (Array.replicate mapPilotLeafCountV1 false)
   | _ =>
       return none
 
@@ -1902,13 +1905,13 @@ private def resultKindOf
   else if allowViewAggregate then
     match data.types[typeId.toNat]? with
     | some { shape := .bytes len, name := none, .. } => do
-        unless owner.startsWith "view " do
-          planError
-            s!"{owner} Bytes return is outside ICP-2 (only Bytes N view flattens; no Candid vec nat8; entry stays fail closed)"
         let n := len.toNat
         unless 1 ≤ n && n ≤ 8 do
           planError s!"{owner} Bytes N return must be 1..8 (got {n})"
         pure (.aggregate n)
+    | some { shape := .map .., name := none, .. } => do
+        requireMapUInt64V1 data.types types typeId
+        pure (.aggregate mapPilotLeafCountV1)
     | _ =>
     match ← viewAggregateLeafIsIntV1 data.types types typeId with
     | some marks => do
@@ -2023,8 +2026,8 @@ private def makePlanFromSemanticDataV1
           | .uint64, none, false | .int64, none, false | .bool, none, false =>
               planError s!"entry '{name}' non-Unit result is missing"
           | .aggregate n, some tv, false => do
-              unless (isArrayValue tv || isOptionValue tv || isNamedValue tv) &&
-                  tv.leaves.size == n do
+              unless (isArrayValue tv || isOptionValue tv || isNamedValue tv ||
+                  isMapValue tv) && tv.leaves.size == n do
                 planError
                   s!"entry '{name}' aggregate return must flatten to exactly {n} leaves"
               pure (stores.push (.returnAggregate tv.leaves))
@@ -2064,8 +2067,8 @@ private def makePlanFromSemanticDataV1
               let e ← requireScalar tv s!"view '{name}' result"
               pure #[.returnValue e]
           | .aggregate n => do
-              unless (isArrayValue tv || isOptionValue tv || isNamedValue tv) &&
-                  tv.leaves.size == n do
+              unless (isArrayValue tv || isOptionValue tv || isNamedValue tv ||
+                  isMapValue tv) && tv.leaves.size == n do
                 planError
                   s!"view '{name}' aggregate return must flatten to exactly {n} leaves"
               pure #[.returnAggregate tv.leaves]

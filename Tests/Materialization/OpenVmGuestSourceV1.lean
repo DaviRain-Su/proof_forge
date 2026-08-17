@@ -831,7 +831,7 @@ unsafe def testIfFlow : IO Unit := do
   liftResult <| Targets.OpenVM.validatePlan plan
   IO.println "  ✓ IfFlow if-diamond"
 
-/-- Fail closed: constants are not silently substituted by a second evaluator. -/
+/-- T3: scalar const inlines as a guest u64 literal (no second evaluator). -/
 unsafe def testFailClosedConstant : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -844,12 +844,13 @@ unsafe def testFailClosedConstant : IO Unit := do
   let parsed ← liftResult (← session.selectProgramV1
     source "<openvm-const>" "Tests.OpenVmConst" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
-  match planOpenVm compiled with
-  | .error (.planInvariant .openvm msg) =>
-      expect (msg.contains "constants" || msg.contains "constant")
-        s!"nonempty constants must fail closed, got: {msg}"
-  | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
-  | .ok _ => throw <| IO.userError "nonempty constants must fail closed at OpenVM plan"
+  let plan ← liftResult <| planOpenVm compiled
+  liftResult <| Targets.OpenVM.validatePlan plan
+  let files ← liftResult <| buildOpenVm compiled
+  let some mainRs := files.find? (·.path == "guest/src/main.rs") |
+    throw <| IO.userError "openvm: missing guest/src/main.rs"
+  expect (mainRs.contents.contains "1")
+    "ConstUse must inline the UInt64 constant as a guest literal"
 
 /-- Fail closed: private state. -/
 unsafe def testFailClosedPrivateState : IO Unit := do
@@ -1298,7 +1299,7 @@ unsafe def testMapInt64ElementFc : IO Unit := do
   | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
   | .ok _ => throw <| IO.userError "Map Int64 must fail closed at OpenVM plan"
 
-/-- Map entry return stays outside O0. -/
+/-- B-RET-MAP: Map return is 24 leaves, not an 8-leaf cap raise. -/
 unsafe def testMapReturnFc : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -1313,13 +1314,18 @@ unsafe def testMapReturnFc : IO Unit := do
   let parsed ← liftResult (← session.selectProgramV1
     source "<openvm-map-ret>" "Tests.OpenVmMapRet" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
-  match planOpenVm compiled with
-  | .error (.planInvariant .openvm msg) =>
-      expect (msg.contains "Array/Map return is outside O0" ||
-          msg.contains "Map return is outside O0")
-        s!"Map return must cite outside O0, got: {msg}"
-  | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
-  | .ok _ => throw <| IO.userError "Map return must fail closed at OpenVM plan"
+  let plan ← liftResult <| planOpenVm compiled
+  let some ent := plan.entries[0]? |
+    throw <| IO.userError "MapRet must emit an entry"
+  expect (ent.resultKind == .aggregate 24)
+    s!"MapRet entry must be aggregate 24, got {repr ent.resultKind}"
+  expect (ent.leaves.size == 24) "MapRet must carry 24 Map leaves"
+  liftResult <| Targets.OpenVM.validatePlan plan
+  let files ← liftResult <| buildOpenVm compiled
+  let some mainRs := files.find? (·.path == "guest/src/main.rs") |
+    throw <| IO.userError "openvm: missing guest/src/main.rs"
+  expect (mainRs.contents.contains "Result<(u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64, u64), u32>")
+    "MapRet entry must return a guest 24-u64 tuple Result"
 
 /-- signedNumeric Int64 programs cannot carry Map state. -/
 unsafe def testSignedNumericMapFc : IO Unit := do
@@ -1661,12 +1667,17 @@ unsafe def testBytesViewRet : IO Unit := do
   let entryParsed ← liftResult (← session.selectProgramV1
     entrySrc "<openvm-bytes-entry-ret>" "Tests.OpenVmBytesRetEntry" none)
   let entryCompiled ← liftResult <| Compiler.compileValidatedSourceV1 entryParsed
-  match planOpenVm entryCompiled with
-  | .error (.planInvariant .openvm msg) =>
-      expect (msg.contains "Bytes return")
-        s!"entry Bytes must cite Bytes return, got: {msg}"
-  | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
-  | .ok _ => throw <| IO.userError "entry Bytes return must fail closed at OpenVM plan"
+  let entryPlan ← liftResult <| planOpenVm entryCompiled
+  let some ent := entryPlan.entries[0]? |
+    throw <| IO.userError "BytesRetEntry must emit an entry"
+  expect (ent.resultKind == .aggregate 4)
+    s!"BytesRetEntry entry must be aggregate 4, got {repr ent.resultKind}"
+  liftResult <| Targets.OpenVM.validatePlan entryPlan
+  let entryFiles ← liftResult <| buildOpenVm entryCompiled
+  let some entryMain := entryFiles.find? (·.path == "guest/src/main.rs") |
+    throw <| IO.userError "openvm: missing guest/src/main.rs"
+  expect (entryMain.contents.contains "Result<(u64, u64, u64, u64), u32>")
+    "BytesRetEntry entry must return a guest 4-u64 tuple Result"
 
 unsafe def testOptViewRet : IO Unit := do
   let session ← Tests.Language.ParserSession.shared

@@ -43,67 +43,71 @@ private def isReserved (name : String) : Bool :=
 private def isSafeIdent (name : String) : Bool :=
   isAsciiIdentifier maxIdentifierBytes name && !isReserved name
 
+private def numericTyOf (signed : Bool) : ExprType :=
+  if signed then .int64 else .uint64
+
 private partial def inferExprType
     (e : Expr) (what : String)
-    (paramCount stateCount fuel : Nat) :
+    (paramCount stateCount fuel : Nat) (signed : Bool) :
     CompileResult (ExprType × Nat) := do
   if fuel == 0 then
     planError s!"XRPL plan {what} expression exhausted type-check fuel"
   let remaining := fuel - 1
+  let numeric := numericTyOf signed
   match e with
-  | .litU64 _ => pure (.uint64, remaining)
+  | .litU64 _ => pure (numeric, remaining)
   | .litBool _ => pure (.bool, remaining)
-  | .temp _ => pure (.uint64, remaining)
+  | .temp _ => pure (numeric, remaining)
   | .param index =>
       unless index < paramCount do
         planError s!"XRPL plan {what} references unknown parameter {index}"
-      pure (.uint64, remaining)
+      pure (numeric, remaining)
   | .stateLoad fieldIndex =>
       unless fieldIndex < stateCount do
         planError s!"XRPL plan {what} references unknown state field {fieldIndex}"
-      pure (.uint64, remaining)
+      pure (numeric, remaining)
   | .arith _ lhs rhs => do
       let (lhsTy, remaining) ←
-        inferExprType lhs what paramCount stateCount remaining
+        inferExprType lhs what paramCount stateCount remaining signed
       let (rhsTy, remaining) ←
-        inferExprType rhs what paramCount stateCount remaining
-      unless lhsTy == .uint64 && rhsTy == .uint64 do
-        planError s!"XRPL plan {what} arithmetic operands must be UInt64"
-      pure (.uint64, remaining)
+        inferExprType rhs what paramCount stateCount remaining signed
+      unless lhsTy == numeric && rhsTy == numeric do
+        planError s!"XRPL plan {what} arithmetic operands must match the program integer domain"
+      pure (numeric, remaining)
   | .compare op lhs rhs => do
       let (lhsTy, remaining) ←
-        inferExprType lhs what paramCount stateCount remaining
+        inferExprType lhs what paramCount stateCount remaining signed
       let (rhsTy, remaining) ←
-        inferExprType rhs what paramCount stateCount remaining
+        inferExprType rhs what paramCount stateCount remaining signed
       match op with
       | .eq | .ne =>
-          unless lhsTy == rhsTy && (lhsTy == .uint64 || lhsTy == .bool) do
-            planError s!"XRPL plan {what} equality operands must share UInt64/Bool type"
+          unless lhsTy == rhsTy && (lhsTy == .uint64 || lhsTy == .int64 || lhsTy == .bool) do
+            planError s!"XRPL plan {what} equality operands must share UInt64/Int64/Bool type"
       | .lt | .le | .gt | .ge =>
-          unless lhsTy == .uint64 && rhsTy == .uint64 do
-            planError s!"XRPL plan {what} ordering operands must be UInt64"
+          unless lhsTy == numeric && rhsTy == numeric do
+            planError s!"XRPL plan {what} ordering operands must match the program integer domain"
       pure (.bool, remaining)
   | .boolAnd lhs rhs | .boolOr lhs rhs => do
       let (lhsTy, remaining) ←
-        inferExprType lhs what paramCount stateCount remaining
+        inferExprType lhs what paramCount stateCount remaining signed
       let (rhsTy, remaining) ←
-        inferExprType rhs what paramCount stateCount remaining
+        inferExprType rhs what paramCount stateCount remaining signed
       unless lhsTy == .bool && rhsTy == .bool do
         planError s!"XRPL plan {what} logical operands must be Bool"
       pure (.bool, remaining)
   | .boolNot operand => do
       let (operandTy, remaining) ←
-        inferExprType operand what paramCount stateCount remaining
+        inferExprType operand what paramCount stateCount remaining signed
       unless operandTy == .bool do
         planError s!"XRPL plan {what} logical-not operand must be Bool"
       pure (.bool, remaining)
   | .ite cond thenExpr elseExpr => do
       let (condTy, remaining) ←
-        inferExprType cond what paramCount stateCount remaining
+        inferExprType cond what paramCount stateCount remaining signed
       let (thenTy, remaining) ←
-        inferExprType thenExpr what paramCount stateCount remaining
+        inferExprType thenExpr what paramCount stateCount remaining signed
       let (elseTy, remaining) ←
-        inferExprType elseExpr what paramCount stateCount remaining
+        inferExprType elseExpr what paramCount stateCount remaining signed
       unless condTy == .bool do
         planError s!"XRPL plan {what} ite condition must be Bool"
       unless thenTy == elseTy do
@@ -112,7 +116,7 @@ private partial def inferExprType
 
 private def validateExpr
     (e : Expr) (expected : ExprType) (what : String)
-    (paramCount stateCount remaining0 : Nat) : CompileResult Nat := do
+    (paramCount stateCount remaining0 : Nat) (signed : Bool) : CompileResult Nat := do
   let mut stack : Array (Expr × Nat) := #[(e, 1)]
   let mut remaining := remaining0
   let mut localNodes : Nat := 0
@@ -141,23 +145,25 @@ private def validateExpr
         stack := stack.push (elseExpr, depth + 1)
         stack := stack.push (thenExpr, depth + 1)
         stack := stack.push (cond, depth + 1)
-  let (actual, _) ← inferExprType e what paramCount stateCount maxExprNodes
+  let (actual, _) ← inferExprType e what paramCount stateCount maxExprNodes signed
   unless actual == expected do
     planError s!"XRPL plan {what} expression type does not match its use site"
   pure remaining
 
 private def validateCheck
-    (ck : Check) (paramCount stateCount remaining : Nat) :
+    (ck : Check) (paramCount stateCount remaining : Nat) (signed : Bool) :
     CompileResult Nat :=
-  validateExpr ck.condition .bool "check condition" paramCount stateCount remaining
+  validateExpr ck.condition .bool "check condition" paramCount stateCount remaining signed
 
 private def validateStores
-    (stores : Array (Nat × Expr)) (stateCount paramCount remaining0 : Nat) :
+    (stores : Array (Nat × Expr)) (stateCount paramCount remaining0 : Nat)
+    (signed : Bool) :
     CompileResult Nat := do
   unless stores.size ≤ maxStores do
     planError "XRPL plan store count exceeds limit"
   let mut seen : Array Nat := #[]
   let mut remaining := remaining0
+  let numeric := numericTyOf signed
   for (fi, e) in stores do
     unless fi < stateCount do
       planError "XRPL plan store references an unknown state field"
@@ -165,7 +171,7 @@ private def validateStores
       planError "XRPL plan store list has duplicate field indices"
     seen := seen.push fi
     remaining ←
-      validateExpr e .uint64 "store value" paramCount stateCount remaining
+      validateExpr e numeric "store value" paramCount stateCount remaining signed
   pure remaining
 
 private def validateParams (params : Array String) : CompileResult Unit := do
@@ -181,10 +187,11 @@ private def validateParams (params : Array String) : CompileResult Unit := do
 
 private partial def validateBodyStatements
     (owner : String) (resultKind : ResultKind)
-    (paramCount stateCount remaining0 : Nat)
+    (paramCount stateCount remaining0 : Nat) (signed : Bool)
     (body : Array Statement) : CompileResult Nat := do
   let mut remaining := remaining0
   let mut seen : Array Nat := #[]
+  let numeric := numericTyOf signed
   for stmt in body do
     match stmt with
     | .store fi e =>
@@ -194,45 +201,50 @@ private partial def validateBodyStatements
           planError s!"XRPL {owner} store list has duplicate field indices"
         seen := seen.push fi
         remaining ←
-          validateExpr e .uint64 "store value" paramCount stateCount remaining
+          validateExpr e numeric "store value" paramCount stateCount remaining signed
     | .ifThenElse cond thenBody elseBody =>
         remaining ←
-          validateExpr cond .bool "if condition" paramCount stateCount remaining
+          validateExpr cond .bool "if condition" paramCount stateCount remaining signed
         remaining ←
           validateBodyStatements owner resultKind paramCount stateCount remaining
-            thenBody
+            signed thenBody
         remaining ←
           validateBodyStatements owner resultKind paramCount stateCount remaining
-            elseBody
+            signed elseBody
     | .switchOn scrut cases defaultBody =>
         remaining ←
-          validateExpr scrut .uint64 "switch scrutinee" paramCount stateCount remaining
+          validateExpr scrut numeric "switch scrutinee" paramCount stateCount remaining
+            signed
         for (_, caseBody) in cases do
           remaining ←
             validateBodyStatements owner resultKind paramCount stateCount remaining
-              caseBody
+              signed caseBody
         remaining ←
           validateBodyStatements owner resultKind paramCount stateCount remaining
-            defaultBody
+            signed defaultBody
     | .forLoop _ initial condition update _ body =>
         remaining ←
-          validateExpr initial .uint64 "for initial" paramCount stateCount remaining
+          validateExpr initial numeric "for initial" paramCount stateCount remaining
+            signed
         remaining ←
           validateExpr condition .bool "for condition" paramCount stateCount remaining
+            signed
         remaining ←
-          validateExpr update .uint64 "for update" paramCount stateCount remaining
+          validateExpr update numeric "for update" paramCount stateCount remaining
+            signed
         remaining ←
           validateBodyStatements owner resultKind paramCount stateCount remaining
-            body
+            signed body
     | .returnValue e =>
-        unless resultKind == .uint64 || resultKind == .bool do
+        unless resultKind == .uint64 || resultKind == .int64 || resultKind == .bool do
           planError s!"XRPL {owner} Unit/aggregate result must not return a scalar"
         let expected :=
           match resultKind with
           | .bool => ExprType.bool
+          | .int64 => ExprType.int64
           | _ => .uint64
         remaining ←
-          validateExpr e expected "return value" paramCount stateCount remaining
+          validateExpr e expected "return value" paramCount stateCount remaining signed
     | .returnAggregate leaves =>
         match resultKind with
         | .aggregate n =>
@@ -240,8 +252,8 @@ private partial def validateBodyStatements
               planError s!"XRPL {owner} aggregate return must have exactly {n} leaves"
             for e in leaves do
               remaining ←
-                validateExpr e .uint64 "aggregate return leaf" paramCount stateCount
-                  remaining
+                validateExpr e numeric "aggregate return leaf" paramCount stateCount
+                  remaining signed
         | _ =>
             planError s!"XRPL {owner} cannot return an aggregate"
     | .returnNone =>
@@ -265,6 +277,8 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     planError "XRPL plan exceeds the view limit"
   unless plan.entries.size > 0 do
     planError "XRPL plan requires at least one entry"
+  let signed := plan.signedNumeric
+  let numeric := numericTyOf signed
   let mut exprBudget := maxPlanExprNodes
   let mut stateNames : Array String := #[]
   for st in plan.states do
@@ -279,6 +293,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     validateParams initFn.params
     exprBudget ←
       validateStores initFn.stores plan.states.size initFn.params.size exprBudget
+        signed
   let mut entryNames : Array String := #[]
   for ent in plan.entries do
     unless isSafeIdent ent.name do
@@ -290,17 +305,17 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     unless ent.checks.size ≤ maxChecks do
       planError "XRPL plan check count exceeds limit"
     for ck in ent.checks do
-      exprBudget ← validateCheck ck ent.params.size plan.states.size exprBudget
+      exprBudget ← validateCheck ck ent.params.size plan.states.size exprBudget signed
     if !ent.body.isEmpty then
       unless ent.stores.isEmpty && ent.result?.isNone && ent.resultLeaves.isEmpty do
         planError
           s!"XRPL entry '{ent.name}' CFG body cannot mix with flat stores/result"
       exprBudget ←
         validateBodyStatements ent.name ent.resultKind ent.params.size
-          plan.states.size exprBudget ent.body
+          plan.states.size exprBudget signed ent.body
     else
     exprBudget ←
-      validateStores ent.stores plan.states.size ent.params.size exprBudget
+      validateStores ent.stores plan.states.size ent.params.size exprBudget signed
     if ent.body.isEmpty then
     match ent.resultKind, ent.result?, ent.terminalRevert with
     | .unit, none, _ => pure ()
@@ -309,22 +324,26 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     | .uint64, some e, false =>
         exprBudget ←
           validateExpr e .uint64 "entry result" ent.params.size plan.states.size
-            exprBudget
+            exprBudget signed
+    | .int64, some e, false =>
+        exprBudget ←
+          validateExpr e .int64 "entry result" ent.params.size plan.states.size
+            exprBudget signed
     | .bool, some e, false =>
         exprBudget ←
           validateExpr e .bool "entry result" ent.params.size plan.states.size
-            exprBudget
-    | .uint64, none, true | .bool, none, true =>
+            exprBudget signed
+    | .uint64, none, true | .int64, none, true | .bool, none, true =>
         unless ent.checks.any isCanonicalTerminalRevertCheck do
           planError s!"XRPL entry '{ent.name}' terminal revert is not canonical"
-    | .uint64, none, false | .bool, none, false =>
+    | .uint64, none, false | .int64, none, false | .bool, none, false =>
         planError s!"XRPL entry '{ent.name}' non-Unit return is missing"
-    | .uint64, some _, true | .bool, some _, true =>
+    | .uint64, some _, true | .int64, some _, true | .bool, some _, true =>
         planError s!"XRPL entry '{ent.name}' revert path cannot carry a return value"
     | .aggregate n, some _, false => do
-        unless 1 ≤ n && n ≤ 8 && ent.resultLeaves.size == n do
+        unless (n == 24 || (1 ≤ n && n ≤ 8)) && ent.resultLeaves.size == n do
           planError
-            s!"XRPL entry '{ent.name}' aggregate leaf count must be 1..8 and match resultKind"
+            s!"XRPL entry '{ent.name}' aggregate leaf count must be 1..8 (or Map 24) and match resultKind"
         unless ent.checks.isEmpty do
           planError
             s!"XRPL entry '{ent.name}' aggregate return cannot contain fallible checks"
@@ -333,8 +352,8 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
             s!"XRPL entry '{ent.name}' aggregate return cannot be a terminal revert"
         for e in ent.resultLeaves do
           exprBudget ←
-            validateExpr e .uint64 "entry aggregate leaf" ent.params.size
-              plan.states.size exprBudget
+            validateExpr e numeric "entry aggregate leaf" ent.params.size
+              plan.states.size exprBudget signed
     | .aggregate _, _, _ =>
         planError s!"XRPL entry '{ent.name}' aggregate return is not canonical"
   let mut viewNames : Array String := #[]
@@ -347,23 +366,27 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     validateParams v.params
     match v.resultKind with
     | .unit =>
-        planError s!"XRPL view '{v.name}' result must be UInt64, Bool, or a view-only aggregate"
+        planError s!"XRPL view '{v.name}' result must be UInt64, Int64, Bool, or a view-only aggregate"
     | .uint64 =>
         exprBudget ←
           validateExpr v.value .uint64 "view result" v.params.size plan.states.size
-            exprBudget
+            exprBudget signed
+    | .int64 =>
+        exprBudget ←
+          validateExpr v.value .int64 "view result" v.params.size plan.states.size
+            exprBudget signed
     | .bool =>
         exprBudget ←
           validateExpr v.value .bool "view result" v.params.size plan.states.size
-            exprBudget
+            exprBudget signed
     | .aggregate n => do
-        unless 1 ≤ n && n ≤ 8 && v.leaves.size == n do
+        unless (n == 24 || (1 ≤ n && n ≤ 8)) && v.leaves.size == n do
           planError
-            s!"XRPL view '{v.name}' aggregate leaf count must be 1..8 and match resultKind"
+            s!"XRPL view '{v.name}' aggregate leaf count must be 1..8 (or Map 24) and match resultKind"
         for e in v.leaves do
           exprBudget ←
-            validateExpr e .uint64 "view aggregate leaf" v.params.size
-              plan.states.size exprBudget
+            validateExpr e numeric "view aggregate leaf" v.params.size
+              plan.states.size exprBudget signed
   pure ()
 
 end ProofForgeV2.Targets.Xrpl

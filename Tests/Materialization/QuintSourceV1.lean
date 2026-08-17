@@ -656,7 +656,7 @@ unsafe def testOptBoxFlatten : IO Unit := do
   expect (!qnt.contains "List[")
     "Option flatten must not emit a native Quint List"
 
-/-- PointBox: named Struct flattens to p_x / p_y. Return of the struct stays FC. -/
+/-- PointBox: named Struct flattens to p_x / p_y. T7 entry return is a 2-leaf tuple. -/
 unsafe def testPointBoxFlatten : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -703,12 +703,18 @@ unsafe def testPointBoxFlatten : IO Unit := do
   let retParsed ← liftResult (← session.selectProgramV1
     retSource "<quint-point-ret>" "Tests.QuintPointRet" none)
   let retCompiled ← liftResult <| Compiler.compileValidatedSourceV1 retParsed
-  match planQuint retCompiled with
-  | .error (.planInvariant .quint msg) =>
-      expect (msg.contains "named Struct/Enum return")
-        s!"Point return must cite named return FC, got: {msg}"
-  | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
-  | .ok _ => throw <| IO.userError "named Struct return must fail closed at Quint plan"
+  let retPlan ← liftResult <| planQuint retCompiled
+  let some ent := retPlan.entries[0]? |
+    throw <| IO.userError "PointRet must emit an entry"
+  expect (ent.resultKind == .aggregate 2)
+    s!"PointRet entry must be aggregate 2, got {repr ent.resultKind}"
+  expect (ent.leaves.size == 2) "PointRet must carry two field leaves"
+  liftResult <| Targets.Quint.validatePlan retPlan
+  let retFiles ← liftResult <| buildQuint retCompiled
+  let some retQnt := retFiles.find? (·.path == "PointRet.qnt") |
+    throw <| IO.userError "quint: missing PointRet.qnt"
+  expect (retQnt.contents.contains "pf_last_peek_result_0")
+    "PointRet must emit per-leaf last_result ints"
 
 /-- MaybeMark: named Enum flattens to m_tag / m_p0. -/
 unsafe def testMaybeMarkFlatten : IO Unit := do
@@ -926,7 +932,7 @@ unsafe def testArrViewRet : IO Unit := do
   expect (!qntFile.contents.contains "List[")
     "ArrViewRet must not invent a native Quint List"
 
-/-- BytesRetBox: view-only Bytes 4 returns four UInt64 low-8 leaves. Entry stays FC. -/
+/-- BytesRetBox: Bytes 4 returns four UInt64 low-8 leaves on view and entry. -/
 unsafe def testBytesViewRet : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -967,12 +973,20 @@ unsafe def testBytesViewRet : IO Unit := do
   let entryParsed ← liftResult (← session.selectProgramV1
     entrySrc "<quint-bytes-entry-ret>" "Tests.QuintBytesRetEntry" none)
   let entryCompiled ← liftResult <| Compiler.compileValidatedSourceV1 entryParsed
-  match planQuint entryCompiled with
-  | .error (.planInvariant .quint msg) =>
-      expect (msg.contains "Bytes return")
-        s!"entry Bytes must cite Bytes return, got: {msg}"
-  | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
-  | .ok _ => throw <| IO.userError "entry Bytes return must fail closed at Quint plan"
+  let entryPlan ← liftResult <| planQuint entryCompiled
+  let some ent := entryPlan.entries[0]? |
+    throw <| IO.userError "BytesRetEntry must emit an entry"
+  expect (ent.resultKind == .aggregate 4)
+    s!"BytesRetEntry entry must be aggregate 4, got {repr ent.resultKind}"
+  expect (ent.leaves.size == 4) "BytesRetEntry must carry four byte leaves"
+  liftResult <| Targets.Quint.validatePlan entryPlan
+  let entryFiles ← liftResult <| buildQuint entryCompiled
+  let some entryQnt := entryFiles.find? (·.path == "BytesRetEntry.qnt") |
+    throw <| IO.userError "quint: missing BytesRetEntry.qnt"
+  expect (entryQnt.contents.contains "pf_last_peek_result_0")
+    "BytesRetEntry must emit per-leaf last_result ints"
+  expect (!entryQnt.contents.contains "List[")
+    "BytesRetEntry must not invent a native Quint List"
 
 /-- OptViewRet: view-only Option UInt64 returns tag+payload as a Quint tuple. -/
 unsafe def testOptViewRet : IO Unit := do
@@ -1172,7 +1186,7 @@ unsafe def testMapInt64PayloadFc : IO Unit := do
   | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
   | .ok _ => throw <| IO.userError "Map Int64 must fail closed at Quint plan"
 
-/-- Map entry return stays outside Q0. -/
+/-- B-RET-MAP: Map return is 24 leaves, not an 8-leaf cap raise. -/
 unsafe def testMapReturnFc : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -1187,12 +1201,24 @@ unsafe def testMapReturnFc : IO Unit := do
   let parsed ← liftResult (← session.selectProgramV1
     source "<quint-map-ret>" "Tests.QuintMapRet" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
-  match planQuint compiled with
-  | .error (.planInvariant .quint msg) =>
-      expect (msg.contains "Array/Map return is outside Q0")
-        s!"Map return must cite outside Q0, got: {msg}"
-  | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
-  | .ok _ => throw <| IO.userError "Map return must fail closed at Quint plan"
+  let plan ← liftResult <| planQuint compiled
+  let some ent := plan.entries[0]? |
+    throw <| IO.userError "MapRet must emit an entry"
+  expect (ent.resultKind == .aggregate 24)
+    s!"MapRet entry must be aggregate 24, got {repr ent.resultKind}"
+  expect (ent.leaves.size == 24) "MapRet must carry 24 Map leaves"
+  liftResult <| Targets.Quint.validatePlan plan
+  let files ← liftResult <| buildQuint compiled
+  let some qntFile := files.find? (·.path == "MapRet.qnt") |
+    throw <| IO.userError "quint: missing MapRet.qnt"
+  expect (qntFile.contents.contains "pf_last_peek_result_0")
+    "MapRet must emit per-leaf last_result ints"
+  expect (qntFile.contents.contains "pf_last_peek_result_23")
+    "MapRet must emit the 24th last_result int"
+  expect (qntFile.contents.contains "pf_state_m_0")
+    "MapRet must read m_0"
+  expect (qntFile.contents.contains "pf_state_m_23")
+    "MapRet must read m_23"
 
 /-- signedNumeric Int64 programs cannot carry Map state. -/
 unsafe def testSignedNumericMapFc : IO Unit := do
@@ -1421,7 +1447,7 @@ unsafe def testMaybeMatch : IO Unit := do
   liftResult <| Targets.Quint.validatePlan plan
   IO.println "  ✓ MaybeMatch Option tag switchOn"
 
-/-- Fail closed: constants are not silently substituted by a second evaluator. -/
+/-- T3: scalar const inlines as a Quint int literal (no second evaluator). -/
 unsafe def testFailClosedConstant : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -1434,12 +1460,13 @@ unsafe def testFailClosedConstant : IO Unit := do
   let parsed ← liftResult (← session.selectProgramV1
     source "<quint-const>" "Tests.QuintConst" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
-  match planQuint compiled with
-  | .error (.planInvariant .quint msg) =>
-      expect (msg.contains "constants" || msg.contains "constant")
-        s!"nonempty constants must fail closed, got: {msg}"
-  | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
-  | .ok _ => throw <| IO.userError "nonempty constants must fail closed at Quint plan"
+  let plan ← liftResult <| planQuint compiled
+  liftResult <| Targets.Quint.validatePlan plan
+  let files ← liftResult <| buildQuint compiled
+  let some qntFile := files.find? (·.path == "ConstUse.qnt") |
+    throw <| IO.userError "quint: missing ConstUse.qnt"
+  expect (qntFile.contents.contains "1")
+    "ConstUse must inline the UInt64 constant as a Quint int literal"
 
 /-- SYS-S4: Quint has no unixTime/blockHeight/attachedValue/chainId host.
     Named UInt64 ContextRead keys stay Plan fail closed. caller/self are
@@ -1742,8 +1769,8 @@ unsafe def testPfAssetsVaultDepositTransfer : IO Unit := do
   let some tip := plan.entries[0]? |
     throw <| IO.userError "Tip must have tip entry"
   expect (tip.assetOps.size == 2) "tip: deposit + transfer asset ops"
-  expect (tip.paramIsPrincipal == #[true, false])
-    "tip: Principal then UInt64 params"
+  expect (tip.params.size == 10 && tip.paramIsPrincipal == Array.replicate 10 false)
+    s!"tip: Principal dst flattens to 9 identity leaves + amount, got params={repr tip.params} flags={repr tip.paramIsPrincipal}"
   -- Checks: ext0, vaultOverflow, ext1, vaultUnderflow, arith overflow (count+amount)
   expect (tip.checks.size >= 4)
     "tip: at least external+vault checks for two ops"

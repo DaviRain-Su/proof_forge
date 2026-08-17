@@ -741,6 +741,9 @@ private def viewAggregateLeafIsIntV1
         planError
           s!"unsupported OpenVM semantic shape: Bytes N view return must be 1..8 (got {n})"
       return some (Array.replicate n false)
+  | some { shape := .map .., name := none, .. } => do
+      requireMapUInt64V1 typeDecls types typeId signedNumeric
+      return some (Array.replicate mapPilotLeafCountV1 false)
   | _ =>
       return none
 
@@ -1212,13 +1215,13 @@ private def resultKindOf
   else if allowViewAggregate then
     match typeDecls[typeId.toNat]? with
     | some { shape := .bytes len, name := none, .. } => do
-        unless owner.startsWith "view " do
-          planError
-            s!"{owner} Bytes return is outside O0 (only Bytes N view flattens; entry stays fail closed)"
         let n := len.toNat
         unless 1 ≤ n && n ≤ 8 do
           planError s!"{owner} Bytes N return must be 1..8 (got {n})"
         pure (.aggregate n)
+    | some { shape := .map .., name := none, .. } => do
+        requireMapUInt64V1 typeDecls types typeId signedNumeric
+        pure (.aggregate mapPilotLeafCountV1)
     | _ =>
     match ← viewAggregateLeafIsIntV1 typeDecls types typeId signedNumeric with
     | some marks => do

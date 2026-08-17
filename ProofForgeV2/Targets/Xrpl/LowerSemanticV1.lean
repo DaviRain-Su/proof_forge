@@ -15,11 +15,11 @@ matching scaffold-xrp Counter shape (`xrpl_wasm_std`, `get_data`/`set_data`,
 and Array UInt64 N flatten to N UInt64 low-8/`get_data` leaves (`name_0`…);
 UInt64/Bool `Op.Constant` inline; T3–T9 language face (Bytes/Principal/named
 flatten, view/entry leaf tuples, `emitRegion` if/`switchOn`/counted
-`forLoop`); Option UInt64 2-leaf (`name_tag`/`name_p0`) and Map UInt64
-cap-8 (24 occ/key/val leaves); pureFn inline (depth ≤ 64); checked
-`+`/`-`/`*`/`/`/`%`; bare assert; zero-payload declared revert. No Int64,
-Field, events, call/schedule, ContextRead, Commit, invariants,
-Escrow/Vault, Hooks, or EVM sidechain.
+`forLoop`); Option/Map 2-leaf / cap-8 flatten; homogeneous
+`signedNumeric` Int64 (mix with UInt64 fail closed); pureFn inline
+(depth ≤ 64); checked `+`/`-`/`*`/`/`/`%`; bare assert; zero-payload
+declared revert. No narrow Int, Field, events, call/schedule,
+ContextRead, Commit, invariants, Escrow/Vault, Hooks, or EVM sidechain.
 
 Failure codes (first failure wins at emission):
   overflow=1, underflow=2, divByZero=3, assertion=4,
@@ -64,6 +64,7 @@ private def isNamedUInt64ContextKey
 
 inductive ExprType where
   | uint64
+  | int64
   | bool
   | principal
   deriving BEq, Inhabited, Repr
@@ -141,8 +142,9 @@ inductive Statement where
 inductive ResultKind where
   | unit
   | uint64
+  | int64
   | bool
-  /-- Flattened return (1..8 UInt64 leaves). T6 view / T7 entry. -/
+  /-- Flattened return (1..8 UInt64/Int64 leaves, or 24 for Map). -/
   | aggregate (leafCount : Nat)
   deriving BEq, Inhabited, Repr
 
@@ -184,6 +186,9 @@ structure Plan where
   programName : String
   sourceHash : String
   semanticHash : String
+  /-- True iff every integer state/param/result is Int64. False is the
+      historical all-UInt64 domain. Mixing UInt64/Int64 fails closed. -/
+  signedNumeric : Bool
   states : Array PlanState
   initializer : Option PlanInit
   entries : Array PlanEntry
@@ -199,9 +204,9 @@ private def xrplTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "XRPL"
   uint32DuplicateDetail := "expected at most one anonymous UInt32 type"
   badIntegerWidthDetail :=
-    "only anonymous UInt64/UInt32/UInt8 widths are supported"
+    "only anonymous UInt64/Int64/UInt32/UInt8 widths are supported"
   unsupportedShapeDetail :=
-    "only anonymous UInt64, UInt32 (index), UInt8 (Bytes element), Bool, Unit, Array UInt64 N, Bytes N (N UInt64 low-8 leaves, N in 1..8), Option UInt64 2-leaf, Map UInt64 UInt64 cap-8, Principal 9-leaf identity (len+w0..w7, not an XRPL AccountID), and named Struct/Enum UInt64 leaf flatten are supported (Int64/narrow Int/Field/String stay fail closed)"
+    "only anonymous UInt64, Int64, UInt32 (index), UInt8 (Bytes element), Bool, Unit, Array UInt64/Int64 N, Bytes N (N UInt64 low-8 leaves, N in 1..8), Option UInt64/Int64 2-leaf, Map UInt64/Int64 cap-8, Principal 9-leaf identity (len+w0..w7, not an XRPL AccountID), and named Struct/Enum UInt64/Int64 leaf flatten are supported (narrow Int/Field/String stay fail closed; numeric domain is homogeneous)"
 
 private def pilotUintWidthPolicyU64U32U8 : PilotUintWidthPolicy where
   admittedWidths := #[64, 32, 8]
@@ -212,7 +217,7 @@ private def validateXrplTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult XrplTypeClosureV1 :=
   validatePilotTypeClosure xrplPlanErr xrplTypeClosureWording types
     pilotUintWidthPolicyU64U32U8
-    (intPolicy := pilotIntWidthPolicyNone)
+    (intPolicy := pilotIntWidthPolicyI64)
     (fieldPolicy := pilotFieldPolicyNone)
     (principalPolicy := pilotPrincipalPolicyAdmit)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
@@ -226,6 +231,9 @@ private def maxBodyOps : Nat := 4096
 private def maxBodyChecks : Nat := 128
 private def maxExpandedExprNodes : Nat := 16384
 private def maxU64Value : UInt64 := 18446744073709551615
+private def minI64Bits : UInt64 := UInt64.ofNat 9223372036854775808
+private def maxI64Bits : UInt64 := UInt64.ofNat 9223372036854775807
+private def negOneBits : UInt64 := UInt64.ofNat 18446744073709551615
 
 private def checkedExprNodes (what : String) (nodes : Nat) : CompileResult Nat := do
   unless nodes ≤ maxExpandedExprNodes do
@@ -247,6 +255,36 @@ private def isIdentifier (value : String) : Bool :=
 
 private def isUInt64Type (types : XrplTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   typeId == types.uint64TypeId
+
+private def isInt64Type (types : XrplTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  types.int64TypeId == some typeId
+
+/-- Program-wide numeric domain: signedNumeric ⇒ Int64, else UInt64. -/
+private def matchesNumericDomain
+    (types : XrplTypeClosureV1) (signedNumeric : Bool) (typeId : TypeIdV1) : Bool :=
+  if signedNumeric then isInt64Type types typeId else isUInt64Type types typeId
+
+/-- First-seen integer domain. Mixed UInt64/Int64 user-facing slots fail closed. -/
+private def noteIntegerDomain
+    (types : XrplTypeClosureV1) (typeId : TypeIdV1) (signed? : Option Bool)
+    (owner : String) : CompileResult (Option Bool) := do
+  if isInt64Type types typeId then
+    match signed? with
+    | some false =>
+        planError
+          s!"unsupported XRPL semantic shape: {owner} mixes Int64 with UInt64 (numeric domain is homogeneous)"
+    | _ => pure (some true)
+  else if isUInt64Type types typeId then
+    match signed? with
+    | some true =>
+        planError
+          s!"unsupported XRPL semantic shape: {owner} mixes UInt64 with Int64 (numeric domain is homogeneous)"
+    | _ => pure (some false)
+  else
+    pure signed?
+
+private def numericTyOf (signed : Bool) : ExprType :=
+  if signed then .int64 else .uint64
 
 private def isUInt32Type (types : XrplTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   types.uintTypeIdAt 32 == some typeId
@@ -381,18 +419,19 @@ private def isAnonymousMapTypeIdV1
   | some { shape := .map _ _, name := none, .. } => true
   | _ => false
 
-/-- Admit only anonymous `Map UInt64 UInt64` for the dense cap-8 pilot. -/
+/-- Admit only anonymous `Map` of the program numeric domain for the dense cap-8 pilot. -/
 private def requireMapUInt64V1
     (typeDecls : Array TypeDeclV1) (types : XrplTypeClosureV1)
-    (typeId : TypeIdV1) : CompileResult Unit := do
+    (typeId : TypeIdV1) (signedNumeric : Bool) : CompileResult Unit := do
   match typeDecls[typeId.toNat]? with
   | some { shape := .map keyTid valTid, name := none, .. } =>
-      unless isUInt64Type types keyTid && isUInt64Type types valTid do
+      unless matchesNumericDomain types signedNumeric keyTid &&
+          matchesNumericDomain types signedNumeric valTid do
         planError
-          "unsupported XRPL semantic shape: Map state admits only Map UInt64 UInt64"
+          "unsupported XRPL semantic shape: Map state admits only Map UInt64 UInt64 (or Int64 when signedNumeric)"
   | _ =>
       planError
-        "unsupported XRPL semantic shape: Map state admits only Map UInt64 UInt64"
+        "unsupported XRPL semantic shape: Map state admits only Map UInt64 UInt64 (or Int64 when signedNumeric)"
 
 /-- Dense Map IndexGet → Option UInt64 as `[tag, payload]`. -/
 private def mapLookupOptionLeavesV1
@@ -464,16 +503,17 @@ private def mapUpsertLeavesV1
     out := out.push occ' |>.push k' |>.push v'
   pure (out, okInsert)
 
-/-- Admit only anonymous `Option UInt64` for state (tag+payload).
-    Non-UInt64 / nested / named Option stay fail closed. -/
+/-- Admit only anonymous `Option` of the program numeric domain (tag+payload).
+    Nested / named Option stay fail closed. -/
 private def requireOptionUInt64StateV1
     (typeDecls : Array TypeDeclV1) (types : XrplTypeClosureV1)
-    (typeId : TypeIdV1) (stateName : String) : CompileResult Unit := do
+    (typeId : TypeIdV1) (stateName : String) (signedNumeric : Bool) :
+    CompileResult Unit := do
   match typeDecls[typeId.toNat]? with
   | some { shape := .option elTid, name := none, .. } =>
-      unless isUInt64Type types elTid do
+      unless matchesNumericDomain types signedNumeric elTid do
         planError
-          s!"unsupported XRPL semantic shape: Option state '{stateName}' requires UInt64 payload"
+          s!"unsupported XRPL semantic shape: Option state '{stateName}' requires UInt64 payload (or Int64 when signedNumeric)"
   | _ =>
       planError
         s!"unsupported XRPL semantic shape: state '{stateName}' is not anonymous Option UInt64"
@@ -482,13 +522,13 @@ private def requireOptionUInt64StateV1
 private def flattenNamedLeafSpecsV1
     (typeDecls : Array TypeDeclV1) (types : XrplTypeClosureV1)
     (typeId : TypeIdV1) (namePrefix : String) : CompileResult (Array String) := do
-  if isUInt64Type types typeId then
+  if isUInt64Type types typeId || isInt64Type types typeId then
     unless isIdentifier namePrefix do
       planError s!"state name '{namePrefix}' is not a safe identifier"
     return #[namePrefix]
   unless types.isNamedAggregate typeId do
     planError
-      "unsupported XRPL semantic shape: named aggregate leaf must be UInt64 or named Struct/Enum"
+      "unsupported XRPL semantic shape: named aggregate leaf must be UInt64/Int64 or named Struct/Enum"
   match typeDecls[typeId.toNat]? with
   | none =>
       planError
@@ -501,9 +541,9 @@ private def flattenNamedLeafSpecsV1
               "unsupported XRPL semantic shape: named Struct requires at least one field"
           let mut out : Array String := #[]
           for f in fields do
-            unless isUInt64Type types f.typeId do
+            unless isUInt64Type types f.typeId || isInt64Type types f.typeId do
               planError
-                "unsupported XRPL semantic shape: named Struct field must be UInt64 (nested named stay fail closed)"
+                "unsupported XRPL semantic shape: named Struct field must be UInt64/Int64 (nested named stay fail closed)"
             let subName :=
               if namePrefix.isEmpty then f.name else namePrefix ++ "_" ++ f.name
             unless isIdentifier subName do
@@ -524,9 +564,9 @@ private def flattenNamedLeafSpecsV1
               planError
                 "unsupported XRPL semantic shape: named Enum variant admits at most one UInt64 payload"
             for pt in v.payloadTypes do
-              unless isUInt64Type types pt do
+              unless isUInt64Type types pt || isInt64Type types pt do
                 planError
-                  "unsupported XRPL semantic shape: named Enum payload must be UInt64 (nested named stay fail closed)"
+                  "unsupported XRPL semantic shape: named Enum payload must be UInt64/Int64 (nested named stay fail closed)"
             if v.payloadTypes.size > maxPay then maxPay := v.payloadTypes.size
           let mut out : Array String := #[tagName]
           for i in [0:maxPay] do
@@ -555,14 +595,14 @@ private def requireTy (v : TypedExpr) (expected : ExprType) (what : String) :
     `requireMapUInt64V1` / `makeStateLayoutV1`, not this length helper. -/
 private def arrayUInt64LenV1
     (typeDecls : Array TypeDeclV1) (types : XrplTypeClosureV1)
-    (typeId : TypeIdV1) : CompileResult (Option Nat) := do
+    (typeId : TypeIdV1) (signedNumeric : Bool) : CompileResult (Option Nat) := do
   unless types.isContainer typeId do
     return none
   match typeDecls[typeId.toNat]? with
   | some { shape := .array elTid len, .. } =>
-      unless isUInt64Type types elTid do
+      unless matchesNumericDomain types signedNumeric elTid do
         planError
-          "unsupported XRPL semantic shape: Array element must be UInt64 (nested/narrow arrays fail closed)"
+          "unsupported XRPL semantic shape: Array element must be UInt64 (or Int64 when signedNumeric)"
       let n := len.toNat
       unless 1 ≤ n && n ≤ 8 do
         planError
@@ -601,8 +641,8 @@ private def physicalLeaves
       planError "unsupported XRPL semantic shape: stateLoad/store references unknown state"
 
 private def makeStateLayoutV1
-    (data : SemanticProgramDataV1) (types : XrplTypeClosureV1) :
-    CompileResult StateLayout := do
+    (data : SemanticProgramDataV1) (types : XrplTypeClosureV1)
+    (signedNumeric : Bool) : CompileResult StateLayout := do
   unless data.logicalState.size ≤ maxStateFields do
     planError "unsupported XRPL semantic shape: state field count exceeds limit"
   let mut names : Array String := #[]
@@ -630,7 +670,7 @@ private def makeStateLayoutV1
         states := states.push { name := leafName }
       leavesOf := leavesOf.push leaves
     else if isAnonymousOptionTypeIdV1 data.types st.typeId then
-      requireOptionUInt64StateV1 data.types types st.typeId st.name
+      requireOptionUInt64StateV1 data.types types st.typeId st.name signedNumeric
       unless st.visibility == .public_ do
         planError s!"state '{st.name}' is not public UInt64"
       if states.size + 2 > maxStateFields then
@@ -643,7 +683,7 @@ private def makeStateLayoutV1
         states := states.push { name := leafName }
       leavesOf := leavesOf.push leaves
     else if isAnonymousMapTypeIdV1 data.types st.typeId then
-      requireMapUInt64V1 data.types types st.typeId
+      requireMapUInt64V1 data.types types st.typeId signedNumeric
       unless st.visibility == .public_ do
         planError s!"state '{st.name}' is not public UInt64"
       if states.size + mapPilotLeafCountV1 > maxStateFields then
@@ -667,7 +707,7 @@ private def makeStateLayoutV1
         states := states.push { name := leafName }
       leavesOf := leavesOf.push leaves
     else
-    match ← arrayUInt64LenV1 data.types types st.typeId with
+    match ← arrayUInt64LenV1 data.types types st.typeId signedNumeric with
     | some n =>
         if states.size + n > maxStateFields then
           planError "unsupported XRPL semantic shape: state field count exceeds limit"
@@ -680,7 +720,10 @@ private def makeStateLayoutV1
           states := states.push { name := leafName }
         leavesOf := leavesOf.push leaves
     | none =>
-        requirePublicUInt64State xrplPlanErr types.uint64TypeId st
+        requirePublicUInt64OrInt64State xrplPlanErr types st
+        unless matchesNumericDomain types signedNumeric st.typeId do
+          planError
+            s!"state '{st.name}' mixes UInt64/Int64 (numeric domain is homogeneous)"
         if states.size + 1 > maxStateFields then
           planError "unsupported XRPL semantic shape: state field count exceeds limit"
         let fi := states.size
@@ -801,7 +844,10 @@ private def lookupPureFn (idx : CallableIndex) (id : CallableIdV1) : Option Call
 private def lowerLiteral
     (types : XrplTypeClosureV1) (typeId : TypeIdV1) (valueBytes : ByteArray) :
     CompileResult TypedExpr := do
-  if isUInt64Type types typeId then
+  if isInt64Type types typeId then
+    let v ← decodeInt64LiteralLe xrplPlanErr "XRPL" valueBytes
+    pure { ty := .int64, expr := .litU64 v, expandedNodes := 1 }
+  else if isUInt64Type types typeId then
     let v ← decodeUInt64LiteralLe xrplPlanErr "XRPL" valueBytes
     pure { ty := .uint64, expr := .litU64 v, expandedNodes := 1 }
   else if isUInt32Type types typeId then
@@ -817,7 +863,7 @@ private def lowerLiteral
     let leaves ← decodePrincipalLiteralLeavesV1 valueBytes
     pure (mkPrincipalLeaves leaves)
   else
-    planError "unsupported XRPL semantic shape: literal type is outside UInt64/UInt32/UInt8/Bool/Principal"
+    planError "unsupported XRPL semantic shape: literal type is outside UInt64/Int64/UInt32/UInt8/Bool/Principal"
 
 private def literalIndexNatV1 (v : TypedExpr) : CompileResult Nat := do
   let e ← requireTy v .uint64 "Array/Bytes index"
@@ -827,52 +873,98 @@ private def literalIndexNatV1 (v : TypedExpr) : CompileResult Nat := do
       planError
         "unsupported XRPL semantic shape: IndexGet/IndexSet requires a compile-time constant index"
 
+private def signedRangeCond (e : Expr) : Expr :=
+  .boolAnd
+    (.compare .ge e (.litU64 minI64Bits))
+    (.compare .le e (.litU64 maxI64Bits))
+
 private def lowerBinary
     (op : BinaryOpV1) (lhs rhs : TypedExpr) :
     CompileResult (TypedExpr × Array Check) := do
   match op with
   | .add => do
-      let l ← requireTy lhs .uint64 "add lhs"
-      let r ← requireTy rhs .uint64 "add rhs"
-      let nodes ← binaryExprNodes "add" lhs rhs
-      let e : Expr := .arith .add l r
-      let _ ← checkedExprNodes "add overflow check" (nodes + 2)
-      let cond : Expr := .compare .le e (.litU64 maxU64Value)
-      pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
-        #[{ kind := .overflow, condition := cond }])
+      if lhs.ty == .int64 && rhs.ty == .int64 then
+        let nodes ← binaryExprNodes "add" lhs rhs
+        let e : Expr := .arith .add lhs.expr rhs.expr
+        let _ ← checkedExprNodes "signed add overflow check" (nodes + 5)
+        pure ({ ty := .int64, expr := e, expandedNodes := nodes },
+          #[{ kind := .overflow, condition := signedRangeCond e }])
+      else
+        let l ← requireTy lhs .uint64 "add lhs"
+        let r ← requireTy rhs .uint64 "add rhs"
+        let nodes ← binaryExprNodes "add" lhs rhs
+        let e : Expr := .arith .add l r
+        let _ ← checkedExprNodes "add overflow check" (nodes + 2)
+        let cond : Expr := .compare .le e (.litU64 maxU64Value)
+        pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
+          #[{ kind := .overflow, condition := cond }])
   | .sub => do
-      let l ← requireTy lhs .uint64 "sub lhs"
-      let r ← requireTy rhs .uint64 "sub rhs"
-      let nodes ← binaryExprNodes "sub" lhs rhs
-      let e : Expr := .arith .sub l r
-      let cond : Expr := .compare .ge l r
-      pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
-        #[{ kind := .underflow, condition := cond }])
+      if lhs.ty == .int64 && rhs.ty == .int64 then
+        let nodes ← binaryExprNodes "sub" lhs rhs
+        let e : Expr := .arith .sub lhs.expr rhs.expr
+        let _ ← checkedExprNodes "signed sub overflow check" (nodes + 5)
+        pure ({ ty := .int64, expr := e, expandedNodes := nodes },
+          #[{ kind := .overflow, condition := signedRangeCond e }])
+      else
+        let l ← requireTy lhs .uint64 "sub lhs"
+        let r ← requireTy rhs .uint64 "sub rhs"
+        let nodes ← binaryExprNodes "sub" lhs rhs
+        let e : Expr := .arith .sub l r
+        let cond : Expr := .compare .ge l r
+        pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
+          #[{ kind := .underflow, condition := cond }])
   | .mul => do
-      let l ← requireTy lhs .uint64 "mul lhs"
-      let r ← requireTy rhs .uint64 "mul rhs"
-      let nodes ← binaryExprNodes "mul" lhs rhs
-      let e : Expr := .arith .mul l r
-      let _ ← checkedExprNodes "mul overflow check" (nodes + 2)
-      let cond : Expr := .compare .le e (.litU64 maxU64Value)
-      pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
-        #[{ kind := .overflow, condition := cond }])
+      if lhs.ty == .int64 && rhs.ty == .int64 then
+        let nodes ← binaryExprNodes "mul" lhs rhs
+        let e : Expr := .arith .mul lhs.expr rhs.expr
+        let _ ← checkedExprNodes "signed mul overflow check" (nodes + 5)
+        pure ({ ty := .int64, expr := e, expandedNodes := nodes },
+          #[{ kind := .overflow, condition := signedRangeCond e }])
+      else
+        let l ← requireTy lhs .uint64 "mul lhs"
+        let r ← requireTy rhs .uint64 "mul rhs"
+        let nodes ← binaryExprNodes "mul" lhs rhs
+        let e : Expr := .arith .mul l r
+        let _ ← checkedExprNodes "mul overflow check" (nodes + 2)
+        let cond : Expr := .compare .le e (.litU64 maxU64Value)
+        pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
+          #[{ kind := .overflow, condition := cond }])
   | .div => do
-      let l ← requireTy lhs .uint64 "div lhs"
-      let r ← requireTy rhs .uint64 "div rhs"
-      let nodes ← guardedDivModExprNodes "div" lhs rhs
-      let e : Expr := .arith .div l r
-      let cond : Expr := .compare .ne r (.litU64 0)
-      pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
-        #[{ kind := .divByZero, condition := cond }])
+      if lhs.ty == .int64 && rhs.ty == .int64 then
+        let nodes ← guardedDivModExprNodes "div" lhs rhs
+        let e : Expr := .arith .div lhs.expr rhs.expr
+        let nz : Expr := .compare .ne rhs.expr (.litU64 0)
+        let notMinDiv : Expr :=
+          .boolOr
+            (.compare .ne lhs.expr (.litU64 minI64Bits))
+            (.compare .ne rhs.expr (.litU64 negOneBits))
+        let cond : Expr := .boolAnd nz notMinDiv
+        let _ ← checkedExprNodes "signed div check" (nodes + 8)
+        pure ({ ty := .int64, expr := e, expandedNodes := nodes },
+          #[{ kind := .divByZero, condition := cond }])
+      else
+        let l ← requireTy lhs .uint64 "div lhs"
+        let r ← requireTy rhs .uint64 "div rhs"
+        let nodes ← guardedDivModExprNodes "div" lhs rhs
+        let e : Expr := .arith .div l r
+        let cond : Expr := .compare .ne r (.litU64 0)
+        pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
+          #[{ kind := .divByZero, condition := cond }])
   | .mod => do
-      let l ← requireTy lhs .uint64 "mod lhs"
-      let r ← requireTy rhs .uint64 "mod rhs"
-      let nodes ← guardedDivModExprNodes "mod" lhs rhs
-      let e : Expr := .arith .mod l r
-      let cond : Expr := .compare .ne r (.litU64 0)
-      pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
-        #[{ kind := .divByZero, condition := cond }])
+      if lhs.ty == .int64 && rhs.ty == .int64 then
+        let nodes ← guardedDivModExprNodes "mod" lhs rhs
+        let e : Expr := .arith .mod lhs.expr rhs.expr
+        let cond : Expr := .compare .ne rhs.expr (.litU64 0)
+        pure ({ ty := .int64, expr := e, expandedNodes := nodes },
+          #[{ kind := .divByZero, condition := cond }])
+      else
+        let l ← requireTy lhs .uint64 "mod lhs"
+        let r ← requireTy rhs .uint64 "mod rhs"
+        let nodes ← guardedDivModExprNodes "mod" lhs rhs
+        let e : Expr := .arith .mod l r
+        let cond : Expr := .compare .ne r (.litU64 0)
+        pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
+          #[{ kind := .divByZero, condition := cond }])
   | .eq | .ne | .lt | .le | .gt | .ge => do
       if isPrincipalValue lhs && isPrincipalValue rhs then
         unless op == .eq || op == .ne do
@@ -887,8 +979,8 @@ private def lowerBinary
         return ({ ty := .bool, expr := acc, expandedNodes := nodes }, #[])
       unless lhs.ty == rhs.ty do
         planError "unsupported XRPL semantic shape: comparison operands must share a type"
-      unless lhs.ty == .uint64 || lhs.ty == .bool do
-        planError "unsupported XRPL semantic shape: comparison operands must be UInt64 or Bool"
+      unless lhs.ty == .uint64 || lhs.ty == .int64 || lhs.ty == .bool do
+        planError "unsupported XRPL semantic shape: comparison operands must be UInt64, Int64, or Bool"
       if lhs.ty == .bool && !(op == .eq || op == .ne) then
         planError "unsupported XRPL semantic shape: Bool comparison only supports eq/ne"
       let cop : ComparisonOp :=
@@ -928,11 +1020,13 @@ mutual
 
 private partial def lowerBlockInstructions
     (data : SemanticProgramDataV1) (types : XrplTypeClosureV1)
+    (signedNumeric : Bool)
     (layout : StateLayout) (idx : CallableIndex) (callable : CallableV1)
     (allowStateRead allowStateWrite : Bool)
     (forbidChecks : Bool) (inlineDepth : Nat)
     (block : BlockV1) (acc0 : BodyAccum) :
     CompileResult BodyAccum := do
+  let numericTy := numericTyOf signedNumeric
   let mut acc := acc0
   for instr in block.instructions do
     acc ← bumpOp acc
@@ -968,7 +1062,7 @@ private partial def lowerBlockInstructions
               | some ov => ov
               | none =>
                   if phys.size == 1 then
-                    { ty := .uint64
+                    { ty := numericTy
                       expr := .stateLoad phys[0]!
                       expandedNodes := 1 }
                   else if isAnonymousOptionTypeIdV1 data.types vd.typeId then
@@ -997,7 +1091,7 @@ private partial def lowerBlockInstructions
         else
           unless phys.size == 1 do
             planError "unsupported XRPL semantic shape: stateStore scalar into Array/Bytes/Principal/Option/Map state"
-          let _ ← requireTy v .uint64 "stateStore value"
+          let _ ← requireTy v numericTy "stateStore value"
         acc := { acc with overlay := overlayInsert acc.overlay stateId v }
     | .binary op lhs rhs => do
         let lv ← match envLookup acc.env lhs with
@@ -1040,12 +1134,12 @@ private partial def lowerBlockInstructions
           let av ← match envLookup acc.env argId with
             | some v => pure v
             | none => planError "unsupported XRPL semantic shape: pureCall arg undefined"
-          unless isUInt64Type types p.typeId && av.ty == .uint64 do
-            planError "unsupported XRPL semantic shape: pureFn params must be public UInt64"
+          unless matchesNumericDomain types signedNumeric p.typeId && av.ty == numericTy do
+            planError "unsupported XRPL semantic shape: pureFn params must match the program integer domain"
           cEnv := envInsert cEnv p.valueId av
         let cAcc0 : BodyAccum := emptyBodyAccum cEnv { entries := #[] }
         let (cAcc, ret?, _endedRevert) ←
-          lowerInstructions data types layout idx callee
+          lowerInstructions data types signedNumeric layout idx callee
             (allowStateRead := false) (allowStateWrite := false)
             (forbidChecks := forbidChecks) (inlineDepth := inlineDepth + 1) cAcc0
         let expandedOpCount := acc.opCount + cAcc.opCount
@@ -1112,13 +1206,13 @@ private partial def lowerBlockInstructions
             let iv ← match envLookup acc.env index with
               | some v => pure v
               | none => planError "unsupported XRPL semantic shape: IndexGet index undefined"
-            if isMapValue bv then
-              unless iv.leaves.isEmpty && iv.ty == .uint64 do
+            if isMapValue bv then do
+              unless iv.leaves.isEmpty && iv.ty == numericTy do
                 planError
-                  "unsupported XRPL semantic shape: Map IndexGet key must be scalar UInt64"
+                  "unsupported XRPL semantic shape: Map IndexGet key must match the program integer domain"
               let optLeaves ← mapLookupOptionLeavesV1 bv.leaves iv.expr
-              acc := { acc with env := envInsert acc.env vd.valueId
-                (mkOptionLeaves optLeaves) }
+              acc := { acc with
+                env := envInsert acc.env vd.valueId (mkOptionLeaves optLeaves) }
             else do
               unless isArrayValue bv do
                 planError
@@ -1130,7 +1224,7 @@ private partial def lowerBlockInstructions
                 planError "unsupported XRPL semantic shape: Array/Bytes IndexGet leaf missing"
               acc := { acc with
                 env := envInsert acc.env vd.valueId
-                  { ty := .uint64, expr := leaf, expandedNodes := 1 } }
+                  { ty := numericTy, expr := leaf, expandedNodes := 1 } }
     | .indexSet base index value => do
         match instr.result with
         | none => planError "unsupported XRPL semantic shape: IndexSet must produce a value"
@@ -1144,13 +1238,13 @@ private partial def lowerBlockInstructions
             let vv ← match envLookup acc.env value with
               | some v => pure v
               | none => planError "unsupported XRPL semantic shape: IndexSet value undefined"
-            if isMapValue bv then
-              unless iv.leaves.isEmpty && iv.ty == .uint64 do
+            if isMapValue bv then do
+              unless iv.leaves.isEmpty && iv.ty == numericTy do
                 planError
-                  "unsupported XRPL semantic shape: Map IndexSet key must be scalar UInt64"
-              unless vv.leaves.isEmpty && vv.ty == .uint64 do
+                  "unsupported XRPL semantic shape: Map IndexSet key must match the program integer domain"
+              unless vv.leaves.isEmpty && vv.ty == numericTy do
                 planError
-                  "unsupported XRPL semantic shape: Map IndexSet value must be scalar UInt64"
+                  "unsupported XRPL semantic shape: Map IndexSet value must match the program integer domain"
               if forbidChecks then
                 planError
                   "unsupported XRPL semantic shape: initializer cannot contain fallible Map upsert"
@@ -1160,7 +1254,7 @@ private partial def lowerBlockInstructions
               acc := { acc with
                 env := envInsert acc.env vd.valueId (mkMapLeaves newLeaves) }
             else do
-              let vv ← requireTy vv .uint64 "IndexSet value"
+              let vv ← requireTy vv numericTy "IndexSet value"
               unless isArrayValue bv do
                 planError
                   "unsupported XRPL semantic shape: IndexSet base must be an Array UInt64, Bytes N, or Map UInt64 aggregate"
@@ -1175,7 +1269,7 @@ private partial def lowerBlockInstructions
         | none => planError "unsupported XRPL semantic shape: construct must produce a value"
         | some vd =>
             if isAnonymousMapTypeIdV1 data.types typeId then
-              requireMapUInt64V1 data.types types typeId
+              requireMapUInt64V1 data.types types typeId signedNumeric
               unless ctorIdx.toNat == 0 do
                 planError
                   "unsupported XRPL semantic shape: Map construct ctorIdx must be 0"
@@ -1188,9 +1282,9 @@ private partial def lowerBlockInstructions
             else if isAnonymousOptionTypeIdV1 data.types typeId then
               match data.types[typeId.toNat]? with
               | some { shape := .option elTid, name := none, .. } => do
-                  unless isUInt64Type types elTid do
+                  unless matchesNumericDomain types signedNumeric elTid do
                     planError
-                      "unsupported XRPL semantic shape: Option construct requires UInt64 payload"
+                      "unsupported XRPL semantic shape: Option construct requires a payload in the program integer domain"
                   unless ctorIdx.toNat == 0 || ctorIdx.toNat == 1 do
                     planError
                       "unsupported XRPL semantic shape: Option construct ctorIdx must be 0 (none) or 1 (some)"
@@ -1208,7 +1302,7 @@ private partial def lowerBlockInstructions
                     let some argId := argIds[0]? |
                       planError "unsupported XRPL semantic shape: Option.some construct arg missing"
                     let av ← match envLookup acc.env argId with
-                      | some v => requireTy v .uint64 "Option.some arg"
+                      | some v => requireTy v numericTy "Option.some arg"
                       | none =>
                           planError
                             "unsupported XRPL semantic shape: construct arg undefined"
@@ -1235,11 +1329,11 @@ private partial def lowerBlockInstructions
                       planError "unsupported XRPL semantic shape: struct construct arg missing"
                     let some field := fields[i]? |
                       planError "unsupported XRPL semantic shape: struct construct field missing"
-                    unless isUInt64Type types field.typeId do
+                    unless matchesNumericDomain types signedNumeric field.typeId do
                       planError
-                        "unsupported XRPL semantic shape: named Struct field must be UInt64"
+                        "unsupported XRPL semantic shape: named Struct field must match the program integer domain"
                     let av ← match envLookup acc.env argId with
-                      | some v => requireTy v .uint64 "struct construct arg"
+                      | some v => requireTy v numericTy "struct construct arg"
                       | none => planError "unsupported XRPL semantic shape: construct arg undefined"
                     leafExprs := leafExprs.push av
                   acc := { acc with
@@ -1258,7 +1352,7 @@ private partial def lowerBlockInstructions
                   let mut leafExprs : Array Expr := #[.litU64 (UInt64.ofNat vi)]
                   for argId in argIds do
                     let av ← match envLookup acc.env argId with
-                      | some v => requireTy v .uint64 "enum construct payload"
+                      | some v => requireTy v numericTy "enum construct payload"
                       | none => planError "unsupported XRPL semantic shape: construct arg undefined"
                     leafExprs := leafExprs.push av
                   while leafExprs.size < 1 + maxPay do
@@ -1270,7 +1364,7 @@ private partial def lowerBlockInstructions
                     "unsupported XRPL semantic shape: named construct requires Struct or Enum"
             else
               planError
-                "unsupported XRPL semantic shape: construct admits only named Struct/Enum, Option UInt64, or Map.empty on XRPL"
+                "unsupported XRPL semantic shape: construct admits only named Struct/Enum, Option of the program integer domain, or Map.empty on XRPL"
     | .fieldGet baseId fieldIndex => do
         match instr.result with
         | none => planError "unsupported XRPL semantic shape: fieldGet must produce a value"
@@ -1287,7 +1381,7 @@ private partial def lowerBlockInstructions
             let some leaf := bv.leaves[i]? |
               planError "unsupported XRPL semantic shape: fieldGet leaf missing"
             acc := { acc with env := envInsert acc.env vd.valueId {
-              ty := .uint64
+              ty := numericTy
               expr := leaf
               expandedNodes := 1
             } }
@@ -1302,7 +1396,7 @@ private partial def lowerBlockInstructions
               planError
                 "unsupported XRPL semantic shape: fieldSet base must be a named Struct"
             let vv ← match envLookup acc.env valueId with
-              | some v => requireTy v .uint64 "fieldSet value"
+              | some v => requireTy v numericTy "fieldSet value"
               | none => planError "unsupported XRPL semantic shape: fieldSet value undefined"
             let i := fieldIndex.toNat
             unless i < bv.leaves.size do
@@ -1356,7 +1450,7 @@ private partial def lowerBlockInstructions
               planError
                 "unsupported XRPL semantic shape: variantPayload payload leaf missing"
             acc := { acc with env := envInsert acc.env vd.valueId {
-              ty := .uint64
+              ty := numericTy
               expr := payload
               expandedNodes := 1
             } }
@@ -1366,6 +1460,7 @@ private partial def lowerBlockInstructions
 
 private partial def lowerInstructions
     (data : SemanticProgramDataV1) (types : XrplTypeClosureV1)
+    (signedNumeric : Bool)
     (layout : StateLayout) (idx : CallableIndex) (callable : CallableV1)
     (allowStateRead allowStateWrite : Bool)
     (forbidChecks : Bool) (inlineDepth : Nat)
@@ -1382,7 +1477,7 @@ private partial def lowerInstructions
   unless block.params.isEmpty do
     planError "unsupported XRPL semantic shape: block parameters are outside Q0"
   let mut acc ←
-    lowerBlockInstructions data types layout idx callable
+    lowerBlockInstructions data types signedNumeric layout idx callable
       allowStateRead allowStateWrite forbidChecks inlineDepth block acc0
   match block.terminator with
   | .return_ value => do
@@ -1411,6 +1506,7 @@ end
 
 private def seedParamEnv
     (typeDecls : Array TypeDeclV1) (types : XrplTypeClosureV1)
+    (signedNumeric : Bool)
     (callable : CallableV1) (owner : String) :
     CompileResult (ValueEnv × Array String) := do
   let mut env : ValueEnv := { entries := #[] }
@@ -1418,7 +1514,7 @@ private def seedParamEnv
   let mut i : Nat := 0
   for p in callable.params do
     unless p.visibility == .public_ do
-      planError s!"parameter '{p.name}' in {owner} is not public UInt64"
+      planError s!"parameter '{p.name}' in {owner} is not public"
     unless isIdentifier p.name do
       planError s!"parameter '{p.name}' is not a safe identifier"
     if isAnonymousOptionTypeIdV1 typeDecls p.typeId then
@@ -1427,11 +1523,14 @@ private def seedParamEnv
     if isAnonymousMapTypeIdV1 typeDecls p.typeId then
       planError
         s!"parameter '{p.name}' in {owner} is Map (Map params stay fail closed)"
-    if isUInt64Type types p.typeId then
+    if isUInt64Type types p.typeId || isInt64Type types p.typeId then
+      unless matchesNumericDomain types signedNumeric p.typeId do
+        planError
+          s!"parameter '{p.name}' in {owner} mixes UInt64/Int64 (numeric domain is homogeneous)"
       unless names.size < maxParams do
         planError "unsupported XRPL semantic shape: parameter count exceeds limit"
       env := envInsert env p.valueId {
-        ty := .uint64
+        ty := numericTyOf signedNumeric
         expr := .param i
         expandedNodes := 1
       }
@@ -1448,7 +1547,7 @@ private def seedParamEnv
         i := i + 1
       env := envInsert env p.valueId (mkPrincipalLeaves leafExprs)
     else
-      planError s!"parameter '{p.name}' in {owner} is not public UInt64"
+      planError s!"parameter '{p.name}' in {owner} is not public UInt64/Int64"
   pure (env, names)
 
 private def resultKindNamedOrFc
@@ -1460,34 +1559,43 @@ private def resultKindNamedOrFc
       let specs ← flattenNamedLeafSpecsV1 data.types types typeId ""
       let n := specs.size
       unless 1 ≤ n && n ≤ 8 do
-        planError s!"{owner} aggregate return must have 1..8 leaves (got {n})"
+        planError s!"{owner} named/Array/Option/Bytes aggregate return must have 1..8 leaves (got {n})"
       pure (.aggregate n)
     else
       planError s!"{owner} named Struct/Enum return is outside this XRPL slice"
-  else planError s!"{owner} result must be public Unit, UInt64, or Bool"
+  else planError s!"{owner} result must be public Unit, UInt64, Int64, or Bool"
 
 private def resultKindOf
     (data : SemanticProgramDataV1) (types : XrplTypeClosureV1)
+    (signedNumeric : Bool)
     (typeId : TypeIdV1) (owner : String)
     (allowNamed : Bool) (allowBytes : Bool) :
     CompileResult ResultKind := do
   if isUnitType types typeId then pure .unit
-  else if isUInt64Type types typeId then pure .uint64
+  else if isUInt64Type types typeId then
+    unless !signedNumeric do
+      planError s!"{owner} UInt64 result mixes with Int64 (numeric domain is homogeneous)"
+    pure .uint64
+  else if isInt64Type types typeId then
+    unless signedNumeric do
+      planError s!"{owner} Int64 result mixes with UInt64 (numeric domain is homogeneous)"
+    pure .int64
   else if isBoolType types typeId then pure .bool
   else if isAnonymousOptionTypeIdV1 data.types typeId then
-    requireOptionUInt64StateV1 data.types types typeId owner
+    requireOptionUInt64StateV1 data.types types typeId owner signedNumeric
     if allowNamed then
       pure (.aggregate 2)
     else
       planError s!"{owner} Option return is outside this XRPL slice"
   else if isAnonymousMapTypeIdV1 data.types typeId then
-    planError s!"{owner} Map return is outside this XRPL slice"
+    requireMapUInt64V1 data.types types typeId signedNumeric
+    if allowNamed then
+      pure (.aggregate mapPilotLeafCountV1)
+    else
+      planError s!"{owner} Map return is outside this XRPL slice"
   else if allowBytes then
     match data.types[typeId.toNat]? with
     | some { shape := .bytes len, name := none, .. } => do
-        unless owner.startsWith "view " do
-          planError
-            s!"{owner} Bytes return is outside this XRPL slice (only Bytes N view flattens; entry stays fail closed)"
         let n := len.toNat
         unless 1 ≤ n && n ≤ 8 do
           planError s!"{owner} Bytes N return must be 1..8 (got {n})"
@@ -1507,9 +1615,11 @@ private def decodeSwitchCaseValue
     decodeUInt32LiteralLe xrplPlanErr "XRPL" bytes
   else if isUInt64Type types typeId then
     decodeUInt64LiteralLe xrplPlanErr "XRPL" bytes
+  else if isInt64Type types typeId then
+    decodeInt64LiteralLe xrplPlanErr "XRPL" bytes
   else
     planError
-      "unsupported XRPL semantic shape: switch case type is outside UInt64/UInt32/Bool"
+      "unsupported XRPL semantic shape: switch case type is outside UInt64/Int64/UInt32/Bool"
 
 private inductive RegionCont where
   | join (blockId : Nat)
@@ -1592,6 +1702,7 @@ private def returnStmts (ret? : Option TypedExpr) : Array Statement :=
 
 private partial def emitRegion
     (data : SemanticProgramDataV1) (types : XrplTypeClosureV1)
+    (signedNumeric : Bool)
     (idx : CallableIndex) (callable : CallableV1)
     (layout : StateLayout)
     (allowStateRead allowStateWrite : Bool)
@@ -1603,12 +1714,13 @@ private partial def emitRegion
   | 0 =>
       planError "unsupported XRPL semantic shape: CFG walk fuel exhausted"
   | fuel' + 1 => do
+      let numericTy := numericTyOf signedNumeric
       let some block := callable.blocks[blockId]? |
         planError "unsupported XRPL semantic shape: missing CFG block"
       unless block.id.toNat == blockId do
         planError "unsupported XRPL semantic shape: block id must match index"
       let acc ←
-        lowerBlockInstructions data types layout idx callable
+        lowerBlockInstructions data types signedNumeric layout idx callable
           allowStateRead allowStateWrite forbidChecks inlineDepth block acc0
       match block.terminator with
       | .return_ value => do
@@ -1631,7 +1743,7 @@ private partial def emitRegion
               planError
                 "unsupported XRPL semantic shape: loop latch must carry exactly one induction arg"
             let update ← match envLookup acc.env updateVid with
-              | some v => requireTy v .uint64 "loop update"
+              | some v => requireTy v numericTy "loop update"
               | none =>
                   planError "unsupported XRPL semantic shape: loop update undefined"
             pure (stmts, acc, .latch update)
@@ -1646,7 +1758,7 @@ private partial def emitRegion
               planError
                 "unsupported XRPL semantic shape: loop pre-header must jump with one start arg"
             let initial ← match envLookup acc.env startVid with
-              | some v => requireTy v .uint64 "loop start"
+              | some v => requireTy v numericTy "loop start"
               | none =>
                   planError "unsupported XRPL semantic shape: loop start value undefined"
             let some header := callable.blocks[targetId]? |
@@ -1662,12 +1774,12 @@ private partial def emitRegion
               { acc with
                 nextTemp := acc.nextTemp + 1
                 env := envInsert acc.env inductionParam.valueId {
-                  ty := .uint64
+                  ty := numericTy
                   expr := .temp varTemp
                   expandedNodes := 1
                 } }
             let acc ←
-              lowerBlockInstructions data types layout idx callable
+              lowerBlockInstructions data types signedNumeric layout idx callable
                 allowStateRead allowStateWrite forbidChecks inlineDepth header acc
             unless acc.overlay.entries.isEmpty do
               planError
@@ -1683,7 +1795,7 @@ private partial def emitRegion
                       planError
                         "unsupported XRPL semantic shape: loop condition undefined"
                 let (bodyStmts, acc1, bodyCont) ←
-                  emitRegion data types idx callable layout
+                  emitRegion data types signedNumeric idx callable layout
                     allowStateRead allowStateWrite forbidChecks inlineDepth
                     (some targetId) fuel' thenT.blockId.toNat acc
                 let update ← match bodyCont with
@@ -1698,7 +1810,7 @@ private partial def emitRegion
                   Statement.forLoop varTemp initial cond update
                     lb.maxIterations.toNat bodyStmts
                 let (rest, acc2, restCont) ←
-                  emitRegion data types idx callable layout
+                  emitRegion data types signedNumeric idx callable layout
                     allowStateRead allowStateWrite forbidChecks inlineDepth
                     enclosingHeader fuel' elseT.blockId.toNat acc1
                 pure (preStmts ++ #[forStmt] ++ rest, acc2, restCont)
@@ -1721,7 +1833,7 @@ private partial def emitRegion
                 planError "unsupported XRPL semantic shape: branch condition undefined"
           let (preStmts, acc) := flushRegion layout acc
           let (thenStmts, acc1, thenCont) ←
-            emitRegion data types idx callable layout
+            emitRegion data types signedNumeric idx callable layout
               allowStateRead allowStateWrite forbidChecks inlineDepth
               enclosingHeader fuel' thenT.blockId.toNat acc
           match thenCont with
@@ -1732,7 +1844,7 @@ private partial def emitRegion
           let thenJoin := joinOf thenCont
           if thenJoin == some elseT.blockId.toNat then
             let (rest, acc2, restCont) ←
-              emitRegion data types idx callable layout
+              emitRegion data types signedNumeric idx callable layout
                 allowStateRead allowStateWrite forbidChecks inlineDepth
                 enclosingHeader fuel' elseT.blockId.toNat acc1
             pure
@@ -1740,7 +1852,7 @@ private partial def emitRegion
                 acc2, restCont)
           else
             let (elseStmts, acc2, elseCont) ←
-              emitRegion data types idx callable layout
+              emitRegion data types signedNumeric idx callable layout
                 allowStateRead allowStateWrite forbidChecks inlineDepth
                 enclosingHeader fuel' elseT.blockId.toNat acc1
             match elseCont with
@@ -1755,7 +1867,7 @@ private partial def emitRegion
                   planError
                     "unsupported XRPL semantic shape: branch arms converge on divergent joins"
                 let (rest, acc3, restCont) ←
-                  emitRegion data types idx callable layout
+                  emitRegion data types signedNumeric idx callable layout
                     allowStateRead allowStateWrite forbidChecks inlineDepth
                     enclosingHeader fuel' j1 acc2
                 pure
@@ -1767,7 +1879,7 @@ private partial def emitRegion
                     acc2, .closed)
             | some j, none | none, some j => do
                 let (rest, acc3, restCont) ←
-                  emitRegion data types idx callable layout
+                  emitRegion data types signedNumeric idx callable layout
                     allowStateRead allowStateWrite forbidChecks inlineDepth
                     enclosingHeader fuel' j acc2
                 pure
@@ -1801,7 +1913,7 @@ private partial def emitRegion
             let caseValue ←
               decodeSwitchCaseValue types switchCase.typeId switchCase.valueBytes
             let (body, acc1, armCont) ←
-              emitRegion data types idx callable layout
+              emitRegion data types signedNumeric idx callable layout
                 allowStateRead allowStateWrite forbidChecks inlineDepth
                 enclosingHeader fuel' switchCase.target.blockId.toNat accA
             caseBodies := caseBodies.push (caseValue, body)
@@ -1817,7 +1929,7 @@ private partial def emitRegion
                   planError
                     "unsupported XRPL semantic shape: switch arms converge on divergent joins"
           let (defaultBody, acc2, defaultCont) ←
-            emitRegion data types idx callable layout
+            emitRegion data types signedNumeric idx callable layout
               allowStateRead allowStateWrite forbidChecks inlineDepth
               enclosingHeader fuel' defaultT.blockId.toNat accA
           match defaultCont, joinAcc with
@@ -1836,27 +1948,29 @@ private partial def emitRegion
               pure (preStmts.push switchStmt, acc2, .closed)
           | some j => do
               let (rest, acc3, restCont) ←
-                emitRegion data types idx callable layout
+                emitRegion data types signedNumeric idx callable layout
                   allowStateRead allowStateWrite forbidChecks inlineDepth
                   enclosingHeader fuel' j acc2
               pure (preStmts.push switchStmt ++ rest, acc3, restCont)
 
 private def lowerCallableBody
     (data : SemanticProgramDataV1) (types : XrplTypeClosureV1)
+    (signedNumeric : Bool)
     (layout : StateLayout) (idx : CallableIndex) (callable : CallableV1)
     (allowStateRead allowStateWrite forbidChecks initialStateDefaults : Bool)
     (owner : String) :
     CompileResult
       (Array String × Array Check × Array (Nat × Expr) ×
         Option TypedExpr × Bool × Array Statement) := do
-  let (env0, paramNames) ← seedParamEnv data.types types callable owner
+  let (env0, paramNames) ← seedParamEnv data.types types signedNumeric callable owner
+  let numericTy := numericTyOf signedNumeric
   let mut overlay0 : StateOverlay := { entries := #[] }
   if initialStateDefaults then
     for st in data.logicalState do
       let phys ← physicalLeaves layout st.id
       if phys.size == 1 then
         overlay0 := overlayInsert overlay0 st.id {
-          ty := .uint64
+          ty := numericTy
           expr := .litU64 0
           expandedNodes := 1
         }
@@ -1878,7 +1992,7 @@ private def lowerCallableBody
   let acc0 : BodyAccum := emptyBodyAccum env0 overlay0
   if callable.blocks.size == 1 then
     let (acc, ret?, endedRevert) ←
-      lowerInstructions data types layout idx callable
+      lowerInstructions data types signedNumeric layout idx callable
         allowStateRead allowStateWrite forbidChecks 0 acc0
     let stores := overlayFinalStores layout acc.overlay
     pure (paramNames, acc.checks, stores, ret?, endedRevert, #[])
@@ -1888,7 +2002,7 @@ private def lowerCallableBody
     unless callable.loopBounds.isEmpty do
       validateCallableLoopsV1 types callable
     let (stmts, acc, cont) ←
-      emitRegion data types idx callable layout
+              emitRegion data types signedNumeric idx callable layout
         allowStateRead allowStateWrite forbidChecks 0 none
         callable.blocks.size callable.entryBlock.toNat acc0
     unless cont == .closed do
@@ -1908,12 +2022,24 @@ private def makePlanFromSemanticDataV1
     unless err.fields.isEmpty do
       planError "unsupported XRPL semantic shape: declared errors must have zero payload fields"
   let types ← validateXrplTypeClosureV1 data.types
+  let mut signed? : Option Bool := none
+  for st in data.logicalState do
+    signed? ← noteIntegerDomain types st.typeId signed? s!"state '{st.name}'"
+  for callable in data.callables do
+    signed? ←
+      noteIntegerDomain types callable.result.typeId signed? "callable result"
+    for p in callable.params do
+      signed? ←
+        noteIntegerDomain types p.typeId signed? s!"parameter '{p.name}'"
   for c in data.constants do
-    unless isUInt64Type types c.typeId || isBoolType types c.typeId do
+    unless isUInt64Type types c.typeId || isInt64Type types c.typeId ||
+        isBoolType types c.typeId do
       planError
-        "unsupported XRPL semantic shape: constant is not admitted UInt64/Bool"
+        "unsupported XRPL semantic shape: constant is not admitted UInt64/Int64/Bool"
+    signed? ← noteIntegerDomain types c.typeId signed? s!"constant '{c.name}'"
     let _ ← lowerLiteral types c.typeId c.valueBytes
-  let layout ← makeStateLayoutV1 data types
+  let signedNumeric := signed? == some true
+  let layout ← makeStateLayoutV1 data types signedNumeric
   let states := layout.states
   let mut pureFns : Array (CallableIdV1 × CallableV1) := #[]
   for c in data.callables do
@@ -1932,12 +2058,12 @@ private def makePlanFromSemanticDataV1
           | none => planError "unsupported XRPL semantic shape: pureFn requires a name"
         unless isIdentifier name do
           planError s!"pureFn '{name}' is not a safe identifier"
-        let rk ← resultKindOf data types callable.result.typeId s!"pureFn '{name}'"
+        let rk ← resultKindOf data types signedNumeric callable.result.typeId s!"pureFn '{name}'"
           (allowNamed := false) (allowBytes := false)
         unless callable.result.visibility == .public_ do
           planError s!"pureFn '{name}' result must be public"
         let (_params, _checks, stores, ret?, endedRevert, body) ←
-          lowerCallableBody data types layout idx callable
+          lowerCallableBody data types signedNumeric layout idx callable
             (allowStateRead := false) (allowStateWrite := false) (forbidChecks := false)
             (initialStateDefaults := false) s!"pureFn '{name}'"
         unless stores.isEmpty do
@@ -1951,14 +2077,17 @@ private def makePlanFromSemanticDataV1
         | .uint64, some tv, false =>
             let _ ← requireTy tv .uint64 s!"pureFn '{name}' result"
             pure ()
+        | .int64, some tv, false =>
+            let _ ← requireTy tv .int64 s!"pureFn '{name}' result"
+            pure ()
         | .bool, some tv, false =>
             let _ ← requireTy tv .bool s!"pureFn '{name}' result"
             pure ()
-        | .uint64, none, true | .bool, none, true =>
+        | .uint64, none, true | .int64, none, true | .bool, none, true =>
             planError s!"pureFn '{name}' non-Unit revert-only result is outside Q0"
-        | .uint64, none, false | .bool, none, false =>
+        | .uint64, none, false | .int64, none, false | .bool, none, false =>
             planError s!"pureFn '{name}' non-Unit return is missing"
-        | .uint64, some _, true | .bool, some _, true =>
+        | .uint64, some _, true | .int64, some _, true | .bool, some _, true =>
             planError s!"pureFn '{name}' revert path cannot carry a return value"
         | .aggregate _, _, _ =>
             planError s!"pureFn '{name}' aggregate return is outside this XRPL slice"
@@ -1973,7 +2102,7 @@ private def makePlanFromSemanticDataV1
         unless callable.result.visibility == .public_ do
           planError "unsupported XRPL semantic shape: initializer result must be public"
         let (params, checks, stores, ret?, endedRevert, body) ←
-          lowerCallableBody data types layout idx callable
+          lowerCallableBody data types signedNumeric layout idx callable
             (allowStateRead := true) (allowStateWrite := true) (forbidChecks := true)
             (initialStateDefaults := true) "initializer"
         if endedRevert then
@@ -1991,12 +2120,12 @@ private def makePlanFromSemanticDataV1
           | none => planError "unsupported XRPL semantic shape: entry requires a name"
         unless isIdentifier name do
           planError s!"entry '{name}' is not a safe identifier"
-        let rk ← resultKindOf data types callable.result.typeId s!"entry '{name}'"
-          (allowNamed := true) (allowBytes := false)
+        let rk ← resultKindOf data types signedNumeric callable.result.typeId s!"entry '{name}'"
+          (allowNamed := true) (allowBytes := true)
         unless callable.result.visibility == .public_ do
           planError s!"entry '{name}' result must be public"
         let (params, checks, stores, ret?, endedRevert, body) ←
-          lowerCallableBody data types layout idx callable
+          lowerCallableBody data types signedNumeric layout idx callable
             (allowStateRead := true) (allowStateWrite := true) (forbidChecks := false)
             (initialStateDefaults := false) s!"entry '{name}'"
         if !body.isEmpty then
@@ -2015,14 +2144,17 @@ private def makePlanFromSemanticDataV1
           | .uint64, some tv, false =>
               let e ← requireTy tv .uint64 s!"entry '{name}' result"
               pure (some e, #[])
+          | .int64, some tv, false =>
+              let e ← requireTy tv .int64 s!"entry '{name}' result"
+              pure (some e, #[])
           | .bool, some tv, false =>
               let e ← requireTy tv .bool s!"entry '{name}' result"
               pure (some e, #[])
-          | .uint64, none, true | .bool, none, true =>
+          | .uint64, none, true | .int64, none, true | .bool, none, true =>
               pure (none, #[])
-          | .uint64, none, false | .bool, none, false =>
+          | .uint64, none, false | .int64, none, false | .bool, none, false =>
               planError s!"entry '{name}' non-Unit return is missing"
-          | .uint64, some _, true | .bool, some _, true =>
+          | .uint64, some _, true | .int64, some _, true | .bool, some _, true =>
               planError s!"entry '{name}' revert path cannot carry a return value"
           | .aggregate n, some tv, false => do
               unless tv.leaves.size == n do
@@ -2053,14 +2185,14 @@ private def makePlanFromSemanticDataV1
           | none => planError "unsupported XRPL semantic shape: view requires a name"
         unless isIdentifier name do
           planError s!"view '{name}' is not a safe identifier"
-        let rk ← resultKindOf data types callable.result.typeId s!"view '{name}'"
+        let rk ← resultKindOf data types signedNumeric callable.result.typeId s!"view '{name}'"
           (allowNamed := true) (allowBytes := true)
         unless rk != .unit do
-          planError s!"view '{name}' result must be UInt64, Bool, or a view-only aggregate"
+          planError s!"view '{name}' result must be UInt64, Int64, Bool, or a view-only aggregate"
         unless callable.result.visibility == .public_ do
           planError s!"view '{name}' result must be public"
         let (params, checks, stores, ret?, endedRevert, body) ←
-          lowerCallableBody data types layout idx callable
+          lowerCallableBody data types signedNumeric layout idx callable
             (allowStateRead := true) (allowStateWrite := false) (forbidChecks := false)
             (initialStateDefaults := false) s!"view '{name}'"
         if endedRevert then
@@ -2078,6 +2210,9 @@ private def makePlanFromSemanticDataV1
           | .uint64 => do
               let e ← requireTy tv .uint64 s!"view '{name}' result"
               pure (e, #[])
+          | .int64 => do
+              let e ← requireTy tv .int64 s!"view '{name}' result"
+              pure (e, #[])
           | .bool => do
               let e ← requireTy tv .bool s!"view '{name}' result"
               pure (e, #[])
@@ -2088,7 +2223,7 @@ private def makePlanFromSemanticDataV1
               unless !tv.leaves.isEmpty do
                 planError s!"view '{name}' aggregate return is empty"
               pure (tv.leaves[0]!, tv.leaves)
-          | .unit => planError s!"view '{name}' result must be UInt64, Bool, or a view-only aggregate"
+          | .unit => planError s!"view '{name}' result must be UInt64, Int64, Bool, or a view-only aggregate"
         views := views.push { name, params, resultKind := rk, value, leaves }
     | .invariant =>
         planError "unsupported XRPL semantic shape: invariants are outside Q0"
@@ -2098,6 +2233,7 @@ private def makePlanFromSemanticDataV1
     programName
     sourceHash
     semanticHash
+    signedNumeric
     states
     initializer
     entries

@@ -424,8 +424,8 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     | .uint64, none, false | .int64, none, false | .bool, none, false =>
         planError s!"Soroban entry '{ent.name}' non-Unit result is missing without terminal revert"
     | .aggregate n, some e, false => do
-        unless 1 ≤ n && n ≤ 8 do
-          planError s!"Soroban entry '{ent.name}' aggregate return must have 1..8 leaves"
+        unless n == 24 || (1 ≤ n && n ≤ 8) do
+          planError s!"Soroban entry '{ent.name}' aggregate return must have 1..8 leaves (or 24 for Map)"
         unless ent.leaves.size == n && ent.leafIsInt.size == n do
           planError
             s!"Soroban entry '{ent.name}' aggregate leaves must match resultKind leaf count"
@@ -474,8 +474,8 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
           validateExpr v.value .bool "view value" v.params.size plan.states.size exprBudget signed
             0
     | .aggregate n =>
-        unless 1 ≤ n && n ≤ 8 do
-          planError s!"Soroban view '{v.name}' aggregate return must have 1..8 leaves"
+        unless n == 24 || (1 ≤ n && n ≤ 8) do
+          planError s!"Soroban view '{v.name}' aggregate return must have 1..8 leaves (or 24 for Map)"
         unless v.leaves.size == n && v.leafIsInt.size == n do
           planError
             s!"Soroban view '{v.name}' aggregate leaves must match resultKind leaf count"
