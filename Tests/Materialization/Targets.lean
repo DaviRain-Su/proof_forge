@@ -4433,8 +4433,8 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
 
   -- MaybeViewRet: named Enum *view* return. Distinct from MaybeRetBox
   -- entry: TON view-only B-RET admits; Aleo query-descriptor admit
-  -- (`kind=computed`, not Final). Quint/Soroban/OpenVM/ICP stay
-  -- named-types UInt64-pilot FC. MaybeMark / MaybeRetBox stay.
+  -- (`kind=computed`, not Final). T6 opens Quint/Soroban/OpenVM/ICP
+  -- view-only named Enum leaf return. MaybeMark / MaybeRetBox stay.
   let enumViewRetSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -4455,17 +4455,11 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     | .error e => throw <| IO.userError s!"MaybeViewRet select: {e.render}"
   let enumViewRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 enumViewRetV1
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
-      TargetId.aleo, TargetId.psy, TargetId.cosmwasm, TargetId.ton] do
+      TargetId.aleo, TargetId.psy, TargetId.cosmwasm, TargetId.ton,
+      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp] do
     let out ← liftResult <| materializeSelected target enumViewRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"MaybeViewRet: {target} must materialize named Enum view return"
-  for (target, kind) in #[
-      (TargetId.quint, TargetKind.quint),
-      (TargetId.soroban, TargetKind.soroban),
-      (TargetId.openvm, TargetKind.openvm),
-      (TargetId.icp, TargetKind.icp)] do
-    expectMaterializePlanInvariantV1 "MaybeViewRet" target kind enumViewRetCompiled
-      "named Struct/Enum return"
 
   -- ArrayState: fixed Array UInt64 2 state — Solana + EVM + NEAR + Noir + H3
   -- Psy/Aleo admit (flatten to leaf slots named slots_0/slots_1; IndexGet/Set).
@@ -4582,8 +4576,8 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
 
   -- ArrViewRet: Array UInt64 2 *view* return. Distinct from ArrRetBox
   -- entry: TON view-only B-RET admits; Aleo query-descriptor admit
-  -- (`kind=computed`, not Final). Quint/Soroban/OpenVM/ICP stay
-  -- Array-pilot FC. ArrRetBox / ArrRetEntry stay.
+  -- (`kind=computed`, not Final). T6 opens Quint/Soroban/OpenVM/ICP
+  -- view-only Array leaf return. ArrRetBox / ArrRetEntry stay.
   let arrViewRetSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -4602,18 +4596,11 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     | .error e => throw <| IO.userError s!"ArrViewRet select: {e.render}"
   let arrViewRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 arrViewRetV1
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
-      TargetId.aleo, TargetId.psy, TargetId.cosmwasm, TargetId.ton] do
+      TargetId.aleo, TargetId.psy, TargetId.cosmwasm, TargetId.ton,
+      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp] do
     let out ← liftResult <| materializeSelected target arrViewRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"ArrViewRet: {target} must materialize Array UInt64 2 view return"
-  expectMaterializePlanInvariantV1 "ArrViewRet" TargetId.quint TargetKind.quint
-    arrViewRetCompiled "Array return is outside Q0"
-  expectMaterializePlanInvariantV1 "ArrViewRet" TargetId.icp TargetKind.icp
-    arrViewRetCompiled "Array return is outside ICP-2"
-  expectMaterializePlanInvariantV1 "ArrViewRet" TargetId.soroban TargetKind.soroban
-    arrViewRetCompiled "Array return is outside S0"
-  expectMaterializePlanInvariantV1 "ArrViewRet" TargetId.openvm TargetKind.openvm
-    arrViewRetCompiled "Array return is outside O0"
 
   -- NestArr: Array Array UInt64 2 2 state. All twelve targets stay named
   -- element/pilot FC. Not opening nested Array. ArrayBox / ArrRetBox /
@@ -6651,8 +6638,8 @@ unsafe def runRemainingNeedles : IO Unit := do
 
   -- OptViewRet: Option UInt64 *view* return. Distinct from OptRetBox
   -- entry: TON view-only B-RET admits; Aleo query-descriptor admit
-  -- (`kind=computed`, not Final). Quint/Soroban/OpenVM name Q0/S0/O0
-  -- return. ICP stays Option-pilot. OptBox / OptRetBox / NestOpt stay.
+  -- (`kind=computed`, not Final). T6 opens Quint/Soroban/OpenVM/ICP
+  -- view-only Option leaf return. OptBox / OptRetBox / NestOpt stay.
   let optViewRetSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -6670,18 +6657,11 @@ unsafe def runRemainingNeedles : IO Unit := do
     | .error e => throw <| IO.userError s!"OptViewRet select: {e.render}"
   let optViewRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 optViewRetV1
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
-      TargetId.aleo, TargetId.psy, TargetId.cosmwasm, TargetId.ton] do
+      TargetId.aleo, TargetId.psy, TargetId.cosmwasm, TargetId.ton,
+      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp] do
     let out ← liftResult <| materializeSelected target optViewRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"OptViewRet: {target} must materialize Option UInt64 view return"
-  expectMaterializePlanInvariantV1 "OptViewRet" TargetId.quint TargetKind.quint
-    optViewRetCompiled "Option return is outside Q0"
-  expectMaterializePlanInvariantV1 "OptViewRet" TargetId.soroban TargetKind.soroban
-    optViewRetCompiled "Option return is outside S0"
-  expectMaterializePlanInvariantV1 "OptViewRet" TargetId.openvm TargetKind.openvm
-    optViewRetCompiled "Option return is outside O0"
-  expectMaterializePlanInvariantV1 "OptViewRet" TargetId.icp TargetKind.icp
-    optViewRetCompiled "Option return is outside ICP-2"
 
   -- NestOpt: Option Option UInt64 state. All twelve targets stay named
   -- payload/pilot FC. Not opening nested Option. OptBox / OptRetBox stay.
@@ -7841,26 +7821,14 @@ unsafe def runRemainingNeedles : IO Unit := do
       throw <| IO.userError
         s!"B-RET-ABI: ton must admit view aggregate return, got {e.render}"
   -- Extra from probe: plan-admit targets also materialize (files nonempty).
-  -- Quint/Soroban/ICP/OpenVM stay envelope FC. Aleo query-descriptor pin
-  -- is above. Envelope-4 stay FC.
+  -- T6 opens Quint/Soroban/ICP/OpenVM view-only named Struct leaf return.
+  -- Aleo query-descriptor pin is above. Entry named stays FC.
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
-      TargetId.psy] do
+      TargetId.psy, TargetId.quint, TargetId.soroban, TargetId.icp,
+      TargetId.openvm] do
     let out ← liftResult <| materializeSelected target pairCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"B-RET-ABI: {target} must materialize view aggregate return"
-  for target in [TargetId.quint, TargetId.soroban, TargetId.icp, TargetId.openvm] do
-    match materializeSelected target pairCompiled with
-    | .ok _ =>
-        throw <| IO.userError s!"B-RET-ABI: {target} must decline view aggregate return"
-    | .error e =>
-        expect ((e.render).contains "aggregate" ||
-            (e.render).contains "return" ||
-            (e.render).contains "named" ||
-            (e.render).contains "unsupported" ||
-            (e.render).contains "pilot" ||
-            (e.render).contains "public" ||
-            (e.render).contains "query")
-          s!"B-RET-ABI {target} message must cite aggregate/return boundary, got {e.render}"
 
 unsafe def run : IO Unit := do
   runSemanticPlanLeafFast

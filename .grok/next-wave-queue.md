@@ -54,8 +54,9 @@ Goal: lift envelope-4 toward mid-tier (CW/TON/Aleo/Psy), then mid-tier toward th
 | T3-ENV4-BYTES | main | Quint/Soroban/OpenVM/ICP Bytes N as N UInt64 low-8 leaves. No Candid `vec nat8`. Bytes return stay FC | **committed** `9454bcec9` |
 | T4-TON-PRIN | main | TON `pilotPrincipalPolicyAdmit`; reuse existing 9-leaf flatten (`owner_len`+`w0..w7`, ≠ TON address). Return / caller stay FC | **committed** `db5128ef6` |
 | T4-ENV4-PRIN | main | Quint/Soroban/OpenVM/ICP Principal 9-leaf identity. Quint keeps pf.assets `.principal` packing. ICP = 9 i64 globals, no Candid `principal`. Return / caller stay FC | **committed** `db5128ef6` |
-| T5-ICP-OPT | main | ICP Option UInt64 2-leaf (`o_tag`/`o_p0` extra i64 globals; no Candid `opt`). Map stays FC | **landed** |
-| T5-ENV4-NAMED | main | Quint/Soroban/OpenVM/ICP named Struct/Enum leaf flatten (`p_x`/`p_y`; MaybeMark tag+payload). Return stays FC. Soroban `symbol_short` on state leaves only. ICP = extra i64 globals, no Candid `record`/`variant` | **landed** |
+| T5-ICP-OPT | main | ICP Option UInt64 2-leaf (`o_tag`/`o_p0` extra i64 globals; no Candid `opt`). Map stays FC | **committed** `973d0ae37` |
+| T5-ENV4-NAMED | main | Quint/Soroban/OpenVM/ICP named Struct/Enum leaf flatten (`p_x`/`p_y`; MaybeMark tag+payload). Return stays FC. Soroban `symbol_short` on state leaves only. ICP = extra i64 globals, no Candid `record`/`variant` | **committed** `973d0ae37` |
+| T6-ENV4-VIEW-RET | main | Envelope-4 view-only Array/Option/named leaf return. Quint tuple/`int`; Soroban Rust `(u64,…)`; OpenVM guest N-leaf; ICP Candid positional `(nat64,…)` query (no `record`/`opt`/`vec`). Entry aggregate stays FC | **committed** Quint `00efbb52c` · Soroban `784cc4525` · OpenVM `5b4ed4843` · ICP `f6616698f` |
 
 **File lock:** workers must not edit `Tests/Materialization/Targets.lean` or another target's tree. `FieldComparison*` is a main-agent serial slice (`FC-PRESERVE`), not a parallel leaf. Main agent integrates WideInt64 / OptInt / ArrInt / MapInt needles after each leaf lands.
 
@@ -176,13 +177,13 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | MAT-PRIN-QS | done | N2c Principal identity-storage 12-target: T4 opened TON + envelope-4 (Quint/Soroban/OpenVM/ICP) on the same 9-leaf wire identity. Return / caller remap stay FC |
 | MAT-STRUCT-QS | done | N3 named Struct PointBox 12-target: six flatten-to-leaf + CW/TON admit; Quint/Soroban/ICP/OpenVM envelope FC. **Not** opening Struct |
 | MAT-ARRAY-QS | done | Array UInt64 2 ArrayBox 12-target: six flatten-to-leaf + CW/TON admit; Quint/Soroban/ICP/OpenVM envelope FC. **Not** opening Array |
-| MAT-RET-QS | done | B-RET-ABI PairRet view-return 12-target: seven admit; Aleo view-over-state + Quint/Soroban/ICP/OpenVM FC. PairRetEntry Aleo pin kept. **Not** opening aggregate return |
+| MAT-RET-QS | done | B-RET-ABI PairRet view-return 12-target: seven admit; Aleo view-over-state. **T6** opened Quint/Soroban/ICP/OpenVM view half. PairRetEntry Aleo pin kept. Entry named stays FC |
 | MAT-STATECELL-QS | done | Product StateCell 12-target: all twelve admit (public UInt64 lighthouse). Digest binding unchanged. **Not** opening a new shape |
 | MAT-CONST-QS | done | Scalar const-table 12-target: near/CW/Aleo/Psy admit; evm/solana/noir + TON/Quint/Soroban/ICP/OpenVM FC. Invariant half untouched. **Not** opening const |
 | MAT-INV-QS | done | Nonempty-invariant 12-target: Quint Q0 admits read-only Bool (entry `tick`); other eleven ordinary materialize FC. NEAR erasure needle kept. Const half untouched. **Not** opening the four envelope-FC targets |
 | MAT-STR-QS | done | String event/error ABI 12-target: all twelve FC. CW/TON Plan type-closure; Quint/Soroban/ICP/OpenVM effect.event req decline (same class as Aleo). **Not** opening String ABI |
 | MAT-INTFOR-QS | done | Int64 bounded-for 12-target: all twelve FC. CW/TON public-UInt64 induction; Quint/Soroban/ICP/OpenVM UInt64-width envelope. **Not** opening signed for |
-| MAT-ANONRET-QS | done | Anonymous Array UInt64 2 view-return 12-target: seven admit; Aleo view-over-state + Quint/Soroban/ICP/OpenVM FC. ArrRetEntry Aleo pin kept. **Not** opening Array return |
+| MAT-ANONRET-QS | done | Anonymous Array UInt64 2 view-return 12-target: seven admit; Aleo view-over-state. **T6** opened Quint/Soroban/ICP/OpenVM view half. ArrRetEntry Aleo pin kept. Entry Array stays FC |
 | MAT-SRCAUTH-QS | done | Plan source-authority rg 12-target: 11 facades carry the three tokens; Soroban falls back to LowerSemanticV1. Forbidden residual-alpha absent. **Not** a 13th target |
 | MAT-PRIVPARAM-QS | done | Unused private-param 12-target: EVM/Noir + Solana/NEAR/Psy/Aleo/CW/TON admit; Quint/Soroban/ICP/OpenVM public-param envelope FC. **Not** disclosure redesign |
 | MAT-PRINRET-QS | done | Principal view-return 12-target: all twelve FC (EVM pin kept). Storage admit ≠ ResultKind. **Not** opening Principal return / remap |
@@ -204,16 +205,16 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | MAT-U128-QS | done | WideUInt UInt128 12-target: five admit; Aleo/Quint/Soroban/OpenVM/ICP/CW/TON width envelope FC. **Not** opening UInt256 or signed 128 |
 | MAT-U256-QS | done | WideUInt256 UInt256 12-target: five admit; Aleo/Quint/Soroban/OpenVM/ICP/CW/TON width envelope FC. **Not** opening signed 128/256 |
 | MAT-BYTES-RET-QS | done | BytesRetBox Bytes 4 view-return 12-target: three admit (NEAR/Psy/CW); nine named B-RET/container FC. **Not** opening Bytes return ABI |
-| MAT-ENUM-RET-QS | done | MaybeRetBox named Enum entry-return 12-target: seven admit; TON view-only B-RET + four envelope named-types FC. **Not** opening Enum return on decline set |
+| MAT-ENUM-RET-QS | done | MaybeRetBox named Enum entry-return 12-target: seven admit; TON view-only B-RET. **T6** opened four envelope view half (MaybeViewRet); entry MaybeRetBox stays FC |
 | MAT-MAP-RET-QS | done | MapRetBox Map UInt64 entry-return 12-target: two admit (NEAR/CW); ten named B-RET/container FC. **Not** opening Map return ABI |
 | MAT-I128-QS | done | WideInt128 Int128 12-target all named width FC. **Not** opening signed 128/256 |
 | MAT-I256-QS | done | WideInt256 Int256 12-target all named width FC (same needles as Int128). **Not** opening signed 128/256 |
-| MAT-OPT-RET-QS | done | OptRetBox Option UInt64 entry-return 12-target: seven admit; TON view-only B-RET + four envelope Option-pilot FC. **Not** opening Option return on decline set |
+| MAT-OPT-RET-QS | done | OptRetBox Option UInt64 entry-return 12-target: seven admit; TON view-only B-RET. **T6** opened four envelope view half (OptViewRet); entry OptRetBox stays FC |
 | MAT-ARR-RET-QS | done | ArrRetBox Array UInt64 2 entry-return 12-target: seven admit; TON view-only B-RET + four envelope Array-pilot FC. **Not** opening Array return on decline set |
 | MAT-NEST-OPT-QS | done | NestOpt Option Option UInt64 12-target all named payload/pilot FC. **Not** opening nested Option |
-| MAT-ARR-VIEW-RET-QS | done | ArrViewRet Array UInt64 2 view-return 12-target: seven admit (incl TON); Aleo computed-view FC + four envelope Array-pilot FC. Distinct from ArrRetBox entry. **Not** opening Aleo computed view |
-| MAT-OPT-VIEW-RET-QS | done | OptViewRet Option UInt64 view-return 12-target: seven admit (incl TON); Aleo computed-view FC + four envelope Option-pilot FC. Distinct from OptRetBox entry. **Not** opening Aleo computed view |
-| MAT-ENUM-VIEW-RET-QS | done | MaybeViewRet named Enum view-return 12-target: seven admit (incl TON); Aleo computed-view FC + four envelope named-types FC. Distinct from MaybeRetBox entry. **Not** opening Aleo computed view |
+| MAT-ARR-VIEW-RET-QS | done | ArrViewRet Array UInt64 2 view-return 12-target: seven admit (incl TON); Aleo computed-view. **T6** opened four envelope view half. Distinct from ArrRetBox entry. **Not** opening Aleo computed view |
+| MAT-OPT-VIEW-RET-QS | done | OptViewRet Option UInt64 view-return 12-target: seven admit (incl TON); Aleo computed-view. **T6** opened four envelope view half. Distinct from OptRetBox entry. **Not** opening Aleo computed view |
+| MAT-ENUM-VIEW-RET-QS | done | MaybeViewRet named Enum view-return 12-target: seven admit (incl TON); Aleo computed-view. **T6** opened four envelope view half. Distinct from MaybeRetBox entry. **Not** opening Aleo computed view |
 | MAT-NEST-ARR-QS | done | NestArr Array Array UInt64 2 2 12-target all named element/pilot FC. **Not** opening nested Array |
 | MAT-ARR-OPT-QS | done | ArrOpt Array Option UInt64 2 12-target all named element/pilot FC. **Not** opening Array-of-Option |
 | MAT-OPT-ARR-QS | done | OptArr Option Array UInt64 2 12-target all named payload/pilot FC. **Not** opening Option-of-Array |
