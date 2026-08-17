@@ -247,6 +247,17 @@ private partial def validateBodyStatements
         remaining ←
           validateBodyStatements owner resultKind paramCount stateCount remaining
             signed sha256SiteCount elseBody
+    | .switchOn scrut cases defaultBody =>
+        remaining ←
+          validateExpr scrut numeric "switch scrutinee" paramCount stateCount remaining
+            signed sha256SiteCount
+        for (_, caseBody) in cases do
+          remaining ←
+            validateBodyStatements owner resultKind paramCount stateCount remaining
+              signed sha256SiteCount caseBody
+        remaining ←
+          validateBodyStatements owner resultKind paramCount stateCount remaining
+            signed sha256SiteCount defaultBody
     | .returnValue e =>
         let expected :=
           match resultKind with

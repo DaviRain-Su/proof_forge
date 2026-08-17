@@ -1450,7 +1450,11 @@ unsafe def testIfFlow : IO Unit := do
     throw <| IO.userError "IfFlow: missing IfFlow.rs"
   expect (rsFile.contents.contains "if ")
     "IfFlow Rust must render an if"
-  let branchSrc :=
+  IO.println "  ✓ IfFlow if-diamond"
+
+unsafe def testBranchFlow : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
     "program BranchFlow where\n" ++
@@ -1474,18 +1478,59 @@ unsafe def testIfFlow : IO Unit := do
     "    return count\n" ++
     "  view get() : UInt64 do\n" ++
     "    return count\n"
-  let branchParsed ← liftResult (← session.selectProgramV1
-    branchSrc "<soroban-branch-flow>" "Tests.SorobanBranchFlow" none)
-  let branchCompiled ← liftResult <| Compiler.compileValidatedSourceV1 branchParsed
-  match planSoroban branchCompiled with
-  | .error (.planInvariant .soroban msg) =>
-      expect (msg.contains "exactly one block" || msg.contains "multi-block")
-        s!"BranchFlow must stay exactly-one-block, got: {msg}"
-  | .error e =>
-      throw <| IO.userError s!"BranchFlow: expected soroban planInvariant, got {e.render}"
-  | .ok _ =>
-      throw <| IO.userError "BranchFlow must still fail closed at T9a"
-  IO.println "  ✓ IfFlow if-diamond; BranchFlow still exactly-one-block"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-branch-flow>" "Tests.SorobanBranchFlow" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  let some apply := plan.entries.find? (·.name == "apply") |
+    throw <| IO.userError "BranchFlow: missing apply"
+  let hasSwitch :=
+    apply.body.any fun s =>
+      match s with
+      | .switchOn _ cases _ =>
+          cases.any (fun (v, _) => v == 0) && cases.any (fun (v, _) => v == 1)
+      | _ => false
+  expect hasSwitch "BranchFlow apply must lower match to switchOn"
+  liftResult <| Targets.Soroban.validatePlan plan
+  let files ← liftResult <| buildSoroban compiled
+  let some rsFile := files.find? (fun f => f.path == "BranchFlow.rs") |
+    throw <| IO.userError "BranchFlow: missing BranchFlow.rs"
+  expect (rsFile.contents.contains "if ")
+    "BranchFlow Rust must render the switch as an if-chain"
+  IO.println "  ✓ BranchFlow if + integer match"
+
+unsafe def testMaybeMatch : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MaybeMatch where\n" ++
+    "  state slot : Option UInt64\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n" ++
+    "  entry take() : UInt64 do\n" ++
+    "    match slot with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return 0\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-maybe-match>" "Tests.SorobanMaybeMatch" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  let some take := plan.entries.find? (·.name == "take") |
+    throw <| IO.userError "MaybeMatch: missing take"
+  let hasSwitch :=
+    take.body.any fun s =>
+      match s with
+      | .switchOn _ cases _ =>
+          cases.any (fun (v, _) => v == 0) || cases.any (fun (v, _) => v == 1)
+      | _ => false
+  expect hasSwitch "MaybeMatch take must switch on the Option tag leaf"
+  liftResult <| Targets.Soroban.validatePlan plan
+  IO.println "  ✓ MaybeMatch Option tag switch"
 
 unsafe def run : IO Unit := do
   testStateCellSorobanSource
@@ -1530,6 +1575,8 @@ unsafe def run : IO Unit := do
   testPointViewRet
   testMaybeViewRet
   testIfFlow
+  testBranchFlow
+  testMaybeMatch
   IO.println "Tests.Materialization.SorobanPlanV1: ok"
 
 end Tests.Materialization.SorobanPlanV1
