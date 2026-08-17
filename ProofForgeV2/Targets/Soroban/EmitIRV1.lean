@@ -45,6 +45,8 @@ inductive RExpr where
   | ifExpr (cond thenE elseE : RExpr)
   | panic (msg : String)
   | unit
+  /-- View-only flattened return: Rust tuple of u64/i64. -/
+  | tuple (elems : Array RExpr)
   deriving BEq, Inhabited, Repr
 
 inductive RStatement where
@@ -225,11 +227,17 @@ private def emitStores
     stmts := stmts.push (.expr (.storageSet key re))
   pure stmts
 
-private def resultTypeStr : ResultKind → Option String
+private def resultTypeStr (rk : ResultKind) (leafIsInt : Array Bool) : Option String :=
+  match rk with
   | .unit => none
   | .uint64 => some "u64"
   | .int64 => some "i64"
   | .bool => some "bool"
+  | .aggregate n =>
+      let tys :=
+        (List.range n).map (fun i =>
+          if leafIsInt[i]?.getD false then "i64" else "u64")
+      some ("(" ++ String.intercalate ", " tys ++ ")")
 
 private def lower (plan : Plan) : CompileResult IR := do
   validatePlan plan
@@ -279,7 +287,7 @@ private def lower (plan : Plan) : CompileResult IR := do
     fns := fns.push {
       name := ent.name
       params := fnParams
-      returnType := resultTypeStr ent.resultKind
+      returnType := resultTypeStr ent.resultKind #[]
       body
     }
   -- Views
@@ -287,11 +295,22 @@ private def lower (plan : Plan) : CompileResult IR := do
     let mut fnParams : Array (String × String) := #[("env", "Env")]
     for p in v.params do
       fnParams := fnParams.push (p, numericTy)
-    let re ← lowerExpr plan v.params #[] v.value
+    let re ← match v.resultKind with
+      | .aggregate n => do
+          let src := if v.leaves.isEmpty then #[v.value] else v.leaves
+          unless src.size == n do
+            planError
+              s!"Soroban view '{v.name}' aggregate emit leaf count must be {n}"
+          let mut elems : Array RExpr := #[]
+          for e in src do
+            elems := elems.push (← lowerExpr plan v.params #[] e)
+          pure (RExpr.tuple elems)
+      | _ =>
+          lowerExpr plan v.params #[] v.value
     fns := fns.push {
       name := v.name
       params := fnParams
-      returnType := resultTypeStr v.resultKind
+      returnType := resultTypeStr v.resultKind v.leafIsInt
       body := #[.returnExpr re]
     }
   let contract : RContract := {
@@ -339,6 +358,9 @@ private partial def renderExpr (signed : Bool) : RExpr → String
       s!"if {renderExpr signed cond} \{ {renderExpr signed thenE} } else \{ {renderExpr signed elseE} }"
   | .panic msg => s!"panic!(\"{msg}\")"
   | .unit => "()"
+  | .tuple elems =>
+      let inner := String.intercalate ", " (elems.map (renderExpr signed)).toList
+      "(" ++ inner ++ ")"
 
 private def indent (n : Nat) (s : String) : String :=
   String.ofList (List.replicate n ' ') ++ s

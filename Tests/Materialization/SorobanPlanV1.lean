@@ -524,7 +524,7 @@ unsafe def testArrayNonUInt64ElementFailClosed : IO Unit := do
   expectElFc "ArrayInt64El" "Int64"
   expectElFc "ArrayUInt32El" "UInt32"
 
-/-- Array return stays fail closed (only state flattens). -/
+/-- Array *entry* return stays fail closed (view aggregate is T6). -/
 unsafe def testArrayReturnFailClosed : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -534,10 +534,7 @@ unsafe def testArrayReturnFailClosed : IO Unit := do
     "  state slots : Array UInt64 2\n" ++
     "  init() do\n" ++
     "    slots[0] := 0\n" ++
-    "  entry set0(v : UInt64) : UInt64 do\n" ++
-    "    slots[0] := v\n" ++
-    "    return slots[0]\n" ++
-    "  view get() : Array UInt64 2 do\n" ++
+    "  entry peek() : Array UInt64 2 do\n" ++
     "    return slots\n"
   let parsed ← liftResult (← session.selectProgramV1
     source "<soroban-array-ret>" "Tests.SorobanArrayRet" none)
@@ -1058,6 +1055,113 @@ unsafe def testMaybeMarkFlatten : IO Unit := do
   let files ← liftResult <| buildSoroban compiled
   expect (!files.isEmpty) "MaybeMark must materialize files"
 
+unsafe def testArrViewRet : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrViewRet where\n" ++
+    "  state slots : Array UInt64 2\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
+    "  view peek() : Array UInt64 2 do\n" ++
+    "    return slots\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-arr-view-ret>" "Tests.SorobanArrViewRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  let some v := plan.views[0]? |
+    throw <| IO.userError "ArrViewRet must emit a view"
+  expect (v.resultKind == .aggregate 2)
+    s!"ArrViewRet view must be aggregate 2, got {repr v.resultKind}"
+  liftResult <| Targets.Soroban.validatePlan plan
+  let files ← liftResult <| buildSoroban compiled
+  expect (!files.isEmpty) "ArrViewRet must emit nonempty files"
+  let some rs := files.find? (·.path == "ArrViewRet.rs") |
+    throw <| IO.userError "soroban: missing ArrViewRet.rs"
+  expect (rs.contents.contains "-> (u64, u64)")
+    "ArrViewRet must emit a Rust u64 tuple return"
+
+unsafe def testOptViewRet : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptViewRet where\n" ++
+    "  state o : Option UInt64\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n" ++
+    "  view peek() : Option UInt64 do\n" ++
+    "    return o\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-opt-view-ret>" "Tests.SorobanOptViewRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  let some v := plan.views[0]? |
+    throw <| IO.userError "OptViewRet must emit a view"
+  expect (v.resultKind == .aggregate 2)
+    s!"OptViewRet view must be aggregate 2, got {repr v.resultKind}"
+  liftResult <| Targets.Soroban.validatePlan plan
+  let files ← liftResult <| buildSoroban compiled
+  expect (!files.isEmpty) "OptViewRet must emit nonempty files"
+  let some rs := files.find? (·.path == "OptViewRet.rs") |
+    throw <| IO.userError "soroban: missing OptViewRet.rs"
+  expect (rs.contents.contains "-> (u64, u64)")
+    "OptViewRet must emit a Rust u64 tuple return"
+
+unsafe def testPointViewRet : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PointViewRet where\n" ++
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  state p : Point\n" ++
+    "  init() do\n" ++
+    "    p := Point.new(0, 0)\n" ++
+    "  view getPoint() : Point do\n" ++
+    "    return p\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-point-view-ret>" "Tests.SorobanPointViewRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  let some v := plan.views[0]? |
+    throw <| IO.userError "PointViewRet must emit a view"
+  expect (v.resultKind == .aggregate 2)
+    s!"PointViewRet view must be aggregate 2, got {repr v.resultKind}"
+  liftResult <| Targets.Soroban.validatePlan plan
+  let files ← liftResult <| buildSoroban compiled
+  expect (!files.isEmpty) "PointViewRet must emit nonempty files"
+
+unsafe def testMaybeViewRet : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MaybeViewRet where\n" ++
+    "  enum Maybe where\n" ++
+    "    | None\n" ++
+    "    | Some(UInt64)\n" ++
+    "  state m : Maybe\n" ++
+    "  init() do\n" ++
+    "    m := Maybe.None()\n" ++
+    "  view peek() : Maybe do\n" ++
+    "    return m\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-maybe-view-ret>" "Tests.SorobanMaybeViewRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  let some v := plan.views[0]? |
+    throw <| IO.userError "MaybeViewRet must emit a view"
+  expect (v.resultKind == .aggregate 2)
+    s!"MaybeViewRet view must be aggregate 2, got {repr v.resultKind}"
+  liftResult <| Targets.Soroban.validatePlan plan
+  let files ← liftResult <| buildSoroban compiled
+  expect (!files.isEmpty) "MaybeViewRet must emit nonempty files"
+
 unsafe def run : IO Unit := do
   testStateCellSorobanSource
   testInt64CellSorobanSource
@@ -1092,6 +1196,10 @@ unsafe def run : IO Unit := do
   testPrincipalIdentityLeaves
   testPointBoxFlatten
   testMaybeMarkFlatten
+  testArrViewRet
+  testOptViewRet
+  testPointViewRet
+  testMaybeViewRet
   IO.println "Tests.Materialization.SorobanPlanV1: ok"
 
 end Tests.Materialization.SorobanPlanV1
