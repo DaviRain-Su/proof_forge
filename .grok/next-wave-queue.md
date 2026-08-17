@@ -58,6 +58,7 @@ Goal: lift envelope-4 toward mid-tier (CW/TON/Aleo/Psy), then mid-tier toward th
 | T5-ENV4-NAMED | main | Quint/Soroban/OpenVM/ICP named Struct/Enum leaf flatten (`p_x`/`p_y`; MaybeMark tag+payload). Return stays FC. Soroban `symbol_short` on state leaves only. ICP = extra i64 globals, no Candid `record`/`variant` | **committed** `973d0ae37` |
 | T6-ENV4-VIEW-RET | main | Envelope-4 view-only Array/Option/named leaf return. Quint tuple/`int`; Soroban Rust `(u64,…)`; OpenVM guest N-leaf; ICP Candid positional `(nat64,…)` query (no `record`/`opt`/`vec`). Entry aggregate stays FC | **committed** Quint `00efbb52c` · Soroban `784cc4525` · OpenVM `5b4ed4843` · ICP `f6616698f` |
 | T7-ENV4-ENTRY-RET | main | Envelope-4 entry Array/Option/named leaf return. Same flatten/tuple as T6. ICP Candid positional `(nat64,…)` update (not query; no `record`/`opt`/`vec`). TON stays FC | **committed** Quint `95491026e` · Soroban `bbb4bd2e2` · OpenVM `635c46f7e` · ICP `d166b2991` |
+| T8a-ICP-MAP | main | ICP Map UInt64 cap-8 as 24 i64 globals (occ/key/val mux + cap-8 assert; no Candid map/vec). Int64 Map and Map return stay FC | **committed** ICP `42790c23f` |
 
 **File lock:** workers must not edit `Tests/Materialization/Targets.lean` or another target's tree. `FieldComparison*` is a main-agent serial slice (`FC-PRESERVE`), not a parallel leaf. Main agent integrates WideInt64 / OptInt / ArrInt / MapInt needles after each leaf lands.
 

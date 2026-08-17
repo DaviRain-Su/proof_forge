@@ -5357,9 +5357,9 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "ArrI8" target kind arrI8Compiled
       "only anonymous UInt64/Int64 widths are supported"
 
-  -- MapMini: Map UInt64 UInt64 state. Eleven materializers admit
-  -- (envelope Quint/Soroban/OpenVM flatten is 24 occ/key/val leaves).
-  -- ICP stays Map-pilot (no Candid map). No Plan-shape pins.
+  -- MapMini: Map UInt64 UInt64 state. All twelve materializers admit
+  -- (envelope Quint/Soroban/OpenVM/ICP flatten is 24 occ/key/val leaves;
+  -- ICP = 24 i64 globals, no Candid map/vec). No Plan-shape pins.
   let mapMiniSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -5379,21 +5379,10 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   let mapCompiled ← liftResult <| Compiler.compileValidatedSourceV1 mapV1
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
       TargetId.psy, TargetId.aleo, TargetId.cosmwasm, TargetId.ton,
-      TargetId.quint, TargetId.soroban, TargetId.openvm] do
+      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp] do
     let out ← liftResult <| materializeSelected target mapCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"MapMini: {target} must materialize Map UInt64 UInt64"
-  for target in [TargetId.icp] do
-    match materializeSelected target mapCompiled with
-    | .ok _ =>
-        throw <| IO.userError s!"MapMini: {target} must decline Map state"
-    | .error e =>
-        expect ((e.render).contains "Map" ||
-            (e.render).contains "container" ||
-            (e.render).contains "anonymous" ||
-            (e.render).contains "unsupported" ||
-            (e.render).contains "pilot")
-          s!"MapMini {target} message must cite Map/container boundary, got {e.render}"
 
   -- MapRetBox: Map UInt64 UInt64 *entry* return. NEAR/CW admit. EVM/Solana/
   -- Noir/Aleo/Psy/TON named B-RET FC; Quint names Q0 return; Soroban/

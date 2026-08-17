@@ -3,7 +3,7 @@ id: ENG-BACKLOG
 title: 工程业务 Backlog（文档↔实现差异 + 构建加速）
 status: draft
 owner: engineering
-updated: 2026-08-16
+updated: 2026-08-17
 normative: false
 ---
 
@@ -680,6 +680,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-16 | **T3**：scalar const 内联八 target；Aleo Principal 9-leaf identity（≠address）；envelope-4 Bytes N（N UInt64 低 8 位）。TON/envelope-4 Principal 当时仍 FC |
 | 2026-08-16 | **T4**：TON + 信封-4 Principal 9 叶 identity 存储（`owner_len`+`w0..w7`）。Quint 保留 pf.assets `.principal` 打包；ICP 为 9 extra i64 global、无 Candid `principal`。return / caller / 容器-of-Principal / CAP-D 仍 FC |
 | 2026-08-17 | **T5**：信封-4 存储拉齐。ICP Option UInt64 2 叶（无 Candid `opt`）；Quint/Soroban/OpenVM/ICP named Struct/Enum 叶 flatten（无 Candid `record`/`variant`）。named/Option return、ICP Map、caller、CAP-D 仍 FC |
+| 2026-08-17 | **T8a**：ICP Map UInt64 cap-8 为 24 i64 globals（occ/key/val；Plan `ite`/`bool*` mux + cap-8 assert；无 Candid `map`/`vec`）。Int64-key/value Map 与 Map return 仍 FC |
 | 2026-08-17 | **T7**：信封-4 **entry** 聚合返回。Quint/Soroban/OpenVM/ICP 开 Array UInt64 N / Option UInt64 / named Struct·Enum **entry** 叶返回（与 T6 同构；ICP = Candid 位置元组 update，无 `record`/`opt`/`vec`）。TON 仍 FC（async actor 无返回通道）。PairRetEntry Aleo pin 保留。Principal/Bytes/Map return、caller、CAP-D、formal 仍 FC |
 | 2026-08-17 | **T6**：信封-4 **view** 返回拉齐。Quint/Soroban/OpenVM/ICP 开 Array UInt64 N / Option UInt64 / named Struct·Enum **view** 叶返回（ICP = Candid 位置元组，无 `record`/`opt`/`vec`）。entry 聚合已由 T7 打开；Principal/Bytes/Map return、caller、CAP-D、formal 仍 FC |
 | 2026-08-15 | **MAT-STRUCT-QS**：N3 named Struct PointBox 十二 target 补齐。六 flatten-to-leaf + CW/TON admit；当时 Quint/Soroban/ICP/OpenVM envelope FC。**T5** 已开四家 named Struct 叶 flatten（`p_x`/`p_y`）；named return 仍 FC |

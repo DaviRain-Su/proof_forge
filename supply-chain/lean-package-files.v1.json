@@ -971,9 +971,9 @@
       "sha256": "ae6414f519748f11e58faa54c27f9453391e00f1841444253bbb61141af3f123"
     },
     {
-      "bytes": 25824,
+      "bytes": 27943,
       "path": "ProofForgeV2/Targets/Icp/EmitIRV1.lean",
-      "sha256": "dd65f9539be79110ab86fac9e69b07c20b79b1f25cc59b5e6b2c7d99659b6341"
+      "sha256": "b11612aab12167b907340ce0cc0b27b9887f3920d8d2936637117e8edd7417fb"
     },
     {
       "bytes": 2709,
@@ -981,9 +981,9 @@
       "sha256": "8f63357410c1dcdab76d7f12a5d08ee7aba5bfcf2b593652b3d02eee041cc89d"
     },
     {
-      "bytes": 71319,
+      "bytes": 79705,
       "path": "ProofForgeV2/Targets/Icp/LowerSemanticV1.lean",
-      "sha256": "f95829734a0286b3a4fa5a6774548926389dc1cc6d2c01c373095223868f0e2b"
+      "sha256": "ac9544b03b9d0abdb0fd89448c08f1284ffec0b108b1605ed87902ddb2447b54"
     },
     {
       "bytes": 1533,
@@ -991,9 +991,9 @@
       "sha256": "96383be5447d3c584d8822653ef94b5bcdccb5562a634f72aa957ba9cd15c193"
     },
     {
-      "bytes": 9660,
+      "bytes": 10277,
       "path": "ProofForgeV2/Targets/Icp/ValidatePlanV1.lean",
-      "sha256": "ee56207aeb853cbe45541264e15bccd6760160ef80121140ac144c7c71bbdbc6"
+      "sha256": "176551a75ab501b6923e47e2cc8288bd69ba222ba52b1c41a126e68ddda251ca"
     },
     {
       "bytes": 73990,
