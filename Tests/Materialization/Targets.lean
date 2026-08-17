@@ -4393,10 +4393,10 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"MaybeMark: {target} must materialize named Enum"
 
-  -- MaybeRetBox: named Enum *entry* return. Seven materializers admit.
-  -- TON view-only B-RET FC; Quint/Soroban/OpenVM/ICP stay named-types
-  -- UInt64-pilot FC. Entry peek, not view get (Aleo computed-view).
-  -- Not opening Enum return on the decline set. MaybeMark state pin stays.
+  -- MaybeRetBox: named Enum *entry* return. Eleven materializers admit.
+  -- TON view-only B-RET FC (async actor, no return channel). T7 opens
+  -- Quint/Soroban/OpenVM/ICP entry named Enum leaf return. Entry peek,
+  -- not view get (Aleo computed-view). MaybeMark state pin stays.
   let enumRetSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -4417,19 +4417,13 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     | .error e => throw <| IO.userError s!"MaybeRetBox select: {e.render}"
   let enumRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 enumRetV1
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
-      TargetId.aleo, TargetId.psy, TargetId.cosmwasm] do
+      TargetId.aleo, TargetId.psy, TargetId.cosmwasm,
+      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp] do
     let out ← liftResult <| materializeSelected target enumRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"MaybeRetBox: {target} must materialize named Enum entry return"
   expectMaterializePlanInvariantV1 "MaybeRetBox" TargetId.ton TargetKind.ton
     enumRetCompiled "entry 'peek' cannot return multi-leaf aggregate"
-  for (target, kind) in #[
-      (TargetId.quint, TargetKind.quint),
-      (TargetId.soroban, TargetKind.soroban),
-      (TargetId.openvm, TargetKind.openvm),
-      (TargetId.icp, TargetKind.icp)] do
-    expectMaterializePlanInvariantV1 "MaybeRetBox" target kind enumRetCompiled
-      "named Struct/Enum return"
 
   -- MaybeViewRet: named Enum *view* return. Distinct from MaybeRetBox
   -- entry: TON view-only B-RET admits; Aleo query-descriptor admit
@@ -4536,11 +4530,10 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"ArrayState: {target} must materialize Array UInt64 2"
 
-  -- ArrRetBox: Array UInt64 2 *entry* return. Seven materializers admit.
-  -- TON view-only B-RET FC; Quint/Soroban/OpenVM/ICP stay Array-return FC.
-  -- Entry peek, not view (TON view-only B-RET would conflate).
-  -- Not opening Array return on the decline set. ArrayBox and ArrRetEntry
-  -- Aleo pin stay.
+  -- ArrRetBox: Array UInt64 2 *entry* return. Eleven materializers admit.
+  -- TON view-only B-RET FC (async actor, no return channel). T7 opens
+  -- Quint/Soroban/OpenVM/ICP entry Array leaf return. Entry peek, not
+  -- view. ArrayBox and ArrRetEntry Aleo pin stay.
   let arrRetSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -4559,20 +4552,13 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     | .error e => throw <| IO.userError s!"ArrRetBox select: {e.render}"
   let arrRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 arrRetV1
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
-      TargetId.aleo, TargetId.psy, TargetId.cosmwasm] do
+      TargetId.aleo, TargetId.psy, TargetId.cosmwasm,
+      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp] do
     let out ← liftResult <| materializeSelected target arrRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"ArrRetBox: {target} must materialize Array UInt64 2 entry return"
   expectMaterializePlanInvariantV1 "ArrRetBox" TargetId.ton TargetKind.ton
     arrRetCompiled "entry 'peek' cannot return multi-leaf aggregate"
-  expectMaterializePlanInvariantV1 "ArrRetBox" TargetId.quint TargetKind.quint
-    arrRetCompiled "Array return is outside Q0"
-  expectMaterializePlanInvariantV1 "ArrRetBox" TargetId.icp TargetKind.icp
-    arrRetCompiled "Array return is outside ICP-2"
-  expectMaterializePlanInvariantV1 "ArrRetBox" TargetId.soroban TargetKind.soroban
-    arrRetCompiled "Array return is outside S0"
-  expectMaterializePlanInvariantV1 "ArrRetBox" TargetId.openvm TargetKind.openvm
-    arrRetCompiled "Array return is outside O0"
 
   -- ArrViewRet: Array UInt64 2 *view* return. Distinct from ArrRetBox
   -- entry: TON view-only B-RET admits; Aleo query-descriptor admit
@@ -6600,10 +6586,10 @@ unsafe def runRemainingNeedles : IO Unit := do
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"N-A4 Option: {target} must materialize Option UInt64 state"
 
-  -- OptRetBox: Option UInt64 *entry* return. Seven materializers admit.
-  -- TON view-only B-RET FC; Quint/Soroban/OpenVM name Q0/S0/O0 return.
-  -- ICP stays Option-pilot. Entry peek, not view (TON view-only B-RET
-  -- would conflate). Not opening Option return. OptBox state pin stays.
+  -- OptRetBox: Option UInt64 *entry* return. Eleven materializers admit.
+  -- TON view-only B-RET FC (async actor, no return channel). T7 opens
+  -- Quint/Soroban/OpenVM/ICP entry Option leaf return. Entry peek, not
+  -- view. OptBox state pin stays.
   let optRetSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -6621,20 +6607,13 @@ unsafe def runRemainingNeedles : IO Unit := do
     | .error e => throw <| IO.userError s!"OptRetBox select: {e.render}"
   let optRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 optRetV1
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
-      TargetId.aleo, TargetId.psy, TargetId.cosmwasm] do
+      TargetId.aleo, TargetId.psy, TargetId.cosmwasm,
+      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp] do
     let out ← liftResult <| materializeSelected target optRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"OptRetBox: {target} must materialize Option UInt64 entry return"
   expectMaterializePlanInvariantV1 "OptRetBox" TargetId.ton TargetKind.ton
     optRetCompiled "entry 'peek' cannot return multi-leaf aggregate"
-  expectMaterializePlanInvariantV1 "OptRetBox" TargetId.quint TargetKind.quint
-    optRetCompiled "Option return is outside Q0"
-  expectMaterializePlanInvariantV1 "OptRetBox" TargetId.soroban TargetKind.soroban
-    optRetCompiled "Option return is outside S0"
-  expectMaterializePlanInvariantV1 "OptRetBox" TargetId.openvm TargetKind.openvm
-    optRetCompiled "Option return is outside O0"
-  expectMaterializePlanInvariantV1 "OptRetBox" TargetId.icp TargetKind.icp
-    optRetCompiled "Option return is outside ICP-2"
 
   -- OptViewRet: Option UInt64 *view* return. Distinct from OptRetBox
   -- entry: TON view-only B-RET admits; Aleo query-descriptor admit
