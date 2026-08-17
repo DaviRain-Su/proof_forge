@@ -1058,6 +1058,43 @@ unsafe def testArrViewRet
   expect (!did.contains "variant") "ArrViewRet .did must not emit Candid variant"
   IO.println "  ✓ ArrViewRet view-only Candid positional tuple"
 
+/-- T8b: view-only Bytes 4 return as Candid positional 4-tuple. Entry stays FC. -/
+unsafe def testBytesViewRet
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "BytesRetBox" <|
+    "  state b : Bytes 4\n\n" ++
+    "  init() do\n" ++
+    "    b[0] := 0\n\n" ++
+    "  view get() : Bytes 4 do\n" ++
+    "    return b\n"
+  let compiled ← compileSource session src "Examples.BytesRetBox" "<icp-bytes-view-ret>"
+  let plan ← liftResult <| planIcp compiled
+  let some v := plan.views[0]? |
+    throw <| IO.userError "BytesRetBox must emit a view"
+  expect (v.resultKind == .aggregate 4)
+    s!"BytesRetBox view must be aggregate 4, got {repr v.resultKind}"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"BytesRetBox plan must validate: {e.render}"
+  let files ← liftResult <| filesIcp compiled
+  let did ← findFile files "BytesRetBox.did"
+  let wat ← findFile files "BytesRetBox.wat"
+  expect (did.contains "-> (nat64, nat64, nat64, nat64) query")
+    s!"BytesRetBox .did must be a positional 4-nat64 query, got:\n{did}"
+  expect (!did.contains "vec") "BytesRetBox .did must not emit Candid vec"
+  expect (!wat.contains "vec") "BytesRetBox wat must not emit Candid vec"
+  let entrySrc := wrapProgram "BytesRetEntry" <|
+    "  state b : Bytes 4\n\n" ++
+    "  init() do\n" ++
+    "    b[0] := 0\n\n" ++
+    "  entry peek() : Bytes 4 do\n" ++
+    "    return b\n"
+  let compiledEntry ← compileSource session entrySrc
+    "Examples.BytesRetEntry" "<icp-bytes-entry-ret>"
+  expectPlanErrorContaining "BytesRetEntry" "Bytes return"
+    (planIcp compiledEntry)
+  IO.println "  ✓ BytesRetBox view-only Candid positional 4-tuple"
+
 /-- T6: view-only Option UInt64 return as Candid positional tuple. Entry stays FC. -/
 unsafe def testOptViewRet
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -1296,6 +1333,7 @@ unsafe def run : IO Unit := do
   testArrRetBox session
   testArrayInt64ReturnFailClosed session
   testArrViewRet session
+  testBytesViewRet session
   testOptViewRet session
   testPointViewRet session
   testMaybeViewRet session

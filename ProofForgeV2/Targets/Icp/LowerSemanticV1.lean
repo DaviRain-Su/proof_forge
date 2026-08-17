@@ -532,6 +532,12 @@ private def viewAggregateLeafIsIntV1
         planError
           s!"unsupported ICP semantic shape: Array UInt64 N view return must be 1..8 (got {n})"
       return some (Array.replicate n false)
+  | some { shape := .bytes len, name := none, .. } =>
+      let n := len.toNat
+      unless 1 ≤ n && n ≤ 8 do
+        planError
+          s!"unsupported ICP semantic shape: Bytes N view return must be 1..8 (got {n})"
+      return some (Array.replicate n false)
   | _ =>
       return none
 
@@ -1435,6 +1441,16 @@ private def resultKindOf
   else if isPrincipalType types typeId then
     planError s!"{owner} Principal return is outside ICP-2"
   else if allowViewAggregate then
+    match data.types[typeId.toNat]? with
+    | some { shape := .bytes len, name := none, .. } => do
+        unless owner.startsWith "view " do
+          planError
+            s!"{owner} Bytes return is outside ICP-2 (only Bytes N view flattens; no Candid vec nat8; entry stays fail closed)"
+        let n := len.toNat
+        unless 1 ≤ n && n ≤ 8 do
+          planError s!"{owner} Bytes N return must be 1..8 (got {n})"
+        pure (.aggregate n)
+    | _ =>
     match ← viewAggregateLeafIsIntV1 data.types types typeId with
     | some marks => do
         let n := marks.size
