@@ -692,6 +692,13 @@ def parseSourceOriginJcs (input : String) : Except String SourceOrigin := do
 def sha256Bytes (input : ByteArray) : Digest :=
   { algorithm := .sha256, bytes := ProofForgeV2.Crypto.sha256 input }
 
+/-- Digests minted by the sole production SHA-256 implementation satisfy the
+    common fixed-width invariant without evaluating their input bytes. -/
+theorem validateDigest_sha256Bytes (input : ByteArray) :
+    validateDigest (sha256Bytes input) = .ok () := by
+  simp [validateDigest, sha256Bytes, ProofForgeV2.Crypto.sha256_size]
+  rfl
+
 /-- SHA-256 over `UTF8(domainTag) || 0x00 || payload`. -/
 def domainSeparatedSha256
     (domainTag : String) (payload : ByteArray) : Except String Digest := do

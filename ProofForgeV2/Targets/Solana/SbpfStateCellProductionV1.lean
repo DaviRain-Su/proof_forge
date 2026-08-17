@@ -1,5 +1,7 @@
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Examples.StateCell
+import ProofForgeV2.Semantic.Wire.CodecInvertCallableV1
+import ProofForgeV2.Semantic.Wire.CodecInvertRootV1
 import ProofForgeV2.Source.ValidatedSourceV1
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.EngineeringBuildV1
@@ -1066,6 +1068,195 @@ private theorem stateCellSemanticStructureSuccessV1 :
   · apply exceptUnitSuccessV1
     decide
 
+private theorem stateCellInstructionInversionsV1 :
+    ExactMidOffsetInvertAtV1 encodeInstructionV1 decodeInstructionV1
+        stateCellCallable0Instruction0V1 3 ∧
+      ExactMidOffsetInvertAtV1 encodeInstructionV1 decodeInstructionV1
+        stateCellCallable1Instruction0V1 3 ∧
+      ExactMidOffsetInvertAtV1 encodeInstructionV1 decodeInstructionV1
+        stateCellCallable1Instruction1V1 3 ∧
+      ExactMidOffsetInvertAtV1 encodeInstructionV1 decodeInstructionV1
+        stateCellCallable1Instruction2V1 3 ∧
+      ExactMidOffsetInvertAtV1 encodeInstructionV1 decodeInstructionV1
+        stateCellCallable1Instruction3V1 3 ∧
+      ExactMidOffsetInvertAtV1 encodeInstructionV1 decodeInstructionV1
+        stateCellCallable2Instruction0V1 3 := by
+  rcases stateCellInstructionFieldValuesV1 with
+    ⟨h00Result, h00Op, h10Result, h10Op, h11Result, h11Op,
+      h12Result, h12Op, h13Result, h13Op, h20Result, h20Op⟩
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
+  · apply exactAt_instruction_of_fieldsV1 stateCellCallable0Instruction0V1 3
+      (by decide)
+    · rw [h00Result]
+      exact exactAt_optionValueDefV1 none 4 (by decide)
+    · rw [h00Op]
+      exact exactAt_semanticOp_stateStoreV1 0 0 4 (by decide)
+  · apply exactAt_instruction_of_fieldsV1 stateCellCallable1Instruction0V1 3
+      (by decide)
+    · rw [h10Result]
+      exact exactAt_optionValueDefV1 (some { valueId := 1, typeId := 0 }) 4
+        (by decide)
+    · rw [h10Op]
+      exact exactAt_semanticOp_stateLoadV1 0 4 (by decide)
+  · apply exactAt_instruction_of_fieldsV1 stateCellCallable1Instruction1V1 3
+      (by decide)
+    · rw [h11Result]
+      exact exactAt_optionValueDefV1 (some { valueId := 2, typeId := 0 }) 4
+        (by decide)
+    · rw [h11Op]
+      exact exactAt_semanticOp_binaryAddV1 1 0 4 (by decide) (by decide)
+  · apply exactAt_instruction_of_fieldsV1 stateCellCallable1Instruction2V1 3
+      (by decide)
+    · rw [h12Result]
+      exact exactAt_optionValueDefV1 none 4 (by decide)
+    · rw [h12Op]
+      exact exactAt_semanticOp_stateStoreV1 0 2 4 (by decide)
+  · apply exactAt_instruction_of_fieldsV1 stateCellCallable1Instruction3V1 3
+      (by decide)
+    · rw [h13Result]
+      exact exactAt_optionValueDefV1 (some { valueId := 3, typeId := 0 }) 4
+        (by decide)
+    · rw [h13Op]
+      exact exactAt_semanticOp_stateLoadV1 0 4 (by decide)
+  · apply exactAt_instruction_of_fieldsV1 stateCellCallable2Instruction0V1 3
+      (by decide)
+    · rw [h20Result]
+      exact exactAt_optionValueDefV1 (some { valueId := 0, typeId := 0 }) 4
+        (by decide)
+    · rw [h20Op]
+      exact exactAt_semanticOp_stateLoadV1 0 4 (by decide)
+
+private theorem stateCellBlockInversionsV1 :
+    ExactMidOffsetInvertAtV1 encodeBlockV1 decodeBlockV1
+        stateCellCallable0BlockV1 2 ∧
+      ExactMidOffsetInvertAtV1 encodeBlockV1 decodeBlockV1
+        stateCellCallable1BlockV1 2 ∧
+      ExactMidOffsetInvertAtV1 encodeBlockV1 decodeBlockV1
+        stateCellCallable2BlockV1 2 := by
+  rcases stateCellBlockFieldValuesV1 with
+    ⟨_h0Id, h0Params, h0Terminator, _h1Id, h1Params, h1Terminator,
+      _h2Id, h2Params, h2Terminator⟩
+  rcases stateCellCallableInstructionTablesV1 with
+    ⟨h0Instructions, h1Instructions, h2Instructions⟩
+  rcases stateCellInstructionInversionsV1 with
+    ⟨h00, h10, h11, h12, h13, h20⟩
+  refine ⟨?_, ?_, ?_⟩
+  · apply exactAt_block_of_fieldsV1 stateCellCallable0BlockV1 2 (by decide)
+    · rw [h0Params]
+      exact exactAt_array_emptyV1 encodeBlockParameterV1
+        decodeBlockParameterV1 maxArrayElements 3
+    · rw [h0Instructions]
+      exact exactAt_array_one_of_exactAtV1 encodeInstructionV1
+        decodeInstructionV1 maxArrayElements (by decide)
+        stateCellCallable0Instruction0V1 3 h00
+    · rw [h0Terminator]
+      exact exactAt_terminatorReturnV1 none 3 (by decide)
+  · apply exactAt_block_of_fieldsV1 stateCellCallable1BlockV1 2 (by decide)
+    · rw [h1Params]
+      exact exactAt_array_emptyV1 encodeBlockParameterV1
+        decodeBlockParameterV1 maxArrayElements 3
+    · rw [h1Instructions]
+      exact exactAt_array_four_of_exactAtV1 encodeInstructionV1
+        decodeInstructionV1 maxArrayElements (by decide) (by decide)
+        stateCellCallable1Instruction0V1 stateCellCallable1Instruction1V1
+        stateCellCallable1Instruction2V1 stateCellCallable1Instruction3V1
+        3 h10 h11 h12 h13
+    · rw [h1Terminator]
+      exact exactAt_terminatorReturnV1 (some 3) 3 (by decide)
+  · apply exactAt_block_of_fieldsV1 stateCellCallable2BlockV1 2 (by decide)
+    · rw [h2Params]
+      exact exactAt_array_emptyV1 encodeBlockParameterV1
+        decodeBlockParameterV1 maxArrayElements 3
+    · rw [h2Instructions]
+      exact exactAt_array_one_of_exactAtV1 encodeInstructionV1
+        decodeInstructionV1 maxArrayElements (by decide)
+        stateCellCallable2Instruction0V1 3 h20
+    · rw [h2Terminator]
+      exact exactAt_terminatorReturnV1 (some 0) 3 (by decide)
+
+private theorem stateCellCallableInversionsV1 :
+    ExactMidOffsetInvertAtV1 encodeCallableV1 decodeCallableV1
+        stateCellCallable0V1 1 ∧
+      ExactMidOffsetInvertAtV1 encodeCallableV1 decodeCallableV1
+        stateCellCallable1V1 1 ∧
+      ExactMidOffsetInvertAtV1 encodeCallableV1 decodeCallableV1
+        stateCellCallable2V1 1 := by
+  rcases stateCellCallableFieldValuesV1 with
+    ⟨_h0Id, h0Kind, h0Name, h0Params, h0Parameter, h0Result, _h0Entry,
+      h0Loops, h0Steps, _h1Id, h1Kind, h1Name, h1Params, h1Parameter,
+      h1Result, _h1Entry, h1Loops, h1Steps, _h2Id, h2Kind, h2Name,
+      h2Params, h2Result, _h2Entry, h2Loops, h2Steps⟩
+  rcases stateCellCallableBlockTablesV1 with ⟨h0Blocks, h1Blocks, h2Blocks⟩
+  rcases stateCellBlockInversionsV1 with ⟨h0Block, h1Block, h2Block⟩
+  refine ⟨?_, ?_, ?_⟩
+  · apply exactAt_callable_of_fieldsV1 stateCellCallable0V1 1 (by decide)
+    · rw [h0Kind]
+      exact exactAt_callableKindV1 .initializer 2 (by decide)
+    · rw [h0Name]
+      exact exactAt_option_noneV1 encodeString decodeString 2
+    · rw [h0Params]
+      apply exactAt_array_one_of_exactAtV1 encodeParameterV1 decodeParameterV1
+        maxArrayElements (by decide) stateCellCallable0Parameter0V1 2
+      rw [h0Parameter]
+      exact exactAt_parameter_publicV1 0 0 "initial" (by rfl) 2 (by decide)
+    · rw [h0Result]
+      exact exactAt_callableResultV1
+        ({ typeId := 1, visibility := .public_ } : CallableResultV1) 2
+        (by decide) (by decide)
+    · rw [h0Blocks]
+      exact exactAt_array_one_of_exactAtV1 encodeBlockV1 decodeBlockV1
+        maxArrayElements (by decide) stateCellCallable0BlockV1 2 h0Block
+    · rw [h0Loops]
+      exact exactAt_array_emptyV1 encodeLoopBoundV1 decodeLoopBoundV1
+        maxArrayElements 2
+    · rw [h0Steps]
+      exact exactAt_option_noneV1
+        (fun value : UInt64 => pure (encodeU64le value)) decodeU64le 2
+  · apply exactAt_callable_of_fieldsV1 stateCellCallable1V1 1 (by decide)
+    · rw [h1Kind]
+      exact exactAt_callableKindV1 .entry 2 (by decide)
+    · rw [h1Name]
+      exact exactAt_optionString_some_identifierV1 "increment" (by rfl) 2
+    · rw [h1Params]
+      apply exactAt_array_one_of_exactAtV1 encodeParameterV1 decodeParameterV1
+        maxArrayElements (by decide) stateCellCallable1Parameter0V1 2
+      rw [h1Parameter]
+      exact exactAt_parameter_publicV1 0 0 "delta" (by rfl) 2 (by decide)
+    · rw [h1Result]
+      exact exactAt_callableResultV1
+        ({ typeId := 0, visibility := .public_ } : CallableResultV1) 2
+        (by decide) (by decide)
+    · rw [h1Blocks]
+      exact exactAt_array_one_of_exactAtV1 encodeBlockV1 decodeBlockV1
+        maxArrayElements (by decide) stateCellCallable1BlockV1 2 h1Block
+    · rw [h1Loops]
+      exact exactAt_array_emptyV1 encodeLoopBoundV1 decodeLoopBoundV1
+        maxArrayElements 2
+    · rw [h1Steps]
+      exact exactAt_option_noneV1
+        (fun value : UInt64 => pure (encodeU64le value)) decodeU64le 2
+  · apply exactAt_callable_of_fieldsV1 stateCellCallable2V1 1 (by decide)
+    · rw [h2Kind]
+      exact exactAt_callableKindV1 .view 2 (by decide)
+    · rw [h2Name]
+      exact exactAt_optionString_some_identifierV1 "get" (by rfl) 2
+    · rw [h2Params]
+      exact exactAt_array_emptyV1 encodeParameterV1 decodeParameterV1
+        maxArrayElements 2
+    · rw [h2Result]
+      exact exactAt_callableResultV1
+        ({ typeId := 0, visibility := .public_ } : CallableResultV1) 2
+        (by decide) (by decide)
+    · rw [h2Blocks]
+      exact exactAt_array_one_of_exactAtV1 encodeBlockV1 decodeBlockV1
+        maxArrayElements (by decide) stateCellCallable2BlockV1 2 h2Block
+    · rw [h2Loops]
+      exact exactAt_array_emptyV1 encodeLoopBoundV1 decodeLoopBoundV1
+        maxArrayElements 2
+    · rw [h2Steps]
+      exact exactAt_option_noneV1
+        (fun value : UInt64 => pure (encodeU64le value)) decodeU64le 2
+
 /-- Source-derived qualified-name topology. The equation observes the output of
     the sole production identity lowerer; it is not a supplied Semantic AST. -/
 private theorem stateCellQualifiedNameComponentsV1 :
@@ -2023,6 +2214,140 @@ private theorem stateCellRequirementsEncodingV1 :
 
 set_option maxHeartbeats 10000000 in
 set_option maxRecDepth 100000 in
+private theorem stateCellRootFieldInvertV1 :
+    RootFieldInvertV1 stateCellSemanticProgramDataV1 := by
+  rcases stateCellTypeValuesV1 with ⟨htype0, htype1⟩
+  rcases stateCellEmptySemanticTablesV1 with
+    ⟨hconstants, hevents, herrors, hinvariants⟩
+  rcases stateCellCallableInversionsV1 with
+    ⟨hcallable0, hcallable1, hcallable2⟩
+  rcases stateCellRequirementFieldValuesV1 with
+    ⟨hid0, hversion0, hdigest0, hpredicates0, hid1, hversion1, hdigest1,
+      hpredicates1, hid2, hversion2, hdigest2, hpredicates2⟩
+  have hrequest0 : stateCellRequirement0V1 = {
+      id := "failure.atomic-rollback"
+      version := s2RequirementVersionV1
+      digest := {
+        algorithm := .sha256
+        bytes := s2FailureAtomicRollbackDigestBytesV1
+      }
+      predicates := #[]
+    } := by
+    cases hrequest : stateCellRequirement0V1 with
+    | mk id version digest predicates =>
+        simp only [hrequest] at hid0 hversion0 hdigest0 hpredicates0
+        simp only [hid0, hversion0, hdigest0, hpredicates0]
+  have hrequest1 : stateCellRequirement1V1 = {
+      id := "state.persistent"
+      version := s2RequirementVersionV1
+      digest := {
+        algorithm := .sha256
+        bytes := s2StatePersistentDigestBytesV1
+      }
+      predicates := #[]
+    } := by
+    cases hrequest : stateCellRequirement1V1 with
+    | mk id version digest predicates =>
+        simp only [hrequest] at hid1 hversion1 hdigest1 hpredicates1
+        simp only [hid1, hversion1, hdigest1, hpredicates1]
+  have hrequest2 : stateCellRequirement2V1 = {
+      id := "value.checked-arithmetic"
+      version := s2RequirementVersionV1
+      digest := {
+        algorithm := .sha256
+        bytes := s2ValueCheckedArithmeticDigestBytesV1
+      }
+      predicates := #[]
+    } := by
+    cases hrequest : stateCellRequirement2V1 with
+    | mk id version digest predicates =>
+        simp only [hrequest] at hid2 hversion2 hdigest2 hpredicates2
+        simp only [hid2, hversion2, hdigest2, hpredicates2]
+  constructor
+  · exact ExactMidOffsetInvertAtV1.ofExact
+      (exactMidOffsetInvert_qualifiedName
+        stateCellSemanticProgramDataV1.qualifiedName) (by decide)
+  · rw [stateCellTypesV1, htype0, htype1]
+    exact exactAt_array_two_of_exactAtV1 encodeTypeDeclV1 decodeTypeDeclV1
+      maxTableElements (by decide) (by decide)
+      ({ id := 0, name := none, shape := .uint 64 } : TypeDeclV1)
+      ({ id := 1, name := none, shape := .unit } : TypeDeclV1) 1
+      (exactAt_typeDecl_uint_noneV1 0 64 1 (by decide))
+      (exactAt_typeDecl_unit_noneV1 1 1 (by decide))
+  · rw [hconstants]
+    exact exactAt_array_emptyV1 encodeConstantV1 decodeConstantV1
+      maxTableElements 1
+  · rw [stateCellLogicalStateV1]
+    apply exactAt_array_one_of_exactAtV1 encodeStateDeclV1 decodeStateDeclV1
+      maxTableElements (by decide) stateCellState0V1 1
+    rw [stateCellState0ValueV1]
+    exact exactAt_stateDecl_publicV1 0 0 "count" (by rfl) 1 (by decide)
+  · rw [hevents]
+    exact exactAt_array_emptyV1 encodeEventDeclV1 decodeEventDeclV1
+      maxTableElements 1
+  · rw [herrors]
+    exact exactAt_array_emptyV1 encodeErrorDeclV1 decodeErrorDeclV1
+      maxTableElements 1
+  · rw [stateCellCallablesV1]
+    exact exactAt_array_three_of_exactAtV1 encodeCallableV1 decodeCallableV1
+      maxTableElements (by decide) stateCellCallable0V1 stateCellCallable1V1
+      stateCellCallable2V1 1 hcallable0 hcallable1 hcallable2
+  · rw [hinvariants]
+    exact exactAt_array_emptyV1 encodeInvariantDeclV1 decodeInvariantDeclV1
+      maxTableElements 1
+  · apply exactAt_programRequirements_of_itemsV1
+      stateCellSemanticProgramDataV1.requirements 1 (by decide)
+    rw [stateCellRequirementItemsV1, hrequest0, hrequest1, hrequest2]
+    exact exactAt_array_three_of_exactAtV1 encodeRequirementRequestV1
+      decodeRequirementRequestV1 maxArrayElements (by decide)
+      ({
+        id := "failure.atomic-rollback"
+        version := s2RequirementVersionV1
+        digest := {
+          algorithm := .sha256
+          bytes := s2FailureAtomicRollbackDigestBytesV1
+        }
+        predicates := #[]
+      } : RequirementRequestV1)
+      ({
+        id := "state.persistent"
+        version := s2RequirementVersionV1
+        digest := {
+          algorithm := .sha256
+          bytes := s2StatePersistentDigestBytesV1
+        }
+        predicates := #[]
+      } : RequirementRequestV1)
+      ({
+        id := "value.checked-arithmetic"
+        version := s2RequirementVersionV1
+        digest := {
+          algorithm := .sha256
+          bytes := s2ValueCheckedArithmeticDigestBytesV1
+        }
+        predicates := #[]
+      } : RequirementRequestV1)
+      2
+      (ExactMidOffsetInvertAtV1.ofExact
+        (exactMidOffsetInvert_requirementRequest_emptyPredicates
+          "failure.atomic-rollback" s2RequirementVersionV1
+          { algorithm := .sha256,
+            bytes := s2FailureAtomicRollbackDigestBytesV1 }
+          scalarMidOffsetInvert_semVer_s2RequirementVersion) (by decide))
+      (ExactMidOffsetInvertAtV1.ofExact
+        (exactMidOffsetInvert_requirementRequest_emptyPredicates
+          "state.persistent" s2RequirementVersionV1
+          { algorithm := .sha256, bytes := s2StatePersistentDigestBytesV1 }
+          scalarMidOffsetInvert_semVer_s2RequirementVersion) (by decide))
+      (ExactMidOffsetInvertAtV1.ofExact
+        (exactMidOffsetInvert_requirementRequest_emptyPredicates
+          "value.checked-arithmetic" s2RequirementVersionV1
+          { algorithm := .sha256,
+            bytes := s2ValueCheckedArithmeticDigestBytesV1 }
+          scalarMidOffsetInvert_semVer_s2RequirementVersion) (by decide))
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
 private theorem stateCellRootEncodingGatesV1 :
     validateProgramQualifiedNameShapeV1
         stateCellSemanticProgramDataV1.qualifiedName = .ok () ∧
@@ -2132,6 +2457,89 @@ theorem stateCellCanonicalCarrierCertificateV1 :
     stateCellSemanticProgramDataV1 carrier
     (stateCellTypedCheckSuccessV1 binding)
     (stateCellProgramLoweringSuccessV1 binding) hcarrier
+
+/-- The exact StateCell carrier round-trips through the sole production decoder
+    and explicit structure gate. The inverse is assembled from reusable field
+    codec certificates rather than evaluating or copying the root bytes. -/
+theorem stateCellSemanticValidationSuccessV1 :
+    ∃ bytes,
+      encodeSemanticProgramDataV1 stateCellSemanticProgramDataV1 = .ok bytes ∧
+        validateSemanticProgramV1 ⟨bytes⟩ =
+          .ok stateCellSemanticProgramDataV1 := by
+  rcases stateCellSemanticEncodingSuccessV1 with ⟨bytes, hencode, _hsize⟩
+  have hdecode :
+      decodeSemanticProgramDataV1 bytes = .ok stateCellSemanticProgramDataV1 :=
+    decodeSemanticProgramDataV1_of_encode_ok_of_rootFieldInvert
+      stateCellSemanticProgramDataV1 bytes hencode stateCellRootFieldInvertV1
+  exact ⟨bytes, hencode,
+    validateSemanticProgramV1_eq_ok_of_encode_decode
+      stateCellSemanticProgramDataV1 bytes hencode hdecode⟩
+
+/- Unconditional source-to-`CompiledSemanticV1` identity certificate for the
+    real exported StateCell declaration. Source and semantic digests remain
+    exact symbolic results of the sole production SHA-256 implementation; no
+    concrete digest or alternate compiler is supplied. -/
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+theorem stateCellCompiledSemanticCertificateV1 :
+    ∃ (binding : CanonicalSourceBindingV1
+          StateCell.Source.subjectV1 StateCell.bytes)
+      (carrier : SemanticProgramV1)
+      (compiled : CompiledSemanticV1),
+      bindElaboratedSourceToCanonicalBytesV1
+          StateCell.Source.subjectV1 StateCell.bytes = .ok binding ∧
+        normalizeProgramV1 binding.validated = .ok carrier ∧
+        compileValidatedSourceV1 binding.validated = .ok compiled ∧
+        CompiledSemanticV1.semanticV1Of compiled = carrier ∧
+        CompiledSemanticV1.artifactProgramNameOf compiled = "StateCell" ∧
+        CompiledSemanticV1.sourceDigestOf compiled = sha256Bytes
+          (("pf.source.v1".toUTF8.push 0).append StateCell.bytes) ∧
+        CompiledSemanticV1.semanticDigestOf compiled =
+          sha256Bytes carrier.canonicalBytes := by
+  rcases stateCellCanonicalSourceBindingV1 with ⟨binding, hbinding⟩
+  rcases stateCellSemanticValidationSuccessV1 with
+    ⟨bytes, hencode, hvalidate⟩
+  let carrier : SemanticProgramV1 := ⟨bytes⟩
+  have hcarrier : encodeCarrierV1 stateCellSemanticProgramDataV1 = .ok carrier := by
+    simpa only [carrier] using encodeCarrierV1_eq_ok_of_encode
+      stateCellSemanticProgramDataV1 bytes hencode
+  have hnormalize : normalizeProgramV1 binding.validated = .ok carrier :=
+    normalizeProgramV1_eq_ok_of_stages binding.validated
+      stateCellSemanticProgramDataV1 carrier
+      (stateCellTypedCheckSuccessV1 binding)
+      (stateCellProgramLoweringSuccessV1 binding) hcarrier
+  have hvalidateCarrier :
+      validateSemanticProgramV1 carrier = .ok stateCellSemanticProgramDataV1 := by
+    simpa only [carrier] using hvalidate
+  have hname :
+      (stateCellSemanticProgramDataV1.qualifiedName.components.toArray.back! ==
+        ProofForgeV2.Source.NameComponentV1.SourceNameComponentV1.raw
+          binding.validated.program.name) = true := by
+    rw [binding.program_eq]
+    rfl
+  let sourceDigest := sha256Bytes
+    (("pf.source.v1".toUTF8.push 0).append StateCell.bytes)
+  have hsourceHash : sourceHashV1 binding.validated = .ok sourceDigest := by
+    simp only [sourceHashV1, binding.canonicalBytes_eq, domainSeparatedSha256,
+      show validateProfileIdValue "pf.source.v1" = .ok () by rfl,
+      Bind.bind, Pure.pure, Except.bind, Except.pure, sourceDigest]
+  let semanticDigest := sha256Bytes bytes
+  have hsemanticHash : semanticHashV1 carrier = .ok semanticDigest := by
+    simp only [semanticHashV1, hvalidateCarrier, Bind.bind, Pure.pure,
+      Except.bind, Except.pure, semanticDigest, carrier]
+  rcases compileValidatedSourceV1_eq_ok_of_stages binding.validated carrier
+      stateCellSemanticProgramDataV1 sourceDigest semanticDigest hnormalize
+      hvalidateCarrier hname hsourceHash hsemanticHash
+      (validateDigest_sha256Bytes
+        (("pf.source.v1".toUTF8.push 0).append StateCell.bytes))
+      (validateDigest_sha256Bytes bytes) with
+    ⟨compiled, hcompile, hcompiledCarrier, hcompiledName,
+      hcompiledSource, hcompiledSemantic⟩
+  refine ⟨binding, carrier, compiled, hbinding, hnormalize, hcompile,
+    hcompiledCarrier, ?_, ?_, ?_⟩
+  · exact hcompiledName.trans (by rfl)
+  · simpa only [sourceDigest] using hcompiledSource
+  · simpa only [semanticDigest, carrier] using hcompiledSemantic
 
 /-- The concrete values consumed by the existing certified StateCell `get`
     HandlerIR/provider join. The private constructor prevents callers from

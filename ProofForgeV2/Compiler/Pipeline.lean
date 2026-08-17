@@ -214,4 +214,37 @@ def compileValidatedSourceV1 (source : ValidatedSourceV1) :
   | .error error => .error (compileErrorFromNormalizeV1 error)
   | .ok carrier => finishCompiledSemanticV1 source carrier
 
+/-- Compose exact successful production stages through the sole
+    `CompiledSemanticV1` mint. Hash values remain outputs of the existing source
+    and semantic hash authorities; this theorem neither evaluates them with a
+    second implementation nor exposes the private constructor. -/
+theorem compileValidatedSourceV1_eq_ok_of_stages
+    (source : ValidatedSourceV1)
+    (carrier : SemanticProgramV1)
+    (data : SemanticProgramDataV1)
+    (sourceDigest semanticDigest : Digest)
+    (hnormalize : normalizeProgramV1 source = .ok carrier)
+    (hvalidate : validateSemanticProgramV1 carrier = .ok data)
+    (hname :
+      (data.qualifiedName.components.toArray.back! ==
+        ProofForgeV2.Source.NameComponentV1.SourceNameComponentV1.raw
+          source.program.name) = true)
+    (hsourceHash : sourceHashV1 source = .ok sourceDigest)
+    (hsemanticHash : semanticHashV1 carrier = .ok semanticDigest)
+    (hsourceDigest : validateDigest sourceDigest = .ok ())
+    (hsemanticDigest : validateDigest semanticDigest = .ok ()) :
+    ∃ compiled,
+      compileValidatedSourceV1 source = .ok compiled ∧
+        CompiledSemanticV1.semanticV1Of compiled = carrier ∧
+        CompiledSemanticV1.artifactProgramNameOf compiled =
+          data.qualifiedName.components.toArray.back! ∧
+        CompiledSemanticV1.sourceDigestOf compiled = sourceDigest ∧
+        CompiledSemanticV1.semanticDigestOf compiled = semanticDigest := by
+  let compiled := CompiledSemanticV1.mk carrier
+    data.qualifiedName.components.toArray.back! sourceDigest semanticDigest
+  refine ⟨compiled, ?_, rfl, rfl, rfl, rfl⟩
+  simp only [compileValidatedSourceV1, hnormalize, finishCompiledSemanticV1,
+    hvalidate, hname, hsourceHash, hsemanticHash, hsourceDigest, hsemanticDigest,
+    ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, compiled]
+
 end ProofForgeV2.Compiler

@@ -180,6 +180,11 @@ def sha256StateDigest (state : Sha256State) : ByteArray :=
       state[6]!)
     state[7]!
 
+/-- SHA-256's production state renderer always emits eight 32-bit words. -/
+theorem sha256StateDigest_size (state : Sha256State) :
+    (sha256StateDigest state).size = 32 := by
+  simp [sha256StateDigest, appendUInt32BE]
+
 private def compressChunks (bytes : ByteArray) :
     Nat → Nat → Sha256State → Sha256State
   | 0, _, state => state
@@ -193,6 +198,10 @@ def sha256 (input : ByteArray) : ByteArray :=
   let padded := sha256PaddedBytes input
   let state := compressChunks padded (padded.size / 64) 0 sha256InitialState
   sha256StateDigest state
+
+/-- Production SHA-256 always returns the fixed 32-byte digest width. -/
+theorem sha256_size (input : ByteArray) : (sha256 input).size = 32 := by
+  simp only [sha256, sha256StateDigest_size]
 
 private def hexDigit (value : Nat) : Char :=
   if value < 10 then Char.ofNat (48 + value) else Char.ofNat (87 + value)
