@@ -1566,9 +1566,9 @@
       "sha256": "18dfc798fce467b7f000c95e45a1c4875448a886d825eeacb0a94dd38d104502"
     },
     {
-      "bytes": 21833,
+      "bytes": 22215,
       "path": "ProofForgeV2/Targets/Xrpl/EmitIRV1.lean",
-      "sha256": "be2870a50c70bfc8ef94e8d5113d17b6a21a5b38fc49fa4f67c4ec9d79979269"
+      "sha256": "ee359d91261683f021a95c5fa9911670833ff28b6a1e1584ae77b83d03cd4f57"
     },
     {
       "bytes": 10556,
@@ -1576,9 +1576,9 @@
       "sha256": "d4ea55fe36b2179ae76469391e24674b983b3df24b280f473d51c910e4654424"
     },
     {
-      "bytes": 87050,
+      "bytes": 100996,
       "path": "ProofForgeV2/Targets/Xrpl/LowerSemanticV1.lean",
-      "sha256": "45cef6b69af07cb1087af1507320041f8fbd3b77dc780fb475ac3712c46195d1"
+      "sha256": "c804550aa9ae715f46d514df079be3eccc9ef60dd5ff3c314a15a1332e4333ee"
     },
     {
       "bytes": 1281,
@@ -1586,9 +1586,9 @@
       "sha256": "ef11f9b8238320f8253726dbd2fbdec526f91fe2606f6ed0677bbcb94606309e"
     },
     {
-      "bytes": 15124,
+      "bytes": 15879,
       "path": "ProofForgeV2/Targets/Xrpl/ValidatePlanV1.lean",
-      "sha256": "cb14c84253dc4b9efbf74c2695e315da30e514216fd936a8a2b05b62dd923e26"
+      "sha256": "5af703e33106679a919333b5a55057718c6fdbadbf8eb3c7b42bc48b1bc6c550"
     },
     {
       "bytes": 7956,

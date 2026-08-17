@@ -97,6 +97,18 @@ private partial def inferExprType
       unless operandTy == .bool do
         planError s!"XRPL plan {what} logical-not operand must be Bool"
       pure (.bool, remaining)
+  | .ite cond thenExpr elseExpr => do
+      let (condTy, remaining) ←
+        inferExprType cond what paramCount stateCount remaining
+      let (thenTy, remaining) ←
+        inferExprType thenExpr what paramCount stateCount remaining
+      let (elseTy, remaining) ←
+        inferExprType elseExpr what paramCount stateCount remaining
+      unless condTy == .bool do
+        planError s!"XRPL plan {what} ite condition must be Bool"
+      unless thenTy == elseTy do
+        planError s!"XRPL plan {what} ite branches must share a type"
+      pure (thenTy, remaining)
 
 private def validateExpr
     (e : Expr) (expected : ExprType) (what : String)
@@ -125,6 +137,10 @@ private def validateExpr
         stack := stack.push (lhs, depth + 1)
     | .boolNot operand =>
         stack := stack.push (operand, depth + 1)
+    | .ite cond thenExpr elseExpr =>
+        stack := stack.push (elseExpr, depth + 1)
+        stack := stack.push (thenExpr, depth + 1)
+        stack := stack.push (cond, depth + 1)
   let (actual, _) ← inferExprType e what paramCount stateCount maxExprNodes
   unless actual == expected do
     planError s!"XRPL plan {what} expression type does not match its use site"

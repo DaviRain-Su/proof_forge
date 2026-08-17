@@ -15,10 +15,11 @@ matching scaffold-xrp Counter shape (`xrpl_wasm_std`, `get_data`/`set_data`,
 and Array UInt64 N flatten to N UInt64 low-8/`get_data` leaves (`name_0`…);
 UInt64/Bool `Op.Constant` inline; T3–T9 language face (Bytes/Principal/named
 flatten, view/entry leaf tuples, `emitRegion` if/`switchOn`/counted
-`forLoop`); pureFn inline (depth ≤ 64); checked `+`/`-`/`*`/`/`/`%`;
-bare assert; zero-payload declared revert. No Int64, Map/Option, Field,
-events, call/schedule, ContextRead, Commit, invariants, Escrow/Vault,
-Hooks, or EVM sidechain.
+`forLoop`); Option UInt64 2-leaf (`name_tag`/`name_p0`) and Map UInt64
+cap-8 (24 occ/key/val leaves); pureFn inline (depth ≤ 64); checked
+`+`/`-`/`*`/`/`/`%`; bare assert; zero-payload declared revert. No Int64,
+Field, events, call/schedule, ContextRead, Commit, invariants,
+Escrow/Vault, Hooks, or EVM sidechain.
 
 Failure codes (first failure wins at emission):
   overflow=1, underflow=2, divByZero=3, assertion=4,
@@ -103,15 +104,19 @@ inductive Expr where
   | boolAnd (lhs rhs : Expr)
   | boolOr (lhs rhs : Expr)
   | boolNot (operand : Expr)
+  /-- Dense Map mux (and Option tag from Bool). Cond is Bool; arms share a type. -/
+  | ite (cond thenExpr elseExpr : Expr)
   deriving BEq, Inhabited, Repr
 
 structure TypedExpr where
   ty : ExprType
   expr : Expr
   expandedNodes : Nat
-  /-- Empty = scalar. Nonempty = Array/Bytes/Principal/named flatten leaves. -/
+  /-- Empty = scalar. Nonempty = Array/Bytes/Principal/named/Option/Map leaves. -/
   leaves : Array Expr := #[]
   isNamed : Bool := false
+  isOption : Bool := false
+  isMap : Bool := false
   deriving BEq, Inhabited, Repr
 
 structure Check where
@@ -187,7 +192,7 @@ structure Plan where
 
 -- ---------------------------------------------------------------------------
 -- Type closure (UInt64/Bool/Unit + UInt32 index + UInt8 Bytes element +
--- Array UInt64 N / Bytes N flatten; Map/Option/named/Principal stay FC)
+-- Array/Bytes/Option/Map flatten + named/Principal)
 -- ---------------------------------------------------------------------------
 
 private def xrplTypeClosureWording : PilotTypeClosureWording where
@@ -196,7 +201,7 @@ private def xrplTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt64/UInt32/UInt8 widths are supported"
   unsupportedShapeDetail :=
-    "only anonymous UInt64, UInt32 (index), UInt8 (Bytes element), Bool, Unit, Array UInt64 N, Bytes N (N UInt64 low-8 leaves, N in 1..8), Principal 9-leaf identity (len+w0..w7, not an XRPL AccountID), and named Struct/Enum UInt64 leaf flatten are supported (Int64/narrow Int/Field/Map/Option/String stay fail closed)"
+    "only anonymous UInt64, UInt32 (index), UInt8 (Bytes element), Bool, Unit, Array UInt64 N, Bytes N (N UInt64 low-8 leaves, N in 1..8), Option UInt64 2-leaf, Map UInt64 UInt64 cap-8, Principal 9-leaf identity (len+w0..w7, not an XRPL AccountID), and named Struct/Enum UInt64 leaf flatten are supported (Int64/narrow Int/Field/String stay fail closed)"
 
 private def pilotUintWidthPolicyU64U32U8 : PilotUintWidthPolicy where
   admittedWidths := #[64, 32, 8]
@@ -211,7 +216,7 @@ private def validateXrplTypeClosureV1
     (fieldPolicy := pilotFieldPolicyNone)
     (principalPolicy := pilotPrincipalPolicyAdmit)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
-    (containerPolicy := pilotContainerStatePolicyArrayBytes)
+    (containerPolicy := pilotContainerStatePolicyArrayMapBytes)
 
 private def maxIdentifierBytes : Nat := 200
 private def maxPureInlineDepth : Nat := 64
@@ -263,6 +268,12 @@ private def principalDataWordCountV1 : Nat := 8
 private def principalMaxPayloadBytesV1 : Nat := 64
 private def principalLeafCountV1 : Nat := 1 + principalDataWordCountV1
 
+/-- Dense Map UInt64 UInt64 pilot: cap-8 × (occ, key, val) = 24 UInt64 leaves. -/
+private def mapPilotCapacityV1 : Nat := 8
+private def mapSlotsPerEntryV1 : Nat := 3
+private def mapPilotLeafCountV1 : Nat :=
+  mapPilotCapacityV1 * mapSlotsPerEntryV1
+
 private def flattenPrincipalLeafNamesV1 (namePrefix : String) :
     CompileResult (Array String) := do
   let lenName :=
@@ -309,7 +320,7 @@ private def decodePrincipalLiteralLeavesV1 (bytes : ByteArray) :
   pure leaves
 
 private def isArrayValue (v : TypedExpr) : Bool :=
-  !v.leaves.isEmpty && v.ty != .principal && !v.isNamed
+  !v.leaves.isEmpty && v.ty != .principal && !v.isNamed && !v.isOption && !v.isMap
 
 private def isPrincipalValue (v : TypedExpr) : Bool :=
   v.ty == .principal && v.leaves.size == principalLeafCountV1
@@ -317,11 +328,31 @@ private def isPrincipalValue (v : TypedExpr) : Bool :=
 private def isNamedValue (v : TypedExpr) : Bool :=
   v.isNamed && !v.leaves.isEmpty
 
+private def isOptionValue (v : TypedExpr) : Bool :=
+  v.isOption && v.leaves.size == 2
+
+private def isMapValue (v : TypedExpr) : Bool :=
+  v.isMap && v.leaves.size == mapPilotLeafCountV1
+
 private def mkArrayLeaves (leaves : Array Expr) : TypedExpr :=
   { ty := .uint64
     expr := leaves[0]?.getD (.litU64 0)
     expandedNodes := leaves.size
     leaves }
+
+private def mkOptionLeaves (leaves : Array Expr) : TypedExpr :=
+  { ty := .uint64
+    expr := leaves[0]?.getD (.litU64 0)
+    expandedNodes := leaves.size
+    leaves
+    isOption := true }
+
+private def mkMapLeaves (leaves : Array Expr) : TypedExpr :=
+  { ty := .uint64
+    expr := leaves[0]?.getD (.litU64 0)
+    expandedNodes := leaves.size
+    leaves
+    isMap := true }
 
 private def mkPrincipalLeaves (leaves : Array Expr) : TypedExpr :=
   { ty := .principal
@@ -335,6 +366,117 @@ private def mkNamedLeaves (leaves : Array Expr) : TypedExpr :=
     expandedNodes := leaves.size
     leaves
     isNamed := true }
+
+/-- True when `typeId` is an anonymous Option TypeDecl. Option is never
+    pushed to `containerTypeIds`; state planning owns the 2-leaf layout. -/
+private def isAnonymousOptionTypeIdV1
+    (typeDecls : Array TypeDeclV1) (typeId : TypeIdV1) : Bool :=
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .option _, name := none, .. } => true
+  | _ => false
+
+private def isAnonymousMapTypeIdV1
+    (typeDecls : Array TypeDeclV1) (typeId : TypeIdV1) : Bool :=
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .map _ _, name := none, .. } => true
+  | _ => false
+
+/-- Admit only anonymous `Map UInt64 UInt64` for the dense cap-8 pilot. -/
+private def requireMapUInt64V1
+    (typeDecls : Array TypeDeclV1) (types : XrplTypeClosureV1)
+    (typeId : TypeIdV1) : CompileResult Unit := do
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .map keyTid valTid, name := none, .. } =>
+      unless isUInt64Type types keyTid && isUInt64Type types valTid do
+        planError
+          "unsupported XRPL semantic shape: Map state admits only Map UInt64 UInt64"
+  | _ =>
+      planError
+        "unsupported XRPL semantic shape: Map state admits only Map UInt64 UInt64"
+
+/-- Dense Map IndexGet → Option UInt64 as `[tag, payload]`. -/
+private def mapLookupOptionLeavesV1
+    (mapLeaves : Array Expr) (key : Expr) : CompileResult (Array Expr) := do
+  unless mapLeaves.size == mapPilotLeafCountV1 do
+    planError
+      "unsupported XRPL semantic shape: Map leaf count must match pilot capacity"
+  let mut found : Expr := .litBool false
+  let mut payload : Expr := .litU64 0
+  for e in [0:mapPilotCapacityV1] do
+    let base := e * mapSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      planError "unsupported XRPL semantic shape: Map lookup occ leaf missing"
+    let some k := mapLeaves[base + 1]? |
+      planError "unsupported XRPL semantic shape: Map lookup key leaf missing"
+    let some v := mapLeaves[base + 2]? |
+      planError "unsupported XRPL semantic shape: Map lookup val leaf missing"
+    let hit := .boolAnd (.compare .ne occ (.litU64 0)) (.compare .eq k key)
+    found := .boolOr found hit
+    payload := .ite hit v payload
+  let tag := .ite found (.litU64 1) (.litU64 0)
+  pure #[tag, payload]
+
+/-- Dense Map IndexSet upsert. Returns (newLeaves, okInsert). -/
+private def mapUpsertLeavesV1
+    (mapLeaves : Array Expr) (key value : Expr) :
+    CompileResult (Array Expr × Expr) := do
+  unless mapLeaves.size == mapPilotLeafCountV1 do
+    planError
+      "unsupported XRPL semantic shape: Map leaf count must match pilot capacity"
+  let mut anyMatch : Expr := .litBool false
+  for e in [0:mapPilotCapacityV1] do
+    let base := e * mapSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      planError "unsupported XRPL semantic shape: Map upsert occ leaf missing"
+    let some k := mapLeaves[base + 1]? |
+      planError "unsupported XRPL semantic shape: Map upsert key leaf missing"
+    let hit := .boolAnd (.compare .ne occ (.litU64 0)) (.compare .eq k key)
+    anyMatch := .boolOr anyMatch hit
+  let mut seenEmpty : Expr := .litBool false
+  let mut isFirstEmpty : Array Expr := #[]
+  for e in [0:mapPilotCapacityV1] do
+    let base := e * mapSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      planError "unsupported XRPL semantic shape: Map upsert empty-scan occ missing"
+    let empty := .compare .eq occ (.litU64 0)
+    let first := .boolAnd empty (.boolNot seenEmpty)
+    isFirstEmpty := isFirstEmpty.push first
+    seenEmpty := .boolOr seenEmpty empty
+  let okInsert := .boolOr anyMatch seenEmpty
+  let mut out : Array Expr := #[]
+  for e in [0:mapPilotCapacityV1] do
+    let base := e * mapSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      planError "unsupported XRPL semantic shape: Map upsert rebuild occ missing"
+    let some k := mapLeaves[base + 1]? |
+      planError "unsupported XRPL semantic shape: Map upsert rebuild key missing"
+    let some v := mapLeaves[base + 2]? |
+      planError "unsupported XRPL semantic shape: Map upsert rebuild val missing"
+    let matchHit :=
+      .boolAnd (.compare .ne occ (.litU64 0)) (.compare .eq k key)
+    let some firstE := isFirstEmpty[e]? |
+      planError "unsupported XRPL semantic shape: Map upsert firstEmpty missing"
+    let insertHere := .boolAnd firstE (.boolNot anyMatch)
+    let write := .boolOr matchHit insertHere
+    let occ' := .ite write (.litU64 1) occ
+    let k' := .ite write key k
+    let v' := .ite write value v
+    out := out.push occ' |>.push k' |>.push v'
+  pure (out, okInsert)
+
+/-- Admit only anonymous `Option UInt64` for state (tag+payload).
+    Non-UInt64 / nested / named Option stay fail closed. -/
+private def requireOptionUInt64StateV1
+    (typeDecls : Array TypeDeclV1) (types : XrplTypeClosureV1)
+    (typeId : TypeIdV1) (stateName : String) : CompileResult Unit := do
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .option elTid, name := none, .. } =>
+      unless isUInt64Type types elTid do
+        planError
+          s!"unsupported XRPL semantic shape: Option state '{stateName}' requires UInt64 payload"
+  | _ =>
+      planError
+        s!"unsupported XRPL semantic shape: state '{stateName}' is not anonymous Option UInt64"
 
 /-- Flatten named Struct/Enum into ordered leaf names. Leaves are UInt64 only. -/
 private def flattenNamedLeafSpecsV1
@@ -402,13 +544,15 @@ private def requireTy (v : TypedExpr) (expected : ExprType) (what : String) :
     CompileResult Expr := do
   unless v.leaves.isEmpty do
     planError
-      s!"unsupported XRPL semantic shape: {what} cannot be an Array/Bytes/Principal aggregate"
+      s!"unsupported XRPL semantic shape: {what} cannot be an Array/Bytes/Principal/Option/Map aggregate"
   unless v.ty == expected do
     planError s!"unsupported XRPL semantic shape: {what} has the wrong type"
   pure v.expr
 
 /-- CosmWasm/ICP-style Array UInt64 N / Bytes N flatten: `some n` for
-    admitted 1..8; `none` for scalars. Nested/narrow/Map/N=0/N>8 fail closed. -/
+    admitted 1..8; `none` for scalars or Option (Option is not a
+    containerTypeId). Nested/narrow/N=0/N>8 fail closed. Map is owned by
+    `requireMapUInt64V1` / `makeStateLayoutV1`, not this length helper. -/
 private def arrayUInt64LenV1
     (typeDecls : Array TypeDeclV1) (types : XrplTypeClosureV1)
     (typeId : TypeIdV1) : CompileResult (Option Nat) := do
@@ -424,6 +568,9 @@ private def arrayUInt64LenV1
         planError
           s!"unsupported XRPL semantic shape: Array UInt64 N state must be 1..8 (got {n}; cap 8 flatten)"
       pure (some n)
+  | some { shape := .map _ _, .. } =>
+      planError
+        "unsupported XRPL semantic shape: Map UInt64 flatten is not an Array length"
   | some { shape := .bytes len, .. } =>
       let n := len.toNat
       unless 1 ≤ n && n ≤ 8 do
@@ -435,7 +582,7 @@ private def arrayUInt64LenV1
         "unsupported XRPL semantic shape: container TypeId is not Array UInt64 or Bytes N"
 
 -- ---------------------------------------------------------------------------
--- State layout (public UInt64 + Array/Bytes flatten)
+-- State layout (public UInt64 + Array/Bytes/Option/Map flatten)
 -- ---------------------------------------------------------------------------
 
 private structure StateLayout where
@@ -479,6 +626,33 @@ private def makeStateLayoutV1
         planError "unsupported XRPL semantic shape: state field count exceeds limit"
       let mut leaves : Array Nat := #[]
       for leafName in leafSpecs do
+        leaves := leaves.push states.size
+        states := states.push { name := leafName }
+      leavesOf := leavesOf.push leaves
+    else if isAnonymousOptionTypeIdV1 data.types st.typeId then
+      requireOptionUInt64StateV1 data.types types st.typeId st.name
+      unless st.visibility == .public_ do
+        planError s!"state '{st.name}' is not public UInt64"
+      if states.size + 2 > maxStateFields then
+        planError "unsupported XRPL semantic shape: state field count exceeds limit"
+      let mut leaves : Array Nat := #[]
+      for leafName in #[st.name ++ "_tag", st.name ++ "_p0"] do
+        unless isIdentifier leafName do
+          planError s!"state name '{leafName}' is not a safe identifier"
+        leaves := leaves.push states.size
+        states := states.push { name := leafName }
+      leavesOf := leavesOf.push leaves
+    else if isAnonymousMapTypeIdV1 data.types st.typeId then
+      requireMapUInt64V1 data.types types st.typeId
+      unless st.visibility == .public_ do
+        planError s!"state '{st.name}' is not public UInt64"
+      if states.size + mapPilotLeafCountV1 > maxStateFields then
+        planError "unsupported XRPL semantic shape: state field count exceeds limit"
+      let mut leaves : Array Nat := #[]
+      for i in [0:mapPilotLeafCountV1] do
+        let leafName := st.name ++ "_" ++ toString i
+        unless isIdentifier leafName do
+          planError s!"state name '{leafName}' is not a safe identifier"
         leaves := leaves.push states.size
         states := states.push { name := leafName }
       leavesOf := leavesOf.push leaves
@@ -797,6 +971,10 @@ private partial def lowerBlockInstructions
                     { ty := .uint64
                       expr := .stateLoad phys[0]!
                       expandedNodes := 1 }
+                  else if isAnonymousOptionTypeIdV1 data.types vd.typeId then
+                    mkOptionLeaves (phys.map (fun fi => .stateLoad fi))
+                  else if isAnonymousMapTypeIdV1 data.types vd.typeId then
+                    mkMapLeaves (phys.map (fun fi => .stateLoad fi))
                   else if isPrincipalType types vd.typeId then
                     mkPrincipalLeaves (phys.map (fun fi => .stateLoad fi))
                   else if types.isNamedAggregate vd.typeId then
@@ -818,7 +996,7 @@ private partial def lowerBlockInstructions
             planError "unsupported XRPL semantic shape: stateStore leaf count mismatch"
         else
           unless phys.size == 1 do
-            planError "unsupported XRPL semantic shape: stateStore scalar into Array/Bytes/Principal state"
+            planError "unsupported XRPL semantic shape: stateStore scalar into Array/Bytes/Principal/Option/Map state"
           let _ ← requireTy v .uint64 "stateStore value"
         acc := { acc with overlay := overlayInsert acc.overlay stateId v }
     | .binary op lhs rhs => do
@@ -934,17 +1112,25 @@ private partial def lowerBlockInstructions
             let iv ← match envLookup acc.env index with
               | some v => pure v
               | none => planError "unsupported XRPL semantic shape: IndexGet index undefined"
-            unless isArrayValue bv do
-              planError
-                "unsupported XRPL semantic shape: IndexGet base must be an Array UInt64 or Bytes N aggregate"
-            let i ← literalIndexNatV1 iv
-            unless i < bv.leaves.size do
-              planError "unsupported XRPL semantic shape: Array/Bytes IndexGet index out of range"
-            let some leaf := bv.leaves[i]? |
-              planError "unsupported XRPL semantic shape: Array/Bytes IndexGet leaf missing"
-            acc := { acc with
-              env := envInsert acc.env vd.valueId
-                { ty := .uint64, expr := leaf, expandedNodes := 1 } }
+            if isMapValue bv then
+              unless iv.leaves.isEmpty && iv.ty == .uint64 do
+                planError
+                  "unsupported XRPL semantic shape: Map IndexGet key must be scalar UInt64"
+              let optLeaves ← mapLookupOptionLeavesV1 bv.leaves iv.expr
+              acc := { acc with env := envInsert acc.env vd.valueId
+                (mkOptionLeaves optLeaves) }
+            else do
+              unless isArrayValue bv do
+                planError
+                  "unsupported XRPL semantic shape: IndexGet base must be an Array UInt64, Bytes N, or Map UInt64 aggregate"
+              let i ← literalIndexNatV1 iv
+              unless i < bv.leaves.size do
+                planError "unsupported XRPL semantic shape: Array/Bytes IndexGet index out of range"
+              let some leaf := bv.leaves[i]? |
+                planError "unsupported XRPL semantic shape: Array/Bytes IndexGet leaf missing"
+              acc := { acc with
+                env := envInsert acc.env vd.valueId
+                  { ty := .uint64, expr := leaf, expandedNodes := 1 } }
     | .indexSet base index value => do
         match instr.result with
         | none => planError "unsupported XRPL semantic shape: IndexSet must produce a value"
@@ -956,22 +1142,83 @@ private partial def lowerBlockInstructions
               | some v => pure v
               | none => planError "unsupported XRPL semantic shape: IndexSet index undefined"
             let vv ← match envLookup acc.env value with
-              | some v => requireTy v .uint64 "IndexSet value"
+              | some v => pure v
               | none => planError "unsupported XRPL semantic shape: IndexSet value undefined"
-            unless isArrayValue bv do
-              planError
-                "unsupported XRPL semantic shape: IndexSet base must be an Array UInt64 or Bytes N aggregate"
-            let i ← literalIndexNatV1 iv
-            unless i < bv.leaves.size do
-              planError "unsupported XRPL semantic shape: Array/Bytes IndexSet index out of range"
-            let newLeaves := bv.leaves.set! i vv
-            acc := { acc with
-              env := envInsert acc.env vd.valueId (mkArrayLeaves newLeaves) }
+            if isMapValue bv then
+              unless iv.leaves.isEmpty && iv.ty == .uint64 do
+                planError
+                  "unsupported XRPL semantic shape: Map IndexSet key must be scalar UInt64"
+              unless vv.leaves.isEmpty && vv.ty == .uint64 do
+                planError
+                  "unsupported XRPL semantic shape: Map IndexSet value must be scalar UInt64"
+              if forbidChecks then
+                planError
+                  "unsupported XRPL semantic shape: initializer cannot contain fallible Map upsert"
+              let (newLeaves, okInsert) ←
+                mapUpsertLeavesV1 bv.leaves iv.expr vv.expr
+              acc ← pushCheck acc { kind := .overflow, condition := okInsert }
+              acc := { acc with
+                env := envInsert acc.env vd.valueId (mkMapLeaves newLeaves) }
+            else do
+              let vv ← requireTy vv .uint64 "IndexSet value"
+              unless isArrayValue bv do
+                planError
+                  "unsupported XRPL semantic shape: IndexSet base must be an Array UInt64, Bytes N, or Map UInt64 aggregate"
+              let i ← literalIndexNatV1 iv
+              unless i < bv.leaves.size do
+                planError "unsupported XRPL semantic shape: Array/Bytes IndexSet index out of range"
+              let newLeaves := bv.leaves.set! i vv
+              acc := { acc with
+                env := envInsert acc.env vd.valueId (mkArrayLeaves newLeaves) }
     | .construct typeId ctorIdx argIds => do
         match instr.result with
         | none => planError "unsupported XRPL semantic shape: construct must produce a value"
         | some vd =>
-            if types.isNamedAggregate typeId then
+            if isAnonymousMapTypeIdV1 data.types typeId then
+              requireMapUInt64V1 data.types types typeId
+              unless ctorIdx.toNat == 0 do
+                planError
+                  "unsupported XRPL semantic shape: Map construct ctorIdx must be 0"
+              unless argIds.isEmpty do
+                planError
+                  "unsupported XRPL semantic shape: nonempty Map construct is outside Q0 (build maps via IndexSet upsert)"
+              let zeros := Array.replicate mapPilotLeafCountV1 (.litU64 0)
+              acc := { acc with
+                env := envInsert acc.env vd.valueId (mkMapLeaves zeros) }
+            else if isAnonymousOptionTypeIdV1 data.types typeId then
+              match data.types[typeId.toNat]? with
+              | some { shape := .option elTid, name := none, .. } => do
+                  unless isUInt64Type types elTid do
+                    planError
+                      "unsupported XRPL semantic shape: Option construct requires UInt64 payload"
+                  unless ctorIdx.toNat == 0 || ctorIdx.toNat == 1 do
+                    planError
+                      "unsupported XRPL semantic shape: Option construct ctorIdx must be 0 (none) or 1 (some)"
+                  if ctorIdx.toNat == 0 then
+                    unless argIds.isEmpty do
+                      planError
+                        "unsupported XRPL semantic shape: Option.none construct takes no args"
+                    acc := { acc with
+                      env := envInsert acc.env vd.valueId
+                        (mkOptionLeaves #[.litU64 0, .litU64 0]) }
+                  else do
+                    unless argIds.size == 1 do
+                      planError
+                        "unsupported XRPL semantic shape: Option.some construct takes one arg"
+                    let some argId := argIds[0]? |
+                      planError "unsupported XRPL semantic shape: Option.some construct arg missing"
+                    let av ← match envLookup acc.env argId with
+                      | some v => requireTy v .uint64 "Option.some arg"
+                      | none =>
+                          planError
+                            "unsupported XRPL semantic shape: construct arg undefined"
+                    acc := { acc with
+                      env := envInsert acc.env vd.valueId
+                        (mkOptionLeaves #[.litU64 1, av]) }
+              | _ =>
+                  planError
+                    "unsupported XRPL semantic shape: Option construct requires anonymous Option"
+            else if types.isNamedAggregate typeId then
               let some decl := data.types[typeId.toNat]? |
                 planError "unsupported XRPL semantic shape: construct TypeDecl missing"
               match decl.shape with
@@ -1023,7 +1270,7 @@ private partial def lowerBlockInstructions
                     "unsupported XRPL semantic shape: named construct requires Struct or Enum"
             else
               planError
-                "unsupported XRPL semantic shape: construct admits only named Struct/Enum on XRPL"
+                "unsupported XRPL semantic shape: construct admits only named Struct/Enum, Option UInt64, or Map.empty on XRPL"
     | .fieldGet baseId fieldIndex => do
         match instr.result with
         | none => planError "unsupported XRPL semantic shape: fieldGet must produce a value"
@@ -1070,9 +1317,9 @@ private partial def lowerBlockInstructions
             let bv ← match envLookup acc.env baseId with
               | some v => pure v
               | none => planError "unsupported XRPL semantic shape: variantTag base undefined"
-            unless isNamedValue bv do
+            unless isOptionValue bv || isNamedValue bv do
               planError
-                "unsupported XRPL semantic shape: variantTag base must be a named Enum"
+                "unsupported XRPL semantic shape: variantTag base must be Option UInt64 or a named Enum"
             let some tag := bv.leaves[0]? |
               planError "unsupported XRPL semantic shape: variantTag tag leaf missing"
             acc := { acc with env := envInsert acc.env vd.valueId {
@@ -1089,14 +1336,22 @@ private partial def lowerBlockInstructions
               | some v => pure v
               | none =>
                   planError "unsupported XRPL semantic shape: variantPayload base undefined"
-            unless isNamedValue bv do
+            unless isOptionValue bv || isNamedValue bv do
               planError
-                "unsupported XRPL semantic shape: variantPayload base must be a named Enum"
+                "unsupported XRPL semantic shape: variantPayload base must be Option UInt64 or a named Enum"
+            if isOptionValue bv then
+              if variantIndex.toNat == 0 then
+                planError
+                  "unsupported XRPL semantic shape: variantPayload of Option.none is empty"
+              unless variantIndex.toNat == 1 && payloadIndex.toNat == 0 do
+                planError
+                  "unsupported XRPL semantic shape: variantPayload Option some requires (variant 1, payload 0)"
             if variantIndex.toNat == 0 && payloadIndex.toNat == 0 &&
                 bv.leaves.size == 1 then
               planError
                 "unsupported XRPL semantic shape: variantPayload of empty Enum variant is empty"
-            let payloadIdx := 1 + payloadIndex.toNat
+            let payloadIdx :=
+              if isOptionValue bv then 1 else 1 + payloadIndex.toNat
             let some payload := bv.leaves[payloadIdx]? |
               planError
                 "unsupported XRPL semantic shape: variantPayload payload leaf missing"
@@ -1155,7 +1410,8 @@ private partial def lowerInstructions
 end
 
 private def seedParamEnv
-    (types : XrplTypeClosureV1) (callable : CallableV1) (owner : String) :
+    (typeDecls : Array TypeDeclV1) (types : XrplTypeClosureV1)
+    (callable : CallableV1) (owner : String) :
     CompileResult (ValueEnv × Array String) := do
   let mut env : ValueEnv := { entries := #[] }
   let mut names : Array String := #[]
@@ -1165,6 +1421,12 @@ private def seedParamEnv
       planError s!"parameter '{p.name}' in {owner} is not public UInt64"
     unless isIdentifier p.name do
       planError s!"parameter '{p.name}' is not a safe identifier"
+    if isAnonymousOptionTypeIdV1 typeDecls p.typeId then
+      planError
+        s!"parameter '{p.name}' in {owner} is Option (Option params stay fail closed)"
+    if isAnonymousMapTypeIdV1 typeDecls p.typeId then
+      planError
+        s!"parameter '{p.name}' in {owner} is Map (Map params stay fail closed)"
     if isUInt64Type types p.typeId then
       unless names.size < maxParams do
         planError "unsupported XRPL semantic shape: parameter count exceeds limit"
@@ -1212,6 +1474,14 @@ private def resultKindOf
   if isUnitType types typeId then pure .unit
   else if isUInt64Type types typeId then pure .uint64
   else if isBoolType types typeId then pure .bool
+  else if isAnonymousOptionTypeIdV1 data.types typeId then
+    requireOptionUInt64StateV1 data.types types typeId owner
+    if allowNamed then
+      pure (.aggregate 2)
+    else
+      planError s!"{owner} Option return is outside this XRPL slice"
+  else if isAnonymousMapTypeIdV1 data.types typeId then
+    planError s!"{owner} Map return is outside this XRPL slice"
   else if allowBytes then
     match data.types[typeId.toNat]? with
     | some { shape := .bytes len, name := none, .. } => do
@@ -1579,7 +1849,7 @@ private def lowerCallableBody
     CompileResult
       (Array String × Array Check × Array (Nat × Expr) ×
         Option TypedExpr × Bool × Array Statement) := do
-  let (env0, paramNames) ← seedParamEnv types callable owner
+  let (env0, paramNames) ← seedParamEnv data.types types callable owner
   let mut overlay0 : StateOverlay := { entries := #[] }
   if initialStateDefaults then
     for st in data.logicalState do
@@ -1590,6 +1860,12 @@ private def lowerCallableBody
           expr := .litU64 0
           expandedNodes := 1
         }
+      else if isAnonymousOptionTypeIdV1 data.types st.typeId then
+        overlay0 := overlayInsert overlay0 st.id
+          (mkOptionLeaves (phys.map (fun _ => .litU64 0)))
+      else if isAnonymousMapTypeIdV1 data.types st.typeId then
+        overlay0 := overlayInsert overlay0 st.id
+          (mkMapLeaves (phys.map (fun _ => .litU64 0)))
       else if isPrincipalType types st.typeId then
         overlay0 := overlayInsert overlay0 st.id
           (mkPrincipalLeaves (phys.map (fun _ => .litU64 0)))

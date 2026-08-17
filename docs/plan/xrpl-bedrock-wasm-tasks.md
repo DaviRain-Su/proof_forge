@@ -51,8 +51,10 @@ Same skeleton as Soroban S0 / OpenVM O0:
 | **T3-XRPL-BYTES** | **done** | Bytes N / Array UInt64 N flatten + ConstCell pin；§1e const 已 inline |
 | **T4-XRPL-PRINCIPAL** | **done** | Principal 9-leaf identity；result/self/caller FC |
 | **T5-XRPL-NAMED** | **done** | named Struct/Enum leaf flatten；return FC |
+| **T5-XRPL-OPTION** | **done** | Option UInt64 2-leaf (`name_tag`/`name_p0`)；param/nested/non-UInt64 FC |
 | **T6-XRPL-VIEW-RET** | **done** | view leaf return Rust `(u64,…)` |
 | **T7-XRPL-ENTRY-RET** | **done** | entry isomorphic leaf return |
+| **T8a-XRPL-MAP** | **done** | Map UInt64 cap-8（24 occ/key/val 叶）；empty/upsert；IndexGet→Option；Map param/return FC |
 | **T8b-XRPL-BYTES-VIEW** | **done** | Bytes N view leaf return；entry Bytes FC |
 | **T9a-XRPL-IF** | **done** | `emitRegion` + `ifThenElse` |
 | **T9b-XRPL-SWITCH** | **done** | `Term.switch` → `switchOn` |

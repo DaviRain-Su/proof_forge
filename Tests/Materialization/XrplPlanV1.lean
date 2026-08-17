@@ -773,6 +773,152 @@ unsafe def testLoopSum : IO Unit := do
       !rsFile.contents.contains "while true")
     "LoopSum must render a counted loop trap, not an unbounded while"
 
+/-- T5-Option: anonymous Option UInt64 flattens to tag+p0; none/some store-then-read. -/
+unsafe def testOptBoxAdmit : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptBox where\n" ++
+    "  state o : Option UInt64\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n" ++
+    "  entry setSome(v : UInt64) : UInt64 do\n" ++
+    "    o := Option.some(v)\n" ++
+    "    return v\n" ++
+    "  view getOrZero() : UInt64 do\n" ++
+    "    match o with\n" ++
+    "    | Option.some(v) => do\n" ++
+    "      return v\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-opt-box>" "Tests.XrplOptBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  expect (plan.states.map (·.name) == #["o_tag", "o_p0"])
+    "Option UInt64 must flatten to o_tag/o_p0 Plan leaves"
+  match plan.initializer with
+  | some initFn =>
+      expect (initFn.stores.size == 2)
+        "OptBox init must store both tag and payload leaves"
+  | none => throw <| IO.userError "OptBox must have an initializer"
+  let some setSome := plan.entries[0]? |
+    throw <| IO.userError "missing setSome entry"
+  expect (setSome.stores.size == 2)
+    "OptBox setSome must store both Option leaves"
+  liftResult <| Targets.Xrpl.validatePlan plan
+  let files ← liftResult <| buildXrpl compiled
+  let some rsFile := files.find? (fun f => f.path == "OptBox.rs") |
+    throw <| IO.userError "xrpl: missing OptBox.rs"
+  let rs := rsFile.contents
+  expect (rs.contains "const o_tag_KEY: &str = \"o_tag\";")
+    "OptBox.rs must bind o_tag_KEY"
+  expect (rs.contains "const o_p0_KEY: &str = \"o_p0\";")
+    "OptBox.rs must bind o_p0_KEY"
+  expect (!rs.contains "Vec<")
+    "Option flatten must not emit a Rust Vec"
+  expect (!rs.contains "Option<")
+    "Option flatten must not emit a Rust Option type"
+
+unsafe def testOptionParamFailClosed : IO Unit := do
+  expectPlanFc "OptParam" <|
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptParam where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry set(o : Option UInt64) : UInt64 do\n" ++
+    "    return pad\n"
+
+unsafe def testOptionBoolPayloadFailClosed : IO Unit := do
+  expectPlanFc "OptBool" <|
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptBool where\n" ++
+    "  state o : Option Bool\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n" ++
+    "  entry setSome() : UInt64 do\n" ++
+    "    o := Option.some(true)\n" ++
+    "    return 1\n"
+
+/-- T8a-Map: dense cap-8 = 24 leaves; empty + upsert; miss→none via IndexGet. -/
+unsafe def testMapMiniAdmit : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapMini where\n" ++
+    "  state m : Map UInt64 UInt64\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    m[k] := v\n" ++
+    "    return v\n" ++
+    "  view get(k : UInt64) : UInt64 do\n" ++
+    "    match m[k] with\n" ++
+    "    | Option.some(v) => do\n" ++
+    "      return v\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-map-mini>" "Tests.XrplMapMini" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  expect (plan.states.size == 24)
+    s!"Map UInt64 cap-8 must flatten to 24 leaves, got {plan.states.size}"
+  expect (plan.states[0]!.name == "m_0" && plan.states[23]!.name == "m_23")
+    "Map flatten leaf names must be m_0..m_23"
+  match plan.initializer with
+  | some initFn =>
+      expect (initFn.stores.size == 24)
+        "MapMini init must store all 24 Map leaves"
+  | none => throw <| IO.userError "MapMini must have an initializer"
+  expect (plan.entries.size == 1) "MapMini has one entry"
+  expect (plan.entries[0]!.stores.size == 24)
+    "MapMini put must store all 24 Map leaves"
+  expect (plan.entries[0]!.checks.size ≥ 1)
+    "MapMini put must check cap-8 overflow (9th insert fail closed)"
+  liftResult <| Targets.Xrpl.validatePlan plan
+  let files ← liftResult <| buildXrpl compiled
+  let some rsFile := files.find? (fun f => f.path == "MapMini.rs") |
+    throw <| IO.userError "xrpl: missing MapMini.rs"
+  let rs := rsFile.contents
+  expect (rs.contains "const m_0_KEY: &str = \"m_0\";")
+    "MapMini.rs must bind m_0_KEY"
+  expect (rs.contains "const m_23_KEY: &str = \"m_23\";")
+    "MapMini.rs must bind m_23_KEY"
+  expect (rs.contains "if " && rs.contains " else ")
+    "Map mux must render Rust if/else expressions"
+  expect (!rs.contains "Vec<")
+    "Map flatten must not emit a Rust Vec"
+  expect (!rs.contains "HashMap")
+    "Map flatten must not emit a Rust HashMap"
+
+unsafe def testMapReturnFailClosed : IO Unit := do
+  expectPlanFc "MapRet" <|
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapRet where\n" ++
+    "  state m : Map UInt64 UInt64\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n" ++
+    "  entry peek() : Map UInt64 UInt64 do\n" ++
+    "    return m\n"
+
+unsafe def testMapParamFailClosed : IO Unit := do
+  expectPlanFc "MapParam" <|
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapParam where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry put(m : Map UInt64 UInt64) : UInt64 do\n" ++
+    "    return pad\n"
+
 unsafe def run : IO Unit := do
   testStateCellXrplSource
   testMaterializeDeterminism
@@ -800,5 +946,11 @@ unsafe def run : IO Unit := do
   testIfFlow
   testBranchFlow
   testLoopSum
+  testOptBoxAdmit
+  testOptionParamFailClosed
+  testOptionBoolPayloadFailClosed
+  testMapMiniAdmit
+  testMapReturnFailClosed
+  testMapParamFailClosed
 
 end Tests.Materialization.XrplPlanV1

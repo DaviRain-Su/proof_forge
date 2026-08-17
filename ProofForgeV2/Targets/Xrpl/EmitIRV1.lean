@@ -38,6 +38,7 @@ inductive RExpr where
   | boolAnd (lhs rhs : RExpr)
   | boolOr (lhs rhs : RExpr)
   | boolNot (operand : RExpr)
+  | ite (cond thenExpr elseExpr : RExpr)
   deriving BEq, Inhabited, Repr
 
 inductive RStmt where
@@ -130,6 +131,11 @@ private partial def lowerExprToRExpr
   | .boolNot o => do
       let ro ← lowerExprToRExpr plan params o
       pure (.boolNot ro)
+  | .ite c t e => do
+      let rc ← lowerExprToRExpr plan params c
+      let rt ← lowerExprToRExpr plan params t
+      let re ← lowerExprToRExpr plan params e
+      pure (.ite rc rt re)
 
 private def guardChecksOf (checks : Array Check) : Array Check :=
   checks.filter fun ck =>
@@ -327,6 +333,8 @@ private partial def renderRExpr : RExpr → String
   | .boolAnd l r => s!"({renderRExpr l} && {renderRExpr r})"
   | .boolOr l r => s!"({renderRExpr l} || {renderRExpr r})"
   | .boolNot o => s!"(!{renderRExpr o})"
+  | .ite c t e =>
+      s!"(if {renderRExpr c} {{ {renderRExpr t} }} else {{ {renderRExpr e} }})"
 
 private def indent (n : Nat) (s : String) : String :=
   String.ofList (List.replicate n ' ') ++ s
@@ -400,6 +408,7 @@ private partial def collectLoadedFields (fn : RustFn) (all : Array String) : Arr
       | .checkedDiv l r _ | .checkedMod l r _ => walk (walk acc l) r
       | .compareOp _ l r | .boolAnd l r | .boolOr l r => walk (walk acc l) r
       | .boolNot o => walk acc o
+      | .ite c t e => walk (walk (walk acc c) t) e
       | .litU64 _ | .litBool _ => acc
     let rec walkStmt (acc : Array String) : RStmt → Array String
       | .guard cond _ => walk acc cond
