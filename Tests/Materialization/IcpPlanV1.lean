@@ -1398,6 +1398,68 @@ private unsafe def testMapReturnFc
   expectPlanErrorContaining "MapRet" "Array/Map return"
     (planIcp compiled)
 
+/-- T9a: if-diamond only. BranchFlow.apply (match/switch) stays fail closed. -/
+private unsafe def testIfFlow
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "IfFlow" <|
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    if count > 0 then\n" ++
+    "      count := count + delta\n" ++
+    "    else\n" ++
+    "      count := delta\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let compiled ← compileSource session src "Examples.IfFlow" "<icp-if-flow>"
+  let plan ← liftResult <| planIcp compiled
+  let bump ← findMethod plan "bump"
+  expect (bump.body == #[
+      .ifThenElse (.compare .gt (.stateLoad 0) (.literal 0))
+        #[.store 0 (.checkedAdd (.stateLoad 0) (.param 0))]
+        #[.store 0 (.param 0)],
+      .returnValue (.stateLoad 0)])
+    "IfFlow bump must lower the branch diamond then join return"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"IfFlow plan must validate: {e.render}"
+  let files ← liftResult <| filesIcp compiled
+  let wat ← findFile files "IfFlow.wat"
+  expect (wat.contains "(if (i32.eqz (i64.eqz")
+    "IfFlow WAT must render a Wasm if on the Bool condition"
+  expect (wat.contains "i64.add")
+    "IfFlow WAT must render the then-arm checked add"
+  expect (wat.contains "(global.set $g_state_0")
+    "IfFlow WAT must store inside the if arms"
+  let branchSrc := wrapProgram "BranchFlow" <|
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    if count > 0 then\n" ++
+    "      count := count + delta\n" ++
+    "    else\n" ++
+    "      count := delta\n" ++
+    "    return count\n\n" ++
+    "  entry apply(choice : UInt64) : UInt64 do\n" ++
+    "    match choice with\n" ++
+    "    | 0 => do\n" ++
+    "      return count\n" ++
+    "    | 1 => do\n" ++
+    "      count := count + 1\n" ++
+    "    | other => do\n" ++
+    "      count := other\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let branchCompiled ←
+    compileSource session branchSrc "Examples.BranchFlow" "<icp-branch-flow>"
+  expectPlanErrorContaining "BranchFlow" "exactly one block"
+    (planIcp branchCompiled)
+  IO.println "  ✓ IfFlow if-diamond; BranchFlow still exactly-one-block"
+
 unsafe def run : IO Unit := do
   IO.println "IcpPlanV1"
   let session ← Tests.Language.ParserSession.shared
@@ -1446,6 +1508,7 @@ unsafe def run : IO Unit := do
   testMapMiniFlatten session
   testMapInt64ElementFc session
   testMapReturnFc session
+  testIfFlow session
   IO.println "IcpPlanV1: all checks passed"
 
 end Tests.Materialization.IcpPlanV1

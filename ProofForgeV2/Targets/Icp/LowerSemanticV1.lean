@@ -23,7 +23,8 @@ Narrow ICP-2 Counter/StateCell target leaf (ADR-0047). Envelope:
   `vec`/`record`). Bool results are admitted. No Field; Map return,
   Option-of-*, Option params stay fail closed
 * `init` (initializer), `entry` (canister_update), `view` (canister_query)
-* single-block callable bodies; checked `+`/`-`/`*`/`/`/`%` and
+* straight-line or T9a if-diamond (`Term.branch` + join `jump`); `switch`
+  and `loopBounds` stay fail closed; checked `+`/`-`/`*`/`/`/`%` and
   comparisons (no bitwise); literal, param, stateLoad, stateStore, return,
   Array IndexGet/Set/construct with a compile-time index
 * zero pureFn, zero invariants, zero constants/events/errors
@@ -127,11 +128,15 @@ inductive ParamKind where
   deriving BEq, Inhabited, Repr
 
 /-- Method body statement. `returnNone` is the explicit Unit terminator
-    marker (initializer and Unit-result entries). -/
+    marker (initializer and Unit-result entries). CFG diamonds emit
+    `ifThenElse` with in-arm stores; straight-line keeps overlay-then-dump. -/
 inductive Statement where
   | store (fieldIndex : Nat) (value : Expr)
   /-- Trap when the condition is 0. Used for Map cap-8 upsert overflow. -/
   | assert (condition : Expr)
+  /-- T9a: two-way Bool branch. Arms flush their own stores; join continues
+      after this statement. `switchOn` / `forLoop` arrive in later T9 slices. -/
+  | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
   | returnValue (value : Expr)
   | returnNone
   /-- Flattened return (Candid positional tuple of i64 leaves). -/
@@ -980,22 +985,14 @@ private def lowerBinary (op : BinaryOpV1) (lhs rhs : Expr) : CompileResult Expr 
       planError
         "unsupported ICP semantic shape: only checked add/sub/mul/div/mod and comparisons are admitted on the ICP-2 Counter/StateCell envelope"
 
-/-- Single-block instruction walk (ICP-2 has no pureFn/invariant closures, no
-    branching, no async continuations — StateCell shape only). -/
-private partial def lowerInstructions
+/-- One-block instruction walk. Terminator is the caller's job so the T9a
+    region walker can reuse the same op surface. -/
+private partial def lowerBlockInstructions
     (data : SemanticProgramDataV1) (types : IcpTypeClosureV1)
     (layout : StateLayout) (mode : MethodMode) (allowStateWrite : Bool)
-    (signedNumeric : Bool) (callable : CallableV1) (acc0 : BodyAccum) :
-    CompileResult (BodyAccum × Option LoweredValue) := do
-  unless callable.blocks.size == 1 do
-    planError
-      "unsupported ICP semantic shape: each callable must have exactly one block (Counter/StateCell envelope has no control flow)"
-  unless callable.loopBounds.isEmpty do
-    planError "unsupported ICP semantic shape: loopBounds are outside ICP-2"
-  unless callable.entryBlock.toNat == 0 do
-    planError "unsupported ICP semantic shape: entryBlock must be 0"
-  let some block := callable.blocks[0]? |
-    planError "unsupported ICP semantic shape: missing entry block"
+    (signedNumeric : Bool) (block : BlockV1)
+    (acc0 : BodyAccum) :
+    CompileResult BodyAccum := do
   unless block.params.isEmpty do
     planError "unsupported ICP semantic shape: block parameters are outside ICP-2"
   let mut acc := acc0
@@ -1393,15 +1390,155 @@ private partial def lowerInstructions
               env := envInsert acc.env vd.valueId (mkNamedLeaves newLeaves) }
     | .checkedCast .. | .unary .. | .pureCall .. | .assert_ .. =>
         planError "unsupported ICP semantic shape: op is outside the ICP-2 Counter/StateCell envelope"
+  pure acc
+
+private def callableHasSwitch (callable : CallableV1) : Bool :=
+  callable.blocks.any fun b =>
+    match b.terminator with
+    | .switch .. => true
+    | _ => false
+
+private inductive RegionCont where
+  | join (blockId : Nat)
+  | closed
+  deriving BEq, Inhabited
+
+private def flushRegion
+    (layout : StateLayout) (acc : BodyAccum) : Array Statement × BodyAccum :=
+  let asserts := acc.asserts.map Statement.assert
+  let stores := overlayFinalStores layout acc.overlay
+  (asserts ++ stores, { acc with overlay := { entries := #[] }, asserts := #[] })
+
+private def lookupReturn
+    (acc : BodyAccum) (value : Option ValueIdV1) :
+    CompileResult (Option LoweredValue) := do
+  match value with
+  | none => pure none
+  | some vid =>
+      match envLookup acc.env vid with
+      | some v => pure (some v)
+      | none => planError "unsupported ICP semantic shape: return value undefined"
+
+/-- T9a region walker: straight ops, empty-arg `jump` → join, Bool `branch`
+    → `ifThenElse` then continue at the shared join. Rejects `switch` and
+    `loopBounds` (those stay on the historical single-block error so
+    BranchFlow / LoopSum needles do not flip). -/
+private partial def emitRegion
+    (data : SemanticProgramDataV1) (types : IcpTypeClosureV1)
+    (layout : StateLayout) (mode : MethodMode) (allowStateWrite : Bool)
+    (signedNumeric : Bool)
+    (callable : CallableV1) (fuel : Nat) (blockId : Nat)
+    (acc0 : BodyAccum) :
+    CompileResult (Array Statement × BodyAccum × Option LoweredValue × RegionCont) := do
+  match fuel with
+  | 0 =>
+      planError "unsupported ICP semantic shape: CFG walk fuel exhausted"
+  | fuel' + 1 => do
+      let some block := callable.blocks[blockId]? |
+        planError "unsupported ICP semantic shape: missing CFG block"
+      unless block.id.toNat == blockId do
+        planError "unsupported ICP semantic shape: block id must match index"
+      let acc ←
+        lowerBlockInstructions data types layout mode allowStateWrite signedNumeric
+          block acc0
+      match block.terminator with
+      | .return_ value => do
+          let (stmts, acc) := flushRegion layout acc
+          let ret? ← lookupReturn acc value
+          pure (stmts, acc, ret?, .closed)
+      | .jump target => do
+          unless target.args.isEmpty do
+            planError
+              "unsupported ICP semantic shape: jump args / block-param phi are outside ICP-2"
+          let (stmts, acc) := flushRegion layout acc
+          pure (stmts, acc, none, .join target.blockId.toNat)
+      | .branch condId thenT elseT => do
+          unless thenT.args.isEmpty && elseT.args.isEmpty do
+            planError
+              "unsupported ICP semantic shape: branch targets must carry empty args"
+          let cond ← match envLookup acc.env condId with
+            | some v => requireScalar v "branch condition"
+            | none =>
+                planError "unsupported ICP semantic shape: branch condition undefined"
+          let (preStmts, acc) := flushRegion layout acc
+          let (thenStmts, acc1, thenRet, thenCont) ←
+            emitRegion data types layout mode allowStateWrite signedNumeric
+              callable fuel' thenT.blockId.toNat acc
+          let thenJoin : Option Nat :=
+            match thenCont with
+            | .closed => none
+            | .join j => some j
+          if thenJoin == some elseT.blockId.toNat then
+            let (rest, acc2, restRet, restCont) ←
+              emitRegion data types layout mode allowStateWrite signedNumeric
+                callable fuel' elseT.blockId.toNat acc1
+            pure
+              (preStmts ++ #[.ifThenElse cond thenStmts #[]] ++ rest,
+                acc2, thenRet <|> restRet, restCont)
+          else
+            let (elseStmts, acc2, elseRet, elseCont) ←
+              emitRegion data types layout mode allowStateWrite signedNumeric
+                callable fuel' elseT.blockId.toNat acc1
+            let elseJoin : Option Nat :=
+              match elseCont with
+              | .closed => none
+              | .join j => some j
+            match thenJoin, elseJoin with
+            | some j1, some j2 => do
+                unless j1 == j2 do
+                  planError
+                    "unsupported ICP semantic shape: branch arms converge on divergent joins"
+                let (rest, acc3, restRet, restCont) ←
+                  emitRegion data types layout mode allowStateWrite signedNumeric
+                    callable fuel' j1 acc2
+                pure
+                  (preStmts ++ #[.ifThenElse cond thenStmts elseStmts] ++ rest,
+                    acc3, thenRet <|> elseRet <|> restRet, restCont)
+            | none, none =>
+                pure
+                  (preStmts ++ #[.ifThenElse cond thenStmts elseStmts],
+                    acc2, thenRet <|> elseRet, .closed)
+            | some j, none | none, some j => do
+                let (rest, acc3, restRet, restCont) ←
+                  emitRegion data types layout mode allowStateWrite signedNumeric
+                    callable fuel' j acc2
+                pure
+                  (preStmts ++ #[.ifThenElse cond thenStmts elseStmts] ++ rest,
+                    acc3, thenRet <|> elseRet <|> restRet, restCont)
+      | .switch .. =>
+          planError
+            "unsupported ICP semantic shape: multi-block/branch/switch/trap terminators are outside ICP-2 (no control flow)"
+      | .revert .. =>
+          planError
+            "unsupported ICP semantic shape: revert is outside the ICP-2 envelope (errors table must be empty)"
+      | .trap .. =>
+          planError
+            "unsupported ICP semantic shape: multi-block/branch/switch/trap terminators are outside ICP-2 (no control flow)"
+
+/-- Straight-line single-block path (overlay dumped by the caller). -/
+private def lowerInstructions
+    (data : SemanticProgramDataV1) (types : IcpTypeClosureV1)
+    (layout : StateLayout) (mode : MethodMode) (allowStateWrite : Bool)
+    (signedNumeric : Bool)
+    (callable : CallableV1)
+    (acc0 : BodyAccum) :
+    CompileResult (BodyAccum × Option LoweredValue) := do
+  unless callable.blocks.size == 1 do
+    planError
+      "unsupported ICP semantic shape: each callable must have exactly one block (Counter/StateCell envelope has no control flow)"
+  unless callable.loopBounds.isEmpty do
+    planError "unsupported ICP semantic shape: loopBounds are outside ICP-2"
+  unless callable.entryBlock.toNat == 0 do
+    planError "unsupported ICP semantic shape: entryBlock must be 0"
+  let some block := callable.blocks[0]? |
+    planError "unsupported ICP semantic shape: missing entry block"
+  let acc ←
+    lowerBlockInstructions data types layout mode allowStateWrite signedNumeric
+      block acc0
   match block.terminator with
   | .return_ value => do
-      match value with
-      | none => pure (acc, none)
-      | some vid =>
-          match envLookup acc.env vid with
-          | some v =>
-              pure (acc, some v)
-          | none => planError "unsupported ICP semantic shape: return value undefined"
+      let ret? ← lookupReturn acc value
+      pure (acc, ret?)
   | .revert .. =>
       planError "unsupported ICP semantic shape: revert is outside the ICP-2 envelope (errors table must be empty)"
   | .jump .. | .branch .. | .switch .. | .trap .. =>
@@ -1492,15 +1629,33 @@ private def lowerCallableBody
         overlay0 := overlayInsert overlay0 st.id
           (mkArrayLeaves (phys.map (fun _ => .literal 0)))
   let acc0 := emptyBodyAccum env0 overlay0
-  let (acc, ret?) ←
-    lowerInstructions data types layout mode allowStateWrite signedNumeric callable acc0
-  let mut stores := acc.asserts.map (fun c => Statement.assert c)
-  stores := stores ++ overlayFinalStores layout acc.overlay
-  let ret? := ret?.map (fun v =>
-    { v with
-      expr := rewriteReturnThroughOverlay layout acc.overlay v.expr
-      leaves := v.leaves.map (rewriteReturnThroughOverlay layout acc.overlay) })
-  pure (paramNames, paramKinds, stores, ret?)
+  if callable.blocks.size == 1 then
+    let (acc, ret?) ←
+      lowerInstructions data types layout mode allowStateWrite signedNumeric callable acc0
+    let mut stores := acc.asserts.map (fun c => Statement.assert c)
+    stores := stores ++ overlayFinalStores layout acc.overlay
+    let ret? := ret?.map (fun v =>
+      { v with
+        expr := rewriteReturnThroughOverlay layout acc.overlay v.expr
+        leaves := v.leaves.map (rewriteReturnThroughOverlay layout acc.overlay) })
+    pure (paramNames, paramKinds, stores, ret?)
+  else if callable.loopBounds.isEmpty && !callableHasSwitch callable then
+    unless callable.entryBlock.toNat == 0 do
+      planError "unsupported ICP semantic shape: entryBlock must be 0"
+    let (stmts, _acc, ret?, cont) ←
+      emitRegion data types layout mode allowStateWrite signedNumeric
+        callable callable.blocks.size callable.entryBlock.toNat acc0
+    unless cont == .closed do
+      planError "unsupported ICP semantic shape: CFG walk ended without a return"
+    let emptyOv : StateOverlay := { entries := #[] }
+    let ret? := ret?.map (fun v =>
+      { v with
+        expr := rewriteReturnThroughOverlay layout emptyOv v.expr
+        leaves := v.leaves.map (rewriteReturnThroughOverlay layout emptyOv) })
+    pure (paramNames, paramKinds, stmts, ret?)
+  else
+    planError
+      "unsupported ICP semantic shape: each callable must have exactly one block (Counter/StateCell envelope has no control flow)"
 
 private def resultKindOf
     (data : SemanticProgramDataV1) (types : IcpTypeClosureV1)

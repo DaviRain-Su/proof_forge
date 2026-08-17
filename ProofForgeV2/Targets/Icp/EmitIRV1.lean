@@ -63,6 +63,8 @@ inductive Operation where
   | principalEq (destination : Nat) (lhsTemps rhsTemps : Array Nat)
   | principalNe (destination : Nat) (lhsTemps rhsTemps : Array Nat)
   | storeState (fieldIndex value : Nat)
+  /-- T9a: side-effecting Wasm `if`/`else` (no result type). -/
+  | ifThenElse (cond : Nat) (thenOps elseOps : Array Operation)
   deriving BEq, Inhabited, Repr
 
 structure MethodIR where
@@ -262,12 +264,11 @@ private partial def lowerPrincipalCompare
       value := n
       next := n + 1
     }
-end
 
-private def lowerBody (layout : ParamLayout) (body : Array Statement) :
+private partial def lowerStmts (layout : ParamLayout) (next0 : Nat) (body : Array Statement) :
     Array Operation × Option Nat × Array Nat × Nat := Id.run do
   let mut ops : Array Operation := #[]
-  let mut next := layout.nextTemp
+  let mut next := next0
   let mut result? : Option Nat := none
   let mut resultTemps : Array Nat := #[]
   for stmt in body do
@@ -280,6 +281,17 @@ private def lowerBody (layout : ParamLayout) (body : Array Statement) :
         let lv := lowerExpr layout next value
         ops := ops ++ lv.operations ++ #[.storeState fieldIndex lv.value]
         next := lv.next
+    | .ifThenElse condition thenBody elseBody =>
+        let lv := lowerExpr layout next condition
+        let (thenOps, thenRes, thenTemps, next1) := lowerStmts layout lv.next thenBody
+        let (elseOps, elseRes, elseTemps, next2) := lowerStmts layout next1 elseBody
+        ops := ops ++ lv.operations ++ #[.ifThenElse lv.value thenOps elseOps]
+        result? := thenRes <|> elseRes <|> result?
+        resultTemps :=
+          if thenTemps.isEmpty then
+            if elseTemps.isEmpty then resultTemps else elseTemps
+          else thenTemps
+        next := next2
     | .returnValue value =>
         let lv := lowerExpr layout next value
         ops := ops ++ lv.operations
@@ -294,6 +306,11 @@ private def lowerBody (layout : ParamLayout) (body : Array Statement) :
         result? := resultTemps[0]?
     | .returnNone => pure ()
   pure (ops, result?, resultTemps, next)
+end
+
+private def lowerBody (layout : ParamLayout) (body : Array Statement) :
+    Array Operation × Option Nat × Array Nat × Nat :=
+  lowerStmts layout layout.nextTemp body
 
 private def lowerMethod (m : Method) : MethodIR :=
   let layout := makeParamLayout m.paramKinds
@@ -487,7 +504,7 @@ private def principalDecodeHelperWat : String :=
   "    (i64.extend_i32_u (local.get $len))\n" ++
   "  )\n"
 
-private def renderOperation (signed : Bool) : Operation → String
+private partial def renderOperation (signed : Bool) : Operation → String
   | .literal destination value =>
       s!"    (local.set $t{destination} (i64.const {value.toNat}))\n"
   | .stateLoad destination fieldIndex =>
@@ -567,6 +584,14 @@ private def renderOperation (signed : Bool) : Operation → String
       s!"        (else (local.get $t{e}))))\n"
   | .assertTrue condition =>
       s!"    (if (i64.eqz (local.get $t{condition})) (then unreachable))\n"
+  | .ifThenElse cond thenOps elseOps =>
+      let thenW := String.join (thenOps.map (renderOperation signed)).toList
+      let elseW := String.join (elseOps.map (renderOperation signed)).toList
+      let elseBlock :=
+        if elseOps.isEmpty then ""
+        else "      (else\n" ++ elseW ++ "      )\n"
+      s!"    (if (i32.eqz (i64.eqz (local.get $t{cond})))\n" ++
+        "      (then\n" ++ thenW ++ "      )\n" ++ elseBlock ++ "    )\n"
 
 private def renderLocals (tempCount : Nat) : String :=
   if tempCount == 0 then ""
@@ -675,21 +700,29 @@ private def renderMethodFunc
     out := out ++ "  )\n"
     pure out
 
+private partial def opUsesUnixTime : Operation → Bool
+  | .unixTimeSeconds _ => true
+  | .ifThenElse _ thenOps elseOps =>
+      thenOps.any opUsesUnixTime || elseOps.any opUsesUnixTime
+  | _ => false
+
 private def methodUsesUnixTime (m : MethodIR) : Bool :=
-  m.operations.any fun
-    | .unixTimeSeconds _ => true
-    | _ => false
+  m.operations.any opUsesUnixTime
 
 private def irUsesUnixTime (ir : IR) : Bool :=
   methodUsesUnixTime ir.initializer ||
     ir.entries.any methodUsesUnixTime ||
     ir.views.any methodUsesUnixTime
 
+private partial def opUsesCaller : Operation → Bool
+  | .callerPrincipalLen _ => true
+  | .callerPrincipalWord .. => true
+  | .ifThenElse _ thenOps elseOps =>
+      thenOps.any opUsesCaller || elseOps.any opUsesCaller
+  | _ => false
+
 private def methodUsesCaller (m : MethodIR) : Bool :=
-  m.operations.any fun
-    | .callerPrincipalLen _ => true
-    | .callerPrincipalWord .. => true
-    | _ => false
+  m.operations.any opUsesCaller
 
 private def irUsesCaller (ir : IR) : Bool :=
   methodUsesCaller ir.initializer ||

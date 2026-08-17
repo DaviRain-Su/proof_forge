@@ -128,16 +128,21 @@ private def validateParams
       planError s!"ICP {owner} parameter '{p}' is duplicated"
     seen := seen.push p
 
-/-- Validate a Statement list: leading `.assert` (Map cap-8 overflow) and
-    `.store`, optionally followed by a single terminal
+private partial def stmtCount : Statement → Nat
+  | .ifThenElse _ thenBody elseBody =>
+      1 + (thenBody.map stmtCount).foldl (· + ·) 0 +
+        (elseBody.map stmtCount).foldl (· + ·) 0
+  | _ => 1
+
+/-- Validate a Statement list: `.assert` / `.store` / T9a `.ifThenElse`,
+    optionally followed by a single terminal
     `.returnValue`/`.returnNone`/`.returnAggregate`, matching `resultKind`.
-    Every store must target a distinct field. -/
-private def validateBody
-    (owner : String) (mode : MethodMode) (resultKind : ResultKind)
+    Store-field uniqueness is per linear region (arms may both write the
+    same field). -/
+private partial def validateRegion
+    (owner : String) (resultKind : ResultKind)
     (allowStores : Bool) (paramCount stateCount remaining0 : Nat)
-    (body : Array Statement) : CompileResult Nat := do
-  unless body.size ≤ maxStores + 1 do
-    planError s!"ICP {owner} body statement count exceeds limit"
+    (body : Array Statement) : CompileResult (Nat × Bool) := do
   let mut remaining := remaining0
   let mut seenFields : Array Nat := #[]
   let mut sawTerminal := false
@@ -159,6 +164,17 @@ private def validateBody
         seenFields := seenFields.push fieldIndex
         remaining ←
           validateExpr value "store value" paramCount stateCount remaining
+    | .ifThenElse condition thenBody elseBody =>
+        remaining ←
+          validateExpr condition "if condition" paramCount stateCount remaining
+        let (r1, _) ←
+          validateRegion owner resultKind allowStores paramCount stateCount
+            remaining thenBody
+        remaining := r1
+        let (r2, _) ←
+          validateRegion owner resultKind allowStores paramCount stateCount
+            remaining elseBody
+        remaining := r2
     | .returnValue value =>
         sawTerminal := true
         sawTerminalValue := true
@@ -183,6 +199,18 @@ private def validateBody
         sawTerminal := true
         unless resultKind == .unit do
           planError s!"ICP {owner} non-Unit result must return a value"
+  pure (remaining, sawTerminalValue)
+
+private def validateBody
+    (owner : String) (mode : MethodMode) (resultKind : ResultKind)
+    (allowStores : Bool) (paramCount stateCount remaining0 : Nat)
+    (body : Array Statement) : CompileResult Nat := do
+  let total := (body.map stmtCount).foldl (· + ·) 0
+  unless total ≤ maxStores + 8 do
+    planError s!"ICP {owner} body statement count exceeds limit"
+  let (remaining, sawTerminalValue) ←
+    validateRegion owner resultKind allowStores paramCount stateCount
+      remaining0 body
   match mode with
   | .initialize | .mutate =>
       match resultKind, sawTerminalValue with
