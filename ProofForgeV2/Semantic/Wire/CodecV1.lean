@@ -143,6 +143,17 @@ theorem encodeArray_fiveV1 (encode : α → Except SemanticWireErrorV1 ByteArray
   simp [encodeArray, encodeArrayChunksV1, h0, h1, h2, h3, h4]
   rfl
 
+theorem encodeArray_sixV1 (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (v0 v1 v2 v3 v4 v5 : α) (b0 b1 b2 b3 b4 b5 : ByteArray)
+    (h0 : encode v0 = .ok b0) (h1 : encode v1 = .ok b1)
+    (h2 : encode v2 = .ok b2) (h3 : encode v3 = .ok b3)
+    (h4 : encode v4 = .ok b4) (h5 : encode v5 = .ok b5) :
+    encodeArray encode #[v0, v1, v2, v3, v4, v5] =
+      .ok ((encodeU32le 6).append
+        (((((b0.append b1).append b2).append b3).append b4).append b5)) := by
+  simp [encodeArray, encodeArrayChunksV1, h0, h1, h2, h3, h4, h5]
+  rfl
+
 /-- Fixed-size error refinements avoid re-proving private array-header details
     when a concrete element encoder fails. -/
 theorem encodeArray_one_errorV1
@@ -668,6 +679,16 @@ theorem foldl_size_nine (a0 a1 a2 a3 a4 a5 a6 a7 a8 : ByteArray) :
         (fun n f => n + f.size) 0 =
       a0.size + a1.size + a2.size + a3.size + a4.size + a5.size + a6.size +
         a7.size + a8.size := by
+  simp [List.foldl]
+
+/-- Exact small-field folds used by production record certificates. -/
+theorem foldl_size_one (a0 : ByteArray) :
+    (#[a0] : Array ByteArray).foldl (fun n f => n + f.size) 0 = a0.size := by
+  simp [List.foldl]
+
+theorem foldl_size_two (a0 a1 : ByteArray) :
+    (#[a0, a1] : Array ByteArray).foldl (fun n f => n + f.size) 0 =
+      a0.size + a1.size := by
   simp [List.foldl]
 
 /-- Exact three-field fold size (InvariantDecl framing). -/

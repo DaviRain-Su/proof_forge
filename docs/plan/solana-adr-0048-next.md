@@ -339,18 +339,30 @@ second codegen.
     Boolean was introduced. This closes `SemanticProgramDataV1` structure
     acceptance; exact canonical field-byte resource certificates, carrier
     encoding and compiler identity mint remain open.
+30. **SOL-0048-D5-STATECELL-CARRIER-RESOURCE-CERTIFICATE** — **done
+    2026-08-17**: composed the real StateCell lowering result through production
+    field encoders into an exact canonical wire success and resource bound. The
+    root certificate still invokes the sole `encodeSemanticProgramDataV1`; it
+    neither materializes/copies the 1523-byte carrier nor introduces a second
+    encoder. `stateCellCanonicalCarrierCertificateV1` then supplies the same
+    source binding, complete Typed certificate, production lowering and wire
+    certificate to the sole `normalizeProgramV1`, closing source → exact
+    canonical carrier. Codec support is limited to generic six-element array and
+    one/two-field fold-size seams with no StateCell data. This closes carrier
+    encoding; `CompiledSemanticV1` identity mint, Solana Plan/IR, exact emitter
+    equation, SHA trace and unconditional `get` remain open.
 
 D4's four pinned sparse certificates and all four concrete D5 compositions are
 complete, and the generic seam now has a second real contract/HandlerIR shape
 consumer plus its first multiword typed return. The generic bytes→SHA→artifact
 identity proof boundary and a kernel-reducible production emitter core are now
-present. Source binding, the complete production Typed gate and exact
-ProgramV1→SemanticProgramDataV1 normalization, including the complete
-production Semantic structure gate, are now kernel-certified from the real
-StateCell declaration. The remaining compiler boundary is bounded canonical
-SemanticProgramV1 field encoding → `CompiledSemanticV1` identity mint; target
-ownership then continues through the reachable `LowerSemanticV1`/`EmitIRV1`
-path and `validateIR = .ok ()`.
+present. Source binding, the complete production Typed gate, exact
+ProgramV1→SemanticProgramDataV1 normalization, the complete production Semantic
+structure gate and canonical carrier encoding are now kernel-certified from the
+real StateCell declaration. The remaining compiler boundary is the
+`CompiledSemanticV1` identity mint from that carrier; target ownership then
+continues through the reachable `LowerSemanticV1`/`EmitIRV1` path and
+`validateIR = .ok ()`.
 Until compiler/IR ownership closes, the post-validation emission equation cannot
 be owner-bound to the real source pipeline, so a SHA trace alone still cannot
 establish emitter ownership. Runtime output `true` and a certificate over copied
@@ -362,11 +374,10 @@ Next formalization slices, in order:
    stage fully proof-producing/kernel-replayable for its exact result. The
    emitter core, certificate boundary, real StateCell source binding and
    exact whole-program data normalization certificate are done; the complete
-   production Typed gate and Semantic structure gate are now also discharged.
-   Next close canonical carrier encoding using compositional per-field resource
-   certificates (not a whole-AST reduction or second encoder), then close the
-   compiler identity mint from those same production values;
-   after that totalize/replay `LowerSemanticV1`, `EmitIRV1` and `validateIR`,
+   production Typed gate, Semantic structure gate and compositional canonical
+   carrier certificate are now also discharged. Next close the compiler identity
+   mint from those same production values; after that totalize/replay
+   `LowerSemanticV1`, `EmitIRV1` and `validateIR`,
    and discharge the StateCell exact post-validation emission equation. Keep
    traversal contract-independent and do not add a proof-only compiler, emitter
    or copied assembly.

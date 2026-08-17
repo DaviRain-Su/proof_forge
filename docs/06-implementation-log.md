@@ -16855,3 +16855,21 @@ normative: false
   `git diff --check`通过。准确边界提升为Source→完整Typed→唯一Semantic lowering→完整production
   structure gate；尚未闭合carrier、compiler identity、Solana Plan/IR、emitter exact equation、SHA trace
   或unconditional `get`。
+
+## 2026-08-17 — certify StateCell production canonical carrier
+
+- 真实StateCell `SemanticProgramDataV1`现从source-derived field equations开始，按qualified name、
+  type/state tables、instruction/block/callable、requirements与root顺序组合唯一production encoder；
+  `stateCellSemanticEncodingSuccessV1`证明真实`encodeSemanticProgramDataV1`成功且不超过canonical
+  program上限。证明没有保存expected root bytes、复制1523-byte carrier、增加第二encoder或按合约名
+  改变production行为。
+- `stateCellCanonicalCarrierCertificateV1`把同一次canonical source binding、完整Typed acceptance、
+  production lowering和wire/resource certificate交给唯一`normalizeProgramV1`，得到exact
+  `SemanticProgramV1` carrier。Codec仅增加可复用`encodeArray_sixV1`以及一/二字段fold-size theorem，
+  不包含StateCell数据。
+- Verification：`ProofForgeV2.Semantic.Wire.CodecV1` build、
+  `ProofForgeV2.Targets.Solana.SbpfStateCellProductionV1`单文件kernel check、禁止项扫描和
+  `git diff --check`通过。准确边界提升为Source→完整Typed→唯一Semantic lowering→完整production
+  structure gate→canonical wire/resource→`normalizeProgramV1` exact carrier；尚未闭合
+  `CompiledSemanticV1` identity mint、Solana Plan/IR、emitter exact equation、SHA trace、unconditional
+  `get`、ELF或SVM runtime。
