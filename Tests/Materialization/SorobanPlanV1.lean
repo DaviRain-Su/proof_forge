@@ -1145,6 +1145,50 @@ unsafe def testArrViewRet : IO Unit := do
   expect (rs.contents.contains "-> (u64, u64)")
     "ArrViewRet must emit a Rust u64 tuple return"
 
+unsafe def testBytesViewRet : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BytesRetBox where\n" ++
+    "  state b : Bytes 4\n" ++
+    "  init() do\n" ++
+    "    b[0] := 0\n" ++
+    "  view get() : Bytes 4 do\n" ++
+    "    return b\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-bytes-view-ret>" "Tests.SorobanBytesRetBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  let some v := plan.views[0]? |
+    throw <| IO.userError "BytesRetBox must emit a view"
+  expect (v.resultKind == .aggregate 4)
+    s!"BytesRetBox view must be aggregate 4, got {repr v.resultKind}"
+  liftResult <| Targets.Soroban.validatePlan plan
+  let files ← liftResult <| buildSoroban compiled
+  let some rs := files.find? (·.path == "BytesRetBox.rs") |
+    throw <| IO.userError "soroban: missing BytesRetBox.rs"
+  expect (rs.contents.contains "-> (u64, u64, u64, u64)")
+    "BytesRetBox must emit a Rust 4-u64 tuple return"
+  let entrySrc :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BytesRetEntry where\n" ++
+    "  state b : Bytes 4\n" ++
+    "  init() do\n" ++
+    "    b[0] := 0\n" ++
+    "  entry peek() : Bytes 4 do\n" ++
+    "    return b\n"
+  let entryParsed ← liftResult (← session.selectProgramV1
+    entrySrc "<soroban-bytes-entry-ret>" "Tests.SorobanBytesRetEntry" none)
+  let entryCompiled ← liftResult <| Compiler.compileValidatedSourceV1 entryParsed
+  match planSoroban entryCompiled with
+  | .error (.planInvariant .soroban msg) =>
+      expect (msg.contains "Bytes return")
+        s!"entry Bytes must cite Bytes return, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .soroban, got {e.render}"
+  | .ok _ => throw <| IO.userError "entry Bytes return must fail closed at Soroban plan"
+
 unsafe def testOptViewRet : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -1261,6 +1305,7 @@ unsafe def run : IO Unit := do
   testPointBoxFlatten
   testMaybeMarkFlatten
   testArrViewRet
+  testBytesViewRet
   testOptViewRet
   testPointViewRet
   testMaybeViewRet
