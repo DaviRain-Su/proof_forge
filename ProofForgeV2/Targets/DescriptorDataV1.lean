@@ -47,7 +47,8 @@ def solana : TargetDescriptor :=
 /-- Residual descriptor profile acceptance for multi-profile targets.
     `TargetDescriptor.codegenProfile` is the default encoding profile.
     EVM additionally admits Cancun; Noir admits the nargo ACIR profile; OpenVM
-    admits the elf profile (ADR-0046 O1). -/
+    admits the elf profile (ADR-0046 O1); XRPL admits the wasm profile
+    (ADR-0050 Q1). -/
 def acceptsCodegenProfile (descriptor : TargetDescriptor) (profile : CodegenProfileId) : Bool :=
   descriptor.codegenProfile == profile ||
     (descriptor.targetId == TargetId.evm &&
@@ -55,7 +56,9 @@ def acceptsCodegenProfile (descriptor : TargetDescriptor) (profile : CodegenProf
     (descriptor.targetId == TargetId.noir &&
       profile == CodegenProfileId.noirNargoAcirV1) ||
     (descriptor.targetId == TargetId.openvm &&
-      profile == CodegenProfileId.openvmGuestElfV1)
+      profile == CodegenProfileId.openvmGuestElfV1) ||
+    (descriptor.targetId == TargetId.xrpl &&
+      profile == CodegenProfileId.xrplBedrockWasmU64V1)
 
 def near : TargetDescriptor :=
   descriptorFromRegistryAxes .near .wasmText CodegenProfileId.nearWasmRawU64V1

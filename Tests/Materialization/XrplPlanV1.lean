@@ -332,6 +332,447 @@ unsafe def testInt64FailClosed : IO Unit := do
     "    count := count + delta\n" ++
     "    return count\n"
 
+/-- T3 honesty pin: UInt64/Bool `Op.Constant` already inlines; do not re-lower. -/
+unsafe def testConstCellInline : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ConstCell where\n" ++
+    "  const one : UInt64 := 1\n" ++
+    "  const flag : Bool := true\n" ++
+    "  state count : UInt64\n" ++
+    "  init() do\n" ++
+    "    count := one\n" ++
+    "  entry tick() : UInt64 do\n" ++
+    "    count := count + one\n" ++
+    "    return count\n" ++
+    "  view ok() : Bool do\n" ++
+    "    return flag\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-const-cell>" "Tests.XrplConstCell" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  expect (plan.states.map (·.name) == #["count"])
+    "ConstCell must keep a single count leaf"
+  liftResult <| Targets.Xrpl.validatePlan plan
+  let files ← liftResult <| buildXrpl compiled
+  let some rsFile := files.find? (·.path == "ConstCell.rs") |
+    throw <| IO.userError "xrpl: missing ConstCell.rs"
+  let rs := rsFile.contents
+  expect (rs.contains "checked_add(1")
+    "ConstCell must inline the UInt64 constant as a UInt64 literal"
+  expect (rs.contains "true")
+    "ConstCell must inline the Bool constant"
+
+/-- T3: Bytes 4 → 4 UInt64 low-8 leaves (`b_0`…`b_3`). -/
+unsafe def testBytesBoxFlatten : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BytesBox where\n" ++
+    "  state b : Bytes 4\n" ++
+    "  init() do\n" ++
+    "    b[0] := 0\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    b[0] := 0\n" ++
+    "    return v\n" ++
+    "  view get0() : UInt64 do\n" ++
+    "    return 0\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-bytes-box>" "Tests.XrplBytesBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  expect (plan.states.map (·.name) == #["b_0", "b_1", "b_2", "b_3"])
+    "Bytes 4 must flatten to b_0..b_3 UInt64 leaves"
+  liftResult <| Targets.Xrpl.validatePlan plan
+  let files ← liftResult <| buildXrpl compiled
+  let some rsFile := files.find? (·.path == "BytesBox.rs") |
+    throw <| IO.userError "xrpl: missing BytesBox.rs"
+  let rs := rsFile.contents
+  expect (rs.contains "const b_0_KEY: &str = \"b_0\";")
+    "BytesBox must bind b_0_KEY"
+  expect (rs.contains "const b_1_KEY: &str = \"b_1\";")
+    "BytesBox must bind b_1_KEY"
+  expect (rs.contains "const b_2_KEY: &str = \"b_2\";")
+    "BytesBox must bind b_2_KEY"
+  expect (rs.contains "const b_3_KEY: &str = \"b_3\";")
+    "BytesBox must bind b_3_KEY"
+
+unsafe def testBytesN0FailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BytesZero where\n" ++
+    "  state b : Bytes 0\n" ++
+    "  init() do\n" ++
+    "    return\n" ++
+    "  entry tick() : UInt64 do\n" ++
+    "    return 0\n"
+  let parsed ←
+    match ← session.selectProgramV1
+        source "<xrpl-BytesZero>" "Tests.XrplBytesZero" none with
+    | .ok p => pure (some p)
+    | .error _ => pure none
+  match parsed with
+  | none => pure ()
+  | some parsed =>
+      match Compiler.compileValidatedSourceV1 parsed with
+      | .error _ => pure ()
+      | .ok compiled =>
+          match planXrpl compiled with
+          | .error e =>
+              expect (e.code == "PF-PLAN-INVARIANT")
+                s!"BytesZero must be a Plan invariant, got {e.code}: {e.render}"
+          | .ok _ =>
+              throw <| IO.userError "BytesZero must fail closed"
+
+unsafe def testBytesN9FailClosed : IO Unit := do
+  expectPlanFc "BytesNine" <|
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BytesNine where\n" ++
+    "  state b : Bytes 9\n" ++
+    "  init() do\n" ++
+    "    b[0] := 0\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    b[0] := 0\n" ++
+    "    return v\n"
+
+/-- T4: Principal → 9 UInt64 identity leaves. Return / AccountID alias stay FC. -/
+unsafe def testPrincipalIdentityLeaves : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PrincipalMix where\n" ++
+    "  state owner : Principal\n" ++
+    "  init(initial : Principal) do\n" ++
+    "    owner := initial\n" ++
+    "  entry set(who : Principal) : Bool do\n" ++
+    "    owner := who\n" ++
+    "    return true\n" ++
+    "  entry eq(a : Principal, b : Principal) : Bool do\n" ++
+    "    return a == b\n" ++
+    "  entry matchesOwner(who : Principal) : Bool do\n" ++
+    "    return owner == who\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-principal>" "Tests.XrplPrincipal" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  expect (plan.states.map (·.name) ==
+      #["owner_len", "owner_w0", "owner_w1", "owner_w2", "owner_w3",
+        "owner_w4", "owner_w5", "owner_w6", "owner_w7"])
+    "Principal must flatten to owner_len + owner_w0..w7"
+  liftResult <| Targets.Xrpl.validatePlan plan
+  let files ← liftResult <| buildXrpl compiled
+  let some rsFile := files.find? (·.path == "PrincipalMix.rs") |
+    throw <| IO.userError "xrpl: missing PrincipalMix.rs"
+  let rs := rsFile.contents
+  expect (rs.contains "const owner_len_KEY: &str = \"owner_len\";")
+    "PrincipalMix must bind owner_len_KEY"
+  expect (rs.contains "who_len: u64")
+    "Principal param must flatten to u64 leaves"
+  expect (!rs.contains "AccountID")
+    "Principal must not be aliased to XRPL AccountID"
+
+/-- T5: named Struct flattens to p_x / p_y. Return stays FC. -/
+unsafe def testPointBoxFlatten : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PointBox where\n" ++
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  state p : Point\n" ++
+    "  init() do\n" ++
+    "    p := Point.new(0, 0)\n" ++
+    "  entry setX(v : UInt64) : UInt64 do\n" ++
+    "    p.x := v\n" ++
+    "    return p.x\n" ++
+    "  view getX() : UInt64 do\n" ++
+    "    return p.x\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-point-box>" "Tests.XrplPointBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  expect (plan.states.map (·.name) == #["p_x", "p_y"])
+    "PointBox must flatten to p_x/p_y Plan leaves"
+  liftResult <| Targets.Xrpl.validatePlan plan
+  let files ← liftResult <| buildXrpl compiled
+  let some rsFile := files.find? (·.path == "PointBox.rs") |
+    throw <| IO.userError "xrpl: missing PointBox.rs"
+  expect (rsFile.contents.contains "const p_x_KEY: &str = \"p_x\";")
+    "PointBox must bind p_x_KEY"
+  expect (rsFile.contents.contains "const p_y_KEY: &str = \"p_y\";")
+    "PointBox must bind p_y_KEY"
+
+unsafe def testMaybeMarkFlatten : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MaybeMark where\n" ++
+    "  enum Maybe where\n" ++
+    "    | None\n" ++
+    "    | Some(UInt64)\n" ++
+    "  state m : Maybe\n" ++
+    "  init() do\n" ++
+    "    m := Maybe.None()\n" ++
+    "  entry put(v : UInt64) : UInt64 do\n" ++
+    "    m := Maybe.Some(v)\n" ++
+    "    return v\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-maybe-mark>" "Tests.XrplMaybeMark" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  expect (plan.states.map (·.name) == #["m_tag", "m_p0"])
+    "MaybeMark must flatten to m_tag/m_p0 Plan leaves"
+  liftResult <| Targets.Xrpl.validatePlan plan
+
+/-- T6: view-only named Struct returns flattened `(u64, u64)`. -/
+unsafe def testPointViewRet : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PointViewRet where\n" ++
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  state p : Point\n" ++
+    "  init() do\n" ++
+    "    p := Point.new(0, 0)\n" ++
+    "  entry ping() : UInt64 do\n" ++
+    "    return 0\n" ++
+    "  view getPoint() : Point do\n" ++
+    "    return p\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-point-view-ret>" "Tests.XrplPointViewRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  let some v := plan.views[0]? |
+    throw <| IO.userError "PointViewRet must emit a view"
+  expect (v.resultKind == .aggregate 2)
+    s!"PointViewRet view must be aggregate 2, got {repr v.resultKind}"
+  expect (v.leaves.size == 2) "PointViewRet must carry two field leaves"
+  liftResult <| Targets.Xrpl.validatePlan plan
+  let files ← liftResult <| buildXrpl compiled
+  let some rsFile := files.find? (·.path == "PointViewRet.rs") |
+    throw <| IO.userError "xrpl: missing PointViewRet.rs"
+  expect (rsFile.contents.contains "-> (u64, u64)")
+    "PointViewRet must emit a Rust (u64, u64) view"
+  expect (rsFile.contents.contains "p_x_cur")
+    "PointViewRet tuple must read p_x"
+  expect (rsFile.contents.contains "p_y_cur")
+    "PointViewRet tuple must read p_y"
+
+/-- T7: entry named Struct returns the same `(u64, u64)` tuple ABI. -/
+unsafe def testPointEntryRet : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PointEntryRet where\n" ++
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  state p : Point\n" ++
+    "  init() do\n" ++
+    "    p := Point.new(0, 0)\n" ++
+    "  entry peek() : Point do\n" ++
+    "    return p\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-point-entry-ret>" "Tests.XrplPointEntryRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  let some e := plan.entries[0]? |
+    throw <| IO.userError "PointEntryRet must emit an entry"
+  expect (e.resultKind == .aggregate 2)
+    s!"PointEntryRet entry must be aggregate 2, got {repr e.resultKind}"
+  expect (e.resultLeaves.size == 2) "PointEntryRet must carry two field leaves"
+  liftResult <| Targets.Xrpl.validatePlan plan
+  let files ← liftResult <| buildXrpl compiled
+  let some rsFile := files.find? (·.path == "PointEntryRet.rs") |
+    throw <| IO.userError "xrpl: missing PointEntryRet.rs"
+  expect (rsFile.contents.contains "-> (u64, u64)")
+    "PointEntryRet must emit a Rust (u64, u64) entry"
+  expect (rsFile.contents.contains "p_x_cur")
+    "PointEntryRet tuple must read p_x"
+  expect (rsFile.contents.contains "p_y_cur")
+    "PointEntryRet tuple must read p_y"
+
+unsafe def testPrincipalReturnFailClosed : IO Unit := do
+  expectPlanFc "PrincipalRet" <|
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PrincipalReturn where\n" ++
+    "  state owner : Principal\n" ++
+    "  init(initial : Principal) do\n" ++
+    "    owner := initial\n" ++
+    "  entry ping() : UInt64 do\n" ++
+    "    return 0\n" ++
+    "  view getOwner() : Principal do\n" ++
+    "    return owner\n"
+
+/-- T8b: Bytes N view flattens to `(u64, …)`; entry Bytes stays FC. -/
+unsafe def testBytesViewRet : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BytesViewRet where\n" ++
+    "  state b : Bytes 4\n" ++
+    "  init() do\n" ++
+    "    b[0] := 0\n" ++
+    "  entry ping() : UInt64 do\n" ++
+    "    return 0\n" ++
+    "  view get() : Bytes 4 do\n" ++
+    "    return b\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-bytes-view-ret>" "Tests.XrplBytesViewRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  let some v := plan.views[0]? |
+    throw <| IO.userError "BytesViewRet must emit a view"
+  expect (v.resultKind == .aggregate 4)
+    s!"BytesViewRet view must be aggregate 4, got {repr v.resultKind}"
+  expect (v.leaves.size == 4) "BytesViewRet must carry four byte leaves"
+  liftResult <| Targets.Xrpl.validatePlan plan
+  let files ← liftResult <| buildXrpl compiled
+  let some rsFile := files.find? (·.path == "BytesViewRet.rs") |
+    throw <| IO.userError "xrpl: missing BytesViewRet.rs"
+  expect (rsFile.contents.contains "-> (u64, u64, u64, u64)")
+    "BytesViewRet must emit a Rust 4-leaf view tuple"
+
+unsafe def testBytesEntryReturnFailClosed : IO Unit := do
+  expectPlanFc "BytesEntryRet" <|
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BytesEntryRet where\n" ++
+    "  state b : Bytes 4\n" ++
+    "  init() do\n" ++
+    "    b[0] := 0\n" ++
+    "  entry peek() : Bytes 4 do\n" ++
+    "    return b\n"
+
+/-- T9a: if-diamond lowers to `ifThenElse` + arm stores. -/
+unsafe def testIfFlow : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program IfFlow where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    if count > 0 then\n" ++
+    "      count := count + delta\n" ++
+    "    else\n" ++
+    "      count := delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-if-flow>" "Tests.XrplIfFlow" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  let some bump := plan.entries.find? (·.name == "bump") |
+    throw <| IO.userError "IfFlow: missing bump"
+  expect (bump.stores.isEmpty && bump.result?.isNone)
+    "IfFlow bump must use CFG body, not flat stores/result?"
+  expect (bump.body == #[
+      .ifThenElse (.compare .gt (.stateLoad 0) (.litU64 0))
+        #[.store 0 (.arith .add (.stateLoad 0) (.param 0))]
+        #[.store 0 (.param 0)],
+      .returnValue (.stateLoad 0)])
+    s!"IfFlow bump shape mismatch: {repr bump.body}"
+  liftResult <| Targets.Xrpl.validatePlan plan
+  let files ← liftResult <| buildXrpl compiled
+  let some rsFile := files.find? (·.path == "IfFlow.rs") |
+    throw <| IO.userError "xrpl: missing IfFlow.rs"
+  expect (rsFile.contents.contains "if (count_cur > 0u64)")
+    "IfFlow must emit a plain Rust if"
+
+/-- T9b: integer match lowers to `switchOn`. -/
+unsafe def testBranchFlow : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BranchFlow where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry apply(choice : UInt64) : UInt64 do\n" ++
+    "    match choice with\n" ++
+    "    | 0 => do\n" ++
+    "      return count\n" ++
+    "    | 1 => do\n" ++
+    "      count := count + 1\n" ++
+    "    | other => do\n" ++
+    "      count := other\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-branch-flow>" "Tests.XrplBranchFlow" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  let some apply := plan.entries.find? (·.name == "apply") |
+    throw <| IO.userError "BranchFlow: missing apply"
+  let hasSwitch :=
+    apply.body.any fun s =>
+      match s with
+      | .switchOn _ cases _ =>
+          cases.any (fun (v, _) => v == 0) && cases.any (fun (v, _) => v == 1)
+      | _ => false
+  expect hasSwitch "BranchFlow apply must lower match to switchOn"
+  liftResult <| Targets.Xrpl.validatePlan plan
+
+/-- T9c: bounded-for lowers to counted `forLoop` trap, not `while true`. -/
+unsafe def testLoopSum : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program LoopSum where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry addUp(n : UInt64) : UInt64 do\n" ++
+    "    let limit : UInt64 := n + 4\n" ++
+    "    for i in n ..< limit bounded 8 do\n" ++
+    "      count := count + i\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-loop-sum>" "Tests.XrplLoopSum" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  let some addUp := plan.entries.find? (·.name == "addUp") |
+    throw <| IO.userError "LoopSum: missing addUp"
+  let hasFor :=
+    addUp.body.any fun s =>
+      match s with
+      | .forLoop _ _ _ _ maxIt _ => maxIt == 8
+      | _ => false
+  expect hasFor "LoopSum addUp must lower bounded-for to forLoop max=8"
+  liftResult <| Targets.Xrpl.validatePlan plan
+  let files ← liftResult <| buildXrpl compiled
+  let some rsFile := files.find? (·.path == "LoopSum.rs") |
+    throw <| IO.userError "xrpl: missing LoopSum.rs"
+  expect (rsFile.contents.contains "loop {" &&
+      rsFile.contents.contains "return Err(1i32)" &&
+      !rsFile.contents.contains "while true")
+    "LoopSum must render a counted loop trap, not an unbounded while"
+
 unsafe def run : IO Unit := do
   testStateCellXrplSource
   testMaterializeDeterminism
@@ -344,5 +785,20 @@ unsafe def run : IO Unit := do
   testCryptoSha256StayFailClosed
   testContextReadStayFailClosed
   testInt64FailClosed
+  testConstCellInline
+  testBytesBoxFlatten
+  testBytesN0FailClosed
+  testBytesN9FailClosed
+  testBytesViewRet
+  testBytesEntryReturnFailClosed
+  testPrincipalIdentityLeaves
+  testPrincipalReturnFailClosed
+  testPointBoxFlatten
+  testMaybeMarkFlatten
+  testPointViewRet
+  testPointEntryRet
+  testIfFlow
+  testBranchFlow
+  testLoopSum
 
 end Tests.Materialization.XrplPlanV1

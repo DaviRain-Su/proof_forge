@@ -68,17 +68,19 @@ EVM-first formal lighthouse，不关闭 formal 0/27。
    rippled、`ContractCreate`、`ContractCall`、AlphaNet 或主网。locked WASM
    Finalize 与 AlphaNet 部署属后续独立 profile（XRPL-9 / XRPL-10）。
 5. **Q0 语言/CFG 子集（唯一本 profile 合法面）**：
-   - 类型：仅 anonymous `UInt64` / `Bool` / `Unit`；
-   - 状态与参数：仅 **public** `UInt64`；
-   - 结果：public `Unit` / `UInt64` / `Bool`；
-   - callables：`init` / `entry` / `view` / `pureFn`；**single-block**；无
-     loops / branch / switch / block params；
+   - 类型：anonymous `UInt64` / `Bool` / `Unit`，外加 T3 `UInt32` 下标 /
+     `UInt8` Bytes 元素与 `Array UInt64 N` / `Bytes N`（N∈1..8）state flatten；
+   - 状态与参数：public `UInt64`；Bytes/Array state 展成 UInt64 叶；const
+     UInt64/Bool 已 inline；
+   - 结果：public `Unit` / `UInt64` / `Bool`，外加 T6/T7/T8b 叶元组；
+   - callables：`init` / `entry` / `view` / `pureFn`；T9a–T9c 允许
+     reducible if / `switchOn` / counted `forLoop`；不可约 CFG 仍 FC；
    - ops：literal、state load/store、checked `UInt64` `+`/`-`/`*`/`/`/`%`、
      比较、Bool `and`/`or`/`not`、`pureCall` inline（depth ≤ 64）、bare
      assert、zero-payload declared revert；
    - **nonempty invariants / events / call / schedule / ContextRead /
-     Commit / multi-width / aggregates / Field / Principal / String /
-     Int64 / Smart Escrow / Vault / Hooks / EVM sidechain**：Plan 边界
+     Commit / Field / Principal / named / Map / Option / String /
+     Int64 / Bytes return / Smart Escrow / Vault / Hooks / EVM sidechain**：Plan 边界
      fail closed；
    - 存储：Q0 仅映射到 `get_data`/`set_data` 字符串 key（state 名）；
    - 失败：checked overflow / assert / revert 映射为 `trace` + 负 `i32`

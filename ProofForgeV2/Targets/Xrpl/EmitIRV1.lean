@@ -44,8 +44,12 @@ inductive RStmt where
   | guard (cond : RExpr) (errCode : Nat)
   | storeField (field : String) (value : RExpr)
   | tailI32 (value : RExpr)
+  | tailTuple (elems : Array RExpr)
   | tailSuccess
   | unreachableAfterRevert
+  | ifThenElse (cond : RExpr) (thenBody elseBody : Array RStmt)
+  | forLoop (varName : String) (initial cond update : RExpr)
+      (maxIterations : Nat) (body : Array RStmt)
   deriving BEq, Inhabited, Repr
 
 structure RustFn where
@@ -53,6 +57,8 @@ structure RustFn where
   params : Array String
   writesState : Bool
   stmts : Array RStmt
+  /-- `some n` = view/entry leaf-tuple ABI `(u64, …)`; `none` = `-> i32`. -/
+  tupleArity : Option Nat := none
   deriving BEq, Inhabited, Repr
 
 structure IR where
@@ -84,6 +90,8 @@ private partial def lowerExprToRExpr
   | .stateLoad fi => do
       let n ← stateFieldName plan fi
       pure (.name s!"{n}_cur")
+  | .temp i =>
+      pure (.name s!"pf_t{i}")
   | .arith .add l r => do
       let rl ← lowerExprToRExpr plan params l
       let rr ← lowerExprToRExpr plan params r
@@ -129,11 +137,68 @@ private def guardChecksOf (checks : Array Check) : Array Check :=
     | .overflow | .underflow => false
     | .divByZero | .assertion | .declaredRevert _ | .terminalRevert _ => true
 
+private partial def emitPlanStatements
+    (plan : Plan) (params : Array String) (stmts : Array Statement) :
+    CompileResult (Array RStmt) := do
+  let mut out : Array RStmt := #[]
+  for stmt in stmts do
+    match stmt with
+    | .store fi e =>
+        let field ← stateFieldName plan fi
+        let re ← lowerExprToRExpr plan params e
+        out := out.push (.storeField field re)
+    | .ifThenElse cond thenBody elseBody =>
+        let c ← lowerExprToRExpr plan params cond
+        let t ← emitPlanStatements plan params thenBody
+        let e ← emitPlanStatements plan params elseBody
+        out := out.push (.ifThenElse c t e)
+    | .switchOn scrut cases defaultBody =>
+        let folded : Array Statement :=
+          cases.foldr
+            (fun (v, body) acc =>
+              #[.ifThenElse (.compare .eq scrut (.litU64 v)) body acc])
+            defaultBody
+        let sw ← emitPlanStatements plan params folded
+        out := out ++ sw
+    | .forLoop varTemp initial condition update maxIterations body =>
+        let initE ← lowerExprToRExpr plan params initial
+        let condE ← lowerExprToRExpr plan params condition
+        let updE ← lowerExprToRExpr plan params update
+        let bodyStmts ← emitPlanStatements plan params body
+        out := out.push
+          (.forLoop s!"pf_t{varTemp}" initE condE updE maxIterations bodyStmts)
+    | .returnValue e =>
+        let re ← lowerExprToRExpr plan params e
+        out := out.push (.tailI32 re)
+    | .returnAggregate leaves =>
+        let mut elems : Array RExpr := #[]
+        for e in leaves do
+          elems := elems.push (← lowerExprToRExpr plan params e)
+        out := out.push (.tailTuple elems)
+    | .returnNone =>
+        out := out.push .tailSuccess
+  pure out
+
 private def buildEntryFn (plan : Plan) (ent : PlanEntry) : CompileResult RustFn := do
   let mut stmts : Array RStmt := #[]
   for ck in guardChecksOf ent.checks do
     let rc ← lowerExprToRExpr plan ent.params ck.condition
     stmts := stmts.push (.guard rc ck.kind.code)
+  if !ent.body.isEmpty then
+    let cfgStmts ← emitPlanStatements plan ent.params ent.body
+    stmts := stmts ++ cfgStmts
+    let tupleArity : Option Nat :=
+      match ent.resultKind with
+      | .aggregate n => some n
+      | _ => none
+    pure ({
+      name := ent.name
+      params := ent.params
+      writesState := true
+      stmts
+      tupleArity
+    } : RustFn)
+  else do
   for (fi, e) in ent.stores do
     let field ← stateFieldName plan fi
     let rv ← lowerExprToRExpr plan ent.params e
@@ -149,23 +214,53 @@ private def buildEntryFn (plan : Plan) (ent : PlanEntry) : CompileResult RustFn 
     | .bool, some e =>
         let rv ← lowerExprToRExpr plan ent.params e
         stmts := stmts.push (.tailI32 rv)
+    | .aggregate n, _ => do
+        unless ent.resultLeaves.size == n do
+          planError s!"XRPL IR entry '{ent.name}' aggregate emit leaf count must be {n}"
+        unless ent.checks.isEmpty do
+          planError
+            s!"XRPL IR entry '{ent.name}' aggregate return cannot contain fallible checks"
+        let mut elems : Array RExpr := #[]
+        for e in ent.resultLeaves do
+          elems := elems.push (← lowerExprToRExpr plan ent.params e)
+        stmts := stmts.push (.tailTuple elems)
     | _, _ =>
         planError s!"XRPL IR entry '{ent.name}' result shape is not canonical"
+  let tupleArity : Option Nat :=
+    match ent.resultKind with
+    | .aggregate n => some n
+    | _ => none
   pure {
     name := ent.name
     params := ent.params
     writesState := !ent.stores.isEmpty
     stmts
+    tupleArity
   }
 
 private def buildViewFn (plan : Plan) (v : PlanView) : CompileResult RustFn := do
-  let rv ← lowerExprToRExpr plan v.params v.value
-  pure {
-    name := v.name
-    params := v.params
-    writesState := false
-    stmts := #[.tailI32 rv]
-  }
+  match v.resultKind with
+  | .aggregate n => do
+      unless v.leaves.size == n do
+        planError s!"XRPL view '{v.name}' aggregate emit leaf count must be {n}"
+      let mut elems : Array RExpr := #[]
+      for e in v.leaves do
+        elems := elems.push (← lowerExprToRExpr plan v.params e)
+      pure {
+        name := v.name
+        params := v.params
+        writesState := false
+        stmts := #[.tailTuple elems]
+        tupleArity := some n
+      }
+  | _ => do
+      let rv ← lowerExprToRExpr plan v.params v.value
+      pure {
+        name := v.name
+        params := v.params
+        writesState := false
+        stmts := #[.tailI32 rv]
+      }
 
 private def buildInitFn (plan : Plan) : CompileResult (Option RustFn) := do
   match plan.initializer with
@@ -236,23 +331,64 @@ private partial def renderRExpr : RExpr → String
 private def indent (n : Nat) (s : String) : String :=
   String.ofList (List.replicate n ' ') ++ s
 
-private def renderStmt : RStmt → Array String
+private partial def renderStmtLines (level : Nat) : RStmt → Array String
   | .guard cond code =>
-      #[indent 8
+      #[indent level
           ("if !(" ++ renderRExpr cond ++ ") { return Err(" ++
             toString code ++ "i32); }")]
   | .storeField field value =>
-      #[indent 8 ("let " ++ field ++ "_new = " ++ renderRExpr value ++ ";"),
-        indent 8 ("write_u64(" ++ field ++ "_KEY, " ++ field ++ "_new)?;")]
+      #[indent level ("let " ++ field ++ "_new = " ++ renderRExpr value ++ ";"),
+        indent level ("write_u64(" ++ field ++ "_KEY, " ++ field ++ "_new)?;")]
   | .tailI32 value =>
-      #[indent 8 ("Ok(" ++ renderRExpr value ++ " as i32)")]
+      #[indent level ("Ok(" ++ renderRExpr value ++ " as i32)")]
+  | .tailTuple elems =>
+      let inner := String.intercalate ", " (elems.map renderRExpr).toList
+      #[indent level ("(" ++ inner ++ ")")]
   | .tailSuccess =>
-      #[indent 8 "Ok(0)"]
+      #[indent level "Ok(0)"]
   | .unreachableAfterRevert =>
-      #[indent 8
+      #[indent level
           "unreachable!(\"Q0 template: a prior guard always returns before this point\")"]
+  | .ifThenElse cond thenBody elseBody => Id.run do
+      let mut lines := #[indent level ("if " ++ renderRExpr cond ++ " {")]
+      for stmt in thenBody do
+        lines := lines ++ renderStmtLines (level + 4) stmt
+      if elseBody.isEmpty then
+        lines := lines.push (indent level "}")
+      else
+        lines := lines.push (indent level "} else {")
+        for stmt in elseBody do
+          lines := lines ++ renderStmtLines (level + 4) stmt
+        lines := lines.push (indent level "}")
+      lines
+  | .forLoop varName initial cond update maxIterations body => Id.run do
+      let iter := varName ++ "_iter"
+      let mut lines :=
+        #[indent level ("let mut " ++ varName ++ ": u64 = " ++
+            renderRExpr initial ++ ";"),
+          indent level ("let mut " ++ iter ++ ": u64 = 0;"),
+          indent level "loop {"]
+      lines := lines.push
+        (indent (level + 4)
+          ("if " ++ iter ++ " >= " ++ toString maxIterations ++
+            "u64 { return Err(1i32); }"))
+      lines := lines.push
+        (indent (level + 4) ("if !(" ++ renderRExpr cond ++ ") { break; }"))
+      for stmt in body do
+        lines := lines ++ renderStmtLines (level + 4) stmt
+      lines := lines.push
+        (indent (level + 4) (varName ++ " = " ++ renderRExpr update ++ ";"))
+      lines := lines.push
+        (indent (level + 4)
+          (iter ++ " = " ++ iter ++
+            ".checked_add(1).ok_or(1i32)?;"))
+      lines := lines.push (indent level "}")
+      lines
 
-private def collectLoadedFields (fn : RustFn) (all : Array String) : Array String :=
+private def renderStmt (stmt : RStmt) : Array String :=
+  renderStmtLines 8 stmt
+
+private partial def collectLoadedFields (fn : RustFn) (all : Array String) : Array String :=
   Id.run do
     let rec walk (acc : Array String) : RExpr → Array String
       | .name id =>
@@ -265,19 +401,41 @@ private def collectLoadedFields (fn : RustFn) (all : Array String) : Array Strin
       | .compareOp _ l r | .boolAnd l r | .boolOr l r => walk (walk acc l) r
       | .boolNot o => walk acc o
       | .litU64 _ | .litBool _ => acc
+    let rec walkStmt (acc : Array String) : RStmt → Array String
+      | .guard cond _ => walk acc cond
+      | .storeField field value =>
+          let acc := walk acc value
+          if !acc.contains field then acc.push field else acc
+      | .tailI32 value => walk acc value
+      | .tailTuple elems =>
+          Id.run do
+            let mut a := acc
+            for e in elems do
+              a := walk a e
+            a
+      | .tailSuccess | .unreachableAfterRevert => acc
+      | .ifThenElse cond thenBody elseBody =>
+          Id.run do
+            let mut a := walk acc cond
+            for s in thenBody ++ elseBody do
+              a := walkStmt a s
+            a
+      | .forLoop _ initial cond update _ body =>
+          Id.run do
+            let mut a := walk (walk (walk acc initial) cond) update
+            for s in body do
+              a := walkStmt a s
+            a
     let mut acc : Array String := #[]
     for stmt in fn.stmts do
-      match stmt with
-      | .guard cond _ => acc := walk acc cond
-      | .storeField _ value => acc := walk acc value
-      | .tailI32 value => acc := walk acc value
-      | .tailSuccess | .unreachableAfterRevert => pure ()
-    for stmt in fn.stmts do
-      match stmt with
-      | .storeField field _ =>
-          if !acc.contains field then acc := acc.push field
-      | _ => pure ()
+      acc := walkStmt acc stmt
     pure acc
+
+private def rustTupleType (n : Nat) : String :=
+  if n == 1 then "(u64,)"
+  else
+    let parts := List.replicate n "u64"
+    "(" ++ String.intercalate ", " parts ++ ")"
 
 private def renderFn (fn : RustFn) (allFields : Array String) : Array String := Id.run do
   let mut lines : Array String := #[]
@@ -285,19 +443,39 @@ private def renderFn (fn : RustFn) (allFields : Array String) : Array String := 
     (fn.params.map (fun p => s!"{p}: u64")).toList
   lines := lines.push s!"/// @xrpl-function {fn.name}"
   lines := lines.push "#[unsafe(no_mangle)]"
-  lines := lines.push s!"pub extern \"C\" fn {fn.name}({params}) -> i32 {"{"}"
   let loaded := collectLoadedFields fn allFields
-  for field in loaded do
-    lines := lines.push (indent 4 s!"let {field}_cur = read_u64({field}_KEY);")
-  lines := lines.push (indent 4 "let result: Result<i32, i32> = (|| {")
-  for stmt in fn.stmts do
-    lines := lines ++ renderStmt stmt
-  lines := lines.push (indent 4 "})();")
-  lines := lines.push (indent 4 "match result {")
-  lines := lines.push (indent 8 "Ok(code) => code,")
-  lines := lines.push (indent 8 "Err(code) => if code < 0 { code } else { -code },")
-  lines := lines.push (indent 4 "}")
-  lines := lines.push "}"
+  match fn.tupleArity with
+  | some n =>
+      lines := lines.push
+        s!"pub extern \"C\" fn {fn.name}({params}) -> {rustTupleType n} {"{"}"
+      for field in loaded do
+        lines := lines.push (indent 4 s!"let {field}_cur = read_u64({field}_KEY);")
+      for stmt in fn.stmts do
+        match stmt with
+        | .storeField field value =>
+            lines := lines.push
+              (indent 4 ("let " ++ field ++ "_new = " ++ renderRExpr value ++ ";"))
+            lines := lines.push
+              (indent 4 ("let _ = write_u64(" ++ field ++ "_KEY, " ++ field ++ "_new);"))
+        | .tailTuple elems =>
+            let inner := String.intercalate ", " (elems.map renderRExpr).toList
+            lines := lines.push (indent 4 ("(" ++ inner ++ ")"))
+        | other =>
+            lines := lines ++ renderStmt other
+      lines := lines.push "}"
+  | none =>
+      lines := lines.push s!"pub extern \"C\" fn {fn.name}({params}) -> i32 {"{"}"
+      for field in loaded do
+        lines := lines.push (indent 4 s!"let {field}_cur = read_u64({field}_KEY);")
+      lines := lines.push (indent 4 "let result: Result<i32, i32> = (|| {")
+      for stmt in fn.stmts do
+        lines := lines ++ renderStmt stmt
+      lines := lines.push (indent 4 "})();")
+      lines := lines.push (indent 4 "match result {")
+      lines := lines.push (indent 8 "Ok(code) => code,")
+      lines := lines.push (indent 8 "Err(code) => if code < 0 { code } else { -code },")
+      lines := lines.push (indent 4 "}")
+      lines := lines.push "}"
   pure lines
 
 private def rustKeyConst (field : String) : String :=

@@ -44,6 +44,20 @@ Same skeleton as Soroban S0 / OpenVM O0:
 | **XRPL-7** | Named FC: ContextRead, `pf.crypto.*`, call/schedule, escrow/vault, Hooks, EVM | same suite | **done** (diagnostics cite QN / shape) |
 | **XRPL-8** | docs: TARGET-INDEX row, matrix §1e, ADR-0036 count, SBOM | docs + surgical SBOM rehash | **done**（§1e 钉 4-key / Q0 语言 FC / Q1 extra / 非 AlphaNet·T9·CAP） |
 
+## Language wave（T3–T9；包装层不动）
+
+| ID | Status | Objective |
+|---|---|---|
+| **T3-XRPL-BYTES** | **done** | Bytes N / Array UInt64 N flatten + ConstCell pin；§1e const 已 inline |
+| **T4-XRPL-PRINCIPAL** | **done** | Principal 9-leaf identity；result/self/caller FC |
+| **T5-XRPL-NAMED** | **done** | named Struct/Enum leaf flatten；return FC |
+| **T6-XRPL-VIEW-RET** | **done** | view leaf return Rust `(u64,…)` |
+| **T7-XRPL-ENTRY-RET** | **done** | entry isomorphic leaf return |
+| **T8b-XRPL-BYTES-VIEW** | **done** | Bytes N view leaf return；entry Bytes FC |
+| **T9a-XRPL-IF** | **done** | `emitRegion` + `ifThenElse` |
+| **T9b-XRPL-SWITCH** | **done** | `Term.switch` → `switchOn` |
+| **T9c-XRPL-FOR** | **done** | `loopBounds` → counted `forLoop` trap |
+
 ## Wave 3 — opt-in only (product yes)
 
 | ID | Objective | Gate |

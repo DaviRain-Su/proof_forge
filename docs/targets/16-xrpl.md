@@ -65,11 +65,16 @@ Rust → `wasm32-unknown-unknown` → `ContractCreate` / `ContractCall`，合约
 `value.checked-arithmetic`。
 
 开：public UInt64/Bool/Unit Counter/StateCell 的 **受控 Rust 源**
-（`xrpl_wasm` / Bedrock 注解风格）。
+（`xrpl_wasm` / Bedrock 注解风格）；UInt64/Bool const inline；T3 Bytes N /
+Array UInt64 N state flatten（N∈1..8 叶，字面量下标）；T4 Principal 9 叶
+identity（`len+w0..w7`，不是 AccountID）；T5 named Struct/Enum 叶 flatten；
+T6/T7 named view/entry 叶返回 Rust `(u64,…)` 元组；T8b Bytes N **view**
+叶返回；T9a/T9b if-diamond + `switchOn`；T9c counted `forLoop` trap。
 
 Q0 **一律 fail closed**：`call`/`schedule`、ContextRead、`pf.crypto.*`、
-`pf.assets`、invariants、aggregates、Escrow/Vault、Hooks、EVM sidechain、
-主网 deployable、bedrock CLI 作为 product Finalize。
+`pf.assets`、invariants、Principal result/self/caller、Bytes **entry**
+return、不可约 CFG / 臂内 call·emit·revert、Escrow/Vault、Hooks、EVM
+sidechain、主网 deployable、bedrock CLI 作为 product Finalize。
 
 ## 4. 制品与工具（研究钉，非 Tool Lock）
 

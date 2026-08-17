@@ -53,6 +53,7 @@ private partial def inferExprType
   match e with
   | .litU64 _ => pure (.uint64, remaining)
   | .litBool _ => pure (.bool, remaining)
+  | .temp _ => pure (.uint64, remaining)
   | .param index =>
       unless index < paramCount do
         planError s!"XRPL plan {what} references unknown parameter {index}"
@@ -115,7 +116,7 @@ private def validateExpr
     if depth > maxExprDepth then
       planError s!"XRPL plan {what} expression exceeds depth limit"
     match current with
-    | .litU64 _ | .litBool _ | .param _ | .stateLoad _ => pure ()
+    | .litU64 _ | .litBool _ | .param _ | .stateLoad _ | .temp _ => pure ()
     | .arith _ lhs rhs =>
         stack := stack.push (rhs, depth + 1)
         stack := stack.push (lhs, depth + 1)
@@ -162,6 +163,76 @@ private def validateParams (params : Array String) : CompileResult Unit := do
       planError s!"XRPL parameter '{p}' is duplicated"
     seen := seen.push p
 
+private partial def validateBodyStatements
+    (owner : String) (resultKind : ResultKind)
+    (paramCount stateCount remaining0 : Nat)
+    (body : Array Statement) : CompileResult Nat := do
+  let mut remaining := remaining0
+  let mut seen : Array Nat := #[]
+  for stmt in body do
+    match stmt with
+    | .store fi e =>
+        unless fi < stateCount do
+          planError s!"XRPL {owner} store references an unknown state field"
+        if seen.contains fi then
+          planError s!"XRPL {owner} store list has duplicate field indices"
+        seen := seen.push fi
+        remaining ←
+          validateExpr e .uint64 "store value" paramCount stateCount remaining
+    | .ifThenElse cond thenBody elseBody =>
+        remaining ←
+          validateExpr cond .bool "if condition" paramCount stateCount remaining
+        remaining ←
+          validateBodyStatements owner resultKind paramCount stateCount remaining
+            thenBody
+        remaining ←
+          validateBodyStatements owner resultKind paramCount stateCount remaining
+            elseBody
+    | .switchOn scrut cases defaultBody =>
+        remaining ←
+          validateExpr scrut .uint64 "switch scrutinee" paramCount stateCount remaining
+        for (_, caseBody) in cases do
+          remaining ←
+            validateBodyStatements owner resultKind paramCount stateCount remaining
+              caseBody
+        remaining ←
+          validateBodyStatements owner resultKind paramCount stateCount remaining
+            defaultBody
+    | .forLoop _ initial condition update _ body =>
+        remaining ←
+          validateExpr initial .uint64 "for initial" paramCount stateCount remaining
+        remaining ←
+          validateExpr condition .bool "for condition" paramCount stateCount remaining
+        remaining ←
+          validateExpr update .uint64 "for update" paramCount stateCount remaining
+        remaining ←
+          validateBodyStatements owner resultKind paramCount stateCount remaining
+            body
+    | .returnValue e =>
+        unless resultKind == .uint64 || resultKind == .bool do
+          planError s!"XRPL {owner} Unit/aggregate result must not return a scalar"
+        let expected :=
+          match resultKind with
+          | .bool => ExprType.bool
+          | _ => .uint64
+        remaining ←
+          validateExpr e expected "return value" paramCount stateCount remaining
+    | .returnAggregate leaves =>
+        match resultKind with
+        | .aggregate n =>
+            unless leaves.size == n do
+              planError s!"XRPL {owner} aggregate return must have exactly {n} leaves"
+            for e in leaves do
+              remaining ←
+                validateExpr e .uint64 "aggregate return leaf" paramCount stateCount
+                  remaining
+        | _ =>
+            planError s!"XRPL {owner} cannot return an aggregate"
+    | .returnNone =>
+        unless resultKind == .unit do
+          planError s!"XRPL {owner} non-Unit result must return a value"
+  pure remaining
+
 private def isCanonicalTerminalRevertCheck (ck : Check) : Bool :=
   match ck.kind, ck.condition with
   | .terminalRevert _, .litBool false => true
@@ -204,8 +275,17 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
       planError "XRPL plan check count exceeds limit"
     for ck in ent.checks do
       exprBudget ← validateCheck ck ent.params.size plan.states.size exprBudget
+    if !ent.body.isEmpty then
+      unless ent.stores.isEmpty && ent.result?.isNone && ent.resultLeaves.isEmpty do
+        planError
+          s!"XRPL entry '{ent.name}' CFG body cannot mix with flat stores/result"
+      exprBudget ←
+        validateBodyStatements ent.name ent.resultKind ent.params.size
+          plan.states.size exprBudget ent.body
+    else
     exprBudget ←
       validateStores ent.stores plan.states.size ent.params.size exprBudget
+    if ent.body.isEmpty then
     match ent.resultKind, ent.result?, ent.terminalRevert with
     | .unit, none, _ => pure ()
     | .unit, some _, _ =>
@@ -225,6 +305,22 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
         planError s!"XRPL entry '{ent.name}' non-Unit return is missing"
     | .uint64, some _, true | .bool, some _, true =>
         planError s!"XRPL entry '{ent.name}' revert path cannot carry a return value"
+    | .aggregate n, some _, false => do
+        unless 1 ≤ n && n ≤ 8 && ent.resultLeaves.size == n do
+          planError
+            s!"XRPL entry '{ent.name}' aggregate leaf count must be 1..8 and match resultKind"
+        unless ent.checks.isEmpty do
+          planError
+            s!"XRPL entry '{ent.name}' aggregate return cannot contain fallible checks"
+        unless !ent.terminalRevert do
+          planError
+            s!"XRPL entry '{ent.name}' aggregate return cannot be a terminal revert"
+        for e in ent.resultLeaves do
+          exprBudget ←
+            validateExpr e .uint64 "entry aggregate leaf" ent.params.size
+              plan.states.size exprBudget
+    | .aggregate _, _, _ =>
+        planError s!"XRPL entry '{ent.name}' aggregate return is not canonical"
   let mut viewNames : Array String := #[]
   for v in plan.views do
     unless isSafeIdent v.name do
@@ -234,7 +330,8 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     viewNames := viewNames.push v.name
     validateParams v.params
     match v.resultKind with
-    | .unit => planError s!"XRPL view '{v.name}' result must be UInt64 or Bool"
+    | .unit =>
+        planError s!"XRPL view '{v.name}' result must be UInt64, Bool, or a view-only aggregate"
     | .uint64 =>
         exprBudget ←
           validateExpr v.value .uint64 "view result" v.params.size plan.states.size
@@ -243,6 +340,14 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
         exprBudget ←
           validateExpr v.value .bool "view result" v.params.size plan.states.size
             exprBudget
+    | .aggregate n => do
+        unless 1 ≤ n && n ≤ 8 && v.leaves.size == n do
+          planError
+            s!"XRPL view '{v.name}' aggregate leaf count must be 1..8 and match resultKind"
+        for e in v.leaves do
+          exprBudget ←
+            validateExpr e .uint64 "view aggregate leaf" v.params.size
+              plan.states.size exprBudget
   pure ()
 
 end ProofForgeV2.Targets.Xrpl
