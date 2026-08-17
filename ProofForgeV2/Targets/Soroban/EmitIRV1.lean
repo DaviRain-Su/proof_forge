@@ -63,6 +63,7 @@ inductive RStatement where
   | letBind (name : String) (value : RExpr)
   | expr (value : RExpr)
   | returnExpr (value : RExpr)
+  | ifThenElse (cond : RExpr) (thenBody elseBody : Array RStatement)
   deriving BEq, Inhabited, Repr
 
 structure RFn where
@@ -268,6 +269,33 @@ private def emitSha256Sites
           (.u64LimbFromHashLe (.name digestName) limb))
   pure stmts
 
+private partial def emitPlanStatements
+    (plan : Plan) (params : Array String) (stateLocals : Array String)
+    (stmts : Array Statement) : CompileResult (Array RStatement) := do
+  let mut out : Array RStatement := #[]
+  for stmt in stmts do
+    match stmt with
+    | .store fi e =>
+        let key ← stateKey plan fi
+        let re ← lowerExpr plan params stateLocals e
+        out := out.push (.expr (.storageSet key re))
+    | .ifThenElse cond thenBody elseBody =>
+        let c ← lowerExpr plan params stateLocals cond
+        let t ← emitPlanStatements plan params stateLocals thenBody
+        let e ← emitPlanStatements plan params stateLocals elseBody
+        out := out.push (.ifThenElse c t e)
+    | .returnValue e =>
+        let re ← lowerExpr plan params stateLocals e
+        out := out.push (.returnExpr re)
+    | .returnAggregate leaves =>
+        let mut elems : Array RExpr := #[]
+        for e in leaves do
+          elems := elems.push (← lowerExpr plan params stateLocals e)
+        out := out.push (.returnExpr (RExpr.tuple elems))
+    | .returnNone =>
+        out := out.push (.returnExpr .unit)
+  pure out
+
 private def resultTypeStr (rk : ResultKind) (leafIsInt : Array Bool) : Option String :=
   match rk with
   | .unit => none
@@ -320,25 +348,29 @@ private def lower (plan : Plan) : CompileResult IR := do
     body := body ++ shaStmts
     let checkStmts ← emitAssertChecks plan ent.params stateLocals ent.checks
     body := body ++ checkStmts
-    let storeStmts ← emitStores plan ent.params stateLocals ent.stores
-    body := body ++ storeStmts
-    match ent.resultKind, ent.result? with
-    | .unit, _ => pure ()
-    | .aggregate n, _ => do
-        let src := if ent.leaves.isEmpty then
-          match ent.result? with | some e => #[e] | none => #[]
-        else ent.leaves
-        unless src.size == n do
-          planError
-            s!"Soroban entry '{ent.name}' aggregate emit leaf count must be {n}"
-        let mut elems : Array RExpr := #[]
-        for e in src do
-          elems := elems.push (← lowerExpr plan ent.params stateLocals e)
-        body := body.push (.returnExpr (RExpr.tuple elems))
-    | .uint64, some e | .int64, some e | .bool, some e => do
-        let re ← lowerExpr plan ent.params stateLocals e
-        body := body.push (.returnExpr re)
-    | _, _ => pure ()
+    if !ent.body.isEmpty then
+      let cfgStmts ← emitPlanStatements plan ent.params stateLocals ent.body
+      body := body ++ cfgStmts
+    else
+      let storeStmts ← emitStores plan ent.params stateLocals ent.stores
+      body := body ++ storeStmts
+      match ent.resultKind, ent.result? with
+      | .unit, _ => pure ()
+      | .aggregate n, _ => do
+          let src := if ent.leaves.isEmpty then
+            match ent.result? with | some e => #[e] | none => #[]
+          else ent.leaves
+          unless src.size == n do
+            planError
+              s!"Soroban entry '{ent.name}' aggregate emit leaf count must be {n}"
+          let mut elems : Array RExpr := #[]
+          for e in src do
+            elems := elems.push (← lowerExpr plan ent.params stateLocals e)
+          body := body.push (.returnExpr (RExpr.tuple elems))
+      | .uint64, some e | .int64, some e | .bool, some e => do
+          let re ← lowerExpr plan ent.params stateLocals e
+          body := body.push (.returnExpr re)
+      | _, _ => pure ()
     fns := fns.push {
       name := ent.name
       params := fnParams
@@ -454,11 +486,27 @@ private partial def renderExpr (signed : Bool) : RExpr → String
 private def indent (n : Nat) (s : String) : String :=
   String.ofList (List.replicate n ' ') ++ s
 
-private def renderStatement (signed : Bool) (s : RStatement) : String :=
+private partial def renderStatementLines (signed : Bool) (ind : Nat)
+    (s : RStatement) : Array String :=
   match s with
-  | .letBind name value => s!"let {name} = {renderExpr signed value};"
-  | .expr value => s!"{renderExpr signed value};"
-  | .returnExpr value => renderExpr signed value
+  | .letBind name value =>
+      #[indent ind s!"let {name} = {renderExpr signed value};"]
+  | .expr value =>
+      #[indent ind s!"{renderExpr signed value};"]
+  | .returnExpr value =>
+      #[indent ind (renderExpr signed value)]
+  | .ifThenElse cond thenBody elseBody => Id.run do
+      let mut lines := #[indent ind ("if " ++ renderExpr signed cond ++ " {")]
+      for stmt in thenBody do
+        lines := lines ++ renderStatementLines signed (ind + 4) stmt
+      if elseBody.isEmpty then
+        lines := lines.push (indent ind "}")
+      else
+        lines := lines.push (indent ind "} else {")
+        for stmt in elseBody do
+          lines := lines ++ renderStatementLines signed (ind + 4) stmt
+        lines := lines.push (indent ind "}")
+      lines
 
 private def renderFn (signed : Bool) (f : RFn) : Array String := Id.run do
   let mut lines : Array String := #[]
@@ -471,7 +519,7 @@ private def renderFn (signed : Bool) (f : RFn) : Array String := Id.run do
   for i in [0:f.body.size] do
     match f.body[i]? with
     | some stmt =>
-        lines := lines.push (indent 8 (renderStatement signed stmt))
+        lines := lines ++ renderStatementLines signed 8 stmt
     | none => pure ()
   lines := lines.push (indent 4 "}")
   pure lines

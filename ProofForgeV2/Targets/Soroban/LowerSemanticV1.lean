@@ -185,6 +185,16 @@ structure Check where
   condition : Expr
   deriving BEq, Inhabited, Repr
 
+/-- T9a CFG body. Straight-line entries keep `stores`+`result?` and leave
+    `body` empty. Nonempty `body` is mutually exclusive with those fields. -/
+inductive Statement where
+  | store (fieldIndex : Nat) (value : Expr)
+  | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
+  | returnValue (value : Expr)
+  | returnNone
+  | returnAggregate (leaves : Array Expr)
+  deriving BEq, Inhabited, Repr
+
 inductive ResultKind where
   | unit
   | uint64
@@ -220,6 +230,8 @@ structure PlanEntry where
   terminalRevert : Bool
   /-- CAP-4: sha256 sites emitted before checks/stores/result. -/
   sha256Sites : Array Sha256Site := #[]
+  /-- Nonempty ⇒ `stores` and `result?` must be empty (T9a CFG). -/
+  body : Array Statement := #[]
   deriving BEq, Inhabited, Repr
 
 structure PlanView where
@@ -1251,22 +1263,15 @@ private def resultKindOf
       s!"{owner} Array/Map return is outside S0 (only Array/Map UInt64 state flattens; no Vec/HashMap)"
   else planError s!"{owner} result must be public Unit, UInt64, Int64, or Bool"
 
-private partial def lowerInstructions
+private partial def lowerBlockInstructions
     (data : SemanticProgramDataV1) (types : SorobanTypeClosureV1)
     (idx : CallableIndex) (callable : CallableV1)
     (numericTy : ExprType) (layout : StateLayout)
     (allowStateRead allowStateWrite : Bool)
     (forbidChecks : Bool) (inlineDepth : Nat)
+    (block : BlockV1)
     (acc0 : BodyAccum) :
-    CompileResult (BodyAccum × Option TypedExpr × Bool) := do
-  unless callable.blocks.size == 1 do
-    planError "unsupported Soroban semantic shape: each callable must have exactly one block"
-  unless callable.loopBounds.isEmpty do
-    planError "unsupported Soroban semantic shape: loopBounds are outside S0"
-  unless callable.entryBlock.toNat == 0 do
-    planError "unsupported Soroban semantic shape: entryBlock must be 0"
-  let some block := callable.blocks[0]? |
-    planError "unsupported Soroban semantic shape: missing entry block"
+    CompileResult BodyAccum := do
   unless block.params.isEmpty do
     planError "unsupported Soroban semantic shape: block parameters are outside S0"
   let mut acc := acc0
@@ -1393,10 +1398,31 @@ private partial def lowerInstructions
             planError "unsupported Soroban semantic shape: pureFn params must be public UInt64 or Int64"
           cEnv := envInsert cEnv p.valueId av
         let cAcc0 : BodyAccum := emptyBodyAccum cEnv { entries := #[] }
-        let (cAcc, ret?, _endedRevert) ←
-          lowerInstructions data types idx callee numericTy layout
+        unless callee.blocks.size == 1 do
+          planError "unsupported Soroban semantic shape: each callable must have exactly one block"
+        unless callee.loopBounds.isEmpty do
+          planError "unsupported Soroban semantic shape: loopBounds are outside S0"
+        let some cBlock := callee.blocks[0]? |
+          planError "unsupported Soroban semantic shape: missing entry block"
+        let cAcc ←
+          lowerBlockInstructions data types idx callee numericTy layout
             (allowStateRead := false) (allowStateWrite := false)
-            (forbidChecks := forbidChecks) (inlineDepth := inlineDepth + 1) cAcc0
+            (forbidChecks := forbidChecks) (inlineDepth := inlineDepth + 1)
+            cBlock cAcc0
+        let ret? ← match cBlock.terminator with
+          | .return_ value =>
+              match value with
+              | none => pure (none : Option TypedExpr)
+              | some vid =>
+                  match envLookup cAcc.env vid with
+                  | some tv => pure (some tv)
+                  | none =>
+                      planError "unsupported Soroban semantic shape: return value undefined"
+          | .revert .. =>
+              planError
+                "unsupported Soroban semantic shape: pureFn revert during inline is outside S0"
+          | .jump .. | .branch .. | .switch .. | .trap .. =>
+              planError "unsupported Soroban semantic shape: multi-block/trap terminators are outside S0"
         let expandedOpCount := acc.opCount + cAcc.opCount
         if expandedOpCount > maxBodyOps then
           planError "unsupported Soroban semantic shape: expanded pureFn operation count exceeds limit"
@@ -1776,21 +1802,158 @@ private partial def lowerInstructions
     | .checkedCast .. | .commit ..
     | .emit .. =>
         planError "unsupported Soroban semantic shape: op is outside S0"
-  -- Terminator
+  pure acc
+
+private def callableHasSwitch (callable : CallableV1) : Bool :=
+  callable.blocks.any fun b =>
+    match b.terminator with
+    | .switch .. => true
+    | _ => false
+
+private inductive RegionCont where
+  | join (blockId : Nat)
+  | closed
+  deriving BEq, Inhabited
+
+private def flushRegion
+    (layout : StateLayout) (acc : BodyAccum) : Array Statement × BodyAccum :=
+  let stores := overlayFinalStores acc.overlay layout
+  let stmts := stores.map (fun (i, e) => Statement.store i e)
+  (stmts, { acc with overlay := { entries := #[] } })
+
+private def lookupReturn
+    (acc : BodyAccum) (value : Option ValueIdV1) :
+    CompileResult (Option TypedExpr) := do
+  match value with
+  | none => pure none
+  | some vid =>
+      match envLookup acc.env vid with
+      | some tv => pure (some tv)
+      | none => planError "unsupported Soroban semantic shape: return value undefined"
+
+private partial def emitRegion
+    (data : SemanticProgramDataV1) (types : SorobanTypeClosureV1)
+    (idx : CallableIndex) (callable : CallableV1)
+    (numericTy : ExprType) (layout : StateLayout)
+    (allowStateRead allowStateWrite : Bool)
+    (forbidChecks : Bool) (inlineDepth : Nat)
+    (fuel : Nat) (blockId : Nat) (acc0 : BodyAccum) :
+    CompileResult (Array Statement × BodyAccum × Option TypedExpr × RegionCont) := do
+  match fuel with
+  | 0 =>
+      planError "unsupported Soroban semantic shape: CFG walk fuel exhausted"
+  | fuel' + 1 => do
+      let some block := callable.blocks[blockId]? |
+        planError "unsupported Soroban semantic shape: missing CFG block"
+      unless block.id.toNat == blockId do
+        planError "unsupported Soroban semantic shape: block id must match index"
+      let acc ←
+        lowerBlockInstructions data types idx callable numericTy layout
+          allowStateRead allowStateWrite forbidChecks inlineDepth block acc0
+      match block.terminator with
+      | .return_ value => do
+          let (stmts, acc) := flushRegion layout acc
+          let ret? ← lookupReturn acc value
+          pure (stmts, acc, ret?, .closed)
+      | .jump target => do
+          unless target.args.isEmpty do
+            planError
+              "unsupported Soroban semantic shape: jump args / block-param phi are outside S0"
+          let (stmts, acc) := flushRegion layout acc
+          pure (stmts, acc, none, .join target.blockId.toNat)
+      | .branch condId thenT elseT => do
+          unless thenT.args.isEmpty && elseT.args.isEmpty do
+            planError
+              "unsupported Soroban semantic shape: branch targets must carry empty args"
+          let cond ← match envLookup acc.env condId with
+            | some v => requireTy v .bool "branch condition"
+            | none =>
+                planError "unsupported Soroban semantic shape: branch condition undefined"
+          let (preStmts, acc) := flushRegion layout acc
+          let (thenStmts, acc1, thenRet, thenCont) ←
+            emitRegion data types idx callable numericTy layout
+              allowStateRead allowStateWrite forbidChecks inlineDepth
+              fuel' thenT.blockId.toNat acc
+          let thenJoin : Option Nat :=
+            match thenCont with
+            | .closed => none
+            | .join j => some j
+          if thenJoin == some elseT.blockId.toNat then
+            let (rest, acc2, restRet, restCont) ←
+              emitRegion data types idx callable numericTy layout
+                allowStateRead allowStateWrite forbidChecks inlineDepth
+                fuel' elseT.blockId.toNat acc1
+            pure
+              (preStmts ++ #[.ifThenElse cond thenStmts #[]] ++ rest,
+                acc2, thenRet <|> restRet, restCont)
+          else
+            let (elseStmts, acc2, elseRet, elseCont) ←
+              emitRegion data types idx callable numericTy layout
+                allowStateRead allowStateWrite forbidChecks inlineDepth
+                fuel' elseT.blockId.toNat acc1
+            let elseJoin : Option Nat :=
+              match elseCont with
+              | .closed => none
+              | .join j => some j
+            match thenJoin, elseJoin with
+            | some j1, some j2 => do
+                unless j1 == j2 do
+                  planError
+                    "unsupported Soroban semantic shape: branch arms converge on divergent joins"
+                let (rest, acc3, restRet, restCont) ←
+                  emitRegion data types idx callable numericTy layout
+                    allowStateRead allowStateWrite forbidChecks inlineDepth
+                    fuel' j1 acc2
+                pure
+                  (preStmts ++ #[.ifThenElse cond thenStmts elseStmts] ++ rest,
+                    acc3, thenRet <|> elseRet <|> restRet, restCont)
+            | none, none =>
+                pure
+                  (preStmts ++ #[.ifThenElse cond thenStmts elseStmts],
+                    acc2, thenRet <|> elseRet, .closed)
+            | some j, none | none, some j => do
+                let (rest, acc3, restRet, restCont) ←
+                  emitRegion data types idx callable numericTy layout
+                    allowStateRead allowStateWrite forbidChecks inlineDepth
+                    fuel' j acc2
+                pure
+                  (preStmts ++ #[.ifThenElse cond thenStmts elseStmts] ++ rest,
+                    acc3, thenRet <|> elseRet <|> restRet, restCont)
+      | .switch .. | .trap .. =>
+          planError "unsupported Soroban semantic shape: multi-block/trap terminators are outside S0"
+      | .revert .. =>
+          planError
+            "unsupported Soroban semantic shape: revert in CFG arms is outside S0"
+
+private def lowerInstructions
+    (data : SemanticProgramDataV1) (types : SorobanTypeClosureV1)
+    (idx : CallableIndex) (callable : CallableV1)
+    (numericTy : ExprType) (layout : StateLayout)
+    (allowStateRead allowStateWrite : Bool)
+    (forbidChecks : Bool) (inlineDepth : Nat)
+    (acc0 : BodyAccum) :
+    CompileResult (BodyAccum × Option TypedExpr × Bool) := do
+  unless callable.blocks.size == 1 do
+    planError "unsupported Soroban semantic shape: each callable must have exactly one block"
+  unless callable.loopBounds.isEmpty do
+    planError "unsupported Soroban semantic shape: loopBounds are outside S0"
+  unless callable.entryBlock.toNat == 0 do
+    planError "unsupported Soroban semantic shape: entryBlock must be 0"
+  let some block := callable.blocks[0]? |
+    planError "unsupported Soroban semantic shape: missing entry block"
+  let acc ←
+    lowerBlockInstructions data types idx callable numericTy layout
+      allowStateRead allowStateWrite forbidChecks inlineDepth block acc0
   match block.terminator with
   | .return_ value => do
-      match value with
-      | none => pure (acc, none, false)
-      | some vid =>
-          match envLookup acc.env vid with
-          | some tv => pure (acc, some tv, false)
-          | none => planError "unsupported Soroban semantic shape: return value undefined"
+      let ret? ← lookupReturn acc value
+      pure (acc, ret?, false)
   | .revert errorId args => do
       unless args.isEmpty do
         planError "unsupported Soroban semantic shape: revert requires zero-payload args"
       if forbidChecks then
         planError "unsupported Soroban semantic shape: initializer cannot contain fallible checks"
-      acc ← pushCheck acc
+      let acc ← pushCheck acc
         { kind := .terminalRevert errorId.toNat, condition := .litBool false }
       pure (acc, none, true)
   | .jump .. | .branch .. | .switch .. | .trap .. =>
@@ -1853,7 +2016,7 @@ private def lowerCallableBody
     (allowStateRead allowStateWrite forbidChecks initialStateDefaults : Bool) :
     CompileResult
       (Array String × Array Check × Array (Nat × Expr) ×
-        Option TypedExpr × Bool × Array Sha256Site) := do
+        Option TypedExpr × Bool × Array Sha256Site × Array Statement) := do
   let (env0, paramNames) ← seedParamEnv data.types types callable
   let mut overlay0 : StateOverlay := { entries := #[] }
   if initialStateDefaults then
@@ -1890,11 +2053,32 @@ private def lowerCallableBody
         else
           overlay0 := overlayInsert overlay0 st.id (mkArrayLeaves zeros phys.size)
   let acc0 : BodyAccum := emptyBodyAccum env0 overlay0
-  let (acc, ret?, endedRevert) ←
-    lowerInstructions data types idx callable numericTy layout
-      allowStateRead allowStateWrite forbidChecks 0 acc0
-  let stores := overlayFinalStores acc.overlay layout
-  pure (paramNames, acc.checks, stores, ret?, endedRevert, acc.sha256Sites)
+  if callable.blocks.size == 1 then
+    let (acc, ret?, endedRevert) ←
+      lowerInstructions data types idx callable numericTy layout
+        allowStateRead allowStateWrite forbidChecks 0 acc0
+    let stores := overlayFinalStores acc.overlay layout
+    pure (paramNames, acc.checks, stores, ret?, endedRevert, acc.sha256Sites, #[])
+  else if callable.loopBounds.isEmpty && !callableHasSwitch callable then
+    unless callable.entryBlock.toNat == 0 do
+      planError "unsupported Soroban semantic shape: entryBlock must be 0"
+    let (stmts, acc, ret?, cont) ←
+      emitRegion data types idx callable numericTy layout
+        allowStateRead allowStateWrite forbidChecks 0
+        callable.blocks.size callable.entryBlock.toNat acc0
+    unless cont == .closed do
+      planError "unsupported Soroban semantic shape: CFG walk ended without a return"
+    let stmts :=
+      match ret? with
+      | none => stmts
+      | some tv =>
+          if !tv.leaves.isEmpty then
+            stmts.push (.returnAggregate tv.leaves)
+          else
+            stmts.push (.returnValue tv.expr)
+    pure (paramNames, acc.checks, #[], none, false, acc.sha256Sites, stmts)
+  else
+    planError "unsupported Soroban semantic shape: each callable must have exactly one block"
 
 private def makePlanFromSemanticDataV1
     (data : SemanticProgramDataV1) (programName : String)
@@ -1951,12 +2135,14 @@ private def makePlanFromSemanticDataV1
           signedNumeric false
         unless callable.result.visibility == .public_ do
           planError s!"pureFn '{name}' result must be public"
-        let (_params, _checks, stores, ret?, endedRevert, sha256Sites) ←
+        let (_params, _checks, stores, ret?, endedRevert, sha256Sites, body) ←
           lowerCallableBody data types idx callable numericTy layout
             (allowStateRead := false) (allowStateWrite := false) (forbidChecks := false)
             (initialStateDefaults := false)
         unless sha256Sites.isEmpty do
           planError s!"pureFn '{name}' must not call pf.crypto.sha256"
+        unless body.isEmpty do
+          planError s!"pureFn '{name}' control flow is outside S0"
         unless stores.isEmpty do
           planError s!"pureFn '{name}' cannot write state"
         match rk, ret?, endedRevert with
@@ -1990,10 +2176,12 @@ private def makePlanFromSemanticDataV1
           planError "unsupported Soroban semantic shape: initializer result must be Unit"
         unless callable.result.visibility == .public_ do
           planError "unsupported Soroban semantic shape: initializer result must be public"
-        let (params, checks, stores, ret?, endedRevert, sha256Sites) ←
+        let (params, checks, stores, ret?, endedRevert, sha256Sites, body) ←
           lowerCallableBody data types idx callable numericTy layout
             (allowStateRead := true) (allowStateWrite := true) (forbidChecks := true)
             (initialStateDefaults := true)
+        unless body.isEmpty do
+          planError "unsupported Soroban semantic shape: initializer control flow is outside S0"
         if endedRevert then
           planError "unsupported Soroban semantic shape: initializer cannot revert"
         unless checks.isEmpty do
@@ -2011,10 +2199,17 @@ private def makePlanFromSemanticDataV1
           signedNumeric true
         unless callable.result.visibility == .public_ do
           planError s!"entry '{name}' result must be public"
-        let (params, checks, stores, ret?, endedRevert, sha256Sites) ←
+        let (params, checks, stores, ret?, endedRevert, sha256Sites, body) ←
           lowerCallableBody data types idx callable numericTy layout
             (allowStateRead := true) (allowStateWrite := true) (forbidChecks := false)
             (initialStateDefaults := false)
+        if !body.isEmpty then
+          entries := entries.push {
+            name, params, resultKind := rk, checks, stores := #[]
+            result? := none, leaves := #[], leafIsInt := #[], terminalRevert := endedRevert
+            sha256Sites, body
+          }
+        else do
         let (result?, leaves, leafIsInt) ← match rk, ret?, endedRevert with
           | .unit, none, _ => pure (none, #[], #[])
           | .unit, some _, _ =>
@@ -2073,10 +2268,12 @@ private def makePlanFromSemanticDataV1
           planError s!"view '{name}' result must be UInt64, Int64, Bool, or a view-only aggregate"
         unless callable.result.visibility == .public_ do
           planError s!"view '{name}' result must be public"
-        let (params, checks, stores, ret?, endedRevert, sha256Sites) ←
+        let (params, checks, stores, ret?, endedRevert, sha256Sites, body) ←
           lowerCallableBody data types idx callable numericTy layout
             (allowStateRead := true) (allowStateWrite := false) (forbidChecks := false)
             (initialStateDefaults := false)
+        unless body.isEmpty do
+          planError s!"view '{name}' control flow is outside S0"
         if endedRevert then
           planError s!"view '{name}' cannot revert"
         unless stores.isEmpty do

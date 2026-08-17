@@ -1412,6 +1412,81 @@ unsafe def testMaybeViewRet : IO Unit := do
   let files ← liftResult <| buildSoroban compiled
   expect (!files.isEmpty) "MaybeViewRet must emit nonempty files"
 
+/-- T9a: if-diamond only. BranchFlow.apply (match/switch) stays fail closed. -/
+unsafe def testIfFlow : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program IfFlow where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    if count > 0 then\n" ++
+    "      count := count + delta\n" ++
+    "    else\n" ++
+    "      count := delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-if-flow>" "Tests.SorobanIfFlow" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  let some bump := plan.entries.find? (·.name == "bump") |
+    throw <| IO.userError "IfFlow: missing bump"
+  expect (bump.stores.isEmpty && bump.result?.isNone)
+    "IfFlow bump must use CFG body, not flat stores/result?"
+  expect (bump.body == #[
+      .ifThenElse (.compare .gt (.stateLoad 0) (.litU64 0))
+        #[.store 0 (.arith .add (.stateLoad 0) (.param 0))]
+        #[.store 0 (.param 0)],
+      .returnValue (.stateLoad 0)])
+    "IfFlow bump must lower the branch diamond then join return"
+  liftResult <| Targets.Soroban.validatePlan plan
+  let files ← liftResult <| buildSoroban compiled
+  let some rsFile := files.find? (fun f => f.path == "IfFlow.rs") |
+    throw <| IO.userError "IfFlow: missing IfFlow.rs"
+  expect (rsFile.contents.contains "if ")
+    "IfFlow Rust must render an if"
+  let branchSrc :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BranchFlow where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    if count > 0 then\n" ++
+    "      count := count + delta\n" ++
+    "    else\n" ++
+    "      count := delta\n" ++
+    "    return count\n" ++
+    "  entry apply(choice : UInt64) : UInt64 do\n" ++
+    "    match choice with\n" ++
+    "    | 0 => do\n" ++
+    "      return count\n" ++
+    "    | 1 => do\n" ++
+    "      count := count + 1\n" ++
+    "    | other => do\n" ++
+    "      count := other\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let branchParsed ← liftResult (← session.selectProgramV1
+    branchSrc "<soroban-branch-flow>" "Tests.SorobanBranchFlow" none)
+  let branchCompiled ← liftResult <| Compiler.compileValidatedSourceV1 branchParsed
+  match planSoroban branchCompiled with
+  | .error (.planInvariant .soroban msg) =>
+      expect (msg.contains "exactly one block" || msg.contains "multi-block")
+        s!"BranchFlow must stay exactly-one-block, got: {msg}"
+  | .error e =>
+      throw <| IO.userError s!"BranchFlow: expected soroban planInvariant, got {e.render}"
+  | .ok _ =>
+      throw <| IO.userError "BranchFlow must still fail closed at T9a"
+  IO.println "  ✓ IfFlow if-diamond; BranchFlow still exactly-one-block"
+
 unsafe def run : IO Unit := do
   testStateCellSorobanSource
   testInt64CellSorobanSource
@@ -1454,6 +1529,7 @@ unsafe def run : IO Unit := do
   testOptViewRet
   testPointViewRet
   testMaybeViewRet
+  testIfFlow
   IO.println "Tests.Materialization.SorobanPlanV1: ok"
 
 end Tests.Materialization.SorobanPlanV1

@@ -218,6 +218,64 @@ private def validateSha256Sites
         signed sites.size
   pure remaining
 
+private partial def validateBodyStatements
+    (owner : String) (resultKind : ResultKind)
+    (paramCount stateCount remaining0 : Nat) (signed : Bool)
+    (sha256SiteCount : Nat)
+    (body : Array Statement) : CompileResult Nat := do
+  let numeric : ExprType := if signed then .int64 else .uint64
+  let mut remaining := remaining0
+  let mut seen : Array Nat := #[]
+  for stmt in body do
+    match stmt with
+    | .store fi e =>
+        unless fi < stateCount do
+          planError s!"Soroban {owner} store references an unknown state field"
+        if seen.contains fi then
+          planError s!"Soroban {owner} store list has duplicate field indices"
+        seen := seen.push fi
+        remaining ←
+          validateExpr e numeric "store value" paramCount stateCount remaining signed
+            sha256SiteCount
+    | .ifThenElse cond thenBody elseBody =>
+        remaining ←
+          validateExpr cond .bool "if condition" paramCount stateCount remaining signed
+            sha256SiteCount
+        remaining ←
+          validateBodyStatements owner resultKind paramCount stateCount remaining
+            signed sha256SiteCount thenBody
+        remaining ←
+          validateBodyStatements owner resultKind paramCount stateCount remaining
+            signed sha256SiteCount elseBody
+    | .returnValue e =>
+        let expected :=
+          match resultKind with
+          | .uint64 => ExprType.uint64
+          | .int64 => .int64
+          | .bool => .bool
+          | .unit | .aggregate _ =>
+              ExprType.uint64
+        unless resultKind == .uint64 || resultKind == .int64 || resultKind == .bool do
+          planError s!"Soroban {owner} Unit/aggregate result must not return a scalar"
+        remaining ←
+          validateExpr e expected "return value" paramCount stateCount remaining signed
+            sha256SiteCount
+    | .returnAggregate leaves =>
+        match resultKind with
+        | .aggregate n =>
+            unless leaves.size == n do
+              planError s!"Soroban {owner} aggregate return must have exactly {n} leaves"
+            for e in leaves do
+              remaining ←
+                validateExpr e numeric "aggregate return leaf" paramCount stateCount
+                  remaining signed sha256SiteCount
+        | _ =>
+            planError s!"Soroban {owner} cannot return an aggregate"
+    | .returnNone =>
+        unless resultKind == .unit do
+          planError s!"Soroban {owner} non-Unit result must return a value"
+  pure remaining
+
 private def validateParams (params : Array String) : CompileResult Unit := do
   unless params.size ≤ maxParams do
     planError "Soroban plan parameter count exceeds limit"
@@ -292,9 +350,17 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
       exprBudget ←
         validateCheck ck ent.params.size plan.states.size exprBudget signed
           ent.sha256Sites.size
-    exprBudget ←
-      validateStores ent.stores plan.states.size ent.params.size exprBudget signed
-        ent.sha256Sites.size
+    if !ent.body.isEmpty then
+      unless ent.stores.isEmpty && ent.result?.isNone do
+        planError
+          s!"Soroban entry '{ent.name}' CFG body must not carry stores or result?"
+      exprBudget ←
+        validateBodyStatements ent.name ent.resultKind ent.params.size
+          plan.states.size exprBudget signed ent.sha256Sites.size ent.body
+    else
+      exprBudget ←
+        validateStores ent.stores plan.states.size ent.params.size exprBudget signed
+          ent.sha256Sites.size
     let terminalMarkerCount := ent.checks.foldl
       (fun n ck => if isTerminalRevertKind ck.kind then n + 1 else n) 0
     if ent.terminalRevert then
@@ -308,6 +374,9 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
           planError s!"Soroban entry '{ent.name}' terminalRevert requires a terminal-revert check"
     else unless terminalMarkerCount == 0 do
       planError s!"Soroban entry '{ent.name}' has a terminal-revert marker without terminalRevert"
+    if !ent.body.isEmpty then
+      pure ()
+    else
     match ent.resultKind, ent.result?, ent.terminalRevert with
     | .unit, none, _ => pure ()
     | .unit, some _, _ =>
