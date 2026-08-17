@@ -280,6 +280,17 @@ private def lower (plan : Plan) : CompileResult IR := do
     body := body ++ storeStmts
     match ent.resultKind, ent.result? with
     | .unit, _ => pure ()
+    | .aggregate n, _ => do
+        let src := if ent.leaves.isEmpty then
+          match ent.result? with | some e => #[e] | none => #[]
+        else ent.leaves
+        unless src.size == n do
+          planError
+            s!"Soroban entry '{ent.name}' aggregate emit leaf count must be {n}"
+        let mut elems : Array RExpr := #[]
+        for e in src do
+          elems := elems.push (← lowerExpr plan ent.params stateLocals e)
+        body := body.push (.returnExpr (RExpr.tuple elems))
     | .uint64, some e | .int64, some e | .bool, some e => do
         let re ← lowerExpr plan ent.params stateLocals e
         body := body.push (.returnExpr re)
@@ -287,7 +298,7 @@ private def lower (plan : Plan) : CompileResult IR := do
     fns := fns.push {
       name := ent.name
       params := fnParams
-      returnType := resultTypeStr ent.resultKind #[]
+      returnType := resultTypeStr ent.resultKind ent.leafIsInt
       body
     }
   -- Views

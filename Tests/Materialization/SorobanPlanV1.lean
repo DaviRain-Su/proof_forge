@@ -525,26 +525,33 @@ unsafe def testArrayNonUInt64ElementFailClosed : IO Unit := do
   expectElFc "ArrayUInt32El" "UInt32"
 
 /-- Array *entry* return stays fail closed (view aggregate is T6). -/
-unsafe def testArrayReturnFailClosed : IO Unit := do
+unsafe def testArrRetBox : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
-    "program ArrayRet where\n" ++
+    "program ArrRetBox where\n" ++
     "  state slots : Array UInt64 2\n" ++
     "  init() do\n" ++
     "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
     "  entry peek() : Array UInt64 2 do\n" ++
     "    return slots\n"
   let parsed ← liftResult (← session.selectProgramV1
-    source "<soroban-array-ret>" "Tests.SorobanArrayRet" none)
+    source "<soroban-arr-ret>" "Tests.SorobanArrRetBox" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
-  match planSoroban compiled with
-  | .error (.planInvariant .soroban msg) =>
-      expect (msg.contains "Array/Map return" || msg.contains "Array return")
-        s!"Array return must name Array/Map return, got: {msg}"
-  | .error e => throw <| IO.userError s!"expected planInvariant .soroban, got {e.render}"
-  | .ok _ => throw <| IO.userError "Array return must fail closed at Soroban plan"
+  let plan ← liftResult <| planSoroban compiled
+  let some e := plan.entries[0]? |
+    throw <| IO.userError "ArrRetBox must emit an entry"
+  expect (e.resultKind == .aggregate 2)
+    s!"ArrRetBox entry must be aggregate 2, got {repr e.resultKind}"
+  liftResult <| Targets.Soroban.validatePlan plan
+  let files ← liftResult <| buildSoroban compiled
+  expect (!files.isEmpty) "ArrRetBox must emit nonempty files"
+  let some rs := files.find? (·.path == "ArrRetBox.rs") |
+    throw <| IO.userError "soroban: missing ArrRetBox.rs"
+  expect (rs.contents.contains "-> (u64, u64)")
+    "ArrRetBox must emit a Rust u64 tuple return"
 
 /-- signedNumeric Int64 + Array state is unsigned-flatten only. -/
 unsafe def testSignedNumericArrayStateFailClosed : IO Unit := do
@@ -669,27 +676,81 @@ unsafe def testOptionInt64ElementFailClosed : IO Unit := do
   | .error e => throw <| IO.userError s!"expected planInvariant .soroban, got {e.render}"
   | .ok _ => throw <| IO.userError "Option Int64 must fail closed at Soroban plan"
 
-/-- Option return stays fail closed (only state flattens). -/
-unsafe def testOptionReturnFailClosed : IO Unit := do
+unsafe def testOptRetBox : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
-    "program OptRet where\n" ++
+    "program OptRetBox where\n" ++
     "  state o : Option UInt64\n" ++
     "  init() do\n" ++
     "    o := Option.none()\n" ++
     "  entry peek() : Option UInt64 do\n" ++
     "    return o\n"
   let parsed ← liftResult (← session.selectProgramV1
-    source "<soroban-opt-ret>" "Tests.SorobanOptRet" none)
+    source "<soroban-opt-ret>" "Tests.SorobanOptRetBox" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
-  match planSoroban compiled with
-  | .error (.planInvariant .soroban msg) =>
-      expect (msg.contains "Option return is outside S0")
-        s!"Option return must name Option return is outside S0, got: {msg}"
-  | .error e => throw <| IO.userError s!"expected planInvariant .soroban, got {e.render}"
-  | .ok _ => throw <| IO.userError "Option return must fail closed at Soroban plan"
+  let plan ← liftResult <| planSoroban compiled
+  let some e := plan.entries[0]? |
+    throw <| IO.userError "OptRetBox must emit an entry"
+  expect (e.resultKind == .aggregate 2)
+    s!"OptRetBox entry must be aggregate 2, got {repr e.resultKind}"
+  liftResult <| Targets.Soroban.validatePlan plan
+  let files ← liftResult <| buildSoroban compiled
+  expect (!files.isEmpty) "OptRetBox must emit nonempty files"
+  let some rs := files.find? (·.path == "OptRetBox.rs") |
+    throw <| IO.userError "soroban: missing OptRetBox.rs"
+  expect (rs.contents.contains "-> (u64, u64)")
+    "OptRetBox must emit a Rust u64 tuple return"
+
+unsafe def testMaybeRetBox : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MaybeRetBox where\n" ++
+    "  enum Maybe where\n" ++
+    "    | None\n" ++
+    "    | Some(UInt64)\n" ++
+    "  state m : Maybe\n" ++
+    "  init() do\n" ++
+    "    m := Maybe.None()\n" ++
+    "  entry peek() : Maybe do\n" ++
+    "    return m\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-maybe-ret>" "Tests.SorobanMaybeRetBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  let some e := plan.entries[0]? |
+    throw <| IO.userError "MaybeRetBox must emit an entry"
+  expect (e.resultKind == .aggregate 2)
+    s!"MaybeRetBox entry must be aggregate 2, got {repr e.resultKind}"
+  liftResult <| Targets.Soroban.validatePlan plan
+  let files ← liftResult <| buildSoroban compiled
+  expect (!files.isEmpty) "MaybeRetBox must emit nonempty files"
+
+unsafe def testPairRetEntry : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PairRetEntry where\n" ++
+    "  struct Pair where\n" ++
+    "    a : UInt64\n" ++
+    "    b : UInt64\n" ++
+    "  entry makePair(x : UInt64, y : UInt64) : Pair do\n" ++
+    "    return Pair.new(x, y)\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-pair-ret-entry>" "Tests.SorobanPairRetEntry" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  let some e := plan.entries[0]? |
+    throw <| IO.userError "PairRetEntry must emit an entry"
+  expect (e.resultKind == .aggregate 2)
+    s!"PairRetEntry entry must be aggregate 2, got {repr e.resultKind}"
+  liftResult <| Targets.Soroban.validatePlan plan
+  let files ← liftResult <| buildSoroban compiled
+  expect (!files.isEmpty) "PairRetEntry must emit nonempty files"
 
 /-- signedNumeric Int64 + Option state is unsigned-flatten only. -/
 unsafe def testSignedNumericOptionStateFailClosed : IO Unit := do
@@ -930,7 +991,8 @@ unsafe def testArrayInt64ReturnFailClosed : IO Unit := do
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   match planSoroban compiled with
   | .error (.planInvariant .soroban msg) =>
-      expect (msg.contains "Array/Map return" || msg.contains "Array return")
+      expect (msg.contains "Array/Map return" || msg.contains "Array return" ||
+          msg.contains "element must be UInt64")
         s!"Array Int64 return, got: {msg}"
   | .error e => throw <| IO.userError s!"expected planInvariant .soroban, got {e.render}"
   | .ok _ => throw <| IO.userError "Array Int64 return must fail closed"
@@ -1179,14 +1241,16 @@ unsafe def run : IO Unit := do
   testArrayN9FailClosed
   testArrayInt64N9FailClosed
   testArrayNonUInt64ElementFailClosed
-  testArrayReturnFailClosed
+  testArrRetBox
   testArrayInt64ReturnFailClosed
   testSignedNumericArrayStateFailClosed
   testArrayLongNameSymbolShortFailClosed
   testOptBoxAdmit
   testOptInt64Flatten
   testOptionInt64ElementFailClosed
-  testOptionReturnFailClosed
+  testOptRetBox
+  testMaybeRetBox
+  testPairRetEntry
   testSignedNumericOptionStateFailClosed
   testMapMiniAdmit
   testMapInt64Flatten

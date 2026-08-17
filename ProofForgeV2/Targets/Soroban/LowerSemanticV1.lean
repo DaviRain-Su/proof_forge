@@ -155,8 +155,8 @@ inductive ResultKind where
   | uint64
   | int64
   | bool
-  /-- View-only flattened return (1..8 UInt64/Int64 leaves). Entry/pureFn stay
-      fail closed. -/
+  /-- Flattened return (1..8 UInt64/Int64 leaves). View and entry admit;
+      pureFn stays fail closed. -/
   | aggregate (leafCount : Nat)
   deriving BEq, Inhabited, Repr
 
@@ -177,6 +177,9 @@ structure PlanEntry where
   checks : Array Check
   stores : Array (Nat × Expr)
   result? : Option Expr
+  /-- Aggregate leaves when `resultKind = .aggregate n`; empty for scalars. -/
+  leaves : Array Expr := #[]
+  leafIsInt : Array Bool := #[]
   terminalRevert : Bool
   deriving BEq, Inhabited, Repr
 
@@ -1851,37 +1854,58 @@ private def makePlanFromSemanticDataV1
         unless isIdentifier name do
           planError s!"entry '{name}' is not a safe identifier"
         let rk ← resultKindOf data.types types callable.result.typeId s!"entry '{name}'"
-          signedNumeric false
+          signedNumeric true
         unless callable.result.visibility == .public_ do
           planError s!"entry '{name}' result must be public"
         let (params, checks, stores, ret?, endedRevert) ←
           lowerCallableBody data types idx callable numericTy layout
             (allowStateRead := true) (allowStateWrite := true) (forbidChecks := false)
             (initialStateDefaults := false)
-        let result? ← match rk, ret?, endedRevert with
-          | .unit, none, _ => pure none
+        let (result?, leaves, leafIsInt) ← match rk, ret?, endedRevert with
+          | .unit, none, _ => pure (none, #[], #[])
           | .unit, some _, _ =>
               planError s!"entry '{name}' Unit result must not return a value"
           | .uint64, some tv, false =>
               let e ← requireTy tv .uint64 s!"entry '{name}' result"
-              pure (some e)
+              pure (some e, #[], #[])
           | .int64, some tv, false =>
               let e ← requireTy tv .int64 s!"entry '{name}' result"
-              pure (some e)
+              pure (some e, #[], #[])
           | .bool, some tv, false =>
               let e ← requireTy tv .bool s!"entry '{name}' result"
-              pure (some e)
+              pure (some e, #[], #[])
           | .uint64, none, true | .int64, none, true | .bool, none, true =>
-              pure none
+              pure (none, #[], #[])
           | .uint64, none, false | .int64, none, false | .bool, none, false =>
               planError s!"entry '{name}' non-Unit return is missing"
           | .uint64, some _, true | .int64, some _, true | .bool, some _, true =>
               planError s!"entry '{name}' revert path cannot carry a return value"
-          | .aggregate _, _, _ =>
-              planError s!"entry '{name}' aggregate return is outside S0"
+          | .aggregate n, some tv, false => do
+              unless isAggregateValue tv && tv.leaves.size == n do
+                planError
+                  s!"entry '{name}' aggregate return must flatten to exactly {n} leaves"
+              let some head := tv.leaves[0]? |
+                planError s!"entry '{name}' aggregate return is empty"
+              let marks ←
+                match ← viewAggregateLeafIsIntV1 data.types types
+                    callable.result.typeId signedNumeric with
+                | some m =>
+                    unless m.size == n do
+                      planError
+                        s!"entry '{name}' aggregate signedness length must match leaf count"
+                    pure m
+                | none =>
+                    planError s!"entry '{name}' aggregate return type is not admitted"
+              pure (some head, tv.leaves, marks)
+          | .aggregate _, none, true =>
+              planError s!"entry '{name}' revert path cannot carry an aggregate return"
+          | .aggregate _, some _, true =>
+              planError s!"entry '{name}' revert path cannot carry a return value"
+          | .aggregate _, none, false =>
+              planError s!"entry '{name}' aggregate return is missing"
         entries := entries.push {
           name, params, resultKind := rk, checks, stores
-          result?, terminalRevert := endedRevert
+          result?, leaves, leafIsInt, terminalRevert := endedRevert
         }
     | .view => do
         let name ← match callable.name with
