@@ -16891,3 +16891,22 @@ normative: false
   `git diff --check`通过。准确边界提升为source→Typed→Semantic lowering/structure/carrier→唯一
   compiler identity；尚未闭合`CertifiedSolanaProductionPreparationV1`、Solana Plan/IR、emitter exact
   equation、assembly SHA trace、unconditional `get`、ELF或SVM runtime。
+
+## 2026-08-17 — certify StateCell production-preparation ingress
+
+- `resolveCertifiedSolanaProductionPreparationV1_exists_of_stages`新增通用十阶段组合边界：调用者必须
+  提供真实source/compiler/semantic validation/Reference admission/selection/capability/Plan/IR/emitter/
+  artifact exact equations，定理仅构造既有`CertifiedSolanaProductionPreparationV1`并经唯一resolver
+  replay；不能跳过中间阶段，不是第二resolver。
+- StateCell compiled certificate现同时保留production semantic validation equation；
+  `stateCellProductionPreparationIngressCertificateV1`复用该equation与唯一data-only Reference
+  admission checker，闭合相同compiled carrier到private`AdmittedReferenceSliceV1`。无partial
+  preparation carrier、第二admission或copied data。
+- 对下一阶段frozen Solana selection的复核发现真实seam gap：`initialTargetRegistryV1Result`的13-row
+  array validation与`resolveBuildSelectionV1`目前只有可执行成功路径，没有可组合的kernel equation；
+  whole-registry `decide`在`forIn`处不归约，故未将selection虚报为完成。下一刀先在唯一registry/
+  selection authority补proof-producing stage replay，再继续capability→Plan→IR。
+- Verification：`ProofForgeV2.Targets.Solana.ProductionPreparationV1` build成功；
+  `ProofForgeV2.Targets.Solana.SbpfStateCellProductionV1`单文件kernel check exit 0（2:45.82，峰值
+  27,615,756 KB）。尚未闭合static selection、capability、Plan/IR、emitter equation、assembly SHA、
+  unconditional `get`、ELF或SVM runtime。

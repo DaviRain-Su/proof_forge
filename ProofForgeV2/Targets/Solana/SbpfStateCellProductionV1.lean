@@ -2490,6 +2490,8 @@ theorem stateCellCompiledSemanticCertificateV1 :
           StateCell.Source.subjectV1 StateCell.bytes = .ok binding ∧
         normalizeProgramV1 binding.validated = .ok carrier ∧
         compileValidatedSourceV1 binding.validated = .ok compiled ∧
+        validateSemanticProgramV1 carrier =
+          .ok stateCellSemanticProgramDataV1 ∧
         CompiledSemanticV1.semanticV1Of compiled = carrier ∧
         CompiledSemanticV1.artifactProgramNameOf compiled = "StateCell" ∧
         CompiledSemanticV1.sourceDigestOf compiled = sha256Bytes
@@ -2536,10 +2538,55 @@ theorem stateCellCompiledSemanticCertificateV1 :
     ⟨compiled, hcompile, hcompiledCarrier, hcompiledName,
       hcompiledSource, hcompiledSemantic⟩
   refine ⟨binding, carrier, compiled, hbinding, hnormalize, hcompile,
-    hcompiledCarrier, ?_, ?_, ?_⟩
+    hvalidateCarrier, hcompiledCarrier, ?_, ?_, ?_⟩
   · exact hcompiledName.trans (by rfl)
   · simpa only [sourceDigest] using hcompiledSource
   · simpa only [semanticDigest, carrier] using hcompiledSemantic
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem stateCellReferenceAdmissionOkV1 :
+    referenceProgramDataAdmissionOkV1 stateCellSemanticProgramDataV1 = true := by
+  decide
+
+/-- StateCell has crossed the source-dependent ingress of production
+    preparation. The witnesses come from the same canonical source and sole
+    compiler certificate, while Reference admission reuses the production
+    data-only check. No partial preparation value or alternate resolver is
+    minted here; static selection remains the next exact stage. -/
+theorem stateCellProductionPreparationIngressCertificateV1 :
+    ∃ (binding : CanonicalSourceBindingV1
+          StateCell.Source.subjectV1 StateCell.bytes)
+      (compiled : CompiledSemanticV1)
+      (admitted : AdmittedReferenceSliceV1),
+      bindElaboratedSourceToCanonicalBytesV1
+          StateCell.Source.subjectV1 StateCell.bytes = .ok binding ∧
+        compileValidatedSourceV1 binding.validated = .ok compiled ∧
+        validateSemanticProgramV1
+            (CompiledSemanticV1.semanticV1Of compiled) =
+          .ok stateCellSemanticProgramDataV1 ∧
+        admitReferenceProgramSliceV1
+            (CompiledSemanticV1.semanticV1Of compiled) = .ok admitted := by
+  rcases stateCellCompiledSemanticCertificateV1 with
+    ⟨binding, carrier, compiled, hbinding, _hnormalize, hcompiled,
+      hvalidate, hcompiledCarrier, _hname, _hsourceDigest,
+      _hsemanticDigest⟩
+  have hcompiledValidation :
+      validateSemanticProgramV1
+          (CompiledSemanticV1.semanticV1Of compiled) =
+        .ok stateCellSemanticProgramDataV1 := by
+    simpa only [hcompiledCarrier] using hvalidate
+  have hadmissionCheck :
+      validateReferenceProgramDataAdmissionV1
+        stateCellSemanticProgramDataV1 = .ok () :=
+    validateReferenceProgramDataAdmissionV1_eq_ok_of_bool
+      stateCellSemanticProgramDataV1 stateCellReferenceAdmissionOkV1
+  rcases admitReferenceProgramSliceV1_exists_of_checks
+      (CompiledSemanticV1.semanticV1Of compiled)
+      stateCellSemanticProgramDataV1 hcompiledValidation hadmissionCheck with
+    ⟨admitted, hadmitted⟩
+  exact ⟨binding, compiled, admitted, hbinding, hcompiled,
+    hcompiledValidation, hadmitted⟩
 
 /-- The concrete values consumed by the existing certified StateCell `get`
     HandlerIR/provider join. The private constructor prevents callers from

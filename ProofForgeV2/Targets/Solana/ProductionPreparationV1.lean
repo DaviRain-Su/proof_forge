@@ -249,4 +249,65 @@ theorem resolveCertifiedSolanaProductionPreparationV1_eq_ok
       (resolveBoundSbpfArtifactV1 assembly.value expectedArtifactSha256))]
   rfl
 
+/-- Compose exact successes of every existing production stage into the sole
+    preparation certificate and replay that certificate through the production
+    resolver. This theorem neither evaluates a second pipeline nor permits a
+    caller to omit capability, lowering, emission, or artifact identity. -/
+theorem resolveCertifiedSolanaProductionPreparationV1_exists_of_stages
+    (source : CanonicalSourceBindingV1 elaborated canonicalBytes)
+    (compiled : CompiledSemanticV1)
+    (semanticData : SemanticProgramDataV1)
+    (referenceAdmission : AdmittedReferenceSliceV1)
+    (selection : ResolvedBuildSelectionV1)
+    (capability : ResolvedEngineeringBuildV1)
+    (plan : Plan)
+    (ir : IR)
+    (assembly : String)
+    (artifact : BoundResolvedSbpfArtifactV1)
+    (hsource : bindElaboratedSourceToCanonicalBytesV1 elaborated canonicalBytes =
+      .ok source)
+    (hcompiled : compileValidatedSourceV1 source.validated = .ok compiled)
+    (hsemanticData : validateSemanticProgramV1
+      (CompiledSemanticV1.semanticV1Of compiled) = .ok semanticData)
+    (hreferenceAdmission : admitReferenceProgramSliceV1
+      (CompiledSemanticV1.semanticV1Of compiled) = .ok referenceAdmission)
+    (hselection : resolveBuildSelectionV1 TargetId.solana
+      (some CodegenProfileId.solanaSbpfCpiElfV1) = .ok selection)
+    (hcapability : resolveEngineeringRequirementsV1 selection compiled =
+      .ok capability)
+    (hplan : materializeFullBodyPlanForProductV1 capability false = .ok plan)
+    (hir : fullBodyIrFromProductCapabilityV1 capability false = .ok ir)
+    (hassembly : emitSbpfAsmV1 ir = .ok assembly)
+    (hartifact : resolveBoundSbpfArtifactV1 assembly expectedArtifactSha256 =
+      .ok artifact) :
+    ∃ prepared : CertifiedSolanaProductionPreparationV1
+        elaborated canonicalBytes expectedArtifactSha256,
+      resolveCertifiedSolanaProductionPreparationV1 elaborated canonicalBytes
+        expectedArtifactSha256 = .ok prepared ∧
+      prepared.sourceBinding = source ∧
+      prepared.compiledSemantic = compiled ∧
+      prepared.data = semanticData ∧
+      prepared.admitted = referenceAdmission ∧
+      prepared.productionPlan = plan ∧
+      prepared.productionIR = ir ∧
+      prepared.productionAssembly = assembly ∧
+      prepared.boundArtifact = artifact := by
+  let prepared : CertifiedSolanaProductionPreparationV1
+      elaborated canonicalBytes expectedArtifactSha256 := {
+    source := ⟨source, hsource⟩
+    compiled := ⟨compiled, hcompiled⟩
+    semanticData := ⟨semanticData, hsemanticData⟩
+    referenceAdmission := ⟨referenceAdmission, hreferenceAdmission⟩
+    selection := ⟨selection, hselection⟩
+    capability := ⟨capability, hcapability⟩
+    plan := ⟨plan, hplan⟩
+    ir := ⟨ir, hir⟩
+    assembly := ⟨assembly, hassembly⟩
+    artifact
+    artifactSuccess := hartifact
+  }
+  exact ⟨prepared,
+    resolveCertifiedSolanaProductionPreparationV1_eq_ok prepared,
+    rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+
 end ProofForgeV2.Targets.Solana

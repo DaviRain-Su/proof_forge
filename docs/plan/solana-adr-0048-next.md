@@ -366,6 +366,20 @@ second codegen.
     compiler identity boundary; `CertifiedSolanaProductionPreparationV1`,
     Solana Plan/IR, exact emitter equation, SHA trace and unconditional `get`
     remain open.
+32. **SOL-0048-D5-STATECELL-PREPARATION-INGRESS-CERTIFICATE** — **done
+    2026-08-17**: added one reusable composition theorem that accepts exact
+    equations for all ten existing production-preparation stages, constructs the
+    existing certificate, and replays it through the sole resolver. It cannot
+    omit capability, Plan, IR, emission or artifact identity and is not a second
+    resolver. StateCell now carries its compiled carrier through the production
+    semantic validation and data-only Reference admission checks, yielding the
+    exact private `AdmittedReferenceSliceV1` witness from the same source and
+    compiler identity. No partial preparation carrier or second admission path
+    was introduced. The next attempted static selection exposed a real proof
+    seam gap: the frozen registry currently succeeds executably, but its array
+    validation/selection path has no compositional kernel equation; a direct
+    whole-registry `decide` remains unacceptable. Exact frozen-registry creation
+    and `resolveBuildSelectionV1` replay must close before capability/Plan/IR.
 
 D4's four pinned sparse certificates and all four concrete D5 compositions are
 complete, and the generic seam now has a second real contract/HandlerIR shape
@@ -393,9 +407,12 @@ Next formalization slices, in order:
    exact whole-program data normalization certificate are done; the complete
    production Typed gate, Semantic structure gate and compositional canonical
    carrier certificate and sole compiler identity mint are now also discharged.
-   Next feed that exact `CompiledSemanticV1` through
-   `CertifiedSolanaProductionPreparationV1` and the sole production resolver;
-   then totalize/replay `LowerSemanticV1`, `EmitIRV1` and `validateIR`,
+   Production semantic revalidation, Reference admission and the generic
+   all-stage preparation replay theorem are also discharged. Next make frozen
+   registry creation and the sole `resolveBuildSelectionV1` compositional and
+   kernel-replayable; then feed that exact selection and compiled identity
+   through capability resolution before totalizing/replaying
+   `LowerSemanticV1`, `EmitIRV1` and `validateIR`,
    and discharge the StateCell exact post-validation emission equation. Keep
    traversal contract-independent and do not add a proof-only compiler, emitter
    or copied assembly.
