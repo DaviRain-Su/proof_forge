@@ -1169,23 +1169,30 @@ private unsafe def testNamedEnumReturn
     s!"MaybeRet ABI leaf tuple, got: {abi}"
   IO.println "  ✓ MaybeRet named Enum return Plan/IR/WAT/ABI pin"
 
-/-- B-RET-ABI fail-closed: named aggregate params, >8 leaves, pureFn aggregate. -/
+/-- B-RET-ABI fail-closed: named param >8 leaves, return >8 leaves, pureFn aggregate. -/
 private unsafe def testAggregateReturnFc
     (session : Language.Loader.ParserSession) : IO Unit := do
-  -- Named aggregate param stays FC.
-  let paramSrc := wrapProgram "AggParam" <|
-    "  struct Pair where\n" ++
-    "    a : UInt64\n" ++
-    "    b : UInt64\n" ++
+  -- Named aggregate param >8 leaves stays FC.
+  let paramSrc := wrapProgram "WideParam" <|
+    "  struct Wide where\n" ++
+    "    a0 : UInt64\n" ++
+    "    a1 : UInt64\n" ++
+    "    a2 : UInt64\n" ++
+    "    a3 : UInt64\n" ++
+    "    a4 : UInt64\n" ++
+    "    a5 : UInt64\n" ++
+    "    a6 : UInt64\n" ++
+    "    a7 : UInt64\n" ++
+    "    a8 : UInt64\n" ++
     "  state s : UInt64\n\n" ++
     "  init(x : UInt64) do\n" ++
     "    s := x\n\n" ++
-    "  entry take(p : Pair) : UInt64 do\n" ++
-    "    return p.a\n\n" ++
+    "  entry take(p : Wide) : UInt64 do\n" ++
+    "    return s\n\n" ++
     "  view get() : UInt64 do\n" ++
     "    return s\n"
-  let paramCompiled ← compileSource session paramSrc "Examples.AggParam" "<cw-agg-param>"
-  expectPlanErrorContaining "named aggregate param" "parameter"
+  let paramCompiled ← compileSource session paramSrc "Examples.WideParam" "<cw-wide-param>"
+  expectPlanErrorContaining "named aggregate param >8" "1..8"
     (planCw paramCompiled)
   -- >8 leaves (9-field Struct) stays FC.
   let wideSrc := wrapProgram "WideRet" <|
@@ -1222,7 +1229,7 @@ private unsafe def testAggregateReturnFc
   let pureCompiled ← compileSource session pureSrc "Examples.PureAgg" "<cw-pure-agg>"
   expectPlanErrorContaining "pureFn aggregate" "pureFn"
     (planCw pureCompiled)
-  IO.println "  ✓ aggregate return FC boundaries (param / >8 / pureFn)"
+  IO.println "  ✓ aggregate return FC boundaries (param>8 / return>8 / pureFn)"
 
 /-- N-ANON-RESULT (CosmWasm ABI): anonymous Array UInt64 2 → 2×u64 leaves via
 `returnAggregate` / `setReturnDataMulti` / JSON decimal array wire. -/
@@ -1827,19 +1834,7 @@ private unsafe def testOptionStateFailClosed
       "  view peek() : UInt64 do\n" ++
       "    return 0\n")
     #["Option", "UInt64", "payload", "unsupported", "state", "Array"]
-  -- Option UInt64 param stays fail closed (params do not flatten Option).
-  expectOptionStateFailClosed session "OptParam" "Examples.OptParam"
-    ("  state seed : UInt64\n\n" ++
-      "  init(x : UInt64) do\n" ++
-      "    seed := x\n\n" ++
-      "  entry take(o : Option UInt64) : UInt64 do\n" ++
-      "    match o with\n" ++
-      "    | Option.some(v) => do\n" ++
-      "      return v\n" ++
-      "    | _ => do\n" ++
-      "      return 0\n")
-    #["Option", "parameter", "param", "unsupported"]
-  IO.println "  ✓ Option state FC boundaries (Bool / nested / param)"
+  IO.println "  ✓ Option state FC boundaries (Bool / nested)"
 
 private unsafe def testInvariantFc
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -2324,6 +2319,79 @@ private unsafe def testContextReadCaller
   -- Unknown key remains FC via the non-unixTime/non-caller arm.
   IO.println "  ✓ ContextRead context.caller execute admit + view FC + per-branch load (ADR-0031 S1)"
 
+private unsafe def testPointParam
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "PointParam" <|
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry set(p : Point) : UInt64 do\n" ++
+    "    pad := p.x\n" ++
+    "    return pad\n"
+  let compiled ← compileSource session source "Examples.PointParam" "<cw-point-param>"
+  let plan ← liftResult <| planCw compiled
+  let some set := plan.entries.find? (·.name == "set") |
+    throw <| IO.userError "PointParam missing set"
+  expect (set.params.map (·.name) == #["p_x", "p_y"])
+    s!"PointParam must flatten to p_x/p_y, got {set.params.map (·.name)}"
+  liftResult <| validatePlan plan
+  IO.println "  ✓ PointParam named Struct param flatten"
+
+private unsafe def testOptionParam
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "OptParam" <|
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry put(o : Option UInt64) : UInt64 do\n" ++
+    "    return pad\n"
+  let compiled ← compileSource session source "Examples.OptParam" "<cw-opt-param>"
+  let plan ← liftResult <| planCw compiled
+  let some put := plan.entries.find? (·.name == "put") |
+    throw <| IO.userError "OptParam missing put"
+  expect (put.params.map (·.name) == #["o_tag", "o_p0"])
+    s!"OptParam must flatten to o_tag/o_p0, got {put.params.map (·.name)}"
+  liftResult <| validatePlan plan
+  IO.println "  ✓ OptParam tag+payload flatten"
+
+private unsafe def testArrayParam
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "ArrParam" <|
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry put(a : Array UInt64 2) : UInt64 do\n" ++
+    "    return pad\n"
+  let compiled ← compileSource session source "Examples.ArrParam" "<cw-arr-param>"
+  let plan ← liftResult <| planCw compiled
+  let some put := plan.entries.find? (·.name == "put") |
+    throw <| IO.userError "ArrParam missing put"
+  expect (put.params.map (·.name) == #["a_0", "a_1"])
+    s!"ArrParam must flatten to a_0/a_1, got {put.params.map (·.name)}"
+  liftResult <| validatePlan plan
+  IO.println "  ✓ ArrParam N×UInt64 flatten"
+
+private unsafe def testMapParam
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "MapParam" <|
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry put(m : Map UInt64 UInt64) : UInt64 do\n" ++
+    "    return pad\n"
+  let compiled ← compileSource session source "Examples.MapParam" "<cw-map-param>"
+  let plan ← liftResult <| planCw compiled
+  let some put := plan.entries.find? (·.name == "put") |
+    throw <| IO.userError "MapParam missing put"
+  let expected := (List.range 24).toArray.map (fun i => s!"m_{i}")
+  expect (put.params.map (·.name) == expected)
+    s!"MapParam must flatten to 24 occ/key/val leaves, got {put.params.map (·.name)}"
+  liftResult <| validatePlan plan
+  IO.println "  ✓ MapParam 24-leaf occ/key/val flatten"
+
 /-- Entry point for manual / future shard registration. -/
 unsafe def run : IO Unit := do
   IO.println "CosmWasmPlanV1"
@@ -2347,6 +2415,10 @@ unsafe def run : IO Unit := do
   testNarrowIntAbi session
   testMultiwordDivMod session
   testNamedStructReturn session
+  testPointParam session
+  testOptionParam session
+  testArrayParam session
+  testMapParam session
   testNamedEnumReturn session
   testAggregateReturnFc session
   testAnonymousArrayReturn session

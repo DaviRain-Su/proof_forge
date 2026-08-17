@@ -3372,33 +3372,26 @@ private unsafe def testAggregateFailClosed
       | .ok _ =>
           throw <| IO.userError
             "Solana Option UInt8 state must fail closed (UInt64 element only)"
-  -- Option param stays fail closed (state-only; mirrors Enum params).
-  let optParamSource := wrapProgram "OptParam" <|
+  -- Named Struct param >8 leaves stays fail closed (1..8 flatten is open).
+  let mut wideFields := ""
+  for i in [0:9] do
+    wideFields := wideFields ++ s!"    f{i} : UInt64\n"
+  let paramSource := wrapProgram "WideParam" <|
+    "  struct Wide where\n" ++
+    wideFields ++
     "  state pad : UInt64\n\n" ++
     "  init(i : UInt64) do\n" ++
     "    pad := i\n\n" ++
-    "  entry take(o : Option UInt64) : UInt64 do\n" ++
+    "  entry take(p : Wide) : UInt64 do\n" ++
     "    return pad\n"
   match ← (do
       try
-        let c ← compileSource session optParamSource "Examples.OptParam" "<solana-opt-param>"
+        let c ← compileSource session paramSource "Examples.WideParam"
+          "<solana-wide-param>"
         pure (some c)
       catch _ => pure none) with
   | none => pure ()
-  | some c => expectPlanError "OptParam" (planSolana c)
-  -- Named Struct param stays fail closed (state-only pilot).
-  let paramSource := wrapProgram "StructParam" <|
-    "  struct Pair where\n" ++
-    "    a : UInt64\n" ++
-    "    b : UInt64\n" ++
-    "  state pad : UInt64\n\n" ++
-    "  init(i : UInt64) do\n" ++
-    "    pad := i\n\n" ++
-    "  entry take(p : Pair) : UInt64 do\n" ++
-    "    return p.a\n"
-  let paramCompiled ← compileSource session paramSource "Examples.StructParam"
-    "<solana-struct-param>"
-  expectPlanError "StructParam" (planSolana paramCompiled)
+  | some c => expectPlanError "WideParam" (planSolana c)
   IO.println "  aggregate fail-closed boundaries ok"
 
 /-- BL-29 / B-OPT-STATE: Option UInt64 state = Enum-shaped 2-leaf layout
@@ -3837,6 +3830,55 @@ private unsafe def testScalarConstInline
     (planSolana strCompiled)
   IO.println "  ✓ Solana scalar const inline + String FC pin ok"
 
+unsafe def testPointParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source := wrapProgram "PointParam" <|
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry set(p : Point) : UInt64 do\n" ++
+    "    pad := p.x\n" ++
+    "    return pad\n"
+  let compiled ← compileSource session source "Examples.PointParam" "<solana-point-param>"
+  let plan ← liftResult <| planSolana compiled
+  let set ← findHandler plan "set"
+  expect (set.params.map (·.name) == #["p_x", "p_y"])
+    s!"PointParam must flatten to p_x/p_y, got {set.params.map (·.name)}"
+  IO.println "  ✓ PointParam named Struct param flatten"
+
+unsafe def testOptionParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source := wrapProgram "OptParam" <|
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry put(o : Option UInt64) : UInt64 do\n" ++
+    "    return pad\n"
+  let compiled ← compileSource session source "Examples.OptParam" "<solana-opt-param>"
+  let plan ← liftResult <| planSolana compiled
+  let put ← findHandler plan "put"
+  expect (put.params.map (·.name) == #["o_tag", "o_p0"])
+    s!"OptParam must flatten to o_tag/o_p0, got {put.params.map (·.name)}"
+  IO.println "  ✓ OptParam tag+payload flatten"
+
+unsafe def testArrayParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source := wrapProgram "ArrParam" <|
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry put(a : Array UInt64 2) : UInt64 do\n" ++
+    "    return pad\n"
+  let compiled ← compileSource session source "Examples.ArrParam" "<solana-arr-param>"
+  let plan ← liftResult <| planSolana compiled
+  let put ← findHandler plan "put"
+  expect (put.params.map (·.name) == #["a_0", "a_1"])
+    s!"ArrParam must flatten to a_0/a_1, got {put.params.map (·.name)}"
+  IO.println "  ✓ ArrParam N×UInt64 flatten"
+
 unsafe def run : IO Unit := do
   testNarrowIntAbi
   let session ← Tests.Language.ParserSession.shared
@@ -3882,6 +3924,7 @@ unsafe def run : IO Unit := do
   testNamedEnumState session
   testBytesStateIndexOps session
   testNamedStructReturn session
+  testPointParam
   testNamedEnumReturn session
   testAnonymousArrayReturn session
   testAnonymousOptionReturn session

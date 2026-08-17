@@ -46,9 +46,9 @@ Digest 在 Plan 边界派生（engineering identity，非 formal BuildIdentity�
   Array 全叶 signed；Option tag `.u64` + payload `.i64`；Map 仅 val `i%3==2`）；
   Map/aggregate StateStore 经 `storeAggregate` 两阶段 relation lowering固定
   pre-state snapshot，`NoirRelationModel` 已覆盖 empty upsert + Int64 container
-  layout pins；Bytes literal IndexGet/Set 已开，
-  Bytes construct/param/动态索引、Int8 容器、Int64-key Map、Array/Option/Map Int64
-  return 与 nested 仍 FAIL-CLOSED；
+  layout pins；Bytes literal IndexGet/Set 已开；named/Option/Array/Bytes **param** 已 flatten；
+  Bytes construct/动态索引、Int8 容器、Int64-key Map、Array/Option/Map Int64
+  return 与 nested 仍 FAIL-CLOSED；Map param 仍 FC（Map return 仍 FC）；
 - call/schedule 持 capability（status/arg slot）；私有 state/params 走 private-witness 输入；
 - 产物：typed relation IR + Noir source packages；locked nargo 1.0.0-beta.26 对产品 Counter
   relation packages 执行 compile-only 工程验收。

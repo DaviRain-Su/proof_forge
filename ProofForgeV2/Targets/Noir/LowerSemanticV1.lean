@@ -1181,10 +1181,36 @@ private def makeParamsV1 (owner : String) (inputOffset : Nat)
       throw <| .planInvariant .noir
         s!"parameter name '{param.name}' in {owner} is not a safe identifier"
     if isAnonymousOptionTypeIdV1 typeDecls param.typeId then
-      -- B-OPT-STATE: Option is state-only on Noir (do not extend Enum param
-      -- admit to anonymous Option params). Explicit FC for clear diagnostics.
-      throw <| .planInvariant .noir
-        s!"unsupported Noir semantic shape: Option parameter '{param.name}' in {owner} is outside the Noir pilot (Option is state-only)"
+      match typeDecls[param.typeId.toNat]? with
+      | some { shape := .option elTid, name := none, .. } =>
+          unless elTid == types.uint64TypeId || types.int64TypeId == some elTid do
+            throw <| .planInvariant .noir
+              s!"unsupported Noir semantic shape: Option parameter '{param.name}' payload must be UInt64 or Int64"
+          if planned.size + 2 > maxParams then
+            throw <| .planInvariant .noir
+              s!"parameter count in {owner} exceeds profile limit {maxParams}"
+          let payloadIsInt := types.int64TypeId == some elTid
+          let mut leafExprs : Array Expr := #[]
+          let mut leafIsInt : Array Bool := #[]
+          for (leafName, isInt) in
+              #[(param.name ++ "_tag", false), (param.name ++ "_p0", payloadIsInt)] do
+            unless isIdentifier leafName do
+              throw <| .planInvariant .noir
+                s!"parameter name '{leafName}' in {owner} is not a safe identifier"
+            let inputIndex := inputOffset + planned.size
+            planned := planned.push {
+              sourceId := planned.size
+              name := leafName
+              inputIndex
+              visibility := inputVisibilityOfSemanticV1 param.visibility
+              inputType := if isInt then .i64 else .u64
+            }
+            leafExprs := leafExprs.push (.param inputIndex)
+            leafIsInt := leafIsInt.push isInt
+          values := values.push (mkAggregateValueV1 leafExprs leafIsInt #[] 1 leafExprs.size)
+      | _ =>
+          throw <| .planInvariant .noir
+            s!"unsupported Noir semantic shape: Option parameter '{param.name}' must be anonymous Option UInt64/Int64"
     else if types.isNamedAggregate param.typeId || types.isPrincipal param.typeId then
       -- Named Struct/Enum or T12 Principal: expand to u64 leaf params.
       requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedParam
@@ -1210,6 +1236,67 @@ private def makeParamsV1 (owner : String) (inputOffset : Nat)
         leafExprs := leafExprs.push (.param inputIndex)
         leafIsInt := leafIsInt.push isInt
       values := values.push (mkAggregateValueV1 leafExprs leafIsInt #[] 1 leafExprs.size)
+    else if types.isContainer param.typeId then
+      match typeDecls[param.typeId.toNat]? with
+      | some { shape := .bytes len, .. } =>
+          let n := len.toNat
+          unless 1 ≤ n && n ≤ 8 do
+            throw <| .planInvariant .noir
+              s!"parameter '{param.name}' in {owner} Bytes N must flatten to 1..8 UInt8 leaves (got {n})"
+          if planned.size + n > maxParams then
+            throw <| .planInvariant .noir
+              s!"parameter count in {owner} exceeds profile limit {maxParams}"
+          let mut leafExprs : Array Expr := #[]
+          let mut leafIsInt : Array Bool := #[]
+          for j in [0:n] do
+            let leafName := param.name ++ "_" ++ toString j
+            unless isIdentifier leafName do
+              throw <| .planInvariant .noir
+                s!"parameter name '{leafName}' in {owner} is not a safe identifier"
+            let inputIndex := inputOffset + planned.size
+            planned := planned.push {
+              sourceId := planned.size
+              name := leafName
+              inputIndex
+              visibility := inputVisibilityOfSemanticV1 param.visibility
+              inputType := .u8
+            }
+            leafExprs := leafExprs.push (.param inputIndex)
+            leafIsInt := leafIsInt.push false
+          values := values.push (mkAggregateValueV1 leafExprs leafIsInt #[] 1 leafExprs.size)
+      | some { shape := .array elTid len, .. } =>
+          unless elTid == types.uint64TypeId || types.int64TypeId == some elTid do
+            throw <| .planInvariant .noir
+              s!"unsupported Noir semantic shape: Array parameter '{param.name}' element must be UInt64 or Int64"
+          let n := len.toNat
+          unless 1 ≤ n && n ≤ 8 do
+            throw <| .planInvariant .noir
+              s!"parameter '{param.name}' in {owner} Array N must flatten to 1..8 leaves (got {n})"
+          if planned.size + n > maxParams then
+            throw <| .planInvariant .noir
+              s!"parameter count in {owner} exceeds profile limit {maxParams}"
+          let payloadIsInt := types.int64TypeId == some elTid
+          let mut leafExprs : Array Expr := #[]
+          let mut leafIsInt : Array Bool := #[]
+          for j in [0:n] do
+            let leafName := param.name ++ "_" ++ toString j
+            unless isIdentifier leafName do
+              throw <| .planInvariant .noir
+                s!"parameter name '{leafName}' in {owner} is not a safe identifier"
+            let inputIndex := inputOffset + planned.size
+            planned := planned.push {
+              sourceId := planned.size
+              name := leafName
+              inputIndex
+              visibility := inputVisibilityOfSemanticV1 param.visibility
+              inputType := if payloadIsInt then .i64 else .u64
+            }
+            leafExprs := leafExprs.push (.param inputIndex)
+            leafIsInt := leafIsInt.push payloadIsInt
+          values := values.push (mkAggregateValueV1 leafExprs leafIsInt #[] 1 leafExprs.size)
+      | _ =>
+          throw <| .planInvariant .noir
+            s!"unsupported Noir semantic shape: Map params stay fail closed (Array/Bytes N params flatten to 1..8 leaves)"
     else
       requirePublicNoirUintAbiOrInt64OrFieldParam noirPlanErr types owner param
         (allowNonPublic := true)

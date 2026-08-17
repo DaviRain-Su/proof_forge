@@ -717,6 +717,46 @@ unsafe def testOptionStateProductLower : IO Unit := do
   expect (slots == #[0, 1])
     s!"OptionState multi-leaf physical leaves 0,1, got {slots}"
 
+unsafe def testOptionParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptParam where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry put(o : Option UInt64) : UInt64 do\n" ++
+    "    return pad\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<dpn-opt-param>" "Tests.DpnOptParam" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planFromCompiledSemanticV1 compiled
+  let some put := plan.functions.find? (·.name == "put") |
+    throw <| IO.userError "OptParam missing put"
+  expect (put.params.map (·.name) == #["o_tag", "o_p0"])
+    s!"OptParam must flatten to o_tag/o_p0, got {put.params.map (·.name)}"
+
+unsafe def testArrayParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrParam where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry put(a : Array UInt64 2) : UInt64 do\n" ++
+    "    return pad\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<dpn-arr-param>" "Tests.DpnArrParam" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planFromCompiledSemanticV1 compiled
+  let some put := plan.functions.find? (·.name == "put") |
+    throw <| IO.userError "ArrParam missing put"
+  expect (put.params.map (·.name) == #["a_0", "a_1"])
+    s!"ArrParam must flatten to a_0/a_1, got {put.params.map (·.name)}"
+
 /-- T1: Option Int64 state — names-only tag+payload; isInt from TypeId. -/
 unsafe def testOptionInt64ProductLower : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -2860,6 +2900,8 @@ unsafe def run : IO Unit := do
   testWideDivBindRestoring
   testWideShiftBindBitWalk
   testOptionStateProductLower
+  testOptionParam
+  testArrayParam
   testOptionInt64ProductLower
   testWideCounterDpnWide
   testWideCounter256DpnWide

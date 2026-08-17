@@ -46,7 +46,7 @@ deploy 默认 ctor `0` 或 `PF_EVM_INIT_ARGS`，再 view/mutate；`init`/`constr
 - **Option UInt64 / Option Int64 state（BL-31）**：Enum-shaped tag/payload 双 slot；
   tag 保持无符号；Int64 payload 的 signedness 在 `LoweredValueV1.isInt`（StorageBinding
   无 `isInt`）。`none` 与 reset 清零 payload，`StateStore` 复用 `storeAtomic`；
-  Option parameter、Option Int64 return、非 UInt64/Int64 payload 与 nested Option 仍 fail-closed；
+  Option/Array/Bytes **param** 已 flatten；Map param 仍 FC（hashed 1-slot）；Option Int64 return、非 UInt64/Int64 payload 与 nested Option 仍 fail-closed；
 - **Array Int64 N**：与 Array UInt8/16/32/64 同 `arrayScalarLeafLayoutV1` 连续 8-byte
   slot；IndexGet/IndexSet 保留 `isInt`；Array Int8 与 Array Int64 return 仍 fail-closed；
 - **bounded aggregate return ABI**：named Struct/Enum 与 anonymous `Array UInt64 N`（1..8）/
@@ -118,7 +118,7 @@ deploy 默认 ctor `0` 或 `PF_EVM_INIT_ARGS`，再 view/mutate；`init`/`constr
   Anvil leg 从实际部署 artifact 的 `proof-forge.output.v1` manifest 读取。
   工程步骤（identity-bound differential 方向），**非** formal C-3 / TST closure。
 
-**明确未闭合**：完整 SemanticProgramV1 表面；ContextRead 已开放版本化的 `unixTimeSeconds`、`caller` 与 **`blockHeight`（S2：`number()`）**，未知键仍 FC；Option parameter、Option Int64 return、非 UInt64/Int64 payload 与 nested Option 仍 fail-closed；Array/Map Int64 return 与 Int64-key Map 仍 FC；static-QN callee 仍是 hashed-address stub，缺真实 deployment-address binding；formal Plan/IR/Build/Output identity 与 identity-bound Reference↔Anvil formal differential；G4 不是 formal TST closure，不得写成 D4 / formal TASK 完成；**不得**把 Cancun profile 写成 OZ compatibility 或 formal hardfork 闭合；**不得**把 ADR-0025/S1 写成 Ownable/OZ/ABI/formal 完成。
+**明确未闭合**：完整 SemanticProgramV1 表面；ContextRead 已开放版本化的 `unixTimeSeconds`、`caller` 与 **`blockHeight`（S2：`number()`）**，未知键仍 FC；Option/Array/Bytes **param** 已 flatten；Map param 仍 FC（hashed 1-slot）；Option Int64 return、非 UInt64/Int64 payload 与 nested Option 仍 fail-closed；Array/Map Int64 return 与 Int64-key Map 仍 FC；static-QN callee 仍是 hashed-address stub，缺真实 deployment-address binding；formal Plan/IR/Build/Output identity 与 identity-bound Reference↔Anvil formal differential；G4 不是 formal TST closure，不得写成 D4 / formal TASK 完成；**不得**把 Cancun profile 写成 OZ compatibility 或 formal hardfork 闭合；**不得**把 ADR-0025/S1 写成 Ownable/OZ/ABI/formal 完成。
 
 ## 0.1 `context.caller` Principal encoding 与物化合同（ADR-0025；S1-EVM）
 

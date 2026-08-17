@@ -49,7 +49,7 @@ reconciliation 见 **ADR-0036**。
 target 对使用该 extension 的程序 **PF-REQ-UNSUPPORTED**。
 
 **Q0 合法 Semantic 子集**：anonymous `UInt64`/`Int64`/`Bool`/`Unit`/`Principal`（Principal 仅作
-pf.assets identity 参数，不可算术）；`Array UInt64 N` 或 `Array Int64 N`（N=1..8）state 展平为 N 个标量 Plan 叶（元素跟随程序级 signedNumeric：unsigned⇒UInt64、signed⇒Int64；不发射原生 Quint List；错域元素 / N=0/N>8 / 非字面量下标 / Array return fail closed）；`Option UInt64` 或 `Option Int64` state 展平为两个标量叶 `{name}_tag`/`{name}_p0`（tag 0=none / 1=some；none 清零 payload；payload 跟随 signedNumeric；不发射 Quint `Option`；错域 payload / Option param/return / 嵌套 Option fail closed）；`Map UInt64 UInt64` 或 `Map Int64 Int64` state 展平为 24 个标量叶（cap-8 × occ/key/val；`Map.empty` + IndexSet upsert；IndexGet → Option tag+payload；key/value 跟随 signedNumeric；不发射原生 Quint Map；**B-RET-MAP** entry/view 24 叶返回；错域 key·value / Map param / 嵌套 Map fail closed）；Bytes N（N=1..8）state 与 **view+entry** 叶返回（N 个 UInt64 低 8 位；N=0/N>8 / Bytes param 仍 FC）；public 齐次 `UInt64` **或** `Int64`
+pf.assets identity 参数，不可算术）；`Array UInt64 N` 或 `Array Int64 N`（N=1..8）state 展平为 N 个标量 Plan 叶（元素跟随程序级 signedNumeric：unsigned⇒UInt64、signed⇒Int64；不发射原生 Quint List；Array **param** 1..8 只读叶；错域元素 / N=0/N>8 / 非字面量下标 fail closed）；`Option UInt64` 或 `Option Int64` state 展平为两个标量叶 `{name}_tag`/`{name}_p0`（tag 0=none / 1=some；none 清零 payload；payload 跟随 signedNumeric；不发射 Quint `Option`；Option **param** 2 叶只读 flatten；错域 payload / 嵌套 Option fail closed）；`Map UInt64 UInt64` 或 `Map Int64 Int64` state 展平为 24 个标量叶（cap-8 × occ/key/val；`Map.empty` + IndexSet upsert；IndexGet → Option tag+payload；key/value 跟随 signedNumeric；不发射原生 Quint Map；**B-RET-MAP** entry/view 24 叶返回；Map **param** 24 只读叶；错域 key·value / 嵌套 Map fail closed）；Bytes N（N=1..8）state / **param** / **view+entry** 叶返回（N 个 UInt64 低 8 位；N=0/N>8 仍 FC）；public 齐次 `UInt64` **或** `Int64`
 state/params（混用 fail closed）；target Plan 合法面为 public `Unit`/`UInt64`/`Int64`/`Bool` result（当前 source Normalize
 尚不物化 bare-Unit entry return，产品可达 Unit 主要是 initializer）；zero-parameter public-Bool、只读
 Q0 invariant；view 仅 check-free 只读表达式；至少一个 entry，且 **single-block CFG**（无 loop /
@@ -149,7 +149,7 @@ Wasm host / TVM Stack-Account / ZK circuit / zkVM / ZK application chain，也�
 | `Array UInt64 N` 或 `Array Int64 N`（N=1..8）state | N 个标量叶 `{name}_i`（跟随 signedNumeric）；无原生 List |
 | `Option UInt64` 或 `Option Int64` state | 两个标量叶 `{name}_tag`/`{name}_p0`（payload 跟随 signedNumeric）；none 清零 payload |
 | `Map UInt64 UInt64` 或 `Map Int64 Int64` state | 24 个标量叶（cap-8 × occ/key/val；跟随 signedNumeric）；`Map.empty` + upsert；IndexGet → Option；**B-RET-MAP** entry/view 24 叶 |
-| Bytes N（N=1..8）state / view+entry return | N 个 UInt64 低 8 位叶；N=0/N>8 / Bytes param 仍 FC |
+| Bytes N（N=1..8）state / param / view+entry return | N 个 UInt64 低 8 位叶；N=0/N>8 仍 FC |
 | public `UInt64` params | 动作参数；**全域** `0..2^64-1` |
 | public `Unit`/`UInt64`/`Bool` result | 显式返回 / outcome 字段 |
 | checked `UInt64` 算术 | 模型内 checked 算子；溢出 → 失败 outcome + stutter |
@@ -163,8 +163,8 @@ Wasm host / TVM Stack-Account / ZK circuit / zkVM / ZK application chain，也�
 
 ### 必须 fail closed / 非 Q0
 
-- multi-width `UInt`/`Int`、`Field`、`Principal` result、`String`、Bytes N=0/N>8 / Bytes param、nested Option/Map、Option/Map **param**、Option-of-non-UInt64、Map-of-non-UInt64 key/value
-- named Struct/Enum、nonempty constants、非 zero-param public-Bool/read-only Q0 invariants
+- multi-width `UInt`/`Int`、`Field`、`Principal` result、`String`、Bytes N=0/N>8、nested Option/Map、Option-of-non-scalar、Map-of-non-domain key/value
+- nonempty constants 中的 String/aggregate/Principal、非 zero-param public-Bool/read-only Q0 invariants
 - checked/fallible view（Q0 不发明 view outcome ABI）
 - 不可约 CFG、非 loop block-param/phi、缺 default 的 switch、臂内 call·emit·typed revert
 - `emit` / nonzero-payload `revert` / `call` / `schedule` / ContextRead / Commit

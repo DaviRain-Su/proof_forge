@@ -1580,43 +1580,93 @@ private def makeParamsV1 (owner : String) (types : TonTypeClosureV1)
         nextInputOffset := nextInputOffset + 8
       values := values.push (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size)
     else if isAnonymousOptionTypeIdV1 typeDecls param.typeId then
-      -- B-OPT-STATE mirrors state-only Option policy: Option params stay FC
-      -- (named Enum params remain admitted separately; Option has no param ABI).
-      throw <| .planInvariant .ton
-        s!"unsupported Ton semantic shape: Option parameter '{param.name}' in {owner} is outside the Ton pilot (Option is state/view-return only)"
+      match typeDecls[param.typeId.toNat]? with
+      | some { shape := .option elTid, name := none, .. } =>
+          unless elTid == types.uint64TypeId || types.int64TypeId == some elTid do
+            throw <| .planInvariant .ton
+              s!"unsupported Ton semantic shape: Option parameter '{param.name}' payload must be UInt64 or Int64"
+          if planned.size + 2 > maxParams then
+            throw <| .planInvariant .ton
+              s!"parameter count in {owner} exceeds profile limit {maxParams}"
+          let mut leafExprs : Array Expr := #[]
+          for leafName in #[param.name ++ "_tag", param.name ++ "_p0"] do
+            unless isIdentifier leafName do
+              throw <| .planInvariant .ton
+                s!"parameter name '{leafName}' in {owner} is not a safe identifier"
+            let binding : Param := {
+              sourceId := planned.size
+              name := leafName
+              inputOffset := nextInputOffset
+              byteWidth := 8
+              endianness := .little
+            }
+            planned := planned.push binding
+            leafExprs := leafExprs.push (.param nextInputOffset)
+            nextInputOffset := nextInputOffset + 8
+          values := values.push (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size)
+      | _ =>
+          throw <| .planInvariant .ton
+            s!"unsupported Ton semantic shape: Option parameter '{param.name}' must be anonymous Option UInt64/Int64"
     else if types.isContainer param.typeId then
-      -- Bytes N param: flatten to N×UInt8 input words (read-only aggregate;
-      -- IndexGet on the leaves is the only access — params are immutable).
-      -- Array/Map params stay fail closed: no Ton array-param ABI in this
-      -- pilot (Bytes leaves are the only flattened container param surface).
-      let some (n, leafByteWidth, _) ←
+      let some (n, leafByteWidth, leafIsInt) ←
         containerLeafLayoutV1 typeDecls types param.typeId |
         throw <| .planInvariant .ton
           "unsupported Ton semantic shape: container param is not Array/Map/Bytes"
-      unless leafByteWidth == 1 do
-        throw <| .planInvariant .ton
-          "unsupported Ton semantic shape: Array/Map params are outside the Ton pilot (only Bytes N params flatten to UInt8 leaves)"
-      if planned.size + n > maxParams then
-        throw <| .planInvariant .ton
-          s!"parameter count in {owner} exceeds profile limit {maxParams}"
-      let mut leafExprs : Array Expr := #[]
-      for i in [0:n] do
-        let leafName := param.name ++ "_" ++ toString i
-        unless isIdentifier leafName do
+      match typeDecls[param.typeId.toNat]? with
+      | some { shape := .bytes .., .. } =>
+          unless leafByteWidth == 1 do
+            throw <| .planInvariant .ton
+              "unsupported Ton semantic shape: Bytes param leaves must be UInt8"
+          if planned.size + n > maxParams then
+            throw <| .planInvariant .ton
+              s!"parameter count in {owner} exceeds profile limit {maxParams}"
+          let mut leafExprs : Array Expr := #[]
+          for i in [0:n] do
+            let leafName := param.name ++ "_" ++ toString i
+            unless isIdentifier leafName do
+              throw <| .planInvariant .ton
+                s!"parameter name '{leafName}' in {owner} is not a safe identifier"
+            let binding : Param := {
+              sourceId := planned.size
+              name := leafName
+              inputOffset := nextInputOffset
+              byteWidth := 1
+              endianness := .little
+            }
+            planned := planned.push binding
+            leafExprs := leafExprs.push (.narrowParam 8 nextInputOffset)
+            nextInputOffset := nextInputOffset + slotPitchOfByteWidth 1
+          values := values.push (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
+            (leafByteWidth := 1))
+      | some { shape := .array .., .. } =>
+          unless 1 ≤ n && n ≤ 8 do
+            throw <| .planInvariant .ton
+              s!"parameter '{param.name}' in {owner} Array N must flatten to 1..8 leaves (got {n})"
+          if planned.size + n > maxParams then
+            throw <| .planInvariant .ton
+              s!"parameter count in {owner} exceeds profile limit {maxParams}"
+          let mut leafExprs : Array Expr := #[]
+          for i in [0:n] do
+            let leafName := param.name ++ "_" ++ toString i
+            unless isIdentifier leafName do
+              throw <| .planInvariant .ton
+                s!"parameter name '{leafName}' in {owner} is not a safe identifier"
+            let binding : Param := {
+              sourceId := planned.size
+              name := leafName
+              inputOffset := nextInputOffset
+              byteWidth := leafByteWidth
+              endianness := .little
+              isInt := leafIsInt
+            }
+            planned := planned.push binding
+            leafExprs := leafExprs.push (.param nextInputOffset)
+            nextInputOffset := nextInputOffset + slotPitchOfByteWidth leafByteWidth
+          values := values.push (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
+            (leafByteWidth := leafByteWidth))
+      | _ =>
           throw <| .planInvariant .ton
-            s!"parameter name '{leafName}' in {owner} is not a safe identifier"
-        let binding : Param := {
-          sourceId := planned.size
-          name := leafName
-          inputOffset := nextInputOffset
-          byteWidth := 1
-          endianness := .little
-        }
-        planned := planned.push binding
-        leafExprs := leafExprs.push (.narrowParam 8 nextInputOffset)
-        nextInputOffset := nextInputOffset + slotPitchOfByteWidth 1
-      values := values.push (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
-        (leafByteWidth := 1))
+            "unsupported Ton semantic shape: Map params stay fail closed (Array/Bytes N params flatten)"
     else
       -- BL-14/T8b: ABI params admit UInt{8,16,32,64,128,256}/Int{8,16,32,64}.
       -- UInt128 pitch is 16 bytes; UInt256 pitch is 32 bytes; narrower

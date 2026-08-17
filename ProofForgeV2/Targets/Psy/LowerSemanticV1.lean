@@ -3242,6 +3242,22 @@ private def lowerCallable
                 uintWidth := 8, isField := false }
             physicalParamIndex := physicalParamIndex + 1
       | none =>
+        match ← arrayUInt64LeafCountV1 layout.typeDecls types p.typeId with
+        | some n =>
+            unless 1 ≤ n && n ≤ 8 do
+              planError s!"unsupported Psy semantic shape: Array parameter '{p.name}' must flatten to 1..8 leaves (got {n})"
+            -- arrayUInt64LeafCountV1 also matches Bytes; Bytes already handled.
+            unless match layout.typeDecls[p.typeId.toNat]? with
+                | some { shape := .array .., .. } => true
+                | _ => false do
+              planError s!"unsupported Psy semantic shape: Array parameter '{p.name}' is not an anonymous Array"
+            for limbIndex in [0:n] do
+              params := params.push
+                { sourceIndex := physicalParamIndex,
+                  name := s!"{p.name}_{limbIndex}", isBool := false,
+                  uintWidth := 0, isField := false }
+              physicalParamIndex := physicalParamIndex + 1
+        | none =>
           match uintWidthOfType data p.typeId with
           | some 128 | some 256 =>
               let bitWidth := (uintWidthOfType data p.typeId).getD 128
@@ -3279,11 +3295,29 @@ private def lowerCallable
                     physicalParamIndex := physicalParamIndex + 1
                   pure false  -- unused; we already pushed leaves
                 else if isAnonymousOptionTypeIdV1 layout.typeDecls p.typeId then
-                  planError s!"unsupported Psy semantic shape: Option parameter '{p.name}' in {owner} is outside the Psy pilot (Option is state-only; B-RET-ABI scalar)"
+                  match layout.typeDecls[p.typeId.toNat]? with
+                  | some { shape := .option elTid, name := none, .. } =>
+                      unless elTid == types.uint64TypeId ||
+                          types.int64TypeId == some elTid do
+                        planError s!"unsupported Psy semantic shape: Option parameter '{p.name}' payload must be UInt64 or Int64"
+                      let payloadIsInt := types.int64TypeId == some elTid
+                      for (leafName, isInt) in
+                          #[(p.name ++ "_tag", false), (p.name ++ "_p0", payloadIsInt)] do
+                        unless isIdentifier leafName do
+                          planError s!"parameter name '{leafName}' is not a safe identifier"
+                        params := params.push
+                          { sourceIndex := physicalParamIndex,
+                            name := leafName, isBool := false,
+                            uintWidth := 0, isField := false }
+                        physicalParamIndex := physicalParamIndex + 1
+                      pure false
+                  | _ =>
+                      planError s!"unsupported Psy semantic shape: Option parameter '{p.name}' must be anonymous Option UInt64/Int64"
                 else planError "unsupported Psy semantic shape: callable parameter is outside the UInt/Int/Bool/Field/Bytes/Principal/String/named-aggregate envelope"
               -- Named-aggregate branch already pushed leaves and set isBool false
               -- via a dummy path; only push a scalar param for non-aggregate.
-              if types.isNamedAggregate p.typeId then
+              if types.isNamedAggregate p.typeId ||
+                  isAnonymousOptionTypeIdV1 layout.typeDecls p.typeId then
                 pure ()
               else
                 let uintWidth :=
@@ -3311,6 +3345,24 @@ private def lowerCallable
       let leafSpecs ← flattenTypeLeafSpecsV1 layout.typeDecls types p.typeId p.name
       let mut limbs : Array Expr := #[]
       for _ in leafSpecs do
+        limbs := limbs.push (.param physicalParamOrdinal)
+        physicalParamOrdinal := physicalParamOrdinal + 1
+      env0 := envInsertVal env0 p.valueId (mkAggregateVal limbs)
+    else if isAnonymousOptionTypeIdV1 layout.typeDecls p.typeId then
+      let mut limbs : Array Expr := #[]
+      for _ in [0:2] do
+        limbs := limbs.push (.param physicalParamOrdinal)
+        physicalParamOrdinal := physicalParamOrdinal + 1
+      env0 := envInsertVal env0 p.valueId (mkAggregateVal limbs)
+    else if match layout.typeDecls[p.typeId.toNat]? with
+        | some { shape := .array .., .. } => true
+        | _ => false then
+      let some n ← arrayUInt64LeafCountV1 layout.typeDecls types p.typeId |
+        planError s!"unsupported Psy semantic shape: Array parameter '{p.name}' layout missing"
+      unless 1 ≤ n && n ≤ 8 do
+        planError s!"unsupported Psy semantic shape: Array parameter '{p.name}' must flatten to 1..8 leaves (got {n})"
+      let mut limbs : Array Expr := #[]
+      for _ in [0:n] do
         limbs := limbs.push (.param physicalParamOrdinal)
         physicalParamOrdinal := physicalParamOrdinal + 1
       env0 := envInsertVal env0 p.valueId (mkAggregateVal limbs)

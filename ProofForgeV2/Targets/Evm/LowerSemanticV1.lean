@@ -1685,6 +1685,99 @@ private def makeParamsV1 (owner : String) (types : EvmTypeClosureV1)
         (mkAggregateValueV1 leafExprs leafIsInt #[] 1 leafExprs.size) with
         typeId := param.typeId
       }
+    else if (← optionUInt64StateLeafCountV1 typeDecls types param.typeId).isSome then
+      if nextWord + 2 > maxParams then
+        throw <| .planInvariant .evm
+          s!"parameter count in {owner} exceeds profile limit {maxParams}"
+      let payloadIsInt := optionPayloadIsIntV1 typeDecls types param.typeId
+      let mut leafExprs : Array Expr := #[]
+      let mut leafIsInt : Array Bool := #[]
+      for (leafName, isInt) in
+          #[(param.name ++ "_tag", false), (param.name ++ "_p0", payloadIsInt)] do
+        unless isIdentifier leafName do
+          throw <| .planInvariant .evm
+            s!"parameter name '{leafName}' in {owner} is not an EVM ABI identifier"
+        planned := planned.push {
+          sourceId := nextWord
+          name := leafName
+          wordIndex := nextWord
+          isInt
+          byteWidth := 8
+        }
+        leafExprs := leafExprs.push (.param nextWord)
+        leafIsInt := leafIsInt.push isInt
+        nextWord := nextWord + 1
+      values := values.push {
+        (mkAggregateValueV1 leafExprs leafIsInt #[] 1 leafExprs.size) with
+        typeId := param.typeId
+      }
+    else if types.isContainer param.typeId then
+      match typeDecls[param.typeId.toNat]? with
+      | some { shape := .bytes len, .. } =>
+          let n := len.toNat
+          unless 1 ≤ n && n ≤ 8 do
+            throw <| .planInvariant .evm
+              s!"parameter '{param.name}' in {owner} Bytes N must flatten to 1..8 UInt8 leaves (got {n})"
+          if nextWord + n > maxParams then
+            throw <| .planInvariant .evm
+              s!"parameter count in {owner} exceeds profile limit {maxParams}"
+          let mut leafExprs : Array Expr := #[]
+          let mut leafIsInt : Array Bool := #[]
+          for j in [0:n] do
+            let leafName := param.name ++ "_" ++ toString j
+            unless isIdentifier leafName do
+              throw <| .planInvariant .evm
+                s!"parameter name '{leafName}' in {owner} is not an EVM ABI identifier"
+            planned := planned.push {
+              sourceId := nextWord
+              name := leafName
+              wordIndex := nextWord
+              isInt := false
+              byteWidth := 1
+            }
+            leafExprs := leafExprs.push (mkParamExpr 8 nextWord)
+            leafIsInt := leafIsInt.push false
+            nextWord := nextWord + 1
+          values := values.push {
+            (mkAggregateValueV1 leafExprs leafIsInt #[] 1 leafExprs.size) with
+            typeId := param.typeId
+          }
+      | some { shape := .array elTid _len, .. } =>
+          let some (bitWidth, n) ← arrayScalarLeafLayoutV1 typeDecls types param.typeId |
+            throw <| .planInvariant .evm
+              s!"parameter '{param.name}' in {owner} Array layout is not admitted"
+          unless 1 ≤ n && n ≤ 8 do
+            throw <| .planInvariant .evm
+              s!"parameter '{param.name}' in {owner} Array N must flatten to 1..8 leaves (got {n})"
+          if nextWord + n > maxParams then
+            throw <| .planInvariant .evm
+              s!"parameter count in {owner} exceeds profile limit {maxParams}"
+          let payloadIsInt := types.int64TypeId == some elTid
+          let byteWidth := bitWidth / 8
+          let mut leafExprs : Array Expr := #[]
+          let mut leafIsInt : Array Bool := #[]
+          for j in [0:n] do
+            let leafName := param.name ++ "_" ++ toString j
+            unless isIdentifier leafName do
+              throw <| .planInvariant .evm
+                s!"parameter name '{leafName}' in {owner} is not an EVM ABI identifier"
+            planned := planned.push {
+              sourceId := nextWord
+              name := leafName
+              wordIndex := nextWord
+              isInt := payloadIsInt
+              byteWidth
+            }
+            leafExprs := leafExprs.push (mkParamExpr bitWidth nextWord)
+            leafIsInt := leafIsInt.push payloadIsInt
+            nextWord := nextWord + 1
+          values := values.push {
+            (mkAggregateValueV1 leafExprs leafIsInt #[] 1 leafExprs.size) with
+            typeId := param.typeId
+          }
+      | _ =>
+          throw <| .planInvariant .evm
+            s!"unsupported EVM semantic shape: Map params stay fail closed (Array/Bytes N params flatten to 1..8 leaves)"
     else
       requirePublicEvmUintAbiOrInt64OrFieldParam
         evmPlanErr types owner param (allowNonPublic := true)

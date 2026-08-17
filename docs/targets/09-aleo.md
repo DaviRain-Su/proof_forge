@@ -61,7 +61,7 @@ program call、proof、deploy 或 network query。
 - named Struct/Enum、Array、Bytes、`Option UInt64` / `Option Int64` 与 dense
   Map cap-2（`Map UInt64 UInt64` 或 `Map UInt64 Int64`，6 叶；仅 val 可为
   `i64`）的受限 flatten；`Array Int64 N` 为 N×`i64` mapping 叶（不是 UInt64
-  别名）；Option tag 保持 `u64`、payload 为 `i64`；
+  别名）；Option tag 保持 `u64`、payload 为 `i64`；named/Option/Array/Bytes **param** 已 flatten；Map param（cap-2）仍 FC；
 - checked arithmetic、比较、bitwise/logical/shift；
 - immutable let、assign、assert、if/match、bounded-for、bare revert；
 - pure function inline 与 literal-backed constants；

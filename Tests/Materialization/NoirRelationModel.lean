@@ -3563,6 +3563,29 @@ private unsafe def checkBytesStateProduct : IO Unit := do
       setNr.contents.contains "post_s1: pub u8")
     "ByteBox set0 .nr must declare both post-state leaves as pub u8"
 
+unsafe def testBytesParam : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program BytesParam where\n" ++
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry put(b : Bytes 2) : UInt64 do\n" ++
+    "    return pad\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let ir ← compileIrFromProgramV1 sourceText
+    "Examples.BytesParam" "<noir-bytes-param>"
+  let put ← findRelation ir "put"
+  expect (put.sourceRelation.params.size == 2 &&
+      put.sourceRelation.params[0]!.name == "b_0" &&
+      put.sourceRelation.params[0]!.inputType == .u8 &&
+      put.sourceRelation.params[1]!.name == "b_1" &&
+      put.sourceRelation.params[1]!.inputType == .u8)
+    s!"BytesParam must flatten to b_0/b_1 u8, got {repr put.sourceRelation.params}"
+  IO.println "  ✓ BytesParam N×u8 public-input flatten"
+
 /-- B-OPT-STATE / BL-32: Option UInt64 state = Enum-shaped 2-leaf layout
     (`slot_tag` + `slot_p0`); none default zeros both; some/none assign via
     construct + storeAggregate (none zeroes payload); match read via
@@ -3816,23 +3839,48 @@ private unsafe def checkOptionStateFailClosed : IO Unit := do
       "    return 0\n\n" ++
       "end ProofForgeV2.Examples\n")
     #["Option", "UInt64", "payload", "unsupported", "state", "Array"]
-  -- Option UInt64 param stays fail closed (state-only; do not extend Enum params).
-  expectOptionStateFailClosed "opt-param" "Examples.OptParam"
-    ("import ProofForgeV2\n\n" ++
-      "namespace ProofForgeV2.Examples\n\n" ++
-      "open ProofForgeV2.Language\n\n" ++
-      "program OptParam where\n" ++
-      "  state seed : UInt64\n\n" ++
-      "  init(x : UInt64) do\n" ++
-      "    seed := x\n\n" ++
-      "  entry take(o : Option UInt64) : UInt64 do\n" ++
-      "    match o with\n" ++
-      "    | Option.some(v) => do\n" ++
-      "      return v\n" ++
-      "    | _ => do\n" ++
-      "      return 0\n\n" ++
-      "end ProofForgeV2.Examples\n")
-    #["Option", "parameter", "param", "unsupported", "state-only"]
+
+unsafe def testOptionParam : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program OptParam where\n" ++
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry put(o : Option UInt64) : UInt64 do\n" ++
+    "    return pad\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let ir ← compileIrFromProgramV1 sourceText
+    "Examples.OptParam" "<noir-opt-param>"
+  let put ← findRelation ir "put"
+  expect (put.sourceRelation.params.size == 2 &&
+      put.sourceRelation.params[0]!.name == "o_tag" &&
+      put.sourceRelation.params[1]!.name == "o_p0")
+    s!"OptParam must flatten to o_tag/o_p0, got {repr put.sourceRelation.params}"
+  IO.println "  ✓ OptParam tag+payload public-input flatten"
+
+unsafe def testArrayParam : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ArrParam where\n" ++
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry put(a : Array UInt64 2) : UInt64 do\n" ++
+    "    return pad\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let ir ← compileIrFromProgramV1 sourceText
+    "Examples.ArrParam" "<noir-arr-param>"
+  let put ← findRelation ir "put"
+  expect (put.sourceRelation.params.size == 2 &&
+      put.sourceRelation.params[0]!.name == "a_0" &&
+      put.sourceRelation.params[1]!.name == "a_1")
+    s!"ArrParam must flatten to a_0/a_1, got {repr put.sourceRelation.params}"
+  IO.println "  ✓ ArrParam N×u64 public-input flatten"
 
 /-- B-RET-ABI: named Struct view return lowers to `.returnAggregate` with
 two resultLeaf verifier inputs (preorder leaves). -/
@@ -4387,6 +4435,8 @@ unsafe def run : IO Unit := do
   checkMapEmptyUpsertProduct
   checkArrayStateProduct
   checkBytesStateProduct
+  testBytesParam
+  testOptionParam
   checkOptionStateProduct
   checkOptionStateFailClosed
   testArrInt64

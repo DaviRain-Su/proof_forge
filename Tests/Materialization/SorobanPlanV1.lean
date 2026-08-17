@@ -1348,6 +1348,93 @@ unsafe def testBytesViewRet : IO Unit := do
   expect (entryRs.contents.contains "-> (u64, u64, u64, u64)")
     "BytesRetEntry must emit a Rust 4-u64 tuple return"
 
+unsafe def testBytesParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BytesParam where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry put(b : Bytes 2) : UInt64 do\n" ++
+    "    return pad\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-bytes-param>" "Tests.SorobanBytesParam" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  let some ent := plan.entries[0]? |
+    throw <| IO.userError "BytesParam must emit an entry"
+  expect (ent.params == #["b_0", "b_1"])
+    s!"BytesParam must flatten to b_0/b_1, got {ent.params}"
+  liftResult <| Targets.Soroban.validatePlan plan
+  let files ← liftResult <| buildSoroban compiled
+  expect (!files.isEmpty) "BytesParam must emit nonempty files"
+
+unsafe def testOptionParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptParam where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry put(o : Option UInt64) : UInt64 do\n" ++
+    "    return pad\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-opt-param>" "Tests.SorobanOptParam" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  let some ent := plan.entries[0]? |
+    throw <| IO.userError "OptParam must emit an entry"
+  expect (ent.params == #["o_tag", "o_p0"])
+    s!"OptParam must flatten to o_tag/o_p0, got {ent.params}"
+  liftResult <| Targets.Soroban.validatePlan plan
+
+unsafe def testArrayParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrParam where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry put(a : Array UInt64 2) : UInt64 do\n" ++
+    "    return pad\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-arr-param>" "Tests.SorobanArrParam" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  let some ent := plan.entries[0]? |
+    throw <| IO.userError "ArrParam must emit an entry"
+  expect (ent.params == #["a_0", "a_1"])
+    s!"ArrParam must flatten to a_0/a_1, got {ent.params}"
+  liftResult <| Targets.Soroban.validatePlan plan
+
+unsafe def testMapParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapParam where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry put(m : Map UInt64 UInt64) : UInt64 do\n" ++
+    "    return pad\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-map-param>" "Tests.SorobanMapParam" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  let some ent := plan.entries[0]? |
+    throw <| IO.userError "MapParam must emit an entry"
+  let expected := (List.range 24).toArray.map (fun i => s!"m_{i}")
+  expect (ent.params == expected)
+    s!"MapParam must flatten to 24 occ/key/val leaves, got {ent.params}"
+  liftResult <| Targets.Soroban.validatePlan plan
+
 unsafe def testOptViewRet : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -1632,6 +1719,10 @@ unsafe def run : IO Unit := do
   testMaybeMarkFlatten
   testArrViewRet
   testBytesViewRet
+  testBytesParam
+  testOptionParam
+  testArrayParam
+  testMapParam
   testOptViewRet
   testPointViewRet
   testMaybeViewRet

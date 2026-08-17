@@ -4461,7 +4461,7 @@ private unsafe def testBytesNegativesFailClosed (session : Language.Loader.Parse
     "  init() do\n" ++
     "    d := 0\n\n" ++
     "  entry peek(a : Array UInt64 2) : UInt64 do\n" ++
-    "    return a[0]\n\n" ++
+    "    return d\n\n" ++
     "end ProofForgeV2.Examples\n"
   let arrSource ← liftResult (← session.selectProgramV1
     arrParamText "<near-arr-param>" "Examples.ArrParam" none)
@@ -4471,9 +4471,12 @@ private unsafe def testBytesNegativesFailClosed (session : Language.Loader.Parse
     Targets.resolveEngineeringRequirementsV1 arrSelection arrCompiled
   match Targets.Near.planFromCapability arrCapability with
   | .error e =>
-      expect (e.render.contains "Array/Map params")
-        s!"bytes: Array param must fail closed, got {e.render}"
-  | .ok _ => throw <| IO.userError "bytes: Array param must fail closed on NEAR"
+      throw <| IO.userError s!"ArrParam must flatten, got {e.render}"
+  | .ok plan =>
+      let some peek := plan.entries.find? (·.name == "peek") |
+        throw <| IO.userError "ArrParam missing peek"
+      expect (peek.params.map (·.name) == #["a_0", "a_1"])
+        s!"ArrParam must flatten to a_0/a_1, got {peek.params.map (·.name)}"
 
 private unsafe def testInt8ParamAdmitted (session : Language.Loader.ParserSession) :
     IO Unit := do
@@ -6460,23 +6463,6 @@ private unsafe def testOptionStateFailClosed
       "    return 0\n\n" ++
       "end ProofForgeV2.Examples\n")
     #["Option", "UInt64", "payload", "unsupported", "state", "Array"]
-  -- Option UInt64 param stays fail closed (params do not flatten Option).
-  expectOptionStateFailClosed session "opt-param" "Examples.OptParam"
-    ("import ProofForgeV2\n\n" ++
-      "namespace ProofForgeV2.Examples\n\n" ++
-      "open ProofForgeV2.Language\n\n" ++
-      "program OptParam where\n" ++
-      "  state seed : UInt64\n\n" ++
-      "  init(x : UInt64) do\n" ++
-      "    seed := x\n\n" ++
-      "  entry take(o : Option UInt64) : UInt64 do\n" ++
-      "    match o with\n" ++
-      "    | Option.some(v) => do\n" ++
-      "      return v\n" ++
-      "    | _ => do\n" ++
-      "      return 0\n\n" ++
-      "end ProofForgeV2.Examples\n")
-    #["Option", "parameter", "param", "unsupported", "UInt"]
 
 private unsafe def compileNearPlan
     (session : Language.Loader.ParserSession)
@@ -6510,6 +6496,67 @@ private unsafe def expectNearPlanErrorContaining
             s!"{label}: FC must contain '{needle}', got {e.render}"
       | .ok _ =>
           throw <| IO.userError s!"{label}: NEAR must fail closed"
+
+unsafe def testOptionParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program OptParam where\n" ++
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry put(o : Option UInt64) : UInt64 do\n" ++
+    "    return pad\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let (_, plan) ← compileNearPlan session sourceText "Examples.OptParam" "opt-param"
+  let some put := plan.entries.find? (·.name == "put") |
+    throw <| IO.userError "OptParam missing put"
+  expect (put.params.map (·.name) == #["o_tag", "o_p0"])
+    s!"OptParam must flatten to o_tag/o_p0, got {put.params.map (·.name)}"
+  IO.println "  ✓ OptParam tag+payload flatten"
+
+unsafe def testArrayParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ArrParam where\n" ++
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry put(a : Array UInt64 2) : UInt64 do\n" ++
+    "    return pad\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let (_, plan) ← compileNearPlan session sourceText "Examples.ArrParam" "arr-param"
+  let some put := plan.entries.find? (·.name == "put") |
+    throw <| IO.userError "ArrParam missing put"
+  expect (put.params.map (·.name) == #["a_0", "a_1"])
+    s!"ArrParam must flatten to a_0/a_1, got {put.params.map (·.name)}"
+  IO.println "  ✓ ArrParam N×UInt64 flatten"
+
+unsafe def testMapParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program MapParam where\n" ++
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry put(m : Map UInt64 UInt64) : UInt64 do\n" ++
+    "    return pad\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let (_, plan) ← compileNearPlan session sourceText "Examples.MapParam" "map-param"
+  let some put := plan.entries.find? (·.name == "put") |
+    throw <| IO.userError "MapParam missing put"
+  let expected := (List.range 24).toArray.map (fun i => s!"m_{i}")
+  expect (put.params.map (·.name) == expected)
+    s!"MapParam must flatten to 24 occ/key/val leaves, got {put.params.map (·.name)}"
+  IO.println "  ✓ MapParam 24-leaf occ/key/val flatten"
 
 /-- Array Int64 2 state: N×8-byte signed leaves (not a UInt64 alias). -/
 private unsafe def testArrayInt64State
@@ -6978,6 +7025,7 @@ unsafe def run : IO Unit := do
   testNamedEnumProductPath session
   testOptionStateProductPath session
   testOptionStateFailClosed session
+  testOptionParam
   testArrayInt64State session
   testOptionInt64State session
   testMapInt64State session

@@ -2324,8 +2324,25 @@ private def seedParamEnv
     unless isIdentifier p.name do
       planError s!"parameter '{p.name}' is not a safe identifier"
     if isAnonymousOptionTypeIdV1 typeDecls p.typeId then
-      planError s!"{owner} Option params are outside Q0"
-    if types.isNamedAggregate p.typeId then
+      match typeDecls[p.typeId.toNat]? with
+      | some { shape := .option elTid, name := none, .. } =>
+          unless isUInt64Type types elTid || isInt64Type types elTid do
+            planError
+              s!"{owner} Option param payload must be UInt64 or Int64"
+          let tagName := p.name ++ "_tag"
+          let pName := p.name ++ "_p0"
+          unless isIdentifier tagName do
+            planError s!"parameter '{tagName}' is not a safe identifier"
+          unless isIdentifier pName do
+            planError s!"parameter '{pName}' is not a safe identifier"
+          names := names.push tagName |>.push pName
+          isPrincipal := isPrincipal.push false |>.push false
+          env := envInsert env p.valueId
+            (mkOptionLeaves #[.param i, .param (i + 1)] 2)
+          i := i + 2
+      | _ =>
+          planError s!"{owner} Option params require anonymous Option UInt64/Int64"
+    else if types.isNamedAggregate p.typeId then
       unless p.visibility == .public_ do
         planError s!"parameter '{p.name}' is not public"
       let leafSpecs ← flattenNamedLeafSpecsV1 typeDecls types p.typeId p.name
@@ -2337,8 +2354,59 @@ private def seedParamEnv
         i := i + 1
       env := envInsert env p.valueId (mkNamedLeaves leafExprs leafExprs.size)
     else if types.isContainer p.typeId then
-      planError
-        "unsupported Quint semantic shape: Array params are outside Q0 (only Array UInt64 N state flattens; no native Quint List)"
+      match typeDecls[p.typeId.toNat]? with
+      | some { shape := .bytes len, .. } =>
+          let n := len.toNat
+          unless 1 ≤ n && n ≤ 8 do
+            planError
+              s!"parameter '{p.name}' in {owner} Bytes N must flatten to 1..8 leaves (got {n})"
+          let mut leafExprs : Array Expr := #[]
+          for j in [0:n] do
+            let leafName := p.name ++ "_" ++ toString j
+            unless isIdentifier leafName do
+              planError s!"parameter '{leafName}' is not a safe identifier"
+            names := names.push leafName
+            isPrincipal := isPrincipal.push false
+            leafExprs := leafExprs.push (.param i)
+            i := i + 1
+          env := envInsert env p.valueId (mkArrayLeaves leafExprs leafExprs.size)
+      | some { shape := .array elTid len, .. } =>
+          unless isUInt64Type types elTid || isInt64Type types elTid do
+            planError
+              s!"parameter '{p.name}' in {owner} Array element must be UInt64 or Int64"
+          let n := len.toNat
+          unless 1 ≤ n && n ≤ 8 do
+            planError
+              s!"parameter '{p.name}' in {owner} Array N must flatten to 1..8 leaves (got {n})"
+          let mut leafExprs : Array Expr := #[]
+          for j in [0:n] do
+            let leafName := p.name ++ "_" ++ toString j
+            unless isIdentifier leafName do
+              planError s!"parameter '{leafName}' is not a safe identifier"
+            names := names.push leafName
+            isPrincipal := isPrincipal.push false
+            leafExprs := leafExprs.push (.param i)
+            i := i + 1
+          env := envInsert env p.valueId (mkArrayLeaves leafExprs leafExprs.size)
+      | some { shape := .map keyTid valTid, name := none, .. } =>
+          unless (isUInt64Type types keyTid && isUInt64Type types valTid) ||
+              (isInt64Type types keyTid && isInt64Type types valTid) do
+            planError
+              s!"parameter '{p.name}' in {owner} Map must be Map UInt64 UInt64 or Map Int64 Int64"
+          let n := mapPilotLeafCountV1
+          let mut leafExprs : Array Expr := #[]
+          for j in [0:n] do
+            let leafName := p.name ++ "_" ++ toString j
+            unless isIdentifier leafName do
+              planError s!"parameter '{leafName}' is not a safe identifier"
+            names := names.push leafName
+            isPrincipal := isPrincipal.push false
+            leafExprs := leafExprs.push (.param i)
+            i := i + 1
+          env := envInsert env p.valueId (mkMapLeaves leafExprs leafExprs.size)
+      | _ =>
+          planError
+            "unsupported Quint semantic shape: nested/unknown container params stay fail closed"
     else if isInt64Type types p.typeId then
       env := envInsert env p.valueId {
         ty := .int64

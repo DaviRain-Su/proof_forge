@@ -3267,6 +3267,80 @@ private unsafe def testBytesStateIndexOps : IO Unit := do
   | .error e =>
       throw <| IO.userError s!"EVM must accept Map after I1, got {e.render}"
 
+/-- Bytes 2 param flattens to two UInt8 ABI words (same dialect as Bytes state). -/
+unsafe def testBytesParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BytesParam where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry put(b : Bytes 2) : UInt64 do\n" ++
+    "    return pad\n"
+  let src ← liftResult "load BytesParam" (← session.selectProgramV1
+    source "<evm-bytes-param>" "Tests.EvmBytesParam" none)
+  let compiled ← liftResult "compile BytesParam" <|
+    Compiler.compileValidatedSourceV1 src
+  let plan ← liftResult "plan BytesParam" <| planEvm compiled
+  let some put := plan.entries.find? (·.name == "put") |
+    throw <| IO.userError "BytesParam missing put"
+  expect (put.params.size == 2 &&
+      put.params[0]!.name == "b_0" && put.params[0]!.byteWidth == 1 &&
+      put.params[1]!.name == "b_1" && put.params[1]!.byteWidth == 1)
+    s!"BytesParam must flatten to b_0/b_1 UInt8 words, got {repr put.params}"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"BytesParam plan must validate: {e.render}"
+  IO.println "  ✓ BytesParam N×UInt8 ABI flatten"
+
+unsafe def testOptionParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptParam where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry put(o : Option UInt64) : UInt64 do\n" ++
+    "    return pad\n"
+  let src ← liftResult "load OptParam" (← session.selectProgramV1
+    source "<evm-opt-param-focus>" "Tests.EvmOptParamFocus" none)
+  let compiled ← liftResult "compile OptParam" <|
+    Compiler.compileValidatedSourceV1 src
+  let plan ← liftResult "plan OptParam" <| planEvm compiled
+  let some put := plan.entries.find? (·.name == "put") |
+    throw <| IO.userError "OptParam missing put"
+  expect (put.params.size == 2 &&
+      put.params[0]!.name == "o_tag" && put.params[1]!.name == "o_p0")
+    s!"OptParam must flatten to o_tag/o_p0, got {repr put.params}"
+  IO.println "  ✓ OptParam tag+payload ABI flatten"
+
+unsafe def testArrayParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrParam where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry put(a : Array UInt64 2) : UInt64 do\n" ++
+    "    return pad\n"
+  let src ← liftResult "load ArrParam" (← session.selectProgramV1
+    source "<evm-arr-param-focus>" "Tests.EvmArrParamFocus" none)
+  let compiled ← liftResult "compile ArrParam" <|
+    Compiler.compileValidatedSourceV1 src
+  let plan ← liftResult "plan ArrParam" <| planEvm compiled
+  let some put := plan.entries.find? (·.name == "put") |
+    throw <| IO.userError "ArrParam missing put"
+  expect (put.params.size == 2 &&
+      put.params[0]!.name == "a_0" && put.params[1]!.name == "a_1")
+    s!"ArrParam must flatten to a_0/a_1, got {repr put.params}"
+  IO.println "  ✓ ArrParam N×UInt64 ABI flatten"
+
 /-- EVM ContextRead pin (B-CTX-OPEN / ADR-0031 S1+S2): `context.unixTimeSeconds`
     lowers to `timestamp()` (UInt64); `context.blockHeight` → `number()`;
     `context.caller` lowers to Principal aggregate `literal 20` +
@@ -3817,8 +3891,8 @@ private unsafe def testOptionUInt64State : IO Unit := do
           e.render.contains "payload" || e.render.contains "shape")
         s!"nested Option FC must cite Option/UInt64/payload, got: {e.render}"
 
-  -- FC: Option params (state-only admission; Enum params admit but Option params stay FC).
-  let badParam :=
+  -- Option UInt64 param is 2-leaf tag+payload (same dialect as Option state).
+  let optParam :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
     "program OptParam where\n" ++
@@ -3826,23 +3900,17 @@ private unsafe def testOptionUInt64State : IO Unit := do
     "  init() do\n" ++
     "    x := 0\n" ++
     "  entry take(o : Option UInt64) : UInt64 do\n" ++
-    "    match o with\n" ++
-    "    | Option.some(v) => do\n" ++
-    "      return v\n" ++
-    "    | _ => do\n" ++
-    "      return 0\n"
-  let badParamSrc ← liftResult "load OptParam" (← session.selectProgramV1
-    badParam "<evm-opt-param>" "Tests.EvmOptParam" none)
-  let badParamCompiled ← liftResult "compile OptParam" <|
-    Compiler.compileValidatedSourceV1 badParamSrc
-  match planEvm badParamCompiled with
-  | .ok _ =>
-      throw <| IO.userError "EVM Option params must fail closed"
-  | .error e =>
-      expect (e.render.contains "Option" || e.render.contains "parameter" ||
-          e.render.contains "UInt64" || e.render.contains "shape" ||
-          e.render.contains "public")
-        s!"Option param FC must cite parameter/Option boundary, got: {e.render}"
+    "    return x\n"
+  let optParamSrc ← liftResult "load OptParam" (← session.selectProgramV1
+    optParam "<evm-opt-param>" "Tests.EvmOptParam" none)
+  let optParamCompiled ← liftResult "compile OptParam" <|
+    Compiler.compileValidatedSourceV1 optParamSrc
+  let optPlan ← liftResult "plan OptParam" <| planEvm optParamCompiled
+  let some take := optPlan.entries.find? (·.name == "take") |
+    throw <| IO.userError "OptParam missing take"
+  expect (take.params.size == 2 &&
+      take.params[0]!.name == "o_tag" && take.params[1]!.name == "o_p0")
+    s!"OptParam must flatten to o_tag/o_p0, got {repr take.params}"
 
 /-- T1 EVM Int64 containers: Array Int64 / Option Int64 / hashed Map UInt64 Int64.
     Signedness lives on LoweredValueV1.isInt + ABI/Yul value path, not a

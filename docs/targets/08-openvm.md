@@ -43,7 +43,7 @@ occ/key/val 交错；`Map.empty` + IndexSet upsert；IndexGet → Option tag+pay
 用 `Expr.ite` mux；key/value 跟随 signedNumeric；无 `HashMap` /
 `std::collections` / Vec）、single-block、checked `+`/`-`/`*`/`/`/`%`
 （unsigned `u64` / signed `i64::checked_*`）、bare assert、zero-payload revert
-（ADR-0045）。Bytes/nested Array、Array 或 Option 或 Map param/return、N∉1..8、
+（ADR-0045）。named/Option/Array/Map/Bytes **param** 已 flatten（布局=对应 state）。nested Array、N∉1..8、
 错域元素/payload/key、非字面量 Array 下标、非空 Map construct 均 fail closed。扩展（commit/reveal 之外的 guest I/O、RV32
 extensions、crypto accelerators、continuations/aggregation、EVM proof mode）均未开放；
 每项未来须绑定 OpenVM config hash。O1 只新增 Finalize-time build/transpile，不扩大
@@ -116,7 +116,7 @@ substitution、config commitment、host nondeterminism、unsafe guest code、pro
 
 ## 9. 验证阶梯
 
-- **O0（已完成）**：registry/resolver/Plan/IR/guest-source emit + zero-tool finalize + Counter/StateCell/Int64Cell 正例与 unsupported 负例；工程 `Array UInt64|Int64 N`（N=1..8）state flatten 为标量 `u64`/`i64` 字段；工程 `Option UInt64|Int64` state flatten 为 `{name}_tag`/`{name}_p0`；工程 dense `Map UInt64 UInt64` 或 `Map Int64 Int64` cap-8 flatten 为 24 个标量字段（非 HashMap/Vec；**B-RET-MAP** UInt64 Map return 24 叶已开；Map param/错域 key-value/elf/prove/formal 仍 FC）。不声称 execute/prove。
+- **O0（已完成）**：registry/resolver/Plan/IR/guest-source emit + zero-tool finalize + Counter/StateCell/Int64Cell 正例与 unsupported 负例；工程 `Array UInt64|Int64 N`（N=1..8）state flatten 为标量 `u64`/`i64` 字段；工程 `Option UInt64|Int64` state flatten 为 `{name}_tag`/`{name}_p0`；工程 dense `Map UInt64 UInt64` 或 `Map Int64 Int64` cap-8 flatten 为 24 个标量字段（非 HashMap/Vec；**B-RET-MAP** UInt64 Map return 24 叶已开；named/Option/Array/Map/Bytes param 已 flatten；错域 key-value/elf/prove/formal 仍 FC）。不声称 execute/prove。
 - **O1（当前，ADR-0046）**：同一 Plan/IR 上的 opt-in `openvm-guest-elf-v1`；锁定
   `cargo-openvm` 2.0.1 build/transpile guest → RV32IM ELF + `.vmexe` extras；缺失工具
   fail closed（`PF-TOOLCHAIN-MISSING`）；host-optional acceptance（ambient 工具存在时

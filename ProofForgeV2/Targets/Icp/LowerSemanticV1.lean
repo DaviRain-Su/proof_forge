@@ -1794,8 +1794,26 @@ private def seedParamEnv (typeDecls : Array TypeDeclV1) (types : IcpTypeClosureV
     unless isIdentifier p.name do
       planError s!"parameter '{p.name}' in {owner} is not a safe identifier"
     if isAnonymousOptionTypeIdV1 typeDecls p.typeId then
-      planError s!"{owner} Option params are outside ICP-2"
-    if types.isNamedAggregate p.typeId then
+      match typeDecls[p.typeId.toNat]? with
+      | some { shape := .option elTid, name := none, .. } =>
+          unless p.visibility == .public_ do
+            planError s!"parameter '{p.name}' in {owner} is not public"
+          unless isUInt64Type types elTid || isInt64Type types elTid do
+            planError s!"{owner} Option param payload must be UInt64 or Int64"
+          let tagName := p.name ++ "_tag"
+          let pName := p.name ++ "_p0"
+          unless isIdentifier tagName do
+            planError s!"parameter '{tagName}' in {owner} is not a safe identifier"
+          unless isIdentifier pName do
+            planError s!"parameter '{pName}' in {owner} is not a safe identifier"
+          names := names.push tagName |>.push pName
+          kinds := kinds.push .integer |>.push .integer
+          env := envInsert env p.valueId
+            (mkOptionLeaves #[.param i, .param (i + 1)])
+          i := i + 2
+      | _ =>
+          planError s!"{owner} Option params require anonymous Option UInt64/Int64"
+    else if types.isNamedAggregate p.typeId then
       unless p.visibility == .public_ do
         planError s!"parameter '{p.name}' in {owner} is not public"
       let leafSpecs ← flattenNamedLeafSpecsV1 typeDecls types p.typeId p.name
@@ -1814,6 +1832,66 @@ private def seedParamEnv (typeDecls : Array TypeDeclV1) (types : IcpTypeClosureV
       names := names.push p.name
       kinds := kinds.push .principal
       i := i + 1
+    else if types.isContainer p.typeId then
+      match typeDecls[p.typeId.toNat]? with
+      | some { shape := .bytes len, .. } =>
+          unless p.visibility == .public_ do
+            planError s!"parameter '{p.name}' in {owner} is not public"
+          let n := len.toNat
+          unless 1 ≤ n && n ≤ 8 do
+            planError
+              s!"parameter '{p.name}' in {owner} Bytes N must flatten to 1..8 leaves (got {n})"
+          let mut leafExprs : Array Expr := #[]
+          for j in [0:n] do
+            let leafName := p.name ++ "_" ++ toString j
+            unless isIdentifier leafName do
+              planError s!"parameter '{leafName}' in {owner} is not a safe identifier"
+            names := names.push leafName
+            kinds := kinds.push .integer
+            leafExprs := leafExprs.push (.param i)
+            i := i + 1
+          env := envInsert env p.valueId (mkArrayLeaves leafExprs)
+      | some { shape := .array elTid len, .. } =>
+          unless p.visibility == .public_ do
+            planError s!"parameter '{p.name}' in {owner} is not public"
+          unless isUInt64Type types elTid || isInt64Type types elTid do
+            planError s!"{owner} Array param element must be UInt64 or Int64"
+          let n := len.toNat
+          unless 1 ≤ n && n ≤ 8 do
+            planError
+              s!"parameter '{p.name}' in {owner} Array N must flatten to 1..8 leaves (got {n})"
+          let mut leafExprs : Array Expr := #[]
+          for j in [0:n] do
+            let leafName := p.name ++ "_" ++ toString j
+            unless isIdentifier leafName do
+              planError s!"parameter '{leafName}' in {owner} is not a safe identifier"
+            names := names.push leafName
+            kinds := kinds.push .integer
+            leafExprs := leafExprs.push (.param i)
+            i := i + 1
+          env := envInsert env p.valueId (mkArrayLeaves leafExprs)
+      | some { shape := .map keyTid valTid, name := none, .. } =>
+          unless p.visibility == .public_ do
+            planError s!"parameter '{p.name}' in {owner} is not public"
+          unless (isUInt64Type types keyTid && isUInt64Type types valTid) ||
+              (isInt64Type types keyTid && isInt64Type types valTid) do
+            planError s!"{owner} Map param must be Map UInt64 UInt64 or Map Int64 Int64"
+          let n := mapPilotLeafCountV1
+          unless names.size + n ≤ maxParams do
+            planError s!"{owner} parameter count exceeds limit"
+          let mut leafExprs : Array Expr := #[]
+          for j in [0:n] do
+            let leafName := p.name ++ "_" ++ toString j
+            unless isIdentifier leafName do
+              planError s!"parameter '{leafName}' in {owner} is not a safe identifier"
+            names := names.push leafName
+            kinds := kinds.push .integer
+            leafExprs := leafExprs.push (.param i)
+            i := i + 1
+          env := envInsert env p.valueId (mkMapLeaves leafExprs)
+      | _ =>
+          planError
+            s!"{owner} nested/unknown container params stay fail closed"
     else
       requirePublicUInt64OrInt64Param icpPlanErr types owner p
       env := envInsert env p.valueId (mkScalar (.param i))

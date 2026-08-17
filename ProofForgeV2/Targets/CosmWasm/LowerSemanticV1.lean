@@ -1627,33 +1627,46 @@ private def makeParamsV1 (owner : String) (types : CosmWasmTypeClosureV1)
         nextInputOffset := nextInputOffset + 8
       values := values.push (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size)
     else if isAnonymousOptionTypeIdV1 typeDecls param.typeId then
-      -- B-OPT-STATE residual: Option params stay fail closed (mirror Enum
-      -- policy — state + entry/view Option returns are admitted; params not).
-      throw <| .planInvariant .cosmwasm
-        s!"unsupported CosmWasm semantic shape: Option parameter '{param.name}' in {owner} is outside the CosmWasm pilot (params stay fail closed)"
+      match typeDecls[param.typeId.toNat]? with
+      | some { shape := .option elTid, name := none, .. } =>
+          unless elTid == types.uint64TypeId || types.int64TypeId == some elTid do
+            throw <| .planInvariant .cosmwasm
+              s!"unsupported CosmWasm semantic shape: Option parameter '{param.name}' payload must be UInt64 or Int64"
+          if planned.size + 2 > maxParams then
+            throw <| .planInvariant .cosmwasm
+              s!"parameter count in {owner} exceeds profile limit {maxParams}"
+          let payloadIsInt := types.int64TypeId == some elTid
+          let mut leafExprs : Array Expr := #[]
+          for (leafName, isInt) in
+              #[(param.name ++ "_tag", false), (param.name ++ "_p0", payloadIsInt)] do
+            unless isIdentifier leafName do
+              throw <| .planInvariant .cosmwasm
+                s!"parameter name '{leafName}' in {owner} is not a safe identifier"
+            let binding : Param := {
+              sourceId := planned.size
+              name := leafName
+              inputOffset := nextInputOffset
+              byteWidth := 8
+              endianness := .little
+              isInt
+            }
+            planned := planned.push binding
+            leafExprs := leafExprs.push (.param nextInputOffset)
+            nextInputOffset := nextInputOffset + 8
+          values := values.push (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size)
+      | _ =>
+          throw <| .planInvariant .cosmwasm
+            s!"unsupported CosmWasm semantic shape: Option parameter '{param.name}' must be anonymous Option UInt64/Int64"
     else if types.isNamedAggregate param.typeId then
-      -- B-RET-ABI residual: named Struct/Enum params stay fail closed on
-      -- CosmWasm (state + entry/view returns are admitted; params are not).
-      throw <| .planInvariant .cosmwasm
-        s!"unsupported CosmWasm semantic shape: named Struct/Enum parameter '{param.name}' in {owner} is outside the B-RET-ABI surface (params stay fail closed)"
-    else if types.isContainer param.typeId then
-      -- Bytes N param: flatten to N×UInt8 input words (read-only aggregate;
-      -- IndexGet on the leaves is the only access — params are immutable).
-      -- Array/Map params stay fail closed: no CosmWasm array-param ABI in this
-      -- pilot (Bytes leaves are the only flattened container param surface).
-      let some (n, leafByteWidth, _) ←
-        containerLeafLayoutV1 typeDecls types param.typeId |
+      let leafSpecs ← flattenTypeLeafSpecsV1 typeDecls types param.typeId param.name
+      if leafSpecs.isEmpty || leafSpecs.size > 8 then
         throw <| .planInvariant .cosmwasm
-          "unsupported CosmWasm semantic shape: container param is not Array/Map/Bytes"
-      unless leafByteWidth == 1 do
-        throw <| .planInvariant .cosmwasm
-          "unsupported CosmWasm semantic shape: Array/Map params are outside the CosmWasm pilot (only Bytes N params flatten to UInt8 leaves)"
-      if planned.size + n > maxParams then
+          s!"parameter '{param.name}' in {owner} named aggregate must flatten to 1..8 leaves"
+      if planned.size + leafSpecs.size > maxParams then
         throw <| .planInvariant .cosmwasm
           s!"parameter count in {owner} exceeds profile limit {maxParams}"
       let mut leafExprs : Array Expr := #[]
-      for i in [0:n] do
-        let leafName := param.name ++ "_" ++ toString i
+      for (leafName, isInt) in leafSpecs do
         unless isIdentifier leafName do
           throw <| .planInvariant .cosmwasm
             s!"parameter name '{leafName}' in {owner} is not a safe identifier"
@@ -1661,14 +1674,101 @@ private def makeParamsV1 (owner : String) (types : CosmWasmTypeClosureV1)
           sourceId := planned.size
           name := leafName
           inputOffset := nextInputOffset
-          byteWidth := 1
+          byteWidth := 8
           endianness := .little
+          isInt
         }
         planned := planned.push binding
-        leafExprs := leafExprs.push (.narrowParam 8 nextInputOffset)
-        nextInputOffset := nextInputOffset + slotPitchOfByteWidth 1
-      values := values.push (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
-        (leafByteWidth := 1))
+        leafExprs := leafExprs.push (.param nextInputOffset)
+        nextInputOffset := nextInputOffset + 8
+      values := values.push (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size)
+    else if types.isContainer param.typeId then
+      let some (n, leafByteWidth, leafIsInt) ←
+        containerLeafLayoutV1 typeDecls types param.typeId |
+        throw <| .planInvariant .cosmwasm
+          "unsupported CosmWasm semantic shape: container param is not Array/Map/Bytes"
+      match typeDecls[param.typeId.toNat]? with
+      | some { shape := .bytes .., .. } =>
+          unless leafByteWidth == 1 do
+            throw <| .planInvariant .cosmwasm
+              "unsupported CosmWasm semantic shape: Bytes param leaves must be UInt8"
+          if planned.size + n > maxParams then
+            throw <| .planInvariant .cosmwasm
+              s!"parameter count in {owner} exceeds profile limit {maxParams}"
+          let mut leafExprs : Array Expr := #[]
+          for i in [0:n] do
+            let leafName := param.name ++ "_" ++ toString i
+            unless isIdentifier leafName do
+              throw <| .planInvariant .cosmwasm
+                s!"parameter name '{leafName}' in {owner} is not a safe identifier"
+            let binding : Param := {
+              sourceId := planned.size
+              name := leafName
+              inputOffset := nextInputOffset
+              byteWidth := 1
+              endianness := .little
+            }
+            planned := planned.push binding
+            leafExprs := leafExprs.push (.narrowParam 8 nextInputOffset)
+            nextInputOffset := nextInputOffset + slotPitchOfByteWidth 1
+          values := values.push (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
+            (leafByteWidth := 1))
+      | some { shape := .array .., .. } =>
+          unless 1 ≤ n && n ≤ 8 do
+            throw <| .planInvariant .cosmwasm
+              s!"parameter '{param.name}' in {owner} Array N must flatten to 1..8 leaves (got {n})"
+          if planned.size + n > maxParams then
+            throw <| .planInvariant .cosmwasm
+              s!"parameter count in {owner} exceeds profile limit {maxParams}"
+          let mut leafExprs : Array Expr := #[]
+          for i in [0:n] do
+            let leafName := param.name ++ "_" ++ toString i
+            unless isIdentifier leafName do
+              throw <| .planInvariant .cosmwasm
+                s!"parameter name '{leafName}' in {owner} is not a safe identifier"
+            let binding : Param := {
+              sourceId := planned.size
+              name := leafName
+              inputOffset := nextInputOffset
+              byteWidth := leafByteWidth
+              endianness := .little
+              isInt := leafIsInt
+            }
+            planned := planned.push binding
+            leafExprs := leafExprs.push (.param nextInputOffset)
+            nextInputOffset := nextInputOffset + slotPitchOfByteWidth leafByteWidth
+          values := values.push (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
+            (leafByteWidth := leafByteWidth))
+      | some { shape := .map .., .. } =>
+          unless n == nearMapPilotLeafCountV1 do
+            throw <| .planInvariant .cosmwasm
+              s!"parameter '{param.name}' in {owner} Map must flatten to {nearMapPilotLeafCountV1} occ/key/val leaves (got {n})"
+          if planned.size + n > maxParams then
+            throw <| .planInvariant .cosmwasm
+              s!"parameter count in {owner} exceeds profile limit {maxParams}"
+          let mut leafExprs : Array Expr := #[]
+          for i in [0:n] do
+            let leafName := param.name ++ "_" ++ toString i
+            unless isIdentifier leafName do
+              throw <| .planInvariant .cosmwasm
+                s!"parameter name '{leafName}' in {owner} is not a safe identifier"
+            let slotIsInt := leafIsInt && (i % 3 == 2)
+            let binding : Param := {
+              sourceId := planned.size
+              name := leafName
+              inputOffset := nextInputOffset
+              byteWidth := leafByteWidth
+              endianness := .little
+              isInt := slotIsInt
+            }
+            planned := planned.push binding
+            leafExprs := leafExprs.push (.param nextInputOffset)
+            nextInputOffset := nextInputOffset + slotPitchOfByteWidth leafByteWidth
+          values := values.push (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
+            (leafByteWidth := leafByteWidth))
+      | _ =>
+          throw <| .planInvariant .cosmwasm
+            "unsupported CosmWasm semantic shape: nested/unknown container params stay fail closed"
     else if types.uintWidthOf param.typeId == some 128 then
       -- UInt128 ABI: two JSON decimal limbs (`name_lo`/`name_hi`), each u64.
       requirePublicCosmWasmUintAbiOrInt64Param cosmwasmPlanErr types owner param

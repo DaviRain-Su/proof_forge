@@ -409,6 +409,31 @@ lean_exe ton_plan_v1_focus where
   root := `Tests.Materialization.TonPlanV1Focus
   supportInterpreter := true
 
+lean_exe solana_plan_v1_focus where
+  exeName := "solana-plan-v1-focus"
+  root := `Tests.Materialization.SolanaPlanV1Focus
+  supportInterpreter := true
+
+lean_exe evm_smoke_focus where
+  exeName := "evm-smoke-focus"
+  root := `Tests.Materialization.EvmSmokeFocus
+  supportInterpreter := true
+
+lean_exe noir_relation_model_focus where
+  exeName := "noir-relation-model-focus"
+  root := `Tests.Materialization.NoirRelationModelFocus
+  supportInterpreter := true
+
+lean_exe near_host_model_focus where
+  exeName := "near-host-model-focus"
+  root := `Tests.Materialization.NearHostModelFocus
+  supportInterpreter := true
+
+lean_exe psy_dpn_v1_focus where
+  exeName := "psy-dpn-v1-focus"
+  root := `Tests.Materialization.PsyDpnV1Focus
+  supportInterpreter := true
+
 -- Memory-bounded shards: the single-process aggregate keeps a high-water RSS
 -- above the 7 GB hosted runner limit because Lean does not return heap to the
 -- OS between suites. Each shard runs an independent process so the OS reclaims

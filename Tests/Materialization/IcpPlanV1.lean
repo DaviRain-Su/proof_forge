@@ -812,6 +812,85 @@ private unsafe def testBytesBoxFlatten
   expect (!did.contains "vec") "no Candid vec nat8 in did"
   IO.println "  ✓ Bytes 4 flatten (four i64 globals; no Candid vec)"
 
+private unsafe def testBytesParam
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "BytesParam" <|
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry put(b : Bytes 2) : UInt64 do\n" ++
+    "    return pad\n"
+  let compiled ← compileSource session src "Examples.BytesParam" "<icp-bytes-param>"
+  let plan ← liftResult <| planIcp compiled
+  let some ent := plan.entries[0]? |
+    throw <| IO.userError "BytesParam must emit an entry"
+  expect (ent.params == #["b_0", "b_1"])
+    s!"BytesParam must flatten to b_0/b_1, got {ent.params}"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"BytesParam plan must validate: {e.render}"
+  let files ← liftResult <| filesIcp compiled
+  expect (!files.isEmpty) "BytesParam must emit files"
+  IO.println "  ✓ Bytes 2 param flatten (two nat64 args; no Candid vec)"
+
+private unsafe def testOptionParam
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "OptParam" <|
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry put(o : Option UInt64) : UInt64 do\n" ++
+    "    return pad\n"
+  let compiled ← compileSource session src "Examples.OptParam" "<icp-opt-param>"
+  let plan ← liftResult <| planIcp compiled
+  let some ent := plan.entries[0]? |
+    throw <| IO.userError "OptParam must emit an entry"
+  expect (ent.params == #["o_tag", "o_p0"])
+    s!"OptParam must flatten to o_tag/o_p0, got {ent.params}"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"OptParam plan must validate: {e.render}"
+  IO.println "  ✓ Option UInt64 param flatten (tag+payload nat64 args)"
+
+private unsafe def testArrayParam
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "ArrParam" <|
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry put(a : Array UInt64 2) : UInt64 do\n" ++
+    "    return pad\n"
+  let compiled ← compileSource session src "Examples.ArrParam" "<icp-arr-param>"
+  let plan ← liftResult <| planIcp compiled
+  let some ent := plan.entries[0]? |
+    throw <| IO.userError "ArrParam must emit an entry"
+  expect (ent.params == #["a_0", "a_1"])
+    s!"ArrParam must flatten to a_0/a_1, got {ent.params}"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"ArrParam plan must validate: {e.render}"
+  IO.println "  ✓ Array UInt64 2 param flatten (two nat64 args; no Candid vec)"
+
+private unsafe def testMapParam
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "MapParam" <|
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry put(m : Map UInt64 UInt64) : UInt64 do\n" ++
+    "    return pad\n"
+  let compiled ← compileSource session src "Examples.MapParam" "<icp-map-param>"
+  let plan ← liftResult <| planIcp compiled
+  let some ent := plan.entries[0]? |
+    throw <| IO.userError "MapParam must emit an entry"
+  let expected := (List.range 24).toArray.map (fun i => s!"m_{i}")
+  expect (ent.params == expected)
+    s!"MapParam must flatten to 24 occ/key/val leaves, got {ent.params}"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"MapParam plan must validate: {e.render}"
+  IO.println "  ✓ Map UInt64 cap-8 param flatten (24 nat64 args; no Candid map)"
+
 /-- Option UInt64 flattens to two i64 globals. No Candid `opt`. -/
 private unsafe def testOptBoxFlatten
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -1603,6 +1682,10 @@ unsafe def run : IO Unit := do
   testMaybeMarkFlatten session
   testArraySlotsFlatten session
   testBytesBoxFlatten session
+  testBytesParam session
+  testOptionParam session
+  testArrayParam session
+  testMapParam session
   testOptBoxFlatten session
   testOptRetBox session
   testMaybeRetBox session

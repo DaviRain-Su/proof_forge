@@ -1425,21 +1425,76 @@ private def makeParamsV1 (owner : String) (types : SolanaTypeClosureV1)
         nextDataOffset := nextDataOffset + 8
       values := values.push (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size)
     else if types.isContainer param.typeId then
-      -- Bytes N param only: N×UInt8 instruction-data words (pitch 8). Array/Map
-      -- params stay fail closed (no array-param ABI in this pilot).
-      let some (n, leafByteWidth, _leafIsInt) ←
+      let some (n, leafByteWidth, leafIsInt) ←
         containerLeafLayoutV1 typeDecls types param.typeId |
         throw <| .planInvariant .solana
           "unsupported Solana semantic shape: container param is not Array/Map/Bytes"
-      unless leafByteWidth == 1 do
+      match typeDecls[param.typeId.toNat]? with
+      | some { shape := .bytes .., .. } =>
+          unless leafByteWidth == 1 do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: Bytes param leaves must be UInt8"
+          if planned.size + n > maxParams then
+            throw <| .planInvariant .solana
+              s!"parameter count in {owner} exceeds profile limit {maxParams}"
+          let mut leafExprs : Array Expr := #[]
+          for i in [0:n] do
+            let leafName := param.name ++ "_" ++ toString i
+            unless isIdentifier leafName do
+              throw <| .planInvariant .solana
+                s!"parameter name '{leafName}' in {owner} is not a safe identifier"
+            let binding : Param := {
+              sourceId := planned.size
+              name := leafName
+              dataOffset := nextDataOffset
+              byteWidth := 1
+              endianness := .little
+              isInt := false
+            }
+            planned := planned.push binding
+            leafExprs := leafExprs.push (mkParamExpr 8 nextDataOffset)
+            nextDataOffset := nextDataOffset + slotPitchOfByteWidth 1
+          values := values.push
+            (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size (leafByteWidth := 1))
+      | some { shape := .array .., .. } =>
+          unless 1 ≤ n && n ≤ 8 do
+            throw <| .planInvariant .solana
+              s!"parameter '{param.name}' in {owner} Array N must flatten to 1..8 leaves (got {n})"
+          if planned.size + n > maxParams then
+            throw <| .planInvariant .solana
+              s!"parameter count in {owner} exceeds profile limit {maxParams}"
+          let mut leafExprs : Array Expr := #[]
+          for i in [0:n] do
+            let leafName := param.name ++ "_" ++ toString i
+            unless isIdentifier leafName do
+              throw <| .planInvariant .solana
+                s!"parameter name '{leafName}' in {owner} is not a safe identifier"
+            let binding : Param := {
+              sourceId := planned.size
+              name := leafName
+              dataOffset := nextDataOffset
+              byteWidth := leafByteWidth
+              endianness := .little
+              isInt := leafIsInt
+            }
+            planned := planned.push binding
+            leafExprs := leafExprs.push (.param nextDataOffset)
+            nextDataOffset := nextDataOffset + slotPitchOfByteWidth leafByteWidth
+          values := values.push
+            (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size (leafByteWidth := leafByteWidth))
+      | _ =>
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: Map params stay fail closed (Array/Bytes N params flatten)"
+    else if types.isNamedAggregate param.typeId then
+      let leafSpecs ← flattenTypeLeafSpecsV1 typeDecls types param.typeId param.name
+      if leafSpecs.isEmpty || leafSpecs.size > 8 then
         throw <| .planInvariant .solana
-          "unsupported Solana semantic shape: Array/Map params are outside the Solana pilot (only Bytes N params flatten to UInt8 leaves)"
-      if planned.size + n > maxParams then
+          s!"parameter '{param.name}' in {owner} named aggregate must flatten to 1..8 leaves"
+      if planned.size + leafSpecs.size > maxParams then
         throw <| .planInvariant .solana
           s!"parameter count in {owner} exceeds profile limit {maxParams}"
       let mut leafExprs : Array Expr := #[]
-      for i in [0:n] do
-        let leafName := param.name ++ "_" ++ toString i
+      for (leafName, isInt) in leafSpecs do
         unless isIdentifier leafName do
           throw <| .planInvariant .solana
             s!"parameter name '{leafName}' in {owner} is not a safe identifier"
@@ -1447,22 +1502,45 @@ private def makeParamsV1 (owner : String) (types : SolanaTypeClosureV1)
           sourceId := planned.size
           name := leafName
           dataOffset := nextDataOffset
-          byteWidth := 1
+          byteWidth := 8
           endianness := .little
-          isInt := false
+          isInt
         }
         planned := planned.push binding
-        leafExprs := leafExprs.push (mkParamExpr 8 nextDataOffset)
-        nextDataOffset := nextDataOffset + slotPitchOfByteWidth 1
-      values := values.push
-        (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size (leafByteWidth := 1))
-    else if types.isNamedAggregate param.typeId then
-      throw <| .planInvariant .solana
-        s!"unsupported Solana semantic shape: named Struct/Enum parameter '{param.name}' in {owner} is outside the Solana pilot (named aggregates are state-only; B-RET-ABI scalar)"
+        leafExprs := leafExprs.push (.param nextDataOffset)
+        nextDataOffset := nextDataOffset + 8
+      values := values.push (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size)
     else if isAnonymousOptionTypeIdV1 typeDecls param.typeId then
-      -- B-OPT-STATE mirrors Enum: Option is state-only (params stay fail closed).
-      throw <| .planInvariant .solana
-        s!"unsupported Solana semantic shape: Option parameter '{param.name}' in {owner} is outside the Solana pilot (Option is state-only; B-RET-ABI scalar)"
+      match typeDecls[param.typeId.toNat]? with
+      | some { shape := .option elTid, name := none, .. } =>
+          unless elTid == types.uint64TypeId || types.int64TypeId == some elTid do
+            throw <| .planInvariant .solana
+              s!"unsupported Solana semantic shape: Option parameter '{param.name}' payload must be UInt64 or Int64"
+          if planned.size + 2 > maxParams then
+            throw <| .planInvariant .solana
+              s!"parameter count in {owner} exceeds profile limit {maxParams}"
+          let payloadIsInt := types.int64TypeId == some elTid
+          let mut leafExprs : Array Expr := #[]
+          for (leafName, isInt) in
+              #[(param.name ++ "_tag", false), (param.name ++ "_p0", payloadIsInt)] do
+            unless isIdentifier leafName do
+              throw <| .planInvariant .solana
+                s!"parameter name '{leafName}' in {owner} is not a safe identifier"
+            let binding : Param := {
+              sourceId := planned.size
+              name := leafName
+              dataOffset := nextDataOffset
+              byteWidth := 8
+              endianness := .little
+              isInt
+            }
+            planned := planned.push binding
+            leafExprs := leafExprs.push (.param nextDataOffset)
+            nextDataOffset := nextDataOffset + 8
+          values := values.push (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size)
+      | _ =>
+          throw <| .planInvariant .solana
+            s!"unsupported Solana semantic shape: Option parameter '{param.name}' must be anonymous Option UInt64/Int64"
     else
       -- T8b+T9e: ABI params admit UInt{8,16,32,64,128,256}/Int{8,16,32,64}.
       requirePublicSolanaUintAbiOrInt64Param solanaPlanErr types owner param

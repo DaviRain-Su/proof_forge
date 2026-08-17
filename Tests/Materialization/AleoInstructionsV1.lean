@@ -1680,12 +1680,10 @@ unsafe def testPrincipalIdentityLeaves : IO Unit := do
     "  state owner : Principal\n" ++
     "  init(initial : Principal) do\n" ++
     "    owner := initial\n" ++
-    "  entry set(who : Principal) : Bool do\n" ++
+    "  entry assign(who : Principal) : Bool do\n" ++
     "    owner := who\n" ++
     "    return true\n" ++
-    "  entry eq(a : Principal, b : Principal) : Bool do\n" ++
-    "    return a == b\n" ++
-    "  entry matchesOwner(who : Principal) : Bool do\n" ++
+    "  view matchesOwner(who : Principal) : Bool do\n" ++
     "    return owner == who\n"
   let parsed ← liftResult (← session.selectProgramV1
     source "<aleo-principal>" "Tests.AleoPrincipal" none)
@@ -2770,6 +2768,138 @@ def testResidualHonestyNotes : IO Unit := do
     s!"Instructions golden inventory, got {names}"
   pure ()
 
+unsafe def testPointParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PointParam where\n" ++
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry put(p : Point) : UInt64 do\n" ++
+    "    pad := p.x\n" ++
+    "    return pad\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-point-param>" "Tests.AleoPointParam" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  let cap ← liftResult <|
+    resolveEngineeringRequirementsV1 selection compiled
+  let prog ← liftResult <| programFromCapabilityV1 cap
+  let mut setInputs : Nat := 0
+  for item in prog.items do
+    match item with
+    | .function f =>
+        if f.name == "put" then
+          for i in f.body do
+            match i with
+            | .input .. => setInputs := setInputs + 1
+            | _ => pure ()
+    | _ => pure ()
+  expect (setInputs == 2)
+    s!"PointParam put must take 2 flattened u64 inputs, got {setInputs}"
+
+unsafe def testBytesParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BytesParam where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry put(b : Bytes 2) : UInt64 do\n" ++
+    "    return pad\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-bytes-param>" "Tests.AleoBytesParam" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  let cap ← liftResult <|
+    resolveEngineeringRequirementsV1 selection compiled
+  let prog ← liftResult <| programFromCapabilityV1 cap
+  let mut putInputs : Nat := 0
+  for item in prog.items do
+    match item with
+    | .function f =>
+        if f.name == "put" then
+          for i in f.body do
+            match i with
+            | .input .. => putInputs := putInputs + 1
+            | _ => pure ()
+    | _ => pure ()
+  expect (putInputs == 2)
+    s!"BytesParam put must take 2 flattened u8 inputs, got {putInputs}"
+
+unsafe def testOptionParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptParam where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry put(o : Option UInt64) : UInt64 do\n" ++
+    "    return pad\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-opt-param>" "Tests.AleoOptParam" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  let cap ← liftResult <|
+    resolveEngineeringRequirementsV1 selection compiled
+  let prog ← liftResult <| programFromCapabilityV1 cap
+  let mut putInputs : Nat := 0
+  for item in prog.items do
+    match item with
+    | .function f =>
+        if f.name == "put" then
+          for i in f.body do
+            match i with
+            | .input .. => putInputs := putInputs + 1
+            | _ => pure ()
+    | _ => pure ()
+  expect (putInputs == 2)
+    s!"OptParam put must take 2 flattened tag+payload inputs, got {putInputs}"
+
+unsafe def testArrayParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrParam where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry put(a : Array UInt64 2) : UInt64 do\n" ++
+    "    return pad\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-arr-param>" "Tests.AleoArrParam" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  let cap ← liftResult <|
+    resolveEngineeringRequirementsV1 selection compiled
+  let prog ← liftResult <| programFromCapabilityV1 cap
+  let mut putInputs : Nat := 0
+  for item in prog.items do
+    match item with
+    | .function f =>
+        if f.name == "put" then
+          for i in f.body do
+            match i with
+            | .input .. => putInputs := putInputs + 1
+            | _ => pure ()
+    | _ => pure ()
+  expect (putInputs == 2)
+    s!"ArrParam put must take 2 flattened Array leaves, got {putInputs}"
+
 unsafe def run : IO Unit := do
   testPins
   testEncodeEqualsGolden
@@ -2790,6 +2920,10 @@ unsafe def run : IO Unit := do
   testProductOptionStateMultiLeaf
   testProductMapMiniMultiLeaf
   testProductArrayMultiLeaf
+  testPointParam
+  testBytesParam
+  testOptionParam
+  testArrayParam
   testProductArrayInt64MultiLeaf
   testProductOptionInt64StateMultiLeaf
   testProductMapInt64MiniMultiLeaf

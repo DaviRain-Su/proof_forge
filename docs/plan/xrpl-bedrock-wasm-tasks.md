@@ -51,10 +51,10 @@ Same skeleton as Soroban S0 / OpenVM O0:
 | **T3-XRPL-BYTES** | **done** | Bytes N / Array UInt64 N flatten + ConstCell pin；§1e const 已 inline |
 | **T4-XRPL-PRINCIPAL** | **done** | Principal 9-leaf identity；result/self/caller FC |
 | **T5-XRPL-NAMED** | **done** | named Struct/Enum leaf flatten；return FC |
-| **T5-XRPL-OPTION** | **done** | Option UInt64 2-leaf (`name_tag`/`name_p0`)；param/nested/non-UInt64 FC |
+| **T5-XRPL-OPTION** | **done** | Option UInt64 2-leaf (`name_tag`/`name_p0`)；Option **param** 2 叶只读；nested/non-scalar FC |
 | **T6-XRPL-VIEW-RET** | **done** | view leaf return Rust `(u64,…)` |
-| **T7-XRPL-ENTRY-RET** | **done** | entry isomorphic leaf return |
-| **T8a-XRPL-MAP** | **done** | Map UInt64 cap-8（24 occ/key/val 叶）；empty/upsert；IndexGet→Option；**B-RET-MAP** entry/view 24 叶返回；Map param 仍 FC |
+| **T7-XRPL-ENTRY-RET** | **done** | entry isomorphic leaf return（named / Array N / Option / Bytes / Map 24） |
+| **T8a-XRPL-MAP** | **done** | Map UInt64 cap-8（24 occ/key/val 叶）；empty/upsert；IndexGet→Option；**B-RET-MAP** entry/view 24 叶返回；Map **param** 24 只读叶 |
 | **T8b-XRPL-BYTES-VIEW** | **done** | Bytes N view **and entry** leaf return；N=0/N>8 仍 FC |
 | **T-XRPL-INT64** | **done** | homogeneous `signedNumeric` Int64（Option/Map/Array 元跟域）；混 UInt64 FC；窄 Int/Field 仍 FC |
 | **T9a-XRPL-IF** | **done** | `emitRegion` + `ifThenElse` |

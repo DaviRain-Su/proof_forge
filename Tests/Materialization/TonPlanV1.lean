@@ -34,7 +34,7 @@
   Int128/256, Array Int64 return, Array UInt256, Array UInt128 return,
   Array/Map/Option of Int8/16/32 and Map of UInt128 / Opt of UInt256,
   UInt128/256 shifts/bitwise, Map/Bytes returns, N>8,
-  nested/narrow-element containers, Option params, invariants,
+  nested/narrow-element containers, Option-of-non-scalar params, invariants,
   Field). Principal 9-leaf wire identity is admitted (T4; ≠address).
   CAP-5 `pf.crypto.sha256` UInt256→UInt256 via Tolk `slice.bitsHash()` /
   TVM `SHA256U` over the Semantic 32-byte LE image (`string_hash` /
@@ -2252,28 +2252,6 @@ private unsafe def testAggregateFailClosed
       | .ok _ =>
           throw <| IO.userError
             "Ton Option UInt8 state must fail closed (UInt64 payload only)"
-  -- Option param stays fail closed (state/view-return only).
-  let optParamSource := wrapProgram "OptParam" <|
-    "  state pad : UInt64\n\n" ++
-    "  init(i : UInt64) do\n" ++
-    "    pad := i\n\n" ++
-    "  entry take(o : Option UInt64) : UInt64 do\n" ++
-    "    return pad\n"
-  match ← (do
-      try
-        let c ← compileSource session optParamSource "Examples.OptParam" "<ton-opt-param>"
-        pure (some c)
-      catch _ => pure none) with
-  | none => pure ()
-  | some c =>
-      match planTon c with
-      | .error e =>
-          expect (e.render.contains "Option" || e.render.contains "parameter" ||
-              e.render.contains "param")
-            s!"OptParam must cite Option/parameter, got: {e.render}"
-      | .ok _ =>
-          throw <| IO.userError
-            "Ton Option parameter must fail closed (state/view-return only)"
   -- Nested Option state (Option of Option) stays fail closed.
   let nestOptSrc := wrapProgram "NestOptState" <|
     "  state o : Option Option UInt64\n\n" ++
@@ -2297,6 +2275,41 @@ private unsafe def testAggregateFailClosed
           throw <| IO.userError
             "Ton nested Option state must fail closed"
   IO.println "  ✓ aggregate return fail-closed boundaries (entry/Map/Bytes/9-leaf/nested/Option-state)"
+
+/-- L4: Option UInt64 param flattens to 2 read-only leaves (`o_tag`/`o_p0`). -/
+unsafe def testOptionParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let optParamSource := wrapProgram "OptParam" <|
+    "  state pad : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    pad := i\n\n" ++
+    "  entry take(o : Option UInt64) : UInt64 do\n" ++
+    "    return pad\n"
+  let optCompiled ← compileSource session optParamSource "Examples.OptParam"
+    "<ton-opt-param>"
+  let optPlan ← liftResult <| planTon optCompiled
+  let some take := optPlan.entries.find? (·.name == "take") |
+    throw <| IO.userError "OptParam missing take"
+  expect (take.params.map (·.name) == #["o_tag", "o_p0"])
+    s!"OptParam must flatten to o_tag/o_p0, got {take.params.map (·.name)}"
+  IO.println "  ✓ Option UInt64 param flattens to o_tag/o_p0"
+
+unsafe def testArrayParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let arrParamSource := wrapProgram "ArrParam" <|
+    "  state pad : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    pad := i\n\n" ++
+    "  entry take(a : Array UInt64 2) : UInt64 do\n" ++
+    "    return pad\n"
+  let arrCompiled ← compileSource session arrParamSource "Examples.ArrParam"
+    "<ton-arr-param>"
+  let arrPlan ← liftResult <| planTon arrCompiled
+  let some take := arrPlan.entries.find? (·.name == "take") |
+    throw <| IO.userError "ArrParam missing take"
+  expect (take.params.map (·.name) == #["a_0", "a_1"])
+    s!"ArrParam must flatten to a_0/a_1, got {take.params.map (·.name)}"
+  IO.println "  ✓ Array UInt64 2 param flattens to a_0/a_1"
 
 /-- BL-34 / B-OPT-STATE: Option UInt64 state = Enum-shaped 2-leaf c4 layout
     (`slot_tag` + `slot_p0`); construct none zeros payload; match read via
@@ -2867,10 +2880,17 @@ private unsafe def testContextReadUnixTime
   -- at type closure (message cites Principal) before the ContextRead arm —
   -- still fail closed. LowerSemantic keeps an explicit ContextRead/caller arm
   -- for defense-in-depth if Principal storage is later admitted.
+  -- Pad state so the empty-state profile gate does not mask the
+  -- ContextRead/caller/Principal fail-closed arm (same as HeightBox).
   let callerSrc := wrapProgram "CallerBox" <|
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
     "  entry who() : UInt64 do\n" ++
     "    let c : Principal := context.caller\n" ++
-    "    return 0\n"
+    "    return 0\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return pad\n"
   let clCompiled ← compileSource session callerSrc "Examples.CallerBox"
     "<ton-caller-box>"
   match planTon clCompiled with
@@ -2943,10 +2963,17 @@ private unsafe def testContextReadUnixTime
   -- `pilotPrincipalPolicyNone`, so Principal is rejected at type closure
   -- before the ContextRead/self arm — still fail closed. LowerSemantic
   -- keeps an explicit self arm (same as caller) for defense-in-depth.
+  -- Pad state so the empty-state profile gate does not mask the
+  -- ContextRead/self/Principal fail-closed arm (same as CallerBox).
   let selfSrc := wrapProgram "SelfBox" <|
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
     "  entry who() : UInt64 do\n" ++
     "    let s : Principal := context.contractId\n" ++
-    "    return 0\n"
+    "    return 0\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return pad\n"
   let sCompiled ← compileSource session selfSrc "Examples.SelfBox"
     "<ton-self-box>"
   match planTon sCompiled with
@@ -3140,6 +3167,8 @@ unsafe def run : IO Unit := do
   testOptionUInt128State session
   testOptionUInt128ReturnFc session
   testAggregateFailClosed session
+  testOptionParam
+  testArrayParam
   testContextReadUnixTime session
   testEnvReadNativeStayFailClosed session
   testUnknownProfileFailClosed

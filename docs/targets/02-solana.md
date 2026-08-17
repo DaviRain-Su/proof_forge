@@ -48,7 +48,7 @@ auto-init 默认 0；CPI multi-role 仍走 `pf test`）；`pf verify -t solana` 
 - **#113 V1 单 state-account 安全矩阵**：IR/SBPF `num_accounts==1` + non-dup `0xff` 先于固定偏移；
   Mollusk 负例 Custom(1)+完整 exact snapshot；manifest-bound ELF/Plan 字节；
 - **Option UInt64/Int64 state（BL-29）**：`slot_tag`/`slot_p0` 双 8-byte leaf（tag unsigned；
-  Int64 payload `isInt`），`none` 清零 stale payload，assign 走多叶原子 store；Option params、
+  Int64 payload `isInt`），`none` 清零 stale payload，assign 走多叶原子 store；Option/Array **param** 已 flatten；Map param 仍 FC（Map return 仍 FC）；
   Int8/16/32 payload、Option Int64 return 与 nested Option 仍 fail-closed；
 - **Array Int64 N**：N×8-byte `isInt` 叶（不是 UInt64 别名）；Array Int8 与 Array Int64 return 仍 FC；
 - **≤8 叶聚合返回**：named Struct/Enum 与 anonymous Array/Option UInt64 经单次

@@ -988,6 +988,94 @@ unsafe def testBytesViewRet : IO Unit := do
   expect (!entryQnt.contents.contains "List[")
     "BytesRetEntry must not invent a native Quint List"
 
+/-- Bytes 2 param flattens to two UInt64 low-8 leaves (same dialect as Bytes state). -/
+unsafe def testBytesParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BytesParam where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry put(b : Bytes 2) : UInt64 do\n" ++
+    "    return pad\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-bytes-param>" "Tests.QuintBytesParam" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  let some ent := plan.entries[0]? |
+    throw <| IO.userError "BytesParam must emit an entry"
+  expect (ent.params == #["b_0", "b_1"])
+    s!"BytesParam must flatten to b_0/b_1, got {ent.params}"
+  liftResult <| Targets.Quint.validatePlan plan
+  let files ← liftResult <| buildQuint compiled
+  expect (!files.isEmpty) "BytesParam must materialize Quint files"
+
+unsafe def testOptionParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptParam where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry put(o : Option UInt64) : UInt64 do\n" ++
+    "    return pad\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-opt-param>" "Tests.QuintOptParam" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  let some ent := plan.entries[0]? |
+    throw <| IO.userError "OptParam must emit an entry"
+  expect (ent.params == #["o_tag", "o_p0"])
+    s!"OptParam must flatten to o_tag/o_p0, got {ent.params}"
+  liftResult <| Targets.Quint.validatePlan plan
+
+unsafe def testArrayParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrParam where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry put(a : Array UInt64 2) : UInt64 do\n" ++
+    "    return pad\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-arr-param>" "Tests.QuintArrParam" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  let some ent := plan.entries[0]? |
+    throw <| IO.userError "ArrParam must emit an entry"
+  expect (ent.params == #["a_0", "a_1"])
+    s!"ArrParam must flatten to a_0/a_1, got {ent.params}"
+  liftResult <| Targets.Quint.validatePlan plan
+
+unsafe def testMapParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapParam where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry put(m : Map UInt64 UInt64) : UInt64 do\n" ++
+    "    return pad\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-map-param>" "Tests.QuintMapParam" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  let some ent := plan.entries[0]? |
+    throw <| IO.userError "MapParam must emit an entry"
+  let expected := (List.range 24).toArray.map (fun i => s!"m_{i}")
+  expect (ent.params == expected)
+    s!"MapParam must flatten to 24 occ/key/val leaves, got {ent.params}"
+  liftResult <| Targets.Quint.validatePlan plan
+
 /-- OptViewRet: view-only Option UInt64 returns tag+payload as a Quint tuple. -/
 unsafe def testOptViewRet : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -2309,6 +2397,10 @@ unsafe def run : IO Unit := do
   testPairRetEntry
   testArrViewRet
   testBytesViewRet
+  testBytesParam
+  testOptionParam
+  testArrayParam
+  testMapParam
   testOptViewRet
   testPointViewRet
   testMaybeViewRet

@@ -558,6 +558,62 @@ unsafe def testPointBoxFlatten : IO Unit := do
   expect (rsFile.contents.contains "const p_y_KEY: &str = \"p_y\";")
     "PointBox must bind p_y_KEY"
 
+unsafe def testPointParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PointParam where\n" ++
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry set(p : Point) : UInt64 do\n" ++
+    "    pad := p.x\n" ++
+    "    return pad\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-point-param>" "Tests.XrplPointParam" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  let some ent := plan.entries[0]? |
+    throw <| IO.userError "PointParam must emit an entry"
+  expect (ent.params == #["p_x", "p_y"])
+    s!"PointParam must flatten to p_x/p_y, got {ent.params}"
+  liftResult <| Targets.Xrpl.validatePlan plan
+  let files ← liftResult <| buildXrpl compiled
+  let some rsFile := files.find? (·.path == "PointParam.rs") |
+    throw <| IO.userError "xrpl: missing PointParam.rs"
+  expect (rsFile.contents.contains "p_x: u64")
+    "PointParam.rs must take flattened p_x"
+
+unsafe def testBytesParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BytesParam where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry put(b : Bytes 2) : UInt64 do\n" ++
+    "    return pad\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-bytes-param>" "Tests.XrplBytesParam" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  let some ent := plan.entries[0]? |
+    throw <| IO.userError "BytesParam must emit an entry"
+  expect (ent.params == #["b_0", "b_1"])
+    s!"BytesParam must flatten to b_0/b_1, got {ent.params}"
+  liftResult <| Targets.Xrpl.validatePlan plan
+  let files ← liftResult <| buildXrpl compiled
+  let some rsFile := files.find? (·.path == "BytesParam.rs") |
+    throw <| IO.userError "xrpl: missing BytesParam.rs"
+  expect (rsFile.contents.contains "b_0: u64")
+    "BytesParam.rs must take flattened b_0"
+
 unsafe def testMaybeMarkFlatten : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -695,6 +751,34 @@ unsafe def testBytesViewRet : IO Unit := do
     throw <| IO.userError "xrpl: missing BytesViewRet.rs"
   expect (rsFile.contents.contains "-> (u64, u64, u64, u64)")
     "BytesViewRet must emit a Rust 4-leaf view tuple"
+
+unsafe def testArrRet : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrRet where\n" ++
+    "  state slots : Array UInt64 2\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
+    "  entry peek() : Array UInt64 2 do\n" ++
+    "    return slots\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-arr-ret>" "Tests.XrplArrRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  let some ent := plan.entries[0]? |
+    throw <| IO.userError "ArrRet must emit an entry"
+  expect (ent.resultKind == .aggregate 2)
+    s!"ArrRet entry must be aggregate 2, got {repr ent.resultKind}"
+  expect (ent.resultLeaves.size == 2) "ArrRet must carry two array leaves"
+  liftResult <| Targets.Xrpl.validatePlan plan
+  let files ← liftResult <| buildXrpl compiled
+  let some rsFile := files.find? (·.path == "ArrRet.rs") |
+    throw <| IO.userError "xrpl: missing ArrRet.rs"
+  expect (rsFile.contents.contains "-> (u64, u64)")
+    "ArrRet must emit a Rust 2-leaf entry tuple"
 
 unsafe def testBytesEntryRet : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -878,16 +962,47 @@ unsafe def testOptBoxAdmit : IO Unit := do
   expect (!rs.contains "Option<")
     "Option flatten must not emit a Rust Option type"
 
-unsafe def testOptionParamFailClosed : IO Unit := do
-  expectPlanFc "OptParam" <|
+unsafe def testOptionParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
     "program OptParam where\n" ++
     "  state pad : UInt64\n" ++
     "  init() do\n" ++
     "    pad := 0\n" ++
-    "  entry set(o : Option UInt64) : UInt64 do\n" ++
+    "  entry put(o : Option UInt64) : UInt64 do\n" ++
     "    return pad\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-opt-param>" "Tests.XrplOptParam" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  let some ent := plan.entries[0]? |
+    throw <| IO.userError "OptParam must emit an entry"
+  expect (ent.params == #["o_tag", "o_p0"])
+    s!"OptParam must flatten to o_tag/o_p0, got {ent.params}"
+  liftResult <| Targets.Xrpl.validatePlan plan
+
+unsafe def testArrayParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrParam where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry put(a : Array UInt64 2) : UInt64 do\n" ++
+    "    return pad\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-arr-param>" "Tests.XrplArrParam" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  let some ent := plan.entries[0]? |
+    throw <| IO.userError "ArrParam must emit an entry"
+  expect (ent.params == #["a_0", "a_1"])
+    s!"ArrParam must flatten to a_0/a_1, got {ent.params}"
+  liftResult <| Targets.Xrpl.validatePlan plan
 
 unsafe def testOptionBoolPayloadFailClosed : IO Unit := do
   expectPlanFc "OptBool" <|
@@ -989,8 +1104,9 @@ unsafe def testMapRet : IO Unit := do
   expect (rs.contains "const m_23_KEY: &str = \"m_23\";")
     "MapRet.rs must bind m_23_KEY"
 
-unsafe def testMapParamFailClosed : IO Unit := do
-  expectPlanFc "MapParam" <|
+unsafe def testMapParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
     "program MapParam where\n" ++
@@ -999,6 +1115,16 @@ unsafe def testMapParamFailClosed : IO Unit := do
     "    pad := 0\n" ++
     "  entry put(m : Map UInt64 UInt64) : UInt64 do\n" ++
     "    return pad\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-map-param>" "Tests.XrplMapParam" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  let some ent := plan.entries[0]? |
+    throw <| IO.userError "MapParam must emit an entry"
+  let expected := (List.range 24).toArray.map (fun i => s!"m_{i}")
+  expect (ent.params == expected)
+    s!"MapParam must flatten to 24 occ/key/val leaves, got {ent.params}"
+  liftResult <| Targets.Xrpl.validatePlan plan
 
 unsafe def run : IO Unit := do
   testStateCellXrplSource
@@ -1019,9 +1145,12 @@ unsafe def run : IO Unit := do
   testBytesN9FailClosed
   testBytesViewRet
   testBytesEntryRet
+  testArrRet
   testPrincipalIdentityLeaves
   testPrincipalReturnFailClosed
   testPointBoxFlatten
+  testPointParam
+  testBytesParam
   testMaybeMarkFlatten
   testPointViewRet
   testPointEntryRet
@@ -1029,10 +1158,11 @@ unsafe def run : IO Unit := do
   testBranchFlow
   testLoopSum
   testOptBoxAdmit
-  testOptionParamFailClosed
+  testOptionParam
+  testArrayParam
   testOptionBoolPayloadFailClosed
   testMapMiniAdmit
   testMapRet
-  testMapParamFailClosed
+  testMapParam
 
 end Tests.Materialization.XrplPlanV1

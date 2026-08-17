@@ -76,7 +76,7 @@ FAIL-CLOSED (explicit pins, not catch-all GAP):
     Array → N preorder u64 leaves; Option → tag+payload
     (none=(0,0)/false, some=(1,v)/true). Final still evaluates leaves and drops.
     Map/Bytes/nested/non-UInt64-element/narrow-width anonymous returns,
-    >8 leaves, named-aggregate params, and pureFn aggregate returns stay FC.
+    >8 leaves, and pureFn aggregate returns stay FC. Named params flatten to ≤8 leaves.
   * **Map shapes other than Map UInt64 UInt64** — declined at type closure.
   * **ContextRead** — no target-owned context input binding in this subset.
   * **emit / externalCall / schedule / revert-with-args** — no admitted
@@ -2652,9 +2652,25 @@ private partial def lowerCallable
   for p in callable.params do
     -- B-OPT-STATE: Option is state-only (mirrors named Enum / aggregate params).
     if isAnonymousOptionTypeIdV1 layout.typeDecls p.typeId then
-      planError
-        s!"unsupported Aleo semantic shape: Option parameter '{p.name}' is outside the Aleo pilot (Option is state-only; B-RET-ABI scalar)"
-    if layout.types.isPrincipal p.typeId then
+      match layout.typeDecls[p.typeId.toNat]? with
+      | some { shape := .option elTid, name := none, .. } =>
+          unless elTid == layout.types.uint64TypeId ||
+              layout.types.int64TypeId == some elTid do
+            planError
+              s!"unsupported Aleo semantic shape: Option parameter '{p.name}' payload must be UInt64 or Int64"
+          let payloadIsInt := layout.types.int64TypeId == some elTid
+          for (leafName, isInt) in
+              #[(p.name ++ "_tag", false), (p.name ++ "_p0", payloadIsInt)] do
+            unless isIdentifier leafName do
+              planError s!"parameter name '{leafName}' is not a safe identifier"
+            params := params.push {
+              sourceIndex := paramIndex, name := leafName, isBool := false
+              isInt, uintWidth := 0 }
+            paramIndex := paramIndex + 1
+      | _ =>
+          planError
+            s!"unsupported Aleo semantic shape: Option parameter '{p.name}' must be anonymous Option UInt64/Int64"
+    else if layout.types.isPrincipal p.typeId then
       let specs ← flattenTypeLeafSpecsV1 layout.typeDecls layout.types p.typeId p.name
       unless specs.size == aleoPrincipalLeafCountV1 do
         planError
@@ -2666,6 +2682,45 @@ private partial def lowerCallable
         params := params.push {
           sourceIndex := paramIndex, name := leafName, isBool := false }
         paramIndex := paramIndex + 1
+    else if layout.types.isNamedAggregate p.typeId then
+      let specs ← flattenTypeLeafSpecsV1 layout.typeDecls layout.types p.typeId p.name
+      unless !specs.isEmpty && specs.size ≤ 8 do
+        planError
+          s!"unsupported Aleo semantic shape: named parameter '{p.name}' must flatten to 1..8 leaves"
+      for (leafName, isInt, uintWidth) in specs do
+        params := params.push {
+          sourceIndex := paramIndex, name := leafName, isBool := false
+          isInt, uintWidth }
+        paramIndex := paramIndex + 1
+    else if layout.types.isContainer p.typeId then
+      match layout.typeDecls[p.typeId.toNat]? with
+      | some { shape := .bytes len, .. } =>
+          let n := len.toNat
+          unless 1 ≤ n && n ≤ 8 do
+            planError
+              s!"unsupported Aleo semantic shape: Bytes parameter '{p.name}' must flatten to 1..8 UInt8 leaves (got {n})"
+          let specs ← flattenTypeLeafSpecsV1 layout.typeDecls layout.types p.typeId p.name
+          unless specs.size == n do
+            planError
+              s!"unsupported Aleo semantic shape: Bytes parameter '{p.name}' leaf count mismatch"
+          for (leafName, isInt, uintWidth) in specs do
+            params := params.push {
+              sourceIndex := paramIndex, name := leafName, isBool := false
+              isInt, uintWidth }
+            paramIndex := paramIndex + 1
+      | some { shape := .array .., .. } =>
+          let specs ← flattenTypeLeafSpecsV1 layout.typeDecls layout.types p.typeId p.name
+          unless !specs.isEmpty && specs.size ≤ 8 do
+            planError
+              s!"unsupported Aleo semantic shape: Array parameter '{p.name}' must flatten to 1..8 leaves"
+          for (leafName, isInt, uintWidth) in specs do
+            params := params.push {
+              sourceIndex := paramIndex, name := leafName, isBool := false
+              isInt, uintWidth }
+            paramIndex := paramIndex + 1
+      | _ =>
+          planError
+            s!"unsupported Aleo semantic shape: Map parameter '{p.name}' stays fail closed (Array/Bytes N params flatten)"
     else
       let isBool ← if isBoolType data p.typeId then pure true
         else if isUInt64Type data p.typeId then pure false
@@ -2697,12 +2752,44 @@ private partial def lowerCallable
   let mut env0 : ValueEnv := default
   let mut paramOrdinal : Nat := 0
   for p in callable.params do
-    if layout.types.isPrincipal p.typeId then
+    if isAnonymousOptionTypeIdV1 layout.typeDecls p.typeId then
+      let mut leaves : Array Expr := #[]
+      for _ in [0:2] do
+        leaves := leaves.push (.param paramOrdinal)
+        paramOrdinal := paramOrdinal + 1
+      env0 := envInsertVal env0 p.valueId (mkAggregateVal leaves)
+    else if layout.types.isPrincipal p.typeId then
       let mut leaves : Array Expr := #[]
       for _ in [0:aleoPrincipalLeafCountV1] do
         leaves := leaves.push (.param paramOrdinal)
         paramOrdinal := paramOrdinal + 1
       env0 := envInsertVal env0 p.valueId (mkAggregateVal leaves)
+    else if layout.types.isNamedAggregate p.typeId then
+      let specs ← flattenTypeLeafSpecsV1 layout.typeDecls layout.types p.typeId p.name
+      let mut leaves : Array Expr := #[]
+      for _ in specs do
+        leaves := leaves.push (.param paramOrdinal)
+        paramOrdinal := paramOrdinal + 1
+      env0 := envInsertVal env0 p.valueId (mkAggregateVal leaves)
+    else if layout.types.isContainer p.typeId then
+      match layout.typeDecls[p.typeId.toNat]? with
+      | some { shape := .bytes .., .. } =>
+          let specs ← flattenTypeLeafSpecsV1 layout.typeDecls layout.types p.typeId p.name
+          let mut leaves : Array Expr := #[]
+          for _ in specs do
+            leaves := leaves.push (.param paramOrdinal)
+            paramOrdinal := paramOrdinal + 1
+          env0 := envInsertVal env0 p.valueId (mkAggregateVal leaves)
+      | some { shape := .array .., .. } =>
+          let specs ← flattenTypeLeafSpecsV1 layout.typeDecls layout.types p.typeId p.name
+          let mut leaves : Array Expr := #[]
+          for _ in specs do
+            leaves := leaves.push (.param paramOrdinal)
+            paramOrdinal := paramOrdinal + 1
+          env0 := envInsertVal env0 p.valueId (mkAggregateVal leaves)
+      | _ =>
+          planError
+            s!"unsupported Aleo semantic shape: Map parameter '{p.name}' stays fail closed"
     else if isInt64Type data p.typeId || isInt8Type data p.typeId ||
         isInt16Type data p.typeId || isInt32Type data p.typeId then
       let w := match intWidthOfType data p.typeId with

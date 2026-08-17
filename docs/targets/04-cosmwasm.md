@@ -44,7 +44,7 @@ UInt64/Int64 leaf 的 named entry/view aggregate return，以及 anonymous `Arra
 **Bytes N state**（1-byte KV leaves）与 **scalar `const` / `Op.Constant`**（UInt{8,16,32,64}/
 Int64/Bool 表）已开。**dense Map return**（`Map UInt64 UInt64` cap-8 → 24-leaf occ/key/val
 JSON decimals；`Examples/MapDump` + `map_dump.rs`）已开。nested/非 UInt64 元素（**Arr/Map/Opt of Int8/16/32 与 UInt128 仍 FC**；Array Int64 return、Map Int64 return 与 Option Int64 return 仍 FC）、aggregate
-param/pureFn、invariants 仍 fail closed。
+named/Option/Array/Map/Bytes **param** 已 flatten；nested/错域 param 与 nonempty invariants 仍 fail closed。
 
 **runtime rungs**：`runtime-tests/cosmwasm` 的 cosmwasm-vm 3.0.9 mock 覆盖
 Counter/Accumulator/EventFlow、hardening、ScheduleFlow、NarrowCounter、PairRet、

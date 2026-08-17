@@ -36,7 +36,7 @@ Phase 1：实现
   为 unsigned tag + signed payload；`Map UInt64 Int64` 仅 val 槽 `isInt`（occ/key 仍 unsigned）。
   聚合 `StateStore` 使用 `storeAtomic` 两阶段 IR（先求值全部叶、再写 KV），HostModel
   已固定 empty Map upsert、连续 Map StateStore、PointBox/EnumBox，以及 Option tag/payload 的
-  none/some/reset（reset 清零 stale payload）；Option params、Int8/16/32 payload、Int64-key Map、
+  none/some/reset（reset 清零 stale payload）；Option/Array/Map **param** 已 flatten（2 / 1..8 / 24 只读叶）；Int8/16/32 payload、Int64-key Map、
   Array/Option/Map Int64 return 与 nested Option 仍 FC；
 - **聚合返回**：named Struct/Enum 与 anonymous Array/Option UInt64 保持 ≤8 叶，经单次
   `value_return` 发 N×8-byte LE；dense Map UInt64 UInt64 使用固定 24 叶特例，Bytes 见下；
@@ -577,7 +577,7 @@ identity-bound executable join仍是 engineering evidence，不能标成完整 R
 refinement。通用 corpus 对 corrupt storage 或
 gas/profile 的覆盖仍不完整；StateCell
 `negative_corpus` 已 pin unknown method / exactInputLen 类 bad args + state-hold
-（engineering sandbox only）。Option params、非 UInt64/nested Option、非 UInt64
+（engineering sandbox only）。非 UInt64/nested Option、非 UInt64
 Map/nested aggregate return 仍 fail-closed（`Bytes N` 1..8 return 已开放）；ContextRead
 已开放 `unixTimeSeconds`、view-safe `blockHeight`（含 sandbox runtime 门）与 init/entry
 `caller`，但 view caller 与其他键仍缺；formal identity/OutputSet / D6 milestone 未完成。

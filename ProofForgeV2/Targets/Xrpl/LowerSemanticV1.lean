@@ -1518,12 +1518,41 @@ private def seedParamEnv
     unless isIdentifier p.name do
       planError s!"parameter '{p.name}' is not a safe identifier"
     if isAnonymousOptionTypeIdV1 typeDecls p.typeId then
-      planError
-        s!"parameter '{p.name}' in {owner} is Option (Option params stay fail closed)"
-    if isAnonymousMapTypeIdV1 typeDecls p.typeId then
-      planError
-        s!"parameter '{p.name}' in {owner} is Map (Map params stay fail closed)"
-    if isUInt64Type types p.typeId || isInt64Type types p.typeId then
+      match typeDecls[p.typeId.toNat]? with
+      | some { shape := .option elTid, name := none, .. } =>
+          unless isUInt64Type types elTid || isInt64Type types elTid do
+            planError
+              s!"parameter '{p.name}' in {owner} Option payload must be UInt64 or Int64"
+          unless names.size + 2 ≤ maxParams do
+            planError "unsupported XRPL semantic shape: parameter count exceeds limit"
+          let tagName := p.name ++ "_tag"
+          let pName := p.name ++ "_p0"
+          unless isIdentifier tagName do
+            planError s!"parameter '{tagName}' is not a safe identifier"
+          unless isIdentifier pName do
+            planError s!"parameter '{pName}' is not a safe identifier"
+          names := names.push tagName |>.push pName
+          env := envInsert env p.valueId
+            (mkOptionLeaves #[.param i, .param (i + 1)])
+          i := i + 2
+      | _ =>
+          planError
+            s!"parameter '{p.name}' in {owner} Option params require anonymous Option UInt64/Int64"
+    else if isAnonymousMapTypeIdV1 typeDecls p.typeId then
+      requireMapUInt64V1 typeDecls types p.typeId signedNumeric
+      let n := mapPilotLeafCountV1
+      unless names.size + n ≤ maxParams do
+        planError "unsupported XRPL semantic shape: parameter count exceeds limit"
+      let mut leafExprs : Array Expr := #[]
+      for j in [0:n] do
+        let leafName := p.name ++ "_" ++ toString j
+        unless isIdentifier leafName do
+          planError s!"parameter '{leafName}' is not a safe identifier"
+        names := names.push leafName
+        leafExprs := leafExprs.push (.param i)
+        i := i + 1
+      env := envInsert env p.valueId (mkMapLeaves leafExprs)
+    else if isUInt64Type types p.typeId || isInt64Type types p.typeId then
       unless matchesNumericDomain types signedNumeric p.typeId do
         planError
           s!"parameter '{p.name}' in {owner} mixes UInt64/Int64 (numeric domain is homogeneous)"
@@ -1546,6 +1575,59 @@ private def seedParamEnv
         leafExprs := leafExprs.push (.param i)
         i := i + 1
       env := envInsert env p.valueId (mkPrincipalLeaves leafExprs)
+    else if types.isNamedAggregate p.typeId then
+      let leafSpecs ← flattenNamedLeafSpecsV1 typeDecls types p.typeId p.name
+      unless !leafSpecs.isEmpty && leafSpecs.size ≤ 8 do
+        planError
+          s!"parameter '{p.name}' in {owner} named aggregate must flatten to 1..8 leaves"
+      unless names.size + leafSpecs.size ≤ maxParams do
+        planError "unsupported XRPL semantic shape: parameter count exceeds limit"
+      let mut leafExprs : Array Expr := #[]
+      for leafName in leafSpecs do
+        names := names.push leafName
+        leafExprs := leafExprs.push (.param i)
+        i := i + 1
+      env := envInsert env p.valueId (mkNamedLeaves leafExprs)
+    else if types.isContainer p.typeId then
+      match typeDecls[p.typeId.toNat]? with
+      | some { shape := .bytes len, .. } =>
+          let n := len.toNat
+          unless 1 ≤ n && n ≤ 8 do
+            planError
+              s!"parameter '{p.name}' in {owner} Bytes N must flatten to 1..8 leaves (got {n})"
+          unless names.size + n ≤ maxParams do
+            planError "unsupported XRPL semantic shape: parameter count exceeds limit"
+          let mut leafExprs : Array Expr := #[]
+          for j in [0:n] do
+            let leafName := p.name ++ "_" ++ toString j
+            unless isIdentifier leafName do
+              planError s!"parameter '{leafName}' is not a safe identifier"
+            names := names.push leafName
+            leafExprs := leafExprs.push (.param i)
+            i := i + 1
+          env := envInsert env p.valueId (mkArrayLeaves leafExprs)
+      | some { shape := .array elTid len, .. } =>
+          unless matchesNumericDomain types signedNumeric elTid do
+            planError
+              s!"parameter '{p.name}' in {owner} Array element must be UInt64 (or Int64 when signedNumeric)"
+          let n := len.toNat
+          unless 1 ≤ n && n ≤ 8 do
+            planError
+              s!"parameter '{p.name}' in {owner} Array N must flatten to 1..8 leaves (got {n})"
+          unless names.size + n ≤ maxParams do
+            planError "unsupported XRPL semantic shape: parameter count exceeds limit"
+          let mut leafExprs : Array Expr := #[]
+          for j in [0:n] do
+            let leafName := p.name ++ "_" ++ toString j
+            unless isIdentifier leafName do
+              planError s!"parameter '{leafName}' is not a safe identifier"
+            names := names.push leafName
+            leafExprs := leafExprs.push (.param i)
+            i := i + 1
+          env := envInsert env p.valueId (mkArrayLeaves leafExprs)
+      | _ =>
+          planError
+            s!"parameter '{p.name}' in {owner} Map params stay fail closed (Array/Bytes N params flatten to 1..8 leaves)"
     else
       planError s!"parameter '{p.name}' in {owner} is not public UInt64/Int64"
   pure (env, names)
@@ -1593,17 +1675,28 @@ private def resultKindOf
       pure (.aggregate mapPilotLeafCountV1)
     else
       planError s!"{owner} Map return is outside this XRPL slice"
-  else if allowBytes then
+  else
     match data.types[typeId.toNat]? with
+    | some { shape := .array elTid len, name := none, .. } => do
+        unless matchesNumericDomain types signedNumeric elTid do
+          planError
+            s!"{owner} Array element must be UInt64 (or Int64 when signedNumeric)"
+        let n := len.toNat
+        unless 1 ≤ n && n ≤ 8 do
+          planError s!"{owner} Array N return must be 1..8 (got {n})"
+        if allowNamed then
+          pure (.aggregate n)
+        else
+          planError s!"{owner} Array return is outside this XRPL slice"
     | some { shape := .bytes len, name := none, .. } => do
+        unless allowBytes do
+          planError s!"{owner} Bytes return is outside this XRPL slice"
         let n := len.toNat
         unless 1 ≤ n && n ≤ 8 do
           planError s!"{owner} Bytes N return must be 1..8 (got {n})"
         pure (.aggregate n)
     | _ =>
         resultKindNamedOrFc data types typeId owner allowNamed
-  else
-    resultKindNamedOrFc data types typeId owner allowNamed
 
 private def decodeSwitchCaseValue
     (types : XrplTypeClosureV1) (typeId : TypeIdV1) (bytes : ByteArray) :

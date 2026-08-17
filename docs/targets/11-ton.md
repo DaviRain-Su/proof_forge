@@ -75,7 +75,7 @@ Regions。named Struct/Enum 以及 anonymous
 aggregate、Array Int64 return、Array UInt128 return、Array Int8、Array UInt256、Map Int8 /
 Map UInt128 / Map Int64 return / Int64-key、
 Option Int8/16/32、Option UInt256、Option UInt128 return、Option Int64 return、
-Map/Bytes/nested/非 admitted 元素与 target pureFn aggregate仍 fail closed；
+Map/Bytes/nested/非 admitted 元素与 target pureFn aggregate仍 fail closed；Option/Array **param** 已 flatten；Map param 仍 FC（TON 不在 24 叶 Map-param 家族）；
 Field/Principal/String、ContextRead/Commit、nonempty invariants/constants、masterchain/library/
 extra currencies仍 FC。
 
