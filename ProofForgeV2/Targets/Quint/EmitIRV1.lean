@@ -319,6 +319,9 @@ private def lastArgName (entryName : String) (i : Nat) : String :=
 private def lastResultName (entryName : String) : String :=
   s!"pf_last_{entryName}_result"
 
+private def lastResultLeafName (entryName : String) (i : Nat) : String :=
+  s!"pf_last_{entryName}_result_{i}"
+
 private def emitEntryBranch (plan : Plan) (ent : PlanEntry) :
     CompileResult QActionBranch := do
   let mut emittedParams : Array String := #[]
@@ -339,10 +342,23 @@ private def emitEntryBranch (plan : Plan) (ent : PlanEntry) :
   let (pures, _c, successName, failureName) ←
     emitCheckCascade plan emittedParams externalOkNames ent.checks #[] 0
   let mut pures := pures
-  -- Optional result pure
-  let resultPure? ← match ent.result? with
-    | none => pure (none : Option String)
-    | some e => do
+  -- Optional result pure (scalar) or per-leaf pures (aggregate).
+  let resultPure? ← match ent.resultKind, ent.result? with
+    | .aggregate n, _ => do
+        let src := if ent.leaves.isEmpty then
+          match ent.result? with | some e => #[e] | none => #[]
+        else ent.leaves
+        unless src.size == n do
+          planError
+            s!"Quint entry '{ent.name}' aggregate emit leaf count must be {n}"
+        for i in [0:n] do
+          let some e := src[i]? |
+            planError s!"Quint entry '{ent.name}' aggregate emit leaf {i} is missing"
+          let qe ← lowerExpr plan emittedParams #[] externalOkNames e
+          pures := pures.push { name := s!"resR{i}", value := rewriteMaxBound qe }
+        pure (none : Option String)
+    | _, none => pure (none : Option String)
+    | _, some e => do
         let qe ← lowerExpr plan emittedParams #[] externalOkNames e
         let qe := rewriteMaxBound qe
         pures := pures.push { name := "resR", value := qe }
@@ -386,9 +402,13 @@ private def emitEntryBranch (plan : Plan) (ent : PlanEntry) :
             target := lastResultName ent.name
             value := .name (lastResultName ent.name)
           }
-      | .aggregate _, _ =>
-          -- Entry aggregate is rejected at plan; keep instrumentation exhaustive.
-          pure ()
+      | .aggregate n, _ =>
+          for i in [0:n] do
+            assigns := assigns.push {
+              target := lastResultLeafName ent.name i
+              value := .ifThenElse (.name successName) (.name s!"resR{i}")
+                (.name (lastResultLeafName ent.name i))
+            }
     else
       for i in [0:other.params.size] do
         assigns := assigns.push {
@@ -402,7 +422,12 @@ private def emitEntryBranch (plan : Plan) (ent : PlanEntry) :
             target := lastResultName other.name
             value := .name (lastResultName other.name)
           }
-      | .aggregate _ => pure ()
+      | .aggregate n =>
+          for i in [0:n] do
+            assigns := assigns.push {
+              target := lastResultLeafName other.name i
+              value := .name (lastResultLeafName other.name i)
+            }
   -- Business state: success → post store / identity; failure → pre-state stutter
   let mut written : Array Nat := #[]
   for (fi, e) in ent.stores do
@@ -500,7 +525,12 @@ private def emitInitBranch (plan : Plan) (init : PlanInit) :
           target := lastResultName ent.name
           value := .boolLit false
         }
-    | .aggregate _ => pure ()
+    | .aggregate n =>
+        for i in [0:n] do
+          assigns := assigns.push {
+            target := lastResultLeafName ent.name i
+            value := .intLit "0"
+          }
   pure { nondets, pures := #[], assigns }
 
 private def lower (plan : Plan) : CompileResult IR := do
@@ -530,7 +560,9 @@ private def lower (plan : Plan) : CompileResult IR := do
         decls := decls.push (.varDecl (lastResultName ent.name) "int")
     | .bool =>
         decls := decls.push (.varDecl (lastResultName ent.name) "bool")
-    | .aggregate _ => pure ()
+    | .aggregate n =>
+        for i in [0:n] do
+          decls := decls.push (.varDecl (lastResultLeafName ent.name i) "int")
   -- Views as pure defs under a target-owned namespace. Parameters are indexed
   -- target names so source shadowing cannot capture a business state variable.
   let mut viewIndex : Nat := 0

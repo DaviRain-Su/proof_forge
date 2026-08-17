@@ -788,26 +788,107 @@ unsafe def testOptionBoolPayloadFc : IO Unit := do
   | .ok _ => throw <| IO.userError "Option Bool must fail closed at Quint plan"
 
 /-- Option entry/view return stays outside Q0. -/
-unsafe def testOptionReturnFc : IO Unit := do
+unsafe def testOptRetBox : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let retSource :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
-    "program OptRet where\n" ++
+    "program OptRetBox where\n" ++
     "  state o : Option UInt64\n" ++
     "  init() do\n" ++
     "    o := Option.none()\n" ++
     "  entry peek() : Option UInt64 do\n" ++
     "    return o\n"
   let parsedRet ← liftResult (← session.selectProgramV1
-    retSource "<quint-opt-ret>" "Tests.QuintOptRet" none)
+    retSource "<quint-opt-ret>" "Tests.QuintOptRetBox" none)
   let compiledRet ← liftResult <| Compiler.compileValidatedSourceV1 parsedRet
-  match planQuint compiledRet with
-  | .error (.planInvariant .quint msg) =>
-      expect (msg.contains "Option return is outside Q0")
-        s!"Option entry return must cite outside Q0, got: {msg}"
-  | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
-  | .ok _ => throw <| IO.userError "Option entry return must fail closed at Quint plan"
+  let plan ← liftResult <| planQuint compiledRet
+  let some e := plan.entries[0]? |
+    throw <| IO.userError "OptRetBox must emit an entry"
+  expect (e.resultKind == .aggregate 2)
+    s!"OptRetBox entry must be aggregate 2, got {repr e.resultKind}"
+  liftResult <| Targets.Quint.validatePlan plan
+  let files ← liftResult <| buildQuint compiledRet
+  expect (!files.isEmpty) "OptRetBox must emit nonempty files"
+
+unsafe def testArrRetBox : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrRetBox where\n" ++
+    "  state slots : Array UInt64 2\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
+    "  entry peek() : Array UInt64 2 do\n" ++
+    "    return slots\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-arr-ret>" "Tests.QuintArrRetBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  let some e := plan.entries[0]? |
+    throw <| IO.userError "ArrRetBox must emit an entry"
+  expect (e.resultKind == .aggregate 2)
+    s!"ArrRetBox entry must be aggregate 2, got {repr e.resultKind}"
+  liftResult <| Targets.Quint.validatePlan plan
+  let files ← liftResult <| buildQuint compiled
+  expect (!files.isEmpty) "ArrRetBox must emit nonempty files"
+  let some qntFile := files.find? (·.path == "ArrRetBox.qnt") |
+    throw <| IO.userError "quint: missing ArrRetBox.qnt"
+  expect (qntFile.contents.contains "pf_last_peek_result_0")
+    "ArrRetBox must emit per-leaf last_result ints"
+  expect (!qntFile.contents.contains "List[")
+    "ArrRetBox must not invent a native Quint List"
+
+unsafe def testMaybeRetBox : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MaybeRetBox where\n" ++
+    "  enum Maybe where\n" ++
+    "    | None\n" ++
+    "    | Some(UInt64)\n" ++
+    "  state m : Maybe\n" ++
+    "  init() do\n" ++
+    "    m := Maybe.None()\n" ++
+    "  entry peek() : Maybe do\n" ++
+    "    return m\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-maybe-ret>" "Tests.QuintMaybeRetBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  let some e := plan.entries[0]? |
+    throw <| IO.userError "MaybeRetBox must emit an entry"
+  expect (e.resultKind == .aggregate 2)
+    s!"MaybeRetBox entry must be aggregate 2, got {repr e.resultKind}"
+  liftResult <| Targets.Quint.validatePlan plan
+  let files ← liftResult <| buildQuint compiled
+  expect (!files.isEmpty) "MaybeRetBox must emit nonempty files"
+
+unsafe def testPairRetEntry : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PairRetEntry where\n" ++
+    "  struct Pair where\n" ++
+    "    a : UInt64\n" ++
+    "    b : UInt64\n" ++
+    "  entry makePair(x : UInt64, y : UInt64) : Pair do\n" ++
+    "    return Pair.new(x, y)\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-pair-ret-entry>" "Tests.QuintPairRetEntry" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  let some e := plan.entries[0]? |
+    throw <| IO.userError "PairRetEntry must emit an entry"
+  expect (e.resultKind == .aggregate 2)
+    s!"PairRetEntry entry must be aggregate 2, got {repr e.resultKind}"
+  liftResult <| Targets.Quint.validatePlan plan
+  let files ← liftResult <| buildQuint compiled
+  expect (!files.isEmpty) "PairRetEntry must emit nonempty files"
 
 /-- ArrViewRet: view-only Array UInt64 2 returns a Quint int tuple. -/
 unsafe def testArrViewRet : IO Unit := do
@@ -1952,7 +2033,8 @@ unsafe def testArrayInt64ReturnFc : IO Unit := do
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   match planQuint compiled with
   | .error (.planInvariant .quint msg) =>
-      expect (msg.contains "Array/Map return" || msg.contains "Array return")
+      expect (msg.contains "Array/Map return" || msg.contains "Array return" ||
+          msg.contains "element must be UInt64")
         s!"Array Int64 return, got: {msg}"
   | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
   | .ok _ => throw <| IO.userError "Array Int64 return must fail closed"
@@ -2007,7 +2089,10 @@ unsafe def run : IO Unit := do
   testOptInt64Flatten
   testOptionInt64PayloadFc
   testOptionBoolPayloadFc
-  testOptionReturnFc
+  testOptRetBox
+  testArrRetBox
+  testMaybeRetBox
+  testPairRetEntry
   testArrViewRet
   testOptViewRet
   testPointViewRet

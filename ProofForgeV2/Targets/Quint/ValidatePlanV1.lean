@@ -362,8 +362,30 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     | .uint64, none, true | .int64, none, true | .bool, none, true => pure ()
     | .uint64, none, false | .int64, none, false | .bool, none, false =>
         planError s!"Quint entry '{ent.name}' non-Unit result is missing without terminal revert"
-    | .aggregate _, _, _ =>
-        planError s!"Quint entry '{ent.name}' cannot return an aggregate"
+    | .aggregate n, some e, false =>
+        unless 1 ≤ n && n ≤ 8 do
+          planError s!"Quint entry '{ent.name}' aggregate return must have 1..8 leaves"
+        unless ent.leaves.size == n && ent.leafIsInt.size == n do
+          planError
+            s!"Quint entry '{ent.name}' aggregate leaves must match resultKind leaf count"
+        unless ent.leaves[0]? == some e do
+          planError
+            s!"Quint entry '{ent.name}' aggregate result must equal the first leaf"
+        for i in [0:n] do
+          let some leaf := ent.leaves[i]? |
+            planError s!"Quint entry '{ent.name}' aggregate leaf {i} is missing"
+          let some isInt := ent.leafIsInt[i]? |
+            planError s!"Quint entry '{ent.name}' aggregate signedness {i} is missing"
+          if exprUsesVaultNativeV1 leaf then
+            anyVaultUse := true
+          let ty := if isInt then ExprType.int64 else ExprType.uint64
+          exprBudget ←
+            validateExpr leaf ty "entry aggregate leaf" ent.params.size plan.states.size
+              ent.assetOps.size exprBudget ent.paramIsPrincipal signed
+    | .aggregate _, _, true =>
+        planError s!"Quint entry '{ent.name}' terminal revert must not carry an aggregate return"
+    | .aggregate _, none, false =>
+        planError s!"Quint entry '{ent.name}' aggregate result is missing"
   let mut viewNames : Array String := #[]
   for v in plan.views do
     unless isSafeIdent v.name do
