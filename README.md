@@ -9,16 +9,16 @@
 
 ProofForge V2 is a **Lean 4** multi-target compiler (`proof-forge-next`): authors write a
 single `program … where` program; the compiler infers semantic **requirements**, then
-`--target` selects materialization. Engineering registry is **12 = 12 implemented + 0
-design-only**; twelve targets own Plan/IR/materializer leaves today (EVM, Solana, NEAR,
-Noir, Aleo, Psy, Quint, CosmWasm, TON, Soroban, OpenVM, ICP). Quint is a non-deployable, source-only
+`--target` selects materialization. Engineering registry is **13 = 13 implemented + 0
+design-only**; thirteen targets own Plan/IR/materializer leaves today (EVM, Solana, NEAR,
+Noir, Aleo, Psy, Quint, CosmWasm, TON, Soroban, OpenVM, ICP, XRPL). Quint is a non-deployable, source-only
 executable-model target; product finalization does not run Quint or Apalache.
 
 ProofForge V2 是用 **Lean 4** 实现的多目标编译器：作者只写统一的
 `program … where` 源码；编译器从源码推导语义需求（requirements），再由
-`--target` 选择物化方式。工程 registry **12 = 12 implemented + 0 design-only**；当前
-十二个 target 各有 target-owned Plan/IR/materializer（EVM / Solana / NEAR / Noir / Aleo /
-Psy / Quint / CosmWasm / TON / Soroban / OpenVM / ICP）。Quint 是不可部署的 source-only 可执行模型 target；产品
+`--target` 选择物化方式。工程 registry **13 = 13 implemented + 0 design-only**；当前
+十三个 target 各有 target-owned Plan/IR/materializer（EVM / Solana / NEAR / Noir / Aleo /
+Psy / Quint / CosmWasm / TON / Soroban / OpenVM / ICP / XRPL）。Quint 是不可部署的 source-only 可执行模型 target；产品
 finalization 不运行 Quint 或 Apalache。
 
 - **改 target 只能改制品与物化**，不能改整数语义、状态迁移、回滚、调用顺序、

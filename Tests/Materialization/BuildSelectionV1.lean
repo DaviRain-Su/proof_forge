@@ -218,6 +218,8 @@ private def testGrammar : IO Unit := do
     "well-known Soroban S0 profile constant"
   expect (CodegenProfileId.icpWasmCandidU64V1 == (← parseProfile "icp-wasm-candid-u64-v1"))
     "well-known ICP Wasm+Candid profile constant"
+  expect (CodegenProfileId.xrplBedrockSourceU64V1 == (← parseProfile "xrpl-bedrock-source-u64-v1"))
+    "well-known XRPL Bedrock Q0 profile constant"
   expect (TargetId.parse? "quint" == some TargetId.quint)
     "well-known Quint target constant"
   expect (TargetId.parse? "soroban" == some TargetId.soroban)
@@ -227,6 +229,9 @@ private def testGrammar : IO Unit := do
   expect (TargetId.ofKind .quint == TargetId.quint) "ofKind Quint"
   expect (TargetId.ofKind .soroban == TargetId.soroban) "ofKind Soroban"
   expect (TargetId.ofKind .icp == TargetId.icp) "ofKind ICP"
+  expect (TargetId.parse? "xrpl" == some TargetId.xrpl)
+    "well-known XRPL target constant"
+  expect (TargetId.ofKind .xrpl == TargetId.xrpl) "ofKind XRPL"
   expect (CodegenProfileId.parse? "A--").isNone "invalid profile parse is none"
   expect (CodegenProfileId.parse? "evm-yul-solc-0.8.34-v1" ==
       some CodegenProfileId.evmYulSolc0834V1)
@@ -237,21 +242,21 @@ private def testGrammar : IO Unit := do
 private def testRegistrySeedMembership : IO Unit := do
   let registry ← liftResult initialTargetRegistryV1Result
   let regs := TargetRegistryV1.registrationsOf registry
-  expect (regs.size == 12) "initial registry must contain 12 implemented + 0 design-only"
+  expect (regs.size == 13) "initial registry must contain 13 implemented + 0 design-only"
   match createTargetRegistryV1 initialRegistrationRowsV1 with
   | .ok rebuilt =>
-      expect (rebuilt.toArray.size == 12) "rebuilt seed registry size"
+      expect (rebuilt.toArray.size == 13) "rebuilt seed registry size"
   | .error e => throw <| IO.userError s!"initialRegistrationRowsV1 must validate: {e.render}"
   let impl ← liftResult implementedRegistrations
   let design ← liftResult designOnlyRegistrations
-  expect (impl.size == 12) "exactly twelve implemented targets"
+  expect (impl.size == 13) "exactly thirteen implemented targets"
   expect (design.size == 0) "exactly zero design-only targets"
   let expectedIds :=
-    #["aleo", "cosmwasm", "evm", "icp", "near", "noir", "openvm", "psy", "quint", "solana", "soroban", "ton"]
+    #["aleo", "cosmwasm", "evm", "icp", "near", "noir", "openvm", "psy", "quint", "solana", "soroban", "ton", "xrpl"]
   let ids := regs.map (·.targetId.toString)
   expect (ids == expectedIds) s!"exact closed target id set, got {ids}"
   let expectedImpl :=
-    #["aleo", "cosmwasm", "evm", "icp", "near", "noir", "openvm", "psy", "quint", "solana", "soroban", "ton"]
+    #["aleo", "cosmwasm", "evm", "icp", "near", "noir", "openvm", "psy", "quint", "solana", "soroban", "ton", "xrpl"]
   expect (impl.map (·.targetId.toString) == expectedImpl)
     s!"exact implemented set, got {impl.map (·.targetId.toString)}"
   let expectedDesign := (#[] : Array String)
@@ -568,11 +573,12 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       expect (msg == "duplicate --target") "success seed duplicate --target"
   | Except.ok _ => throw <| IO.userError "product preflight must reject duplicate --target"
   let defaultList ← liftResult <| ProofForgeV2.CLI.listTargetLines false
-  expect (defaultList.size == 12) "default list-targets is implemented-only"
+  expect (defaultList.size == 13) "default list-targets is implemented-only"
   expect (defaultList == #["aleo\tinstructions-only", "cosmwasm\twasm-validated-alpha",
       "evm\truntime-validated-alpha", "icp\tsource-only", "near\twasm-validated-alpha",
       "noir\tsource-only", "openvm\tsource-only", "psy\tdpn-only", "quint\tsource-only",
-      "solana\truntime-validated-alpha", "soroban\tsource-only", "ton\tsource-only"])
+      "solana\truntime-validated-alpha", "soroban\tsource-only", "ton\tsource-only",
+      "xrpl\tsource-only"])
     s!"default list-targets exact lines, got {defaultList}"
   let allList ← liftResult <| ProofForgeV2.CLI.listTargetLines true
   expect (allList == #[
@@ -587,7 +593,8 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       "quint\tsource-only",
       "solana\truntime-validated-alpha",
       "soroban\tsource-only",
-      "ton\tsource-only"])
+      "ton\tsource-only",
+      "xrpl\tsource-only"])
     s!"list-targets --all canonical TargetId order, got {allList}"
   match ProofForgeV2.CLI.parseCliCommandV1 ["list-targets"] with
   | .ok (.listTargets opts) =>

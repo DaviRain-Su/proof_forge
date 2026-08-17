@@ -1,10 +1,10 @@
 /-
-  Shared engineering TargetDescriptor data for twelve registry-implemented entries.
+  Shared engineering TargetDescriptor data for thirteen registry-implemented entries.
 
   Registry-owned `semanticsAxesOfKindV1` is the sole six-axis seed. This module
   adds profile/artifact-encoding metadata and exposes the exact descriptor ↔
   registration join used before capability/artifact identity and inspection.
-  All twelve entries have target-owned materializers. Requirement support is
+  All thirteen entries have target-owned materializers. Requirement support is
   intentionally absent: the engineering resolver index remains the sole current
   authority, while formal SupportClaim is pending.
 -/
@@ -105,6 +105,13 @@ def openvm : TargetDescriptor :=
   descriptorFromRegistryAxes .openvm .openvmGuestSource
     CodegenProfileId.openvmGuestSourceV1
 
+/-- XRPL Q0 (ADR-0049): source-only Bedrock-shaped Rust dialect `.rs`.
+    Zero-tool finalize; deployable=false. Must not reuse OpenVM/NEAR/Soroban
+    Plan or claim Wasm / AlphaNet / mainnet. -/
+def xrpl : TargetDescriptor :=
+  descriptorFromRegistryAxes .xrpl .xrplBedrockSource
+    CodegenProfileId.xrplBedrockSourceU64V1
+
 /-- Engineering descriptor for an implemented kind. -/
 def descriptorForKind? : TargetKind → Option TargetDescriptor
   | .evm => some evm
@@ -119,6 +126,7 @@ def descriptorForKind? : TargetKind → Option TargetDescriptor
   | .soroban => some soroban
   | .icp => some icp
   | .openvm => some openvm
+  | .xrpl => some xrpl
 
 /-- Exact registry-owned six-axis join for an implemented descriptor.
 

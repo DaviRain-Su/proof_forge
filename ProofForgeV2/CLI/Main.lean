@@ -592,6 +592,8 @@ private def resolveLocalScriptV1 (target mode : String) :
       throw s!"target 'soroban' is source-only (ADR-0044); no package-script local runtime lane"
   | "openvm" =>
       throw s!"target 'openvm' is source-only guest/ELF (ADR-0045/0046); no package-script local runtime lane"
+  | "xrpl" =>
+      throw s!"target 'xrpl' is source-only Bedrock Rust (ADR-0049); no package-script local runtime lane"
   | "icp" =>
       let m := if mode.isEmpty then "runtime" else mode
       match m with

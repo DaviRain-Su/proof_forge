@@ -13,7 +13,7 @@ ValidatedSourceV1
 ```
 
 当前可运行的 StateCell/Accumulator（及更广 Normalize 子集）路径已由单一 `CompiledSemanticV1` 保留
-structure-valid `SemanticProgramV1`，并直接构造十二个 materializer 的 target-owned Plan（EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/CosmWasm/TON/Soroban/OpenVM/ICP）。产品编译、resolver 与 artifact identity 已不再持有 alpha carrier。D3 侧已有工程 `TargetRegistryV1` / requirement resolver /
+structure-valid `SemanticProgramV1`，并直接构造十三个 materializer 的 target-owned Plan（EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/CosmWasm/TON/Soroban/OpenVM/ICP/XRPL）。产品编译、resolver 与 artifact identity 已不再持有 alpha carrier。D3 侧已有工程 `TargetRegistryV1` / requirement resolver /
 Materialized/Finalized/content-descriptor/disk-closure 与全工程 planDigest 槽位绑定；D3-E9 后
 `TargetDescriptor` 六轴直接复用 registry V1 authority，并在 capability/artifact/inspect 前 exact join。但 formal `registryDigest` /
 formal SupportClaim / formal BuildIdentity mint / formal `OutputSetV1` 与完整 Phase-1 语言/runtime DoD
@@ -142,7 +142,7 @@ ProgramV1 command/export/v2 仍为 sole 源表面。
 产品路径仍为进程内单次 read → `Loader` → `Normalize` → `compile` → `certifyInlineProofV1`
 → capability；十二个 materializer Plan body 已直连 retained `SemanticProgramV1`，`CompiledSemanticV1`
 + `ProgramRequirementsV1` sole freeze + engineering resolver/capability 已接线。registry
-**12 = 12 implemented + 0 design-only**，resolver **15** rows。LH-1…28
+**13 = 13 implemented + 0 design-only**，resolver **16** rows。LH-1…28
 engineering packaging/corpus pin 已完成（含 LH-13 Sem003 trap+unconsumed `218ddc447`）；
 **不**关闭 formal TST。完整 ProgramV1→Semantic 表面与 Reference 全 op 仍未闭合。formal D1–D4 仍为 0/27；
 C-3 / Anvil lossless 仍 blocked/fail closed（FC）；ADR-0036 仍 proposed。

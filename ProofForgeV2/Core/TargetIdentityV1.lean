@@ -26,7 +26,7 @@ root codec/digest, SupportClaim, and reachable BuildIdentity mint remain pending
 selection.
 -/
 
-/-- Internal dispatch witness for the closed twelve-target set. Wire labels match
+/-- Internal dispatch witness for the closed thirteen-target set. Wire labels match
 registered product identities. Not an external identity authority: product code
 must not parse user strings into `TargetKind`; kind is taken only from a validated
 build-selection registration. -/
@@ -43,6 +43,7 @@ inductive TargetKind where
   | psy
   | quint
   | ton
+  | xrpl
   deriving BEq, DecidableEq, Hashable, Inhabited, Repr
 
 namespace TargetKind
@@ -60,6 +61,7 @@ def toString : TargetKind → String
   | .psy => "psy"
   | .quint => "quint"
   | .ton => "ton"
+  | .xrpl => "xrpl"
 
 instance : ToString TargetKind := ⟨toString⟩
 
@@ -144,6 +146,7 @@ def aleo : TargetId := ⟨"aleo"⟩
 def psy : TargetId := ⟨"psy"⟩
 def quint : TargetId := ⟨"quint"⟩
 def ton : TargetId := ⟨"ton"⟩
+def xrpl : TargetId := ⟨"xrpl"⟩
 
 /-- Map internal `TargetKind` to its well-known `TargetId`.
 Not a product string parser — closed kind constructors only; no panic, no
@@ -162,6 +165,7 @@ def ofKind : TargetKind → TargetId
   | .psy => psy
   | .quint => quint
   | .ton => ton
+  | .xrpl => xrpl
 
 end TargetId
 
@@ -233,6 +237,10 @@ def openvmGuestSourceV1 : CodegenProfileId := ⟨"openvm-guest-source-v1"⟩
     runs `cargo openvm build` to stage RV32IM ELF + `.vmexe` extras. Remains
     `deployable=false`; no keygen/execute/prove/verify product claim. -/
 def openvmGuestElfV1 : CodegenProfileId := ⟨"openvm-guest-elf-v1"⟩
+/-- ADR-0049 sole XRPL Q0 profile: target-owned Plan → Bedrock-shaped Rust
+    `.rs` source recipe. Zero-tool finalize; deployable=false; not Wasm,
+    not AlphaNet, not mainnet, not Hooks, not EVM sidechain. -/
+def xrplBedrockSourceU64V1 : CodegenProfileId := ⟨"xrpl-bedrock-source-u64-v1"⟩
 
 end CodegenProfileId
 

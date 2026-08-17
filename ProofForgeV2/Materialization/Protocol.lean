@@ -18,6 +18,7 @@ inductive ArtifactEncoding where
   | tolkSource
   | icpWasmCandid
   | openvmGuestSource
+  | xrplBedrockSource
   | researchOnly
   deriving BEq, Inhabited, Repr
 

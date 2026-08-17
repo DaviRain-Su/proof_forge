@@ -148,6 +148,7 @@ import Tests.Materialization.Targets
 import Tests.Materialization.QuintSourceV1
 import Tests.Materialization.QuintAcceptance
 import Tests.Materialization.OpenVmGuestSourceV1
+import Tests.Materialization.XrplPlanV1
 import Tests.Materialization.EvmSmoke
 import Tests.Materialization.EvmSolcAcceptance
 import Tests.Materialization.NearWasmAcceptance
@@ -248,6 +249,7 @@ private unsafe def runMaterializationAndProductTests : IO Unit := do
   Tests.Materialization.QuintSourceV1.run
   Tests.Materialization.QuintAcceptance.run
   Tests.Materialization.OpenVmGuestSourceV1.run
+  Tests.Materialization.XrplPlanV1.run
   Tests.Materialization.EvmSmoke.run
   Tests.Materialization.EvmSolcAcceptance.run
   Tests.Materialization.NearWasmAcceptance.run

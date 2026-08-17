@@ -67,3 +67,4 @@ ADR，并在旧 ADR frontmatter 中记录 `successor`，不得静默改写历史
 | [ADR-0046](0046-openvm-guest-elf-o1.md) | OpenVM O1 guest-elf dual profile：opt-in `openvm-guest-elf-v1` 经锁定 `cargo-openvm` 2.0.1 build→ELF/VmExe；默认 source 仍 zero-tool；无 prove | proposed |
 | [ADR-0047](0047-icp-target-integration.md) | ICP（canister / Wasm actor）capability-gated target 集成（第 12 个 implemented；`icp-wasm-candid-u64-v1`；sync/event FC；async advertise；ICP-1/2/3） | proposed |
 | [ADR-0048](0048-optional-solana-sbpf-semantics-provider.md) | exact-pinned `SbpfSemantics.Api`；production `.s` strict parse/resolve → sBPF semantics，产品 ELF rail 不变 | accepted |
+| [ADR-0049](0049-xrpl-bedrock-source-u64-target.md) | XRPL Bedrock source-only Q0（`xrpl-bedrock-source-u64-v1` → `.rs`；zero-tool；4-key；非 Wasm/AlphaNet/主网/Hooks/EVM 侧链） | proposed |

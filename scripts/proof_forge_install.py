@@ -49,6 +49,7 @@ CORE_TOOLS_BY_TARGET: dict[str, list[str]] = {
     "soroban": [],
     "icp": ["wat2wasm"],
     "openvm": ["cargo-openvm"],
+    "xrpl": [],
 }
 
 RUNTIME_TOOLS_BY_TARGET: dict[str, list[str]] = {

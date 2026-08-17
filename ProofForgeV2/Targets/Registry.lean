@@ -10,6 +10,7 @@ import ProofForgeV2.Targets.Aleo.PlanSchemaV1
 import ProofForgeV2.Targets.Soroban.PlanSchemaV1
 import ProofForgeV2.Targets.Icp.PlanSchemaV1
 import ProofForgeV2.Targets.OpenVM.PlanSchemaV1
+import ProofForgeV2.Targets.Xrpl.PlanSchemaV1
 import ProofForgeV2.Targets.EngineeringBuildIdentityV1
 import ProofForgeV2.Targets.Solana
 import ProofForgeV2.Targets.Near
@@ -27,6 +28,8 @@ import ProofForgeV2.Targets.Soroban.FinalizeV1
 import ProofForgeV2.Targets.Icp.FinalizeV1
 import ProofForgeV2.Targets.OpenVM
 import ProofForgeV2.Targets.OpenVM.FinalizeV1
+import ProofForgeV2.Targets.Xrpl
+import ProofForgeV2.Targets.Xrpl.FinalizeV1
 import ProofForgeV2.Targets.Evm.FinalizeV1
 import ProofForgeV2.Targets.Near.FinalizeV1
 import ProofForgeV2.Targets.Solana.FinalizeV1
@@ -155,6 +158,12 @@ private def planDigestForCapabilityV1
       | .ok d => pure (d : Digest)
       | .error e =>
           throw <| .invalidProgram s!"materialize: OpenVM plan digest failed: {e}"
+  | .xrpl =>
+      let plan ← Xrpl.planFromCapability capability
+      match Xrpl.engineeringXrplPlanDigestV1 plan with
+      | .ok d => pure (d : Digest)
+      | .error e =>
+          throw <| .invalidProgram s!"materialize: XRPL plan digest failed: {e}"
   | _ =>
       match engineeringAbsentPlanDigestV1
           selection.targetId selection.codegenProfile with
@@ -216,6 +225,9 @@ def materializeResult (capability : ResolvedEngineeringBuildV1) :
   | .openvm =>
       let files ← OpenVM.buildFromCapability capability
       mintMaterializedArtifactsV1 capability OpenVM.descriptor files planDigest
+  | .xrpl =>
+      let files ← Xrpl.buildFromCapability capability
+      mintMaterializedArtifactsV1 capability Xrpl.descriptor files planDigest
 
 /-- IO wrapper over the sole pure materializer. -/
 def materialize (capability : ResolvedEngineeringBuildV1) :
@@ -275,6 +287,8 @@ def finalizeMaterializedArtifactsV1
         Psy.FinalizeV1.finalize capability artifacts stagingDir
     | .openvm =>
         OpenVM.FinalizeV1.finalize capability artifacts stagingDir
+    | .xrpl =>
+        Xrpl.FinalizeV1.finalize capability artifacts stagingDir
   match mintFinalizedArtifactsV1 capability artifacts draft with
   | .ok finalized => pure finalized
   | .error error => throw <| IO.userError error.render

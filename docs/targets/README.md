@@ -25,7 +25,7 @@ normative: true
 >
 > 1. **Accepted PRD Phase 1 范围**仍为 **四目标**：`evm` / `solana` / `near` / `noir`。
 > 2. **Engineering implemented leaves** 另有 `aleo` / `psy` / `cosmwasm` / `ton` /
->    `quint` / `soroban` / `openvm` / `icp`（十二个 materializer 均已可寻址并
+>    `quint` / `soroban` / `openvm` / `icp` / `xrpl`（十三个 materializer 均已可寻址并
 >    materialize，**不**等于 accepted 产品范围已扩）。二者
 >    边界由 **ADR-0036** 固定；不得因表格「implement」字样静默扩大
 >    accepted scope。`quint` 为 ADR-0026 冻结并已接线的 source-only model surface；
@@ -50,19 +50,22 @@ normative: true
 | `cairo` | zkVM (Cairo VM) | research (ADR-0017) | `research` | dossier + RPT-026 Plan/Q0；**无** materializer；Starknet syscall Q0 FC；非 accepted 扩面 | [Cairo](13-cairo.md) · [RPT-026](../research/26-zkvm-trio-cairo-risc0-sp1-design.md) |
 | `risc0` | zkVM (RISC-V) | research (ADR-0017) | `research` | dossier + RPT-026；OpenVM 后第二叶候选 A；无 materializer | [RISC Zero](14-risc0.md) · [RPT-026](../research/26-zkvm-trio-cairo-risc0-sp1-design.md) |
 | `sp1` | zkVM (RISC-V) | research (ADR-0017) | `research` | dossier + RPT-026；OpenVM 后第二叶候选 B；无 materializer | [SP1](15-sp1.md) · [RPT-026](../research/26-zkvm-trio-cairo-risc0-sp1-design.md) |
+| `xrpl` | XRPL smart-features (WASM) | engineering implemented (ADR-0049 Q0) | `research` | retained-V1 Plan/IR → Bedrock-shaped `{name}.rs`；profile `xrpl-bedrock-source-u64-v1`；resolver 仅 4-key；zero-tool finalize；`deployable=false`；**非** Wasm/AlphaNet/主网/Hooks/EVM 侧链/OpenVM | [XRPL](16-xrpl.md) · [ADR-0049](../adr/0049-xrpl-bedrock-source-u64-target.md) · [gap](../plan/xrpl-bedrock-wasm-gap.md) |
 
 > **并行车道（2026-08-13）**：`feature-soroban` / `feature-icp` / `feature-zkvm(OpenVM)`
 > 为实现叶；本目录 Cairo/RISC0/SP1 为 **research dossier**，不抢那些 registry 改动。
 > `aptos`/`sui` dossier 仍缺（ADR-0017），编号续排待 `TGT-MOVE-DOSSIER`。
 
-> **Registry 计数（当前工程事实，2026-08-14）**：**12 = 12 implemented + 0
-> design-only**。十二个 materializer：`evm` / `solana` / `near` / `noir` / `aleo` /
-> `psy` / `quint` / `cosmwasm` / `ton` / `soroban` / `openvm` / `icp`。
-> 其中 **accepted PRD Phase 1** 仍仅前四；其余 engineering leaves（含 Soroban S0 与
-> OpenVM O0/O1）由 ADR-0036/0044/0045/0046 固定为非 accepted 扩面，formal lighthouse=EVM-first。
-> Registry maturity 标签（如 CosmWasm `wasm-validated-alpha`、TON/Quint/Soroban/OpenVM
+> **Registry 计数（当前工程事实，2026-08-17）**：**13 = 13 implemented + 0
+> design-only**。十三个 materializer：`evm` / `solana` / `near` / `noir` / `aleo` /
+> `psy` / `quint` / `cosmwasm` / `ton` / `soroban` / `openvm` / `icp` / `xrpl`。
+> 其中 **accepted PRD Phase 1** 仍仅前四；其余 engineering leaves（含 Soroban S0、
+> OpenVM O0/O1、ICP、XRPL Q0）由 ADR-0036/0044/0045/0046/0047/0049 固定为非 accepted
+> 扩面，formal lighthouse=EVM-first。
+> Registry maturity 标签（如 CosmWasm `wasm-validated-alpha`、TON/Quint/Soroban/OpenVM/XRPL
 > `source-only`）不变；compile / mock / sandbox / 模型检查不得写成 formal 或 hermetic 完成。
-> **cairo/risc0/sp1 未进 registry 枚举**（仅 dossier/research）。
+> **cairo/risc0/sp1 未进 registry 枚举**（仅 dossier/research）。`xrpl` 不得与
+> OpenVM guest 或 EVM 侧链混 Plan。
 
 ## Family 视图
 

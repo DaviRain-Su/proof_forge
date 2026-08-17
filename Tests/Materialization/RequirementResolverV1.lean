@@ -342,8 +342,8 @@ private def emptyProgramRequirements : ProgramRequirementsV1 := { items := #[] }
 
 private def testSupportTable : IO Unit := do
   let rows ← liftResult productSupportRowsV1
-  expect (rows.size == 15)
-    "exactly fifteen support rows (Noir dual; EVM dual; Soroban S0; OpenVM dual; ICP; others single-profile)"
+  expect (rows.size == 16)
+    "exactly sixteen support rows (Noir dual; EVM dual; Soroban S0; OpenVM dual; ICP; XRPL Q0; others single-profile)"
   let expectedSolanaExtension ← match solanaCpiAccountsExtensionRequirementV1 with
     | .ok row => pure row
     | .error error => throw <| IO.userError error
@@ -377,7 +377,9 @@ private def testSupportTable : IO Unit := do
     ("solana", "solana-sbpf-cpi-elf-v1", 8, true, true),
     -- ADR-0044 Soroban S0: honest 4-key only
     ("soroban", "soroban-source-u64-v1", 4, false, false),
-    ("ton", "ton-tolk-boc-v1", 6, false, false)
+    ("ton", "ton-tolk-boc-v1", 6, false, false),
+    -- ADR-0049 XRPL Q0: honest 4-key only
+    ("xrpl", "xrpl-bedrock-source-u64-v1", 4, false, false)
   ]
   let mut i : Nat := 0
   while i < expectedKeys.size do
@@ -462,8 +464,8 @@ private def testSupportTable : IO Unit := do
     | _, _ => throw <| IO.userError s!"row {i} missing"
     i := i + 1
 
-/-- Canonical 15-row (target,profile) skeleton matching the shipped index shape
-    (Noir dual / EVM dual / OpenVM dual / Soroban S0 / ICP; others single-profile).
+/-- Canonical 16-row (target,profile) skeleton matching the shipped index shape
+    (Noir dual / EVM dual / OpenVM dual / Soroban S0 / ICP / XRPL Q0; others single-profile).
     `evmSupported` replaces all EVM rows; extension-owning rows intentionally
     omit their extension seeds so presence-gate negatives can reuse this fixture. -/
 private def supportRowsWithoutExtensions
@@ -485,11 +487,12 @@ private def supportRowsWithoutExtensions
     mkRow .quint CodegenProfileId.quintSourceU64ModelV1 base,
     mkRow .solana CodegenProfileId.solanaSbpfCpiElfV1 base,
     mkRow .soroban CodegenProfileId.sorobanSourceU64V1 base,
-    mkRow .ton CodegenProfileId.tonTolkBocV1 base
+    mkRow .ton CodegenProfileId.tonTolkBocV1 base,
+    mkRow .xrpl CodegenProfileId.xrplBedrockSourceU64V1 base
   ]
 
 
-/-- Same 15-row skeleton, but every closed-extension owner carries its exact
+/-- Same 16-row skeleton, but every closed-extension owner carries its exact
     seed (Quint/NEAR/CosmWasm/EVM: pf.assets; Solana CPI: both), so content
     negatives reach their intended validation phase. -/
 private def supportRowsWithExtensions
@@ -514,7 +517,8 @@ private def supportRowsWithExtensions
     mkRow .quint CodegenProfileId.quintSourceU64ModelV1 withPf,
     mkRow .solana CodegenProfileId.solanaSbpfCpiElfV1 cpiRow,
     mkRow .soroban CodegenProfileId.sorobanSourceU64V1 base,
-    mkRow .ton CodegenProfileId.tonTolkBocV1 base
+    mkRow .ton CodegenProfileId.tonTolkBocV1 base,
+    mkRow .xrpl CodegenProfileId.xrplBedrockSourceU64V1 base
   ]
 
 private def testIndexValidationNegatives : IO Unit := do

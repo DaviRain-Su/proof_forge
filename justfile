@@ -1142,10 +1142,10 @@ product-negative: build
 target-cli-positive: build
 	mkdir -p build
 	lake env .lake/build/bin/proof-forge-next list-targets > build/list-targets.stdout
-	printf '%b' 'aleo\tinstructions-only\ncosmwasm\twasm-validated-alpha\nevm\truntime-validated-alpha\nicp\tsource-only\nnear\twasm-validated-alpha\nnoir\tsource-only\nopenvm\tsource-only\npsy\tdpn-only\nquint\tsource-only\nsolana\truntime-validated-alpha\nsoroban\tsource-only\nton\tsource-only\n' > build/list-targets.expected
+	printf '%b' 'aleo\tinstructions-only\ncosmwasm\twasm-validated-alpha\nevm\truntime-validated-alpha\nicp\tsource-only\nnear\twasm-validated-alpha\nnoir\tsource-only\nopenvm\tsource-only\npsy\tdpn-only\nquint\tsource-only\nsolana\truntime-validated-alpha\nsoroban\tsource-only\nton\tsource-only\nxrpl\tsource-only\n' > build/list-targets.expected
 	cmp -s build/list-targets.expected build/list-targets.stdout
 	lake env .lake/build/bin/proof-forge-next list-targets --all > build/list-targets-all.stdout
-	printf '%b' 'aleo\tinstructions-only\ncosmwasm\twasm-validated-alpha\nevm\truntime-validated-alpha\nicp\tsource-only\nnear\twasm-validated-alpha\nnoir\tsource-only\nopenvm\tsource-only\npsy\tdpn-only\nquint\tsource-only\nsolana\truntime-validated-alpha\nsoroban\tsource-only\nton\tsource-only\n' > build/list-targets-all.expected
+	printf '%b' 'aleo\tinstructions-only\ncosmwasm\twasm-validated-alpha\nevm\truntime-validated-alpha\nicp\tsource-only\nnear\twasm-validated-alpha\nnoir\tsource-only\nopenvm\tsource-only\npsy\tdpn-only\nquint\tsource-only\nsolana\truntime-validated-alpha\nsoroban\tsource-only\nton\tsource-only\nxrpl\tsource-only\n' > build/list-targets-all.expected
 	cmp -s build/list-targets-all.expected build/list-targets-all.stdout
 	lake env .lake/build/bin/proof-forge-next inspect evm > build/inspect-evm.stdout
 	rg -q '^target=evm$' build/inspect-evm.stdout
@@ -1216,6 +1216,15 @@ target-cli-positive: build
 	rg -q '^registryRootDigest=sha256:[0-9a-f]{64}$' build/inspect-icp.stdout
 	rg -q '^supportClaimDigest=sha256:[0-9a-f]{64}$' build/inspect-icp.stdout
 	rg -q '^buildIdentityDomain=pf.build-identity.engineering.v1$' build/inspect-icp.stdout
+	lake env .lake/build/bin/proof-forge-next inspect xrpl > build/inspect-xrpl.stdout
+	rg -q '^target=xrpl$' build/inspect-xrpl.stdout
+	rg -q '^profile=xrpl-bedrock-source-u64-v1$' build/inspect-xrpl.stdout
+	rg -q '^requirements=#\[failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic\]$' build/inspect-xrpl.stdout
+	rg -q '^status=implemented$' build/inspect-xrpl.stdout
+	rg -q '^maturity=source-only$' build/inspect-xrpl.stdout
+	rg -q '^registryRootDigest=sha256:[0-9a-f]{64}$' build/inspect-xrpl.stdout
+	rg -q '^supportClaimDigest=sha256:[0-9a-f]{64}$' build/inspect-xrpl.stdout
+	rg -q '^buildIdentityDomain=pf.build-identity.engineering.v1$' build/inspect-xrpl.stdout
 
 # Dedicated ProgramV1 source-bound gate (B2). Independent of quarantined dsl-negative.
 # Real proof-forge-next CLI with explicit --module Root; heavy fixtures under build/.

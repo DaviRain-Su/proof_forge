@@ -329,8 +329,8 @@ private def mkImplementedRow
     supported
   }
 
-/-- Shipped fifteen-row seed body (canonical targetId order: aleo, cosmwasm,
-    evm×2, icp, near, noir×2, openvm×2, psy, quint, solana, soroban, ton). Aleo
+/-- Shipped sixteen-row seed body (canonical targetId order: aleo, cosmwasm,
+    evm×2, icp, near, noir×2, openvm×2, psy, quint, solana, soroban, ton, xrpl). Aleo
     and Psy each expose one direct target IR profile. OpenVM (both
     `openvm-guest-elf-v1` ADR-0046 and `openvm-guest-source-v1` ADR-0045) admits
     exactly `state.persistent`, `failure.atomic-rollback`, `value.bool`, and
@@ -490,6 +490,13 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
     r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectEventIdV1 &&
       r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
       r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectSyncCallIdV1
+  -- ADR-0049 XRPL Q0: honest 4-key only (rollback/state/bool/checked-arith).
+  -- Event/sync/async/pf.assets stay declined until ContractCall/emit Plan
+  -- fields exist. Not Hooks, not EVM sidechain, not AlphaNet deployable.
+  let xrplRequests := catalogRequests.filter fun r =>
+    r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectEventIdV1 &&
+      r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
+      r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectSyncCallIdV1
   pure #[
     mkImplementedRow .aleo CodegenProfileId.aleoInstructionsV1 aleoRequests,
     mkImplementedRow .cosmwasm CodegenProfileId.cosmwasmWasmU64V1 cosmwasmRequests,
@@ -517,7 +524,9 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
     mkImplementedRow .solana CodegenProfileId.solanaSbpfCpiElfV1 solanaCpiRequests,
     -- ADR-0044: sole Soroban S0 source-only profile (ASCII: soroban < ton).
     mkImplementedRow .soroban CodegenProfileId.sorobanSourceU64V1 sorobanRequests,
-    mkImplementedRow .ton CodegenProfileId.tonTolkBocV1 withoutSync
+    mkImplementedRow .ton CodegenProfileId.tonTolkBocV1 withoutSync,
+    -- ADR-0049: sole XRPL Q0 source-only profile (ASCII: ton < xrpl).
+    mkImplementedRow .xrpl CodegenProfileId.xrplBedrockSourceU64V1 xrplRequests
   ]
 
 /-- Frozen product seed as `CompileResult`. Binders surface seed errors first —

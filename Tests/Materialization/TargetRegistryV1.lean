@@ -40,13 +40,13 @@ private def digestBytesEq (a b : Digest) : Bool :=
 private def testSoleMembershipSource : IO Unit := do
   let registry ← liftResult initialTargetRegistryV1Result
   let regs := TargetRegistryV1.registrationsOf registry
-  expect (regs.size == 12) "12 registrations"
+  expect (regs.size == 13) "13 registrations"
   let impl := implementedRegistrationsV1 registry
   let design := designOnlyRegistrationsV1 registry
-  expect (impl.size == 12) "12 implemented"
+  expect (impl.size == 13) "13 implemented"
   expect (design.size == 0) "0 design-only"
   let expectedIds :=
-    #["aleo", "cosmwasm", "evm", "icp", "near", "noir", "openvm", "psy", "quint", "solana", "soroban", "ton"]
+    #["aleo", "cosmwasm", "evm", "icp", "near", "noir", "openvm", "psy", "quint", "solana", "soroban", "ton", "xrpl"]
   expect (regs.map (·.targetId.toString) == expectedIds) "canonical TargetId order"
   -- Product selection binds the same frozen seed.
   for reg in impl do
@@ -103,6 +103,8 @@ private def testClosedAxesWires : IO Unit := do
     "recursive-proof-pipeline" "recursive-aggregation" "psy-network"
   expectAxes TargetId.quint "quint-model" "relation-external" "external-public-pre-post"
     "no-native-call" "no-proof" "no-settlement"
+  expectAxes TargetId.xrpl "xrpl-wasm" "transaction-atomic" "contract-key-value"
+    "synchronous-message" "no-proof" "xrpl-chain"
   -- Closed enum constructors are the only construction path (no String parse API).
   expect (ExecutionHostV1.evm.toWire == "evm") "ExecutionHostV1.evm wire"
   expect (ProofModelV1.noProof.toWire == "no-proof") "ProofModelV1.noProof wire"

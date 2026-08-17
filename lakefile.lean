@@ -253,6 +253,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Materialization.SorobanPlanV1,
     `Tests.Materialization.OpenVmGuestSourceV1,
     `Tests.Materialization.IcpPlanV1,
+    `Tests.Materialization.XrplPlanV1,
     `Tests.Materialization.EvmSmoke,
     `Tests.Materialization.EvmSolcAcceptance,
     `Tests.Materialization.NearWasmAcceptance,
@@ -376,6 +377,11 @@ lean_exe aleo_instructions_v1_focus where
 lean_exe icp_plan_v1_focus where
   exeName := "icp-plan-v1-focus"
   root := `Tests.Materialization.IcpPlanV1Focus
+  supportInterpreter := true
+
+lean_exe xrpl_plan_v1_focus where
+  exeName := "xrpl-plan-v1-focus"
+  root := `Tests.Materialization.XrplPlanV1Focus
   supportInterpreter := true
 
 lean_exe cosmwasm_plan_v1_focus where

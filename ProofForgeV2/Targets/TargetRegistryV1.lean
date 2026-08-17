@@ -1,8 +1,8 @@
 /-
   ProofForgeV2.Targets.TargetRegistryV1 — D3 engineering registry kernel (repair B)
 
-  **Sole** opaque static membership authority for the closed twelve-target set
-  (12 implemented + 0 design-only). Product selection (`BuildSelectionV1`)
+  **Sole** opaque static membership authority for the closed thirteen-target set
+  (13 implemented + 0 design-only). Product selection (`BuildSelectionV1`)
   consumes this seed; there is no second static index.
 
   **Not** formal TASK-D3-02:
@@ -37,7 +37,7 @@ def reservedFutureProfiles : Array String :=
 
 inductive ExecutionHostV1 where
   | evm | svm | nearWasm | cosmWasm | sorobanWasm | icpCanister
-  | noirCircuit | openvmGuest | aleoVm | psyDpn | quintModel | tvm
+  | noirCircuit | openvmGuest | aleoVm | psyDpn | quintModel | tvm | xrplWasm
   deriving BEq, DecidableEq, Repr
 
 inductive CommitModelV1 where
@@ -66,6 +66,7 @@ inductive ProofModelV1 where
 inductive SettlementModelV1 where
   | evmChain | solanaChain | nearChain | cosmosChain | stellarChain
   | icpSubnet | externalVerifier | aleoChain | psyNetwork | noSettlement | tonChain
+  | xrplChain
   deriving BEq, DecidableEq, Repr
 
 namespace ExecutionHostV1
@@ -82,6 +83,7 @@ def toWire : ExecutionHostV1 → String
   | .psyDpn => "psy-dpn"
   | .quintModel => "quint-model"
   | .tvm => "tvm"
+  | .xrplWasm => "xrpl-wasm"
 instance : ToString ExecutionHostV1 := ⟨toWire⟩
 end ExecutionHostV1
 
@@ -153,6 +155,7 @@ def toWire : SettlementModelV1 → String
   | .psyNetwork => "psy-network"
   | .noSettlement => "no-settlement"
   | .tonChain => "ton-chain"
+  | .xrplChain => "xrpl-chain"
 instance : ToString SettlementModelV1 := ⟨toWire⟩
 end SettlementModelV1
 
@@ -263,7 +266,7 @@ private def containsProfile (profiles : Array CodegenProfileId) (p : CodegenProf
 /-- Closed kind → exact product implemented flag (sole membership policy). -/
 def expectedImplementedOfKindV1 : TargetKind → Bool
   | .evm | .solana | .near | .noir | .aleo | .psy | .quint | .cosmwasm | .ton
-  | .soroban | .icp | .openvm => true
+  | .soroban | .icp | .openvm | .xrpl => true
 
 /-- Closed kind → exact list/describe maturity label. -/
 def expectedMaturityLabelOfKindV1 : TargetKind → String
@@ -279,6 +282,7 @@ def expectedMaturityLabelOfKindV1 : TargetKind → String
   | .soroban => "source-only"
   | .icp => "source-only"
   | .openvm => "source-only"
+  | .xrpl => "source-only"
 
 /-- Closed kind → exact acceptance profile id string. -/
 def expectedAcceptanceProfileIdOfKindV1 : TargetKind → String
@@ -294,6 +298,7 @@ def expectedAcceptanceProfileIdOfKindV1 : TargetKind → String
   | .openvm => "research.openvm.v1"
   | .psy => "phase1.psy-u64.v1"
   | .quint => "research.quint.v1"
+  | .xrpl => "research.xrpl.v1"
 
 /-- Closed kind → exact displayName. -/
 def expectedDisplayNameOfKindV1 : TargetKind → String
@@ -309,6 +314,7 @@ def expectedDisplayNameOfKindV1 : TargetKind → String
   | .psy => "Psy"
   | .quint => "Quint"
   | .ton => "TON"
+  | .xrpl => "XRPL"
 
 private def validateDisplayNameV1 (name : String) : CompileResult Unit := do
   let n := name.utf8ByteSize
@@ -459,7 +465,7 @@ def listTargetInspectionsV1 (registry : TargetRegistryV1) :
     inspectTargetV1 registry reg.targetId
 
 -- ---------------------------------------------------------------------------
--- Frozen seed: sole 12-target membership table
+-- Frozen seed: sole 13-target membership table
 -- ---------------------------------------------------------------------------
 
 private def axes
@@ -511,6 +517,9 @@ def semanticsAxesOfKindV1 : TargetKind → TargetSemanticsAxesV1
   | .ton =>
       axes TargetId.ton .tvm .transactionAtomic .cellHashmap
         .asynchronousActor .noProof .tonChain
+  | .xrpl =>
+      axes TargetId.xrpl .xrplWasm .transactionAtomic .contractKeyValue
+        .synchronousMessage .noProof .xrplChain
 
 private def row
     (kind : TargetKind)
@@ -577,7 +586,10 @@ def initialRegistrationRowsV1 : Array TargetRegistrationDataV1 :=
       (some CodegenProfileId.quintSourceU64ModelV1),
     row .ton (semanticsAxesOfKindV1 .ton)
       #[CodegenProfileId.tonTolkBocV1]
-      (some CodegenProfileId.tonTolkBocV1)
+      (some CodegenProfileId.tonTolkBocV1),
+    row .xrpl (semanticsAxesOfKindV1 .xrpl)
+      #[CodegenProfileId.xrplBedrockSourceU64V1]
+      (some CodegenProfileId.xrplBedrockSourceU64V1)
   ]
 
 /-- Frozen product registry seed. Sole membership authority.

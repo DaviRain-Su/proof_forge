@@ -45,6 +45,7 @@ CORE_TOOLS_BY_TARGET: dict[str, list[str]] = {
     "soroban": [],
     "icp": ["wat2wasm"],
     "openvm": ["cargo-openvm"],
+    "xrpl": [],
 }
 
 # Optional runtime-tier lock members (reported with --with-runtime).
