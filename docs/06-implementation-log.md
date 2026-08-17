@@ -16873,3 +16873,21 @@ normative: false
   structure gate→canonical wire/resource→`normalizeProgramV1` exact carrier；尚未闭合
   `CompiledSemanticV1` identity mint、Solana Plan/IR、emitter exact equation、SHA trace、unconditional
   `get`、ELF或SVM runtime。
+
+## 2026-08-17 — certify StateCell production compiler identity
+
+- 真实StateCell canonical carrier现经production root/callable/block/instruction codec inversion恢复
+  同一个`SemanticProgramDataV1`，并由唯一`validateSemanticProgramV1`得到exact validation success；
+  没有第二decoder、expected root bytes或copied carrier。
+- `compileValidatedSourceV1_eq_ok_of_stages`是可复用的唯一compiler mint组合定理：它只消费真实
+  normalize/validate/source hash/semantic hash的exact success，通过既有private production mint返回
+  `CompiledSemanticV1` identity。`sha256_size`与`validateDigest_sha256Bytes`只证明唯一production
+  SHA-256固定32字节，不计算或复制具体digest。
+- `stateCellCompiledSemanticCertificateV1`把同一次source binding、完整Typed certificate、production
+  lowering、canonical carrier、production decoder/structure validation及两个production hash闭合为
+  exact compiled identity。Verification：`ProofForgeV2.Core.Common`、
+  `ProofForgeV2.Compiler.Pipeline` build与
+  `ProofForgeV2.Targets.Solana.SbpfStateCellProductionV1`单文件kernel check通过；禁止项扫描与
+  `git diff --check`通过。准确边界提升为source→Typed→Semantic lowering/structure/carrier→唯一
+  compiler identity；尚未闭合`CertifiedSolanaProductionPreparationV1`、Solana Plan/IR、emitter exact
+  equation、assembly SHA trace、unconditional `get`、ELF或SVM runtime。
