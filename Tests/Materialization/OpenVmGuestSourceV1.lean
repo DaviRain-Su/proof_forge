@@ -1409,6 +1409,109 @@ unsafe def testMaybeMarkFlatten : IO Unit := do
   expect (mainRs.contents.contains "pub m_p0: u64,")
     "guest State must carry flattened m_p0"
 
+unsafe def testArrViewRet : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrViewRet where\n" ++
+    "  state slots : Array UInt64 2\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
+    "  view peek() : Array UInt64 2 do\n" ++
+    "    return slots\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<openvm-arr-view-ret>" "Tests.OpenVmArrViewRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planOpenVm compiled
+  let some v := plan.views[0]? |
+    throw <| IO.userError "ArrViewRet must emit a view"
+  expect (v.resultKind == .aggregate 2)
+    s!"ArrViewRet view must be aggregate 2, got {repr v.resultKind}"
+  liftResult <| Targets.OpenVM.validatePlan plan
+  let files ← liftResult <| buildOpenVm compiled
+  expect (!files.isEmpty) "ArrViewRet must emit nonempty files"
+  let some mainRs := files.find? (·.path == "guest/src/main.rs") |
+    throw <| IO.userError "openvm: missing guest/src/main.rs"
+  expect (mainRs.contents.contains "-> (u64, u64)")
+    "ArrViewRet view must return a guest u64 tuple"
+
+unsafe def testOptViewRet : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptViewRet where\n" ++
+    "  state o : Option UInt64\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n" ++
+    "  view peek() : Option UInt64 do\n" ++
+    "    return o\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<openvm-opt-view-ret>" "Tests.OpenVmOptViewRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planOpenVm compiled
+  let some v := plan.views[0]? |
+    throw <| IO.userError "OptViewRet must emit a view"
+  expect (v.resultKind == .aggregate 2)
+    s!"OptViewRet view must be aggregate 2, got {repr v.resultKind}"
+  liftResult <| Targets.OpenVM.validatePlan plan
+  let files ← liftResult <| buildOpenVm compiled
+  expect (!files.isEmpty) "OptViewRet must emit nonempty files"
+
+unsafe def testPointViewRet : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PointViewRet where\n" ++
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  state p : Point\n" ++
+    "  init() do\n" ++
+    "    p := Point.new(0, 0)\n" ++
+    "  view getPoint() : Point do\n" ++
+    "    return p\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<openvm-point-view-ret>" "Tests.OpenVmPointViewRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planOpenVm compiled
+  let some v := plan.views[0]? |
+    throw <| IO.userError "PointViewRet must emit a view"
+  expect (v.resultKind == .aggregate 2)
+    s!"PointViewRet view must be aggregate 2, got {repr v.resultKind}"
+  liftResult <| Targets.OpenVM.validatePlan plan
+  let files ← liftResult <| buildOpenVm compiled
+  expect (!files.isEmpty) "PointViewRet must emit nonempty files"
+
+unsafe def testMaybeViewRet : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MaybeViewRet where\n" ++
+    "  enum Maybe where\n" ++
+    "    | None\n" ++
+    "    | Some(UInt64)\n" ++
+    "  state m : Maybe\n" ++
+    "  init() do\n" ++
+    "    m := Maybe.None()\n" ++
+    "  view peek() : Maybe do\n" ++
+    "    return m\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<openvm-maybe-view-ret>" "Tests.OpenVmMaybeViewRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planOpenVm compiled
+  let some v := plan.views[0]? |
+    throw <| IO.userError "MaybeViewRet must emit a view"
+  expect (v.resultKind == .aggregate 2)
+    s!"MaybeViewRet view must be aggregate 2, got {repr v.resultKind}"
+  liftResult <| Targets.OpenVM.validatePlan plan
+  let files ← liftResult <| buildOpenVm compiled
+  expect (!files.isEmpty) "MaybeViewRet must emit nonempty files"
+
 unsafe def run : IO Unit := do
   testStateCellOpenVmSource
   testMaterializeDeterminism
@@ -1451,6 +1554,10 @@ unsafe def run : IO Unit := do
   testSignedNumericMapFc
   testPointBoxFlatten
   testMaybeMarkFlatten
+  testArrViewRet
+  testOptViewRet
+  testPointViewRet
+  testMaybeViewRet
   testMixedInt64UInt64Fc
   testFailClosedInt32
   IO.println "Tests.Materialization.OpenVmGuestSourceV1: ok"

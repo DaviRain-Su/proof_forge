@@ -209,8 +209,8 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     planError "OpenVM plan exceeds the entry limit"
   unless plan.views.size ≤ maxViews do
     planError "OpenVM plan exceeds the view limit"
-  unless plan.entries.size > 0 do
-    planError "OpenVM plan requires at least one entry"
+  unless plan.entries.size > 0 || plan.views.size > 0 do
+    planError "OpenVM plan requires at least one entry or view"
   let signed := plan.signedNumeric
   let mut exprBudget := maxPlanExprNodes
   let mut stateNames : Array String := #[]
@@ -281,6 +281,8 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     | .uint64, none, true | .int64, none, true | .bool, none, true => pure ()
     | .uint64, none, false | .int64, none, false | .bool, none, false =>
         planError s!"OpenVM entry '{ent.name}' non-Unit result is missing without terminal revert"
+    | .aggregate _, _, _ =>
+        planError s!"OpenVM entry '{ent.name}' cannot return an aggregate"
   let mut viewNames : Array String := #[]
   for v in plan.views do
     unless isSafeIdent v.name do
@@ -292,17 +294,41 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     match v.resultKind with
     | .unit => planError s!"OpenVM view '{v.name}' cannot have Unit result"
     | .uint64 =>
+        unless v.leaves.isEmpty && v.leafIsInt.isEmpty do
+          planError s!"OpenVM view '{v.name}' scalar result must not carry aggregate leaves"
         exprBudget ←
           validateExpr v.value .uint64 "view value" v.params.size plan.states.size
             exprBudget signed
     | .int64 =>
+        unless v.leaves.isEmpty && v.leafIsInt.isEmpty do
+          planError s!"OpenVM view '{v.name}' scalar result must not carry aggregate leaves"
         exprBudget ←
           validateExpr v.value .int64 "view value" v.params.size plan.states.size
             exprBudget signed
     | .bool =>
+        unless v.leaves.isEmpty && v.leafIsInt.isEmpty do
+          planError s!"OpenVM view '{v.name}' scalar result must not carry aggregate leaves"
         exprBudget ←
           validateExpr v.value .bool "view value" v.params.size plan.states.size
             exprBudget signed
+    | .aggregate n =>
+        unless 1 ≤ n && n ≤ 8 do
+          planError s!"OpenVM view '{v.name}' aggregate return must have 1..8 leaves"
+        unless v.leaves.size == n && v.leafIsInt.size == n do
+          planError
+            s!"OpenVM view '{v.name}' aggregate leaves must match resultKind leaf count"
+        unless v.leaves[0]? == some v.value do
+          planError
+            s!"OpenVM view '{v.name}' aggregate value must equal the first leaf"
+        for i in [0:n] do
+          let some e := v.leaves[i]? |
+            planError s!"OpenVM view '{v.name}' aggregate leaf {i} is missing"
+          let some isInt := v.leafIsInt[i]? |
+            planError s!"OpenVM view '{v.name}' aggregate signedness {i} is missing"
+          let ty := if isInt then ExprType.int64 else ExprType.uint64
+          exprBudget ←
+            validateExpr e ty "view aggregate leaf" v.params.size plan.states.size
+              exprBudget signed
   pure ()
 
 end ProofForgeV2.Targets.OpenVM

@@ -56,6 +56,8 @@ inductive RExpr where
   | ite (cond t e : RExpr)
   | okUnit
   | okValue (value : RExpr)
+  /-- View-only flattened return: guest tuple of u64/i64 leaves. -/
+  | tuple (elems : Array RExpr)
   deriving BEq, Inhabited, Repr
 
 inductive RStmt where
@@ -188,11 +190,17 @@ private def guardChecksOf (checks : Array Check) : Array Check :=
     | .divByZero => true
     | .assertion | .declaredRevert _ | .terminalRevert _ => true
 
-private def resultRustType : ResultKind → String
+private def resultRustType (rk : ResultKind) (leafIsInt : Array Bool := #[]) : String :=
+  match rk with
   | .unit => "()"
   | .uint64 => "u64"
   | .int64 => "i64"
   | .bool => "bool"
+  | .aggregate n =>
+      let tys :=
+        (List.range n).map (fun i =>
+          if leafIsInt[i]?.getD false then "i64" else "u64")
+      "(" ++ String.intercalate ", " tys ++ ")"
 
 private def buildEntryFn (plan : Plan) (ent : PlanEntry) : CompileResult RustFn := do
   let mut stmts : Array RStmt := #[]
@@ -220,12 +228,23 @@ private def buildEntryFn (plan : Plan) (ent : PlanEntry) : CompileResult RustFn 
   }
 
 private def buildViewFn (plan : Plan) (v : PlanView) : CompileResult RustFn := do
-  let re ← lowerExprToRExpr plan v.params v.value
+  let re ← match v.resultKind with
+    | .aggregate n => do
+        let src := if v.leaves.isEmpty then #[v.value] else v.leaves
+        unless src.size == n do
+          planError
+            s!"OpenVM view '{v.name}' aggregate emit leaf count must be {n}"
+        let mut elems : Array RExpr := #[]
+        for e in src do
+          elems := elems.push (← lowerExprToRExpr plan v.params e)
+        pure (RExpr.tuple elems)
+    | _ =>
+        lowerExprToRExpr plan v.params v.value
   pure {
     name := v.name
     params := v.params
     stateAccess := .ref
-    retType := resultRustType v.resultKind
+    retType := resultRustType v.resultKind v.leafIsInt
     stmts := #[.tail re]
   }
 
@@ -304,6 +323,9 @@ private partial def renderRExpr (signed : Bool) : RExpr → String
       s!"(if {renderRExpr signed c} \{ {renderRExpr signed t} } else \{ {renderRExpr signed e} })"
   | .okUnit => "Ok(())"
   | .okValue v => s!"Ok({renderRExpr signed v})"
+  | .tuple elems =>
+      let inner := String.intercalate ", " (elems.map (renderRExpr signed)).toList
+      "(" ++ inner ++ ")"
 
 private def indent (n : Nat) (s : String) : String :=
   String.ofList (List.replicate n ' ') ++ s
@@ -367,6 +389,7 @@ private def okOutcomeArm : ResultKind → String
   | .uint64 => "Ok(v) => (1u8, v)"
   | .int64 => "Ok(v) => (1u8, v as u64)"
   | .bool => "Ok(v) => (1u8, if v { 1u64 } else { 0u64 })"
+  | .aggregate _ => "Ok(_) => (1u8, 0u64)"
 
 /-- Deterministic `main` body: read init params, construct state, read the
     first entry's params, dispatch it, and reveal a single `[u8; 32]` outcome
@@ -428,8 +451,40 @@ private def renderMainRs (ir : IR) : String := Id.run do
   | some entryFn, some planEntry =>
       lines := lines ++ renderMainBody signed ir.initFn entryFn planEntry.resultKind
   | _, _ =>
-      lines := lines.push
-        (indent 4 "// unreachable: OpenVM Plan validation requires at least one entry")
+      match ir.viewFns[0]?, ir.sourcePlan.views[0]? with
+      | some viewFn, some planView =>
+          for p in ir.initFn.params do
+            lines := lines.push (readParamStmt signed p)
+          lines := lines.push
+            (indent 4 s!"let mut state = {ir.initFn.name}({callArgsList #[] ir.initFn.params});")
+          for p in viewFn.params do
+            lines := lines.push (readParamStmt signed p)
+          let callArgs := callArgsList #["&state"] viewFn.params
+          let n :=
+            match planView.resultKind with
+            | .aggregate k => k
+            | _ => 1
+          if n == 1 then
+            lines := lines.push
+              (indent 4 s!"let v0 = {viewFn.name}({callArgs});")
+          else
+            let binds := String.intercalate ", "
+              ((List.range n).map (fun i => s!"v{i}"))
+            lines := lines.push
+              (indent 4 s!"let ({binds}) = {viewFn.name}({callArgs});")
+          lines := lines.push (indent 4 "let mut public_output = [0u8; 32];")
+          lines := lines.push (indent 4 "public_output[0] = 1;")
+          for i in [0:n] do
+            let off := 1 + 8 * i
+            if off + 8 ≤ 32 then
+              let cast :=
+                if planView.leafIsInt[i]?.getD false then s!"(v{i} as u64)" else s!"v{i}"
+              lines := lines.push
+                (indent 4 s!"public_output[{off}..{off+8}].copy_from_slice(&{cast}.to_le_bytes());")
+          lines := lines.push (indent 4 "openvm::io::reveal_bytes32(public_output);")
+      | _, _ =>
+          lines := lines.push
+            (indent 4 "// unreachable: OpenVM Plan validation requires an entry or view")
   lines := lines.push "}"
   lines := lines.push ""
   pure (String.intercalate "\n" lines.toList)
