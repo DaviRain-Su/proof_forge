@@ -236,6 +236,17 @@ private partial def validateBodyStatements
         remaining ←
           validateBodyStatements owner resultKind paramCount stateCount remaining
             paramIsPrincipal signed elseBody
+    | .switchOn scrut cases defaultBody =>
+        remaining ←
+          validateExpr scrut numeric "switch scrutinee" paramCount stateCount 0 remaining
+            paramIsPrincipal signed
+        for (_, caseBody) in cases do
+          remaining ←
+            validateBodyStatements owner resultKind paramCount stateCount remaining
+              paramIsPrincipal signed caseBody
+        remaining ←
+          validateBodyStatements owner resultKind paramCount stateCount remaining
+            paramIsPrincipal signed defaultBody
     | .returnValue e =>
         unless resultKind == .uint64 || resultKind == .int64 || resultKind == .bool do
           planError s!"Quint {owner} Unit/aggregate result must not return a scalar"
@@ -270,6 +281,10 @@ private partial def bodyUsesVaultNativeV1 (body : Array Statement) : Bool :=
     | .ifThenElse cond thenBody elseBody =>
         exprUsesVaultNativeV1 cond ||
           bodyUsesVaultNativeV1 thenBody || bodyUsesVaultNativeV1 elseBody
+    | .switchOn scrut cases defaultBody =>
+        exprUsesVaultNativeV1 scrut ||
+          cases.any (fun (_, b) => bodyUsesVaultNativeV1 b) ||
+          bodyUsesVaultNativeV1 defaultBody
     | .returnAggregate leaves => leaves.any exprUsesVaultNativeV1
     | .returnNone => false
 

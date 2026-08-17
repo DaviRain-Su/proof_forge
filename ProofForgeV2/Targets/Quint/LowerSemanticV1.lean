@@ -186,6 +186,8 @@ structure Check where
 inductive Statement where
   | store (fieldIndex : Nat) (value : Expr)
   | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
+  | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
+      (defaultBody : Array Statement)
   | returnValue (value : Expr)
   | returnNone
   | returnAggregate (leaves : Array Expr)
@@ -1919,11 +1921,19 @@ private partial def lowerBlockInstructions
         planError "unsupported Quint semantic shape: op is outside Q0"
   pure acc
 
-private def callableHasSwitch (callable : CallableV1) : Bool :=
-  callable.blocks.any fun b =>
-    match b.terminator with
-    | .switch .. => true
-    | _ => false
+private def decodeSwitchCaseValue
+    (types : QuintTypeClosureV1) (typeId : TypeIdV1) (bytes : ByteArray) :
+    CompileResult UInt64 := do
+  if isBoolType types typeId then
+    let b ← decodeBoolLiteralBit quintPlanErr "Quint" bytes
+    pure (if b then 1 else 0)
+  else if isUInt32Type types typeId then
+    decodeUInt32LiteralLe quintPlanErr "Quint" bytes
+  else if isUInt64Type types typeId || isInt64Type types typeId then
+    decodeUInt64LiteralLe quintPlanErr "Quint" bytes
+  else
+    planError
+      "unsupported Quint semantic shape: switch case type is outside UInt64/Int64/UInt32/Bool"
 
 private inductive RegionCont where
   | join (blockId : Nat)
@@ -2041,8 +2051,69 @@ private partial def emitRegion
                 pure
                   (preStmts ++ #[.ifThenElse cond thenStmts elseStmts] ++ rest,
                     acc3, restCont)
-      | .switch .. | .trap .. =>
-          planError "unsupported Quint semantic shape: each callable must have exactly one block"
+      | .switch scrutId cases defaultTarget => do
+          let some defaultT := defaultTarget |
+            planError
+              "unsupported Quint semantic shape: switch must carry a default target"
+          unless !cases.isEmpty do
+            planError "unsupported Quint semantic shape: switch cases must be nonempty"
+          let scrut ← match envLookup acc.env scrutId with
+            | some v =>
+                if !v.leaves.isEmpty then
+                  planError "unsupported Quint semantic shape: switch scrutinee must be scalar"
+                else
+                  pure v.expr
+            | none =>
+                planError "unsupported Quint semantic shape: switch scrutinee undefined"
+          unless defaultT.args.isEmpty do
+            planError
+              "unsupported Quint semantic shape: switch default args / block-param phi are outside Q0"
+          let (preStmts, acc) := flushRegion layout acc
+          let mut caseBodies : Array (UInt64 × Array Statement) := #[]
+          let mut accA := acc
+          let mut joinAcc : Option Nat := none
+          for switchCase in cases do
+            unless switchCase.target.args.isEmpty do
+              planError
+                "unsupported Quint semantic shape: switch case args / block-param phi are outside Q0"
+            let caseValue ←
+              decodeSwitchCaseValue types switchCase.typeId switchCase.valueBytes
+            let (body, acc1, armCont) ←
+              emitRegion data types idx callable numericTy layout
+                allowStateRead allowStateWrite forbidChecks inlineDepth
+                fuel' switchCase.target.blockId.toNat accA
+            caseBodies := caseBodies.push (caseValue, body)
+            accA := acc1
+            match armCont, joinAcc with
+            | .closed, _ => pure ()
+            | .join j, none => joinAcc := some j
+            | .join j, some j0 =>
+                unless j == j0 do
+                  planError
+                    "unsupported Quint semantic shape: switch arms converge on divergent joins"
+          let (defaultBody, acc2, defaultCont) ←
+            emitRegion data types idx callable numericTy layout
+              allowStateRead allowStateWrite forbidChecks inlineDepth
+              fuel' defaultT.blockId.toNat accA
+          match defaultCont, joinAcc with
+          | .closed, _ => pure ()
+          | .join j, none => joinAcc := some j
+          | .join j, some j0 =>
+              unless j == j0 do
+                planError
+                  "unsupported Quint semantic shape: switch arms converge on divergent joins"
+          let switchStmt := Statement.switchOn scrut caseBodies defaultBody
+          match joinAcc with
+          | none =>
+              pure (preStmts.push switchStmt, acc2, .closed)
+          | some j => do
+              let (rest, acc3, restCont) ←
+                emitRegion data types idx callable numericTy layout
+                  allowStateRead allowStateWrite forbidChecks inlineDepth
+                  fuel' j acc2
+              pure (preStmts.push switchStmt ++ rest, acc3, restCont)
+      | .trap .. =>
+          planError "unsupported Quint semantic shape: trap terminators are outside Q0"
       | .revert .. =>
           planError
             "unsupported Quint semantic shape: revert in CFG arms is outside Q0"
@@ -2210,7 +2281,7 @@ private def lowerCallableBody
     let usesVault := acc.usesVaultNative || !acc.assetOps.isEmpty
     pure (paramNames, paramIsPrincipal, acc.checks, stores, acc.assetOps, ret?,
       endedRevert, usesVault, #[])
-  else if callable.loopBounds.isEmpty && !callableHasSwitch callable then
+  else if callable.loopBounds.isEmpty then
     unless callable.entryBlock.toNat == 0 do
       planError "unsupported Quint semantic shape: entryBlock must be 0"
     let (stmts, acc, cont) ←

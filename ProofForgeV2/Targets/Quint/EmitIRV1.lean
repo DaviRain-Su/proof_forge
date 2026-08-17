@@ -322,29 +322,6 @@ private def lastResultName (entryName : String) : String :=
 private def lastResultLeafName (entryName : String) (i : Nat) : String :=
   s!"pf_last_{entryName}_result_{i}"
 
-private def flattenArm (owner : String) (arm : Array Statement) :
-    CompileResult (Array (Nat × Expr) × Option Expr) := do
-  let mut stores : Array (Nat × Expr) := #[]
-  let mut result? : Option Expr := none
-  for stmt in arm do
-    match stmt with
-    | .store fi e =>
-        if stores.any (fun (i, _) => i == fi) then
-          planError s!"Quint entry '{owner}' CFG arm has a duplicate store"
-        stores := stores.push (fi, e)
-    | .returnValue e =>
-        unless result?.isNone do
-          planError s!"Quint entry '{owner}' CFG arm has multiple returns"
-        result? := some e
-    | .returnNone =>
-        result? := none
-    | .returnAggregate _ =>
-        planError
-          s!"Quint entry '{owner}' aggregate return in CFG flatten is outside Q0"
-    | .ifThenElse .. =>
-        planError s!"Quint entry '{owner}' nested if in CFG flatten is outside Q0"
-  pure (stores, result?)
-
 private def lookupStore (stores : Array (Nat × Expr)) (fi : Nat) : Option Expr :=
   stores.findSome? fun (i, e) => if i == fi then some e else none
 
@@ -366,31 +343,39 @@ private def mergeIteStores
           out := out.push (fi, .ite cond t e)
     pure out
 
-private def compileBodyToFlat (owner : String) (body : Array Statement) :
+private partial def compileBodyToFlat (owner : String) (body : Array Statement) :
     CompileResult (Array (Nat × Expr) × Option Expr) := do
   let mut stores : Array (Nat × Expr) := #[]
   let mut result? : Option Expr := none
   for stmt in body do
     match stmt with
     | .ifThenElse cond thenBody elseBody =>
-        let (ts, tr) ← flattenArm owner thenBody
-        let (es, er) ← flattenArm owner elseBody
+        let (ts, tr) ← compileBodyToFlat owner thenBody
+        let (es, er) ← compileBodyToFlat owner elseBody
         stores := stores ++ mergeIteStores cond ts es
         match tr, er with
         | some a, some b =>
-            unless result?.isNone do
-              planError s!"Quint entry '{owner}' CFG body has multiple results"
-            result? := some (.ite cond a b)
+            result? :=
+              match result? with
+              | none => some (.ite cond a b)
+              | some _ => result?
         | none, none => pure ()
-        | _, _ =>
-            planError
-              s!"Quint entry '{owner}' if arms must both return or both continue"
+        | some _, none | none, some _ =>
+            -- Mixed early-return + continue: parent join supplies the result.
+            pure ()
+    | .switchOn scrut cases defaultBody =>
+        let folded : Array Statement :=
+          cases.foldr
+            (fun (v, caseBody) acc =>
+              #[.ifThenElse (.compare .eq scrut (.litU64 v)) caseBody acc])
+            defaultBody
+        let (fs, fr) ← compileBodyToFlat owner folded
+        stores := stores ++ fs
+        result? := result? <|> fr
     | .store fi e =>
         stores := stores.push (fi, e)
     | .returnValue e =>
-        unless result?.isNone do
-          planError s!"Quint entry '{owner}' CFG body has multiple results"
-        result? := some e
+        result? := result? <|> some e
     | .returnNone =>
         result? := none
     | .returnAggregate _ =>
