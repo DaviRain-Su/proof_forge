@@ -677,28 +677,70 @@ unsafe def testFailClosedBitNot : IO Unit := do
   | .ok _ => throw <| IO.userError "bitNot must fail closed at OpenVM plan"
 
 /-- Fail closed: multi-block if is outside O0 (single-block only). -/
+/-- T9a opens if-diamonds; switch/match still fail closed. -/
 unsafe def testFailClosedMultiblock : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
     "program Branch where\n" ++
-    "  entry pick(c : UInt64, a : UInt64, b : UInt64) : UInt64 do\n" ++
-    "    if c > 0 then\n" ++
-    "      return a\n" ++
-    "    else\n" ++
-    "      return b\n"
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry apply(choice : UInt64) : UInt64 do\n" ++
+    "    match choice with\n" ++
+    "    | 0 => do\n" ++
+    "      return count\n" ++
+    "    | 1 => do\n" ++
+    "      count := count + 1\n" ++
+    "    | other => do\n" ++
+    "      count := other\n" ++
+    "    return count\n"
   let parsed ← liftResult (← session.selectProgramV1
-    source "<openvm-if>" "Tests.OpenVmIf" none)
+    source "<openvm-match>" "Tests.OpenVmMatch" none)
   match Compiler.compileValidatedSourceV1 parsed with
   | .error _ => pure ()
   | .ok compiled =>
       match planOpenVm compiled with
       | .error (.planInvariant .openvm msg) =>
-          expect (msg.contains "one block" || msg.contains "block")
-            s!"multi-block must fail closed, got: {msg}"
+          expect (msg.contains "one block" || msg.contains "multi-block")
+            s!"match/switch must fail closed, got: {msg}"
       | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
-      | .ok _ => throw <| IO.userError "multi-block if must fail closed at OpenVM plan"
+      | .ok _ => throw <| IO.userError "match/switch must fail closed at OpenVM plan"
+
+unsafe def testIfFlow : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program IfFlow where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    if count > 0 then\n" ++
+    "      count := count + delta\n" ++
+    "    else\n" ++
+    "      count := delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<openvm-if-flow>" "Tests.OpenVmIfFlow" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planOpenVm compiled
+  let some bump := plan.entries.find? (·.name == "bump") |
+    throw <| IO.userError "IfFlow: missing bump"
+  expect (bump.stores.isEmpty && bump.result?.isNone)
+    "IfFlow bump must use CFG body, not flat stores/result?"
+  expect (bump.body == #[
+      .ifThenElse (.compare .gt (.stateLoad 0) (.litU64 0))
+        #[.store 0 (.arith .add (.stateLoad 0) (.param 0))]
+        #[.store 0 (.param 0)],
+      .returnValue (.stateLoad 0)])
+    s!"IfFlow bump shape mismatch: {repr bump.body}"
+  liftResult <| Targets.OpenVM.validatePlan plan
+  IO.println "  ✓ IfFlow if-diamond"
 
 /-- Fail closed: constants are not silently substituted by a second evaluator. -/
 unsafe def testFailClosedConstant : IO Unit := do
@@ -1631,6 +1673,7 @@ unsafe def run : IO Unit := do
   testSignedMulAdmit
   testFailClosedBitNot
   testFailClosedMultiblock
+  testIfFlow
   testFailClosedConstant
   testFailClosedPrivateState
   testInt64Cell

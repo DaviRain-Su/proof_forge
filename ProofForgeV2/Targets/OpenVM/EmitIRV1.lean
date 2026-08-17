@@ -69,6 +69,8 @@ inductive RStmt where
   | tail (value : RExpr)
   /-- Terminal-revert path: prior guard(s) always return before this line. -/
   | unreachableAfterRevert
+  /-- T9a: guest `if` / `else` with in-arm stores and returns. -/
+  | ifThenElse (cond : RExpr) (thenBody elseBody : Array RStmt)
   deriving BEq, Inhabited, Repr
 
 inductive StateAccess where
@@ -202,35 +204,66 @@ private def resultRustType (rk : ResultKind) (leafIsInt : Array Bool := #[]) : S
           if leafIsInt[i]?.getD false then "i64" else "u64")
       "(" ++ String.intercalate ", " tys ++ ")"
 
+private partial def emitPlanStatements
+    (plan : Plan) (params : Array String) (stmts : Array Statement) :
+    CompileResult (Array RStmt) := do
+  let mut out : Array RStmt := #[]
+  for stmt in stmts do
+    match stmt with
+    | .store fi e =>
+        let fieldName ← stateFieldName plan fi
+        let re ← lowerExprToRExpr plan params e
+        out := out.push (.storeField fieldName re)
+    | .ifThenElse cond thenBody elseBody =>
+        let c ← lowerExprToRExpr plan params cond
+        let t ← emitPlanStatements plan params thenBody
+        let e ← emitPlanStatements plan params elseBody
+        out := out.push (.ifThenElse c t e)
+    | .returnValue e =>
+        let re ← lowerExprToRExpr plan params e
+        out := out.push (.tail (.okValue re))
+    | .returnAggregate leaves =>
+        let mut elems : Array RExpr := #[]
+        for e in leaves do
+          elems := elems.push (← lowerExprToRExpr plan params e)
+        out := out.push (.tail (.okValue (.tuple elems)))
+    | .returnNone =>
+        out := out.push (.tail .okUnit)
+  pure out
+
 private def buildEntryFn (plan : Plan) (ent : PlanEntry) : CompileResult RustFn := do
   let mut stmts : Array RStmt := #[]
   for ck in guardChecksOf ent.checks do
     let rc ← lowerExprToRExpr plan ent.params ck.condition
     stmts := stmts.push (.guard rc ck.kind.code)
-  for (fi, e) in ent.stores do
-    let fieldName ← stateFieldName plan fi
-    let re ← lowerExprToRExpr plan ent.params e
-    stmts := stmts.push (.storeField fieldName re)
-  if ent.terminalRevert then
-    stmts := stmts.push .unreachableAfterRevert
+  if !ent.body.isEmpty then
+    let cfgStmts ← emitPlanStatements plan ent.params ent.body
+    stmts := stmts ++ cfgStmts
   else
-    match ent.resultKind, ent.result? with
-    | .unit, _ => stmts := stmts.push (.tail .okUnit)
-    | .aggregate n, _ => do
-        let src := if ent.leaves.isEmpty then
-          match ent.result? with | some e => #[e] | none => #[]
-        else ent.leaves
-        unless src.size == n do
-          planError
-            s!"OpenVM entry '{ent.name}' aggregate emit leaf count must be {n}"
-        let mut elems : Array RExpr := #[]
-        for e in src do
-          elems := elems.push (← lowerExprToRExpr plan ent.params e)
-        stmts := stmts.push (.tail (.okValue (.tuple elems)))
-    | _, some e =>
-        let re ← lowerExprToRExpr plan ent.params e
-        stmts := stmts.push (.tail (.okValue re))
-    | _, none => stmts := stmts.push (.tail .okUnit)
+    for (fi, e) in ent.stores do
+      let fieldName ← stateFieldName plan fi
+      let re ← lowerExprToRExpr plan ent.params e
+      stmts := stmts.push (.storeField fieldName re)
+    if ent.terminalRevert then
+      stmts := stmts.push .unreachableAfterRevert
+    else
+      match ent.resultKind, ent.result? with
+      | .unit, _ => stmts := stmts.push (.tail .okUnit)
+      | .aggregate n, _ => do
+          let src := if ent.leaves.isEmpty then
+            match ent.result? with | some e => #[e] | none => #[]
+          else ent.leaves
+          unless src.size == n do
+            planError
+              s!"OpenVM entry '{ent.name}' aggregate emit leaf count must be {n}"
+          let mut elems : Array RExpr := #[]
+          for e in src do
+            elems := elems.push (← lowerExprToRExpr plan ent.params e)
+          stmts := stmts.push (.tail (.okValue (.tuple elems)))
+      | _, some e =>
+          let re ← lowerExprToRExpr plan ent.params e
+          stmts := stmts.push (.tail (.okValue re))
+      | _, none => stmts := stmts.push (.tail .okUnit)
   pure {
     name := ent.name
     params := ent.params
@@ -342,16 +375,29 @@ private partial def renderRExpr (signed : Bool) : RExpr → String
 private def indent (n : Nat) (s : String) : String :=
   String.ofList (List.replicate n ' ') ++ s
 
-private def renderStmt (signed : Bool) (level : Nat) : RStmt → String
+private partial def renderStmtLines (signed : Bool) (level : Nat) :
+    RStmt → Array String
   | .guard cond code =>
-      indent level s!"if !({renderRExpr signed cond}) \{ return Err({code}u32); }"
+      #[indent level s!"if !({renderRExpr signed cond}) \{ return Err({code}u32); }"]
   | .storeField field value =>
-      indent level s!"state.{field} = {renderRExpr signed value};"
+      #[indent level s!"state.{field} = {renderRExpr signed value};"]
   | .tail value =>
-      indent level (renderRExpr signed value)
+      #[indent level (renderRExpr signed value)]
   | .unreachableAfterRevert =>
-      indent level
-        "unreachable!(\"O0 template: a prior guard always returns before this point\")"
+      #[indent level
+        "unreachable!(\"O0 template: a prior guard always returns before this point\")"]
+  | .ifThenElse cond thenBody elseBody => Id.run do
+      let mut lines := #[indent level ("if " ++ renderRExpr signed cond ++ " {")]
+      for stmt in thenBody do
+        lines := lines ++ renderStmtLines signed (level + 4) stmt
+      if elseBody.isEmpty then
+        lines := lines.push (indent level "}")
+      else
+        lines := lines.push (indent level "} else {")
+        for stmt in elseBody do
+          lines := lines ++ renderStmtLines signed (level + 4) stmt
+        lines := lines.push (indent level "}")
+      lines
 
 private def paramsSig (signed : Bool) (fn : RustFn) : String :=
   let ty := numericRustType signed
@@ -369,7 +415,7 @@ private def renderFn (signed : Bool) (fn : RustFn) : Array String := Id.run do
   if fn.isInit then
     lines := lines.push (indent 4 "let mut state = State::default();")
   for stmt in fn.stmts do
-    lines := lines.push (renderStmt signed 4 stmt)
+    lines := lines ++ renderStmtLines signed 4 stmt
   lines := lines.push "}"
   pure lines
 

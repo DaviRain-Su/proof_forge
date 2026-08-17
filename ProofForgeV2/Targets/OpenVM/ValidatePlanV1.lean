@@ -180,6 +180,58 @@ private def validateStores
       validateExpr e storeTy "store value" paramCount stateCount remaining signed
   pure remaining
 
+private partial def validateBodyStatements
+    (owner : String) (resultKind : ResultKind)
+    (paramCount stateCount remaining0 : Nat) (signed : Bool)
+    (body : Array Statement) : CompileResult Nat := do
+  let numeric : ExprType := if signed then .int64 else .uint64
+  let mut remaining := remaining0
+  let mut seen : Array Nat := #[]
+  for stmt in body do
+    match stmt with
+    | .store fi e =>
+        unless fi < stateCount do
+          planError s!"OpenVM {owner} store references an unknown state field"
+        if seen.contains fi then
+          planError s!"OpenVM {owner} store list has duplicate field indices"
+        seen := seen.push fi
+        remaining ←
+          validateExpr e numeric "store value" paramCount stateCount remaining signed
+    | .ifThenElse cond thenBody elseBody =>
+        remaining ←
+          validateExpr cond .bool "if condition" paramCount stateCount remaining signed
+        remaining ←
+          validateBodyStatements owner resultKind paramCount stateCount remaining
+            signed thenBody
+        remaining ←
+          validateBodyStatements owner resultKind paramCount stateCount remaining
+            signed elseBody
+    | .returnValue e =>
+        unless resultKind == .uint64 || resultKind == .int64 || resultKind == .bool do
+          planError s!"OpenVM {owner} Unit/aggregate result must not return a scalar"
+        let expected :=
+          match resultKind with
+          | .int64 => ExprType.int64
+          | .bool => .bool
+          | _ => .uint64
+        remaining ←
+          validateExpr e expected "return value" paramCount stateCount remaining signed
+    | .returnAggregate leaves =>
+        match resultKind with
+        | .aggregate n =>
+            unless leaves.size == n do
+              planError s!"OpenVM {owner} aggregate return must have exactly {n} leaves"
+            for e in leaves do
+              remaining ←
+                validateExpr e numeric "aggregate return leaf" paramCount stateCount
+                  remaining signed
+        | _ =>
+            planError s!"OpenVM {owner} cannot return an aggregate"
+    | .returnNone =>
+        unless resultKind == .unit do
+          planError s!"OpenVM {owner} non-Unit result must return a value"
+  pure remaining
+
 private def validateParams (params : Array String) : CompileResult Unit := do
   unless params.size ≤ maxParams do
     planError "OpenVM plan parameter count exceeds limit"
@@ -245,8 +297,16 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     for ck in ent.checks do
       exprBudget ←
         validateCheck ck ent.params.size plan.states.size exprBudget signed
-    exprBudget ←
-      validateStores ent.stores plan.states.size ent.params.size exprBudget signed
+    if !ent.body.isEmpty then
+      unless ent.stores.isEmpty && ent.result?.isNone do
+        planError
+          s!"OpenVM entry '{ent.name}' CFG body must not carry stores or result?"
+      exprBudget ←
+        validateBodyStatements ent.name ent.resultKind ent.params.size
+          plan.states.size exprBudget signed ent.body
+    else
+      exprBudget ←
+        validateStores ent.stores plan.states.size ent.params.size exprBudget signed
     let terminalMarkerCount := ent.checks.foldl
       (fun n ck => if isTerminalRevertKind ck.kind then n + 1 else n) 0
     if ent.terminalRevert then
@@ -260,6 +320,9 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
           planError s!"OpenVM entry '{ent.name}' terminalRevert requires a terminal-revert check"
     else unless terminalMarkerCount == 0 do
       planError s!"OpenVM entry '{ent.name}' has a terminal-revert marker without terminalRevert"
+    if !ent.body.isEmpty then
+      pure ()
+    else
     match ent.resultKind, ent.result?, ent.terminalRevert with
     | .unit, none, _ => pure ()
     | .unit, some _, _ =>
