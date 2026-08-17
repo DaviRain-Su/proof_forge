@@ -926,6 +926,54 @@ unsafe def testArrViewRet : IO Unit := do
   expect (!qntFile.contents.contains "List[")
     "ArrViewRet must not invent a native Quint List"
 
+/-- BytesRetBox: view-only Bytes 4 returns four UInt64 low-8 leaves. Entry stays FC. -/
+unsafe def testBytesViewRet : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BytesRetBox where\n" ++
+    "  state b : Bytes 4\n" ++
+    "  init() do\n" ++
+    "    b[0] := 0\n" ++
+    "  view get() : Bytes 4 do\n" ++
+    "    return b\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-bytes-view-ret>" "Tests.QuintBytesRetBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  let some v := plan.views[0]? |
+    throw <| IO.userError "BytesRetBox must emit a view"
+  expect (v.resultKind == .aggregate 4)
+    s!"BytesRetBox view must be aggregate 4, got {repr v.resultKind}"
+  expect (v.leaves.size == 4) "BytesRetBox must carry four return leaves"
+  liftResult <| Targets.Quint.validatePlan plan
+  let files ← liftResult <| buildQuint compiled
+  let some qntFile := files.find? (·.path == "BytesRetBox.qnt") |
+    throw <| IO.userError "quint: missing BytesRetBox.qnt"
+  expect (qntFile.contents.contains "pure def pf_view_get: (int, int, int, int) =")
+    "BytesRetBox must emit a Quint 4-int view"
+  expect (!qntFile.contents.contains "List[")
+    "BytesRetBox must not invent a native Quint List"
+  let entrySrc :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BytesRetEntry where\n" ++
+    "  state b : Bytes 4\n" ++
+    "  init() do\n" ++
+    "    b[0] := 0\n" ++
+    "  entry peek() : Bytes 4 do\n" ++
+    "    return b\n"
+  let entryParsed ← liftResult (← session.selectProgramV1
+    entrySrc "<quint-bytes-entry-ret>" "Tests.QuintBytesRetEntry" none)
+  let entryCompiled ← liftResult <| Compiler.compileValidatedSourceV1 entryParsed
+  match planQuint entryCompiled with
+  | .error (.planInvariant .quint msg) =>
+      expect (msg.contains "Bytes return")
+        s!"entry Bytes must cite Bytes return, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
+  | .ok _ => throw <| IO.userError "entry Bytes return must fail closed at Quint plan"
+
 /-- OptViewRet: view-only Option UInt64 returns tag+payload as a Quint tuple. -/
 unsafe def testOptViewRet : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -2094,6 +2142,7 @@ unsafe def run : IO Unit := do
   testMaybeRetBox
   testPairRetEntry
   testArrViewRet
+  testBytesViewRet
   testOptViewRet
   testPointViewRet
   testMaybeViewRet
