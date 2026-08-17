@@ -56,7 +56,7 @@ inductive RExpr where
   | ite (cond t e : RExpr)
   | okUnit
   | okValue (value : RExpr)
-  /-- View-only flattened return: guest tuple of u64/i64 leaves. -/
+  /-- Flattened return: guest tuple of u64/i64 leaves. -/
   | tuple (elems : Array RExpr)
   deriving BEq, Inhabited, Repr
 
@@ -214,16 +214,28 @@ private def buildEntryFn (plan : Plan) (ent : PlanEntry) : CompileResult RustFn 
   if ent.terminalRevert then
     stmts := stmts.push .unreachableAfterRevert
   else
-    match ent.result? with
-    | none => stmts := stmts.push (.tail .okUnit)
-    | some e =>
+    match ent.resultKind, ent.result? with
+    | .unit, _ => stmts := stmts.push (.tail .okUnit)
+    | .aggregate n, _ => do
+        let src := if ent.leaves.isEmpty then
+          match ent.result? with | some e => #[e] | none => #[]
+        else ent.leaves
+        unless src.size == n do
+          planError
+            s!"OpenVM entry '{ent.name}' aggregate emit leaf count must be {n}"
+        let mut elems : Array RExpr := #[]
+        for e in src do
+          elems := elems.push (← lowerExprToRExpr plan ent.params e)
+        stmts := stmts.push (.tail (.okValue (.tuple elems)))
+    | _, some e =>
         let re ← lowerExprToRExpr plan ent.params e
         stmts := stmts.push (.tail (.okValue re))
+    | _, none => stmts := stmts.push (.tail .okUnit)
   pure {
     name := ent.name
     params := ent.params
     stateAccess := .refMut
-    retType := s!"Result<{resultRustType ent.resultKind}, u32>"
+    retType := s!"Result<{resultRustType ent.resultKind ent.leafIsInt}, u32>"
     stmts
   }
 
@@ -393,11 +405,11 @@ private def okOutcomeArm : ResultKind → String
 
 /-- Deterministic `main` body: read init params, construct state, read the
     first entry's params, dispatch it, and reveal a single `[u8; 32]` outcome
-    (`byte0`=1 ok/0 err, `bytes[1..9]`=LE value-or-errCode as u64). Plan
-    validation guarantees at least one entry, so `entryFn`/`resultKind` are
-    always available at this call site. -/
+    (`byte0`=1 ok/0 err; scalar value-or-errCode in `bytes[1..9]`; aggregate
+    leaves packed as consecutive LE u64 from byte 1). Plan validation
+    guarantees at least one entry, so `entryFn` is always available. -/
 private def renderMainBody (signed : Bool) (initFn entryFn : RustFn)
-    (resultKind : ResultKind) : Array String := Id.run do
+    (ent : PlanEntry) : Array String := Id.run do
   let mut lines : Array String := #[]
   for p in initFn.params do
     lines := lines.push (readParamStmt signed p)
@@ -405,14 +417,39 @@ private def renderMainBody (signed : Bool) (initFn entryFn : RustFn)
   for p in entryFn.params do
     lines := lines.push (readParamStmt signed p)
   let callArgs := callArgsList #["&mut state"] entryFn.params
-  lines := lines.push (indent 4 s!"let (ok, value): (u8, u64) = match {entryFn.name}({callArgs}) \{")
-  lines := lines.push (indent 8 s!"{okOutcomeArm resultKind},")
-  lines := lines.push (indent 8 "Err(code) => (0u8, code as u64),")
-  lines := lines.push (indent 4 "};")
-  lines := lines.push (indent 4 "let mut public_output = [0u8; 32];")
-  lines := lines.push (indent 4 "public_output[0] = ok;")
-  lines := lines.push (indent 4 "public_output[1..9].copy_from_slice(&value.to_le_bytes());")
-  lines := lines.push (indent 4 "openvm::io::reveal_bytes32(public_output);")
+  match ent.resultKind with
+  | .aggregate n =>
+      let binds :=
+        if n == 1 then "v0"
+        else "(" ++ String.intercalate ", " ((List.range n).map (fun i => s!"v{i}")) ++ ")"
+      lines := lines.push (indent 4 "let mut public_output = [0u8; 32];")
+      lines := lines.push (indent 4 s!"match {entryFn.name}({callArgs}) \{")
+      lines := lines.push (indent 8 s!"Ok({binds}) => \{")
+      lines := lines.push (indent 12 "public_output[0] = 1;")
+      for i in [0:n] do
+        let off := 1 + 8 * i
+        if off + 8 ≤ 32 then
+          let cast :=
+            if ent.leafIsInt[i]?.getD false then s!"(v{i} as u64)" else s!"v{i}"
+          lines := lines.push
+            (indent 12 s!"public_output[{off}..{off+8}].copy_from_slice(&{cast}.to_le_bytes());")
+      lines := lines.push (indent 8 "}")
+      lines := lines.push (indent 8 "Err(code) => {")
+      lines := lines.push (indent 12 "public_output[0] = 0;")
+      lines := lines.push
+        (indent 12 "public_output[1..9].copy_from_slice(&(code as u64).to_le_bytes());")
+      lines := lines.push (indent 8 "}")
+      lines := lines.push (indent 4 "};")
+      lines := lines.push (indent 4 "openvm::io::reveal_bytes32(public_output);")
+  | _ =>
+      lines := lines.push (indent 4 s!"let (ok, value): (u8, u64) = match {entryFn.name}({callArgs}) \{")
+      lines := lines.push (indent 8 s!"{okOutcomeArm ent.resultKind},")
+      lines := lines.push (indent 8 "Err(code) => (0u8, code as u64),")
+      lines := lines.push (indent 4 "};")
+      lines := lines.push (indent 4 "let mut public_output = [0u8; 32];")
+      lines := lines.push (indent 4 "public_output[0] = ok;")
+      lines := lines.push (indent 4 "public_output[1..9].copy_from_slice(&value.to_le_bytes());")
+      lines := lines.push (indent 4 "openvm::io::reveal_bytes32(public_output);")
   pure lines
 
 private def renderMainRs (ir : IR) : String := Id.run do
@@ -449,7 +486,7 @@ private def renderMainRs (ir : IR) : String := Id.run do
   lines := lines.push "fn main() {"
   match ir.entryFns[0]?, ir.sourcePlan.entries[0]? with
   | some entryFn, some planEntry =>
-      lines := lines ++ renderMainBody signed ir.initFn entryFn planEntry.resultKind
+      lines := lines ++ renderMainBody signed ir.initFn entryFn planEntry
   | _, _ =>
       match ir.viewFns[0]?, ir.sourcePlan.views[0]? with
       | some viewFn, some planView =>

@@ -889,8 +889,7 @@ unsafe def testArrayNonUInt64ElementFc : IO Unit := do
   | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
   | .ok _ => throw <| IO.userError "Array Bool element must fail closed at OpenVM plan"
 
-/-- Array return stays fail closed (state flatten only). -/
-unsafe def testArrayReturnFc : IO Unit := do
+unsafe def testArrRetBox : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
@@ -903,14 +902,20 @@ unsafe def testArrayReturnFc : IO Unit := do
     "  entry peek() : Array UInt64 2 do\n" ++
     "    return slots\n"
   let parsed ← liftResult (← session.selectProgramV1
-    source "<openvm-arr-ret>" "Tests.OpenVmArrRet" none)
+    source "<openvm-arr-ret>" "Tests.OpenVmArrRetBox" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
-  match planOpenVm compiled with
-  | .error (.planInvariant .openvm msg) =>
-      expect (msg.contains "Array return" || msg.contains "outside O0")
-        s!"Array return must cite Array return/O0, got: {msg}"
-  | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
-  | .ok _ => throw <| IO.userError "Array return must fail closed at OpenVM plan"
+  let plan ← liftResult <| planOpenVm compiled
+  let some e := plan.entries[0]? |
+    throw <| IO.userError "ArrRetBox must emit an entry"
+  expect (e.resultKind == .aggregate 2)
+    s!"ArrRetBox entry must be aggregate 2, got {repr e.resultKind}"
+  liftResult <| Targets.OpenVM.validatePlan plan
+  let files ← liftResult <| buildOpenVm compiled
+  expect (!files.isEmpty) "ArrRetBox must emit nonempty files"
+  let some mainRs := files.find? (·.path == "guest/src/main.rs") |
+    throw <| IO.userError "openvm: missing guest/src/main.rs"
+  expect (mainRs.contents.contains "Result<(u64, u64), u32>")
+    "ArrRetBox entry must return a guest u64 tuple Result"
 
 /-- signedNumeric Int64 programs cannot carry Array state. -/
 unsafe def testSignedNumericArrayFc : IO Unit := do
@@ -996,8 +1001,7 @@ unsafe def testOptionInt64ElementFc : IO Unit := do
   | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
   | .ok _ => throw <| IO.userError "Option Int64 payload must fail closed at OpenVM plan"
 
-/-- Option return stays fail closed (state flatten only). -/
-unsafe def testOptionReturnFc : IO Unit := do
+unsafe def testOptRetBox : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
@@ -1009,14 +1013,65 @@ unsafe def testOptionReturnFc : IO Unit := do
     "  entry peek() : Option UInt64 do\n" ++
     "    return o\n"
   let parsed ← liftResult (← session.selectProgramV1
-    source "<openvm-opt-ret>" "Tests.OpenVmOptRet" none)
+    source "<openvm-opt-ret>" "Tests.OpenVmOptRetBox" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
-  match planOpenVm compiled with
-  | .error (.planInvariant .openvm msg) =>
-      expect (msg.contains "Option return is outside O0")
-        s!"Option return must cite Option return is outside O0, got: {msg}"
-  | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
-  | .ok _ => throw <| IO.userError "Option return must fail closed at OpenVM plan"
+  let plan ← liftResult <| planOpenVm compiled
+  let some e := plan.entries[0]? |
+    throw <| IO.userError "OptRetBox must emit an entry"
+  expect (e.resultKind == .aggregate 2)
+    s!"OptRetBox entry must be aggregate 2, got {repr e.resultKind}"
+  liftResult <| Targets.OpenVM.validatePlan plan
+  let files ← liftResult <| buildOpenVm compiled
+  expect (!files.isEmpty) "OptRetBox must emit nonempty files"
+
+unsafe def testMaybeRetBox : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MaybeRetBox where\n" ++
+    "  enum Maybe where\n" ++
+    "    | None\n" ++
+    "    | Some(UInt64)\n" ++
+    "  state m : Maybe\n" ++
+    "  init() do\n" ++
+    "    m := Maybe.None()\n" ++
+    "  entry peek() : Maybe do\n" ++
+    "    return m\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<openvm-maybe-ret>" "Tests.OpenVmMaybeRetBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planOpenVm compiled
+  let some e := plan.entries[0]? |
+    throw <| IO.userError "MaybeRetBox must emit an entry"
+  expect (e.resultKind == .aggregate 2)
+    s!"MaybeRetBox entry must be aggregate 2, got {repr e.resultKind}"
+  liftResult <| Targets.OpenVM.validatePlan plan
+  let files ← liftResult <| buildOpenVm compiled
+  expect (!files.isEmpty) "MaybeRetBox must emit nonempty files"
+
+unsafe def testPairRetEntry : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PairRetEntry where\n" ++
+    "  struct Pair where\n" ++
+    "    a : UInt64\n" ++
+    "    b : UInt64\n" ++
+    "  entry makePair(x : UInt64, y : UInt64) : Pair do\n" ++
+    "    return Pair.new(x, y)\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<openvm-pair-ret-entry>" "Tests.OpenVmPairRetEntry" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planOpenVm compiled
+  let some e := plan.entries[0]? |
+    throw <| IO.userError "PairRetEntry must emit an entry"
+  expect (e.resultKind == .aggregate 2)
+    s!"PairRetEntry entry must be aggregate 2, got {repr e.resultKind}"
+  liftResult <| Targets.OpenVM.validatePlan plan
+  let files ← liftResult <| buildOpenVm compiled
+  expect (!files.isEmpty) "PairRetEntry must emit nonempty files"
 
 /-- signedNumeric Int64 programs cannot carry Option state. -/
 unsafe def testSignedNumericOptionFc : IO Unit := do
@@ -1318,7 +1373,8 @@ unsafe def testArrayInt64ReturnFc : IO Unit := do
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   match planOpenVm compiled with
   | .error (.planInvariant .openvm msg) =>
-      expect (msg.contains "Array return" || msg.contains "outside O0")
+      expect (msg.contains "Array return" || msg.contains "outside O0" ||
+          msg.contains "element must be UInt64")
         s!"Array Int64 return, got: {msg}"
   | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
   | .ok _ => throw <| IO.userError "Array Int64 return must fail closed"
@@ -1539,13 +1595,15 @@ unsafe def run : IO Unit := do
   testArrayN9FailClosed
   testArrayInt64N9FailClosed
   testArrayNonUInt64ElementFc
-  testArrayReturnFc
+  testArrRetBox
   testArrayInt64ReturnFc
   testSignedNumericArrayFc
   testOptBoxAdmit
   testOptInt64Flatten
   testOptionInt64ElementFc
-  testOptionReturnFc
+  testOptRetBox
+  testMaybeRetBox
+  testPairRetEntry
   testSignedNumericOptionFc
   testMapMiniFlatten
   testMapInt64Flatten
