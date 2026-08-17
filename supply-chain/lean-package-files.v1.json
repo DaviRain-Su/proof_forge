@@ -981,9 +981,9 @@
       "sha256": "8f63357410c1dcdab76d7f12a5d08ee7aba5bfcf2b593652b3d02eee041cc89d"
     },
     {
-      "bytes": 79705,
+      "bytes": 80434,
       "path": "ProofForgeV2/Targets/Icp/LowerSemanticV1.lean",
-      "sha256": "ac9544b03b9d0abdb0fd89448c08f1284ffec0b108b1605ed87902ddb2447b54"
+      "sha256": "bc70bf53d9784c18ac2437880bb26e118999ed3cc7c592c42661c2c16ff816d5"
     },
     {
       "bytes": 1533,
@@ -1136,9 +1136,9 @@
       "sha256": "901847b5c37db8ff4e165e688a763dd8b297a758f37ebeb9db9b9785393e02d0"
     },
     {
-      "bytes": 98229,
+      "bytes": 98937,
       "path": "ProofForgeV2/Targets/OpenVM/LowerSemanticV1.lean",
-      "sha256": "7662d2b3c5af7667adf5fe63b6da889370996f821987c2d19411c80a4e58d71a"
+      "sha256": "2e2b53b60140b8f4e9d682fdfe262773ddc2bc86c141ab434d25b3f5de244379"
     },
     {
       "bytes": 1658,
@@ -1211,9 +1211,9 @@
       "sha256": "08a21f926084e3ec75b8a26ef757e512117883fc362b9a7b4cd72631c00ac8a5"
     },
     {
-      "bytes": 113991,
+      "bytes": 114698,
       "path": "ProofForgeV2/Targets/Quint/LowerSemanticV1.lean",
-      "sha256": "ba008ddf5fd1eb6cbc1bc6fcfca5006a9956f9e0697741b49052803fbdb4f082"
+      "sha256": "3097411f01ac70623da46e61b307f895abb4041aada96a1f6aa95449556ffd82"
     },
     {
       "bytes": 1655,
@@ -1506,9 +1506,9 @@
       "sha256": "739b8b716dbdf79ee45c48077937f5f9bb31f7fafc5184d17efe7d16930b8197"
     },
     {
-      "bytes": 96409,
+      "bytes": 97118,
       "path": "ProofForgeV2/Targets/Soroban/LowerSemanticV1.lean",
-      "sha256": "5ab3bbe20ce89883aa4b93e23dfe0a29107e9b0c83441abd9c059b1225267314"
+      "sha256": "8403f84dc8900c93560a668b9fac6917d06ec85fbbd5bdc7f49a8b89e5fba903"
     },
     {
       "bytes": 1366,

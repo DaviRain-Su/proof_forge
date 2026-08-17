@@ -6492,9 +6492,9 @@ unsafe def runRemainingNeedles : IO Unit := do
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"BytesBox: {target} must materialize Bytes 4"
 
-  -- BytesRetBox: Bytes 4 view-return. NEAR/Psy/CW admit. EVM/Solana/Noir/
-  -- Aleo/TON named B-RET FC; Quint/Soroban/OpenVM/ICP stay container-state
-  -- pilot FC. Not opening Bytes return ABI. Files-nonempty or named needles.
+  -- BytesRetBox: Bytes 4 view-return. NEAR/Psy/CW + envelope-4 admit
+  -- (N UInt64 low-8 leaves / Candid positional tuple). EVM/Solana/Noir/
+  -- Aleo/TON named B-RET FC. Entry Bytes stays FC.
   let bytesRetBoxSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -6511,7 +6511,8 @@ unsafe def runRemainingNeedles : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"BytesRetBox select: {e.render}"
   let bytesRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 bytesRetV1
-  for target in [TargetId.near, TargetId.psy, TargetId.cosmwasm] do
+  for target in [TargetId.near, TargetId.psy, TargetId.cosmwasm,
+      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp] do
     let out ← liftResult <| materializeSelected target bytesRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"BytesRetBox: {target} must materialize Bytes 4 return"
@@ -6525,13 +6526,6 @@ unsafe def runRemainingNeedles : IO Unit := do
     bytesRetCompiled "aggregate return leaves must be UInt64/Int64"
   expectMaterializePlanInvariantV1 "BytesRetBox" TargetId.ton TargetKind.ton
     bytesRetCompiled "anonymous Bytes return is outside the Ton B-RET ABI"
-  for (target, kind) in #[
-      (TargetId.quint, TargetKind.quint),
-      (TargetId.soroban, TargetKind.soroban),
-      (TargetId.openvm, TargetKind.openvm),
-      (TargetId.icp, TargetKind.icp)] do
-    expectMaterializePlanInvariantV1 "BytesRetBox" target kind bytesRetCompiled
-      "anonymous Bytes is outside the current container-state pilot"
 
   -- N-A4: Option state Normalize-admitted. All twelve materializers
   -- admit Option UInt64 state (Enum-shaped 2-leaf / tag+payload layout):
