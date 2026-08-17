@@ -42,8 +42,11 @@ private partial def exprNodeCount : Expr → Nat
   | .literal _ | .param _ | .stateLoad _ | .unixTimeSeconds => 1
   | .checkedAdd lhs rhs | .checkedSub lhs rhs
   | .checkedMul lhs rhs | .checkedDiv lhs rhs | .checkedMod lhs rhs
-  | .compare _ lhs rhs =>
+  | .compare _ lhs rhs | .boolAnd lhs rhs | .boolOr lhs rhs =>
       1 + exprNodeCount lhs + exprNodeCount rhs
+  | .boolNot operand => 1 + exprNodeCount operand
+  | .ite cond t e =>
+      1 + exprNodeCount cond + exprNodeCount t + exprNodeCount e
 
 /-- Iterative, fuel-bounded expression validation over param/state references.
     Returns the remaining plan-wide node budget. -/
@@ -74,9 +77,15 @@ private def validateExpr
           planError s!"ICP plan {what} references unknown state field {fieldIndex}"
     | .checkedAdd lhs rhs | .checkedSub lhs rhs
     | .checkedMul lhs rhs | .checkedDiv lhs rhs | .checkedMod lhs rhs
-    | .compare _ lhs rhs =>
+    | .compare _ lhs rhs | .boolAnd lhs rhs | .boolOr lhs rhs =>
         stack := stack.push (rhs, depth + 1)
         stack := stack.push (lhs, depth + 1)
+    | .boolNot operand =>
+        stack := stack.push (operand, depth + 1)
+    | .ite cond t e =>
+        stack := stack.push (e, depth + 1)
+        stack := stack.push (t, depth + 1)
+        stack := stack.push (cond, depth + 1)
   unless exprNodeCount e ≤ maxExprNodes do
     planError s!"ICP plan {what} expression exceeds {maxExprNodes} nodes"
   pure remaining
@@ -92,9 +101,10 @@ private def validateParams (owner : String) (params : Array String) : CompileRes
       planError s!"ICP {owner} parameter '{p}' is duplicated"
     seen := seen.push p
 
-/-- Validate a Statement list: any number of leading `.store`, optionally
-    followed by a single terminal `.returnValue`/`.returnNone`, matching
-    `resultKind`. Every store must target a distinct field. -/
+/-- Validate a Statement list: leading `.assert` (Map cap-8 overflow) and
+    `.store`, optionally followed by a single terminal
+    `.returnValue`/`.returnNone`/`.returnAggregate`, matching `resultKind`.
+    Every store must target a distinct field. -/
 private def validateBody
     (owner : String) (mode : MethodMode) (resultKind : ResultKind)
     (allowStores : Bool) (paramCount stateCount remaining0 : Nat)
@@ -109,6 +119,9 @@ private def validateBody
     if sawTerminal then
       planError s!"ICP {owner} body has statements after its return"
     match stmt with
+    | .assert condition =>
+        remaining ←
+          validateExpr condition "assert condition" paramCount stateCount remaining
     | .store fieldIndex value =>
         unless allowStores do
           planError s!"ICP {owner} cannot write state"

@@ -7,7 +7,8 @@
   canister_init/canister_update/canister_query exports, Candid nat64 or
   int64 service), registry materialize dispatch, and explicit fail-closed
   boundaries (sync call, emit, schedule, nonempty invariant,
-  aggregates/mixed UInt64+Int64; Array UInt64 N∈1..8 flatten is admitted).
+  aggregates/mixed UInt64+Int64; Array UInt64 N∈1..8 flatten is admitted;
+  Map UInt64 UInt64 cap-8 flattens to 24 i64 globals, no Candid map).
   CAP-1a admits `context.unixTimeSeconds` as
   `ic0.time` ns÷10⁹ on init/update/query; other UInt64 ContextRead keys stay
   named fail-closed.
@@ -1184,6 +1185,82 @@ private unsafe def testPrincipalIdentityLeaves
     (planFromCompiledSemanticV1 compiledRet)
   IO.println "  ✓ Principal 9-leaf identity (nine i64 globals; no Candid principal)"
 
+/-- Dense Map UInt64 UInt64 flattens to 24 i64 globals (cap-8 × occ/key/val).
+    No Candid `vec`/`record`/`map`. Cap-8 overflow is a Plan assert. -/
+private unsafe def testMapMiniFlatten
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "MapMini" <|
+    "  state m : Map UInt64 UInt64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    m[k] := v\n" ++
+    "    return v\n"
+  let compiled ← compileSource session src "Examples.MapMini" "<icp-map-mini>"
+  let plan ← liftResult <| planIcp compiled
+  expect (!plan.signedNumeric) "MapMini stays unsigned"
+  expect (plan.states.size == 24)
+    s!"Map UInt64 cap-8 must flatten to 24 leaves, got {plan.states.size}"
+  expect (plan.states[0]!.name == "m_0" && plan.states[23]!.name == "m_23")
+    "Map flatten leaf names must be m_0..m_23"
+  let initStores := plan.initializer.body.filterMap (fun
+    | .store .. => some ()
+    | _ => none)
+  expect (initStores.size == 24) "MapMini init must store all 24 Map leaves"
+  expect (plan.entries.size == 1) "MapMini has one entry"
+  let put := plan.entries[0]!
+  let putStores := put.body.filterMap (fun
+    | .store .. => some ()
+    | _ => none)
+  let putAsserts := put.body.filterMap (fun
+    | .assert .. => some ()
+    | _ => none)
+  expect (putStores.size == 24) "MapMini put must store all 24 Map leaves"
+  expect (putAsserts.size ≥ 1) "MapMini put must check cap-8 overflow"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"MapMini plan must validate: {e.render}"
+  let files ← liftResult <| filesIcp compiled
+  let wat ← findFile files "MapMini.wat"
+  let did ← findFile files "MapMini.did"
+  expect (wat.contains "(global $g_state_0 (mut i64)") "wat global 0"
+  expect (wat.contains "(global $g_state_23 (mut i64)") "wat global 23"
+  expect (wat.contains "unreachable") "cap-8 assert must trap"
+  expect (!wat.contains "vec") "no Candid vec in wat"
+  expect (!wat.contains "record") "no Candid record in wat"
+  expect (!did.contains "vec") "no Candid vec in did"
+  expect (!did.contains "record") "no Candid record in did"
+  expect (!did.contains "map") "no Candid map in did"
+  expect (!did.contains "opt") "no Candid opt in did"
+  expect (did.contains "put : (nat64, nat64) -> (nat64);") "did put stays scalar"
+  IO.println "  ✓ Map UInt64 cap-8 flatten (24 i64 globals; no Candid map/vec)"
+
+/-- Map of Int64 stays fail closed. -/
+private unsafe def testMapInt64ElementFc
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "MapInt" <|
+    "  state m : Map UInt64 Int64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    return v\n"
+  let compiled ← compileSource session src "Examples.MapInt" "<icp-map-int>"
+  expectPlanErrorContaining "MapInt" "Map state admits only Map UInt64 UInt64"
+    (planIcp compiled)
+
+/-- Map entry return stays outside ICP-2 (24-tuple would be dishonest). -/
+private unsafe def testMapReturnFc
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "MapRet" <|
+    "  state m : Map UInt64 UInt64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry peek() : Map UInt64 UInt64 do\n" ++
+    "    return m\n"
+  let compiled ← compileSource session src "Examples.MapRet" "<icp-map-ret>"
+  expectPlanErrorContaining "MapRet" "Array/Map return"
+    (planIcp compiled)
+
 unsafe def run : IO Unit := do
   IO.println "IcpPlanV1"
   let session ← Tests.Language.ParserSession.shared
@@ -1226,6 +1303,9 @@ unsafe def run : IO Unit := do
   testCapabilityProductPath session
   testUnknownProfileFailClosed
   testPrincipalIdentityLeaves session
+  testMapMiniFlatten session
+  testMapInt64ElementFc session
+  testMapReturnFc session
   IO.println "IcpPlanV1: all checks passed"
 
 end Tests.Materialization.IcpPlanV1

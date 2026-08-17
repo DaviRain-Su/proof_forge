@@ -50,6 +50,11 @@ inductive Operation where
   | checkedDiv (destination lhs rhs : Nat)
   | checkedMod (destination lhs rhs : Nat)
   | compare (destination : Nat) (op : CompareOp) (lhs rhs : Nat)
+  | boolAnd (destination lhs rhs : Nat)
+  | boolOr (destination lhs rhs : Nat)
+  | boolNot (destination operand : Nat)
+  | ite (destination cond t e : Nat)
+  | assertTrue (condition : Nat)
   | storeState (fieldIndex value : Nat)
   deriving BEq, Inhabited, Repr
 
@@ -138,6 +143,40 @@ private partial def lowerExpr (next : Nat) : Expr → LoweredExpr
         value := r.next
         next := r.next + 1
       }
+  | .boolAnd lhs rhs =>
+      let l := lowerExpr next lhs
+      let r := lowerExpr l.next rhs
+      {
+        operations := l.operations ++ r.operations ++ #[.boolAnd r.next l.value r.value]
+        value := r.next
+        next := r.next + 1
+      }
+  | .boolOr lhs rhs =>
+      let l := lowerExpr next lhs
+      let r := lowerExpr l.next rhs
+      {
+        operations := l.operations ++ r.operations ++ #[.boolOr r.next l.value r.value]
+        value := r.next
+        next := r.next + 1
+      }
+  | .boolNot operand =>
+      let o := lowerExpr next operand
+      {
+        operations := o.operations ++ #[.boolNot o.next o.value]
+        value := o.next
+        next := o.next + 1
+      }
+  | .ite cond t e =>
+      let c := lowerExpr next cond
+      let tv := lowerExpr c.next t
+      let ev := lowerExpr tv.next e
+      {
+        operations :=
+          c.operations ++ tv.operations ++ ev.operations ++
+            #[.ite ev.next c.value tv.value ev.value]
+        value := ev.next
+        next := ev.next + 1
+      }
 
 private def lowerBody (paramCount : Nat) (body : Array Statement) :
     Array Operation × Option Nat × Array Nat × Nat := Id.run do
@@ -147,6 +186,10 @@ private def lowerBody (paramCount : Nat) (body : Array Statement) :
   let mut resultTemps : Array Nat := #[]
   for stmt in body do
     match stmt with
+    | .assert condition =>
+        let lv := lowerExpr next condition
+        ops := ops ++ lv.operations ++ #[.assertTrue lv.value]
+        next := lv.next
     | .store fieldIndex value =>
         let lv := lowerExpr next value
         ops := ops ++ lv.operations ++ #[.storeState fieldIndex lv.value]
@@ -352,6 +395,19 @@ private def renderOperation (signed : Bool) : Operation → String
         | .ge, true => "i64.ge_s"
         | .ge, false => "i64.ge_u"
       s!"    (local.set $t{destination} (i64.extend_i32_u ({insn} (local.get $t{lhs}) (local.get $t{rhs}))))\n"
+  | .boolAnd destination lhs rhs =>
+      s!"    (local.set $t{destination} (i64.and (local.get $t{lhs}) (local.get $t{rhs})))\n"
+  | .boolOr destination lhs rhs =>
+      s!"    (local.set $t{destination} (i64.or (local.get $t{lhs}) (local.get $t{rhs})))\n"
+  | .boolNot destination operand =>
+      s!"    (local.set $t{destination} (i64.extend_i32_u (i64.eqz (local.get $t{operand}))))\n"
+  | .ite destination cond t e =>
+      s!"    (local.set $t{destination}\n" ++
+      s!"      (if (result i64) (i32.eqz (i64.eqz (local.get $t{cond})))\n" ++
+      s!"        (then (local.get $t{t}))\n" ++
+      s!"        (else (local.get $t{e}))))\n"
+  | .assertTrue condition =>
+      s!"    (if (i64.eqz (local.get $t{condition})) (then unreachable))\n"
 
 private def renderLocals (tempCount : Nat) : String :=
   if tempCount == 0 then ""
