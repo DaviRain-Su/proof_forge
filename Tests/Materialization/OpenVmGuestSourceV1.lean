@@ -1493,6 +1493,50 @@ unsafe def testArrViewRet : IO Unit := do
   expect (mainRs.contents.contains "-> (u64, u64)")
     "ArrViewRet view must return a guest u64 tuple"
 
+unsafe def testBytesViewRet : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BytesRetBox where\n" ++
+    "  state b : Bytes 4\n" ++
+    "  init() do\n" ++
+    "    b[0] := 0\n" ++
+    "  view get() : Bytes 4 do\n" ++
+    "    return b\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<openvm-bytes-view-ret>" "Tests.OpenVmBytesRetBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planOpenVm compiled
+  let some v := plan.views[0]? |
+    throw <| IO.userError "BytesRetBox must emit a view"
+  expect (v.resultKind == .aggregate 4)
+    s!"BytesRetBox view must be aggregate 4, got {repr v.resultKind}"
+  liftResult <| Targets.OpenVM.validatePlan plan
+  let files ← liftResult <| buildOpenVm compiled
+  let some mainRs := files.find? (·.path == "guest/src/main.rs") |
+    throw <| IO.userError "openvm: missing guest/src/main.rs"
+  expect (mainRs.contents.contains "-> (u64, u64, u64, u64)")
+    "BytesRetBox view must return a guest 4-u64 tuple"
+  let entrySrc :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BytesRetEntry where\n" ++
+    "  state b : Bytes 4\n" ++
+    "  init() do\n" ++
+    "    b[0] := 0\n" ++
+    "  entry peek() : Bytes 4 do\n" ++
+    "    return b\n"
+  let entryParsed ← liftResult (← session.selectProgramV1
+    entrySrc "<openvm-bytes-entry-ret>" "Tests.OpenVmBytesRetEntry" none)
+  let entryCompiled ← liftResult <| Compiler.compileValidatedSourceV1 entryParsed
+  match planOpenVm entryCompiled with
+  | .error (.planInvariant .openvm msg) =>
+      expect (msg.contains "Bytes return")
+        s!"entry Bytes must cite Bytes return, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
+  | .ok _ => throw <| IO.userError "entry Bytes return must fail closed at OpenVM plan"
+
 unsafe def testOptViewRet : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -1613,6 +1657,7 @@ unsafe def run : IO Unit := do
   testPointBoxFlatten
   testMaybeMarkFlatten
   testArrViewRet
+  testBytesViewRet
   testOptViewRet
   testPointViewRet
   testMaybeViewRet
