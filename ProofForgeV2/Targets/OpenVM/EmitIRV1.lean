@@ -71,6 +71,9 @@ inductive RStmt where
   | unreachableAfterRevert
   /-- T9a: guest `if` / `else` with in-arm stores and returns. -/
   | ifThenElse (cond : RExpr) (thenBody elseBody : Array RStmt)
+  /-- T9c: counted guest loop; `iter >= max` returns Err. -/
+  | forLoop (varName : String) (initial cond update : RExpr)
+      (maxIterations : Nat) (body : Array RStmt)
   deriving BEq, Inhabited, Repr
 
 inductive StateAccess where
@@ -127,6 +130,8 @@ private partial def lowerExprToRExpr
   | .stateLoad fi => do
       let n ← stateFieldName plan fi
       pure (.name s!"state.{n}")
+  | .temp index =>
+      pure (.name s!"pf_t{index}")
   | .arith .add l r => do
       let rl ← lowerExprToRExpr plan params l
       let rr ← lowerExprToRExpr plan params r
@@ -227,6 +232,13 @@ private partial def emitPlanStatements
             defaultBody
         let sw ← emitPlanStatements plan params folded
         out := out ++ sw
+    | .forLoop varTemp initial condition update maxIterations body =>
+        let initE ← lowerExprToRExpr plan params initial
+        let condE ← lowerExprToRExpr plan params condition
+        let updE ← lowerExprToRExpr plan params update
+        let bodyStmts ← emitPlanStatements plan params body
+        out := out.push
+          (.forLoop s!"pf_t{varTemp}" initE condE updE maxIterations bodyStmts)
     | .returnValue e =>
         let re ← lowerExprToRExpr plan params e
         out := out.push (.tail (.okValue re))
@@ -405,6 +417,30 @@ private partial def renderStmtLines (signed : Bool) (level : Nat) :
         for stmt in elseBody do
           lines := lines ++ renderStmtLines signed (level + 4) stmt
         lines := lines.push (indent level "}")
+      lines
+  | .forLoop varName initial cond update maxIterations body => Id.run do
+      let ty := numericRustType signed
+      let iter := varName ++ "_iter"
+      let mut lines :=
+        #[indent level ("let mut " ++ varName ++ ": " ++ ty ++ " = " ++
+            renderRExpr signed initial ++ ";"),
+          indent level ("let mut " ++ iter ++ ": u64 = 0;"),
+          indent level "loop {"]
+      lines := lines.push
+        (indent (level + 4)
+          ("if " ++ iter ++ " >= " ++ toString maxIterations ++
+            "u64 { return Err(1u32); }"))
+      lines := lines.push
+        (indent (level + 4) ("if !(" ++ renderRExpr signed cond ++ ") { break; }"))
+      for stmt in body do
+        lines := lines ++ renderStmtLines signed (level + 4) stmt
+      lines := lines.push
+        (indent (level + 4) (varName ++ " = " ++ renderRExpr signed update ++ ";"))
+      lines := lines.push
+        (indent (level + 4)
+          (iter ++ " = " ++ iter ++
+            ".checked_add(1).ok_or(1u32)?;"))
+      lines := lines.push (indent level "}")
       lines
 
 private def paramsSig (signed : Bool) (fn : RustFn) : String :=

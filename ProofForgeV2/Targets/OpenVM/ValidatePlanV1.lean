@@ -68,6 +68,7 @@ private partial def inferExprType
       unless fieldIndex < stateCount do
         planError s!"OpenVM plan {what} references unknown state field {fieldIndex}"
       pure (numeric, remaining)
+  | .temp _ => pure (numeric, remaining)
   | .arith _ lhs rhs => do
       let (lhsTy, remaining) ←
         inferExprType lhs what paramCount stateCount remaining signed
@@ -138,7 +139,7 @@ private def validateExpr
     if depth > maxExprDepth then
       planError s!"OpenVM plan {what} expression exceeds depth limit"
     match current with
-    | .litU64 _ | .litBool _ | .param _ | .stateLoad _ => pure ()
+    | .litU64 _ | .litBool _ | .param _ | .stateLoad _ | .temp _ => pure ()
     | .arith _ lhs rhs =>
         stack := stack.push (rhs, depth + 1)
         stack := stack.push (lhs, depth + 1)
@@ -217,6 +218,19 @@ private partial def validateBodyStatements
         remaining ←
           validateBodyStatements owner resultKind paramCount stateCount remaining
             signed defaultBody
+    | .forLoop _ initial condition update _ body =>
+        remaining ←
+          validateExpr initial numeric "for initial" paramCount stateCount remaining
+            signed
+        remaining ←
+          validateExpr condition .bool "for condition" paramCount stateCount remaining
+            signed
+        remaining ←
+          validateExpr update numeric "for update" paramCount stateCount remaining
+            signed
+        remaining ←
+          validateBodyStatements owner resultKind paramCount stateCount remaining
+            signed body
     | .returnValue e =>
         unless resultKind == .uint64 || resultKind == .int64 || resultKind == .bool do
           planError s!"OpenVM {owner} Unit/aggregate result must not return a scalar"

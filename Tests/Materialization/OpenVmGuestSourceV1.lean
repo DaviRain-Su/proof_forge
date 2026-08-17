@@ -676,32 +676,51 @@ unsafe def testFailClosedBitNot : IO Unit := do
   | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
   | .ok _ => throw <| IO.userError "bitNot must fail closed at OpenVM plan"
 
-/-- Fail closed: multi-block if is outside O0 (single-block only). -/
-/-- T9a opens if-diamonds; switch/match still fail closed. -/
-unsafe def testFailClosedMultiblock : IO Unit := do
+unsafe def testLoopSum : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
     "program LoopSum where\n" ++
-    "  state acc : UInt64\n" ++
-    "  init() do\n" ++
-    "    acc := 0\n" ++
-    "  entry sum(n : UInt64, limit : UInt64) : UInt64 do\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry addUp(n : UInt64) : UInt64 do\n" ++
+    "    let limit : UInt64 := n + 4\n" ++
     "    for i in n ..< limit bounded 8 do\n" ++
-    "      acc := acc + i\n" ++
-    "    return acc\n"
+    "      count := count + i\n" ++
+    "    return count\n" ++
+    "  entry scan(n : UInt64) : UInt64 do\n" ++
+    "    for i in n ..< n bounded 2 do\n" ++
+    "      count := count + 1\n" ++
+    "    return count\n" ++
+    "  entry addUpTight(n : UInt64) : UInt64 do\n" ++
+    "    for i in n ..< n + 4 bounded 3 do\n" ++
+    "      count := count + i\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
   let parsed ← liftResult (← session.selectProgramV1
-    source "<openvm-loop>" "Tests.OpenVmLoop" none)
-  match Compiler.compileValidatedSourceV1 parsed with
-  | .error _ => pure ()
-  | .ok compiled =>
-      match planOpenVm compiled with
-      | .error (.planInvariant .openvm msg) =>
-          expect (msg.contains "one block" || msg.contains "multi-block")
-            s!"bounded-for must fail closed, got: {msg}"
-      | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
-      | .ok _ => throw <| IO.userError "bounded-for must fail closed at OpenVM plan"
+    source "<openvm-loop-sum>" "Tests.OpenVmLoopSum" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planOpenVm compiled
+  let some addUp := plan.entries.find? (·.name == "addUp") |
+    throw <| IO.userError "LoopSum: missing addUp"
+  let hasFor :=
+    addUp.body.any fun s =>
+      match s with
+      | .forLoop _ _ _ _ maxIt _ => maxIt == 8
+      | _ => false
+  expect hasFor "LoopSum addUp must lower bounded-for to forLoop max=8"
+  liftResult <| Targets.OpenVM.validatePlan plan
+  let files ← liftResult <| buildOpenVm compiled
+  let some rsFile := files.find? (·.path == "guest/src/main.rs") |
+    throw <| IO.userError "LoopSum: missing guest/src/main.rs"
+  expect (rsFile.contents.contains "loop {" &&
+      rsFile.contents.contains "return Err(1u32)" &&
+      !rsFile.contents.contains "while true")
+    "LoopSum guest must render a counted loop trap, not an unbounded while"
+  IO.println "  ✓ LoopSum bounded-for"
 
 unsafe def testBranchFlow : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -1742,7 +1761,7 @@ unsafe def run : IO Unit := do
   testMulDivModAdmit
   testSignedMulAdmit
   testFailClosedBitNot
-  testFailClosedMultiblock
+  testLoopSum
   testIfFlow
   testBranchFlow
   testMaybeMatch
