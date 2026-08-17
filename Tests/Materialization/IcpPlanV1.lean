@@ -1433,7 +1433,12 @@ private unsafe def testIfFlow
     "IfFlow WAT must render the then-arm checked add"
   expect (wat.contains "(global.set $g_state_0")
     "IfFlow WAT must store inside the if arms"
-  let branchSrc := wrapProgram "BranchFlow" <|
+  IO.println "  ✓ IfFlow if-diamond"
+
+/-- T9b: integer match (`apply`) plus Option tag match. -/
+private unsafe def testBranchFlow
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "BranchFlow" <|
     "  state count : UInt64\n\n" ++
     "  init(initial : UInt64) do\n" ++
     "    count := initial\n\n" ++
@@ -1454,11 +1459,60 @@ private unsafe def testIfFlow
     "    return count\n\n" ++
     "  view get() : UInt64 do\n" ++
     "    return count\n"
-  let branchCompiled ←
-    compileSource session branchSrc "Examples.BranchFlow" "<icp-branch-flow>"
-  expectPlanErrorContaining "BranchFlow" "exactly one block"
-    (planIcp branchCompiled)
-  IO.println "  ✓ IfFlow if-diamond; BranchFlow still exactly-one-block"
+  let compiled ← compileSource session src "Examples.BranchFlow" "<icp-branch-flow>"
+  let plan ← liftResult <| planIcp compiled
+  let bump ← findMethod plan "bump"
+  expect (bump.body == #[
+      .ifThenElse (.compare .gt (.stateLoad 0) (.literal 0))
+        #[.store 0 (.checkedAdd (.stateLoad 0) (.param 0))]
+        #[.store 0 (.param 0)],
+      .returnValue (.stateLoad 0)])
+    "BranchFlow bump must keep the T9a if-diamond"
+  let apply ← findMethod plan "apply"
+  let hasSwitch :=
+    apply.body.any fun s =>
+      match s with
+      | .switchOn _ cases _ =>
+          cases.any (fun (v, _) => v == 0) && cases.any (fun (v, _) => v == 1)
+      | _ => false
+  expect hasSwitch "BranchFlow apply must lower match to switchOn with cases 0 and 1"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"BranchFlow plan must validate: {e.render}"
+  let files ← liftResult <| filesIcp compiled
+  let wat ← findFile files "BranchFlow.wat"
+  expect (wat.contains "(if (i32.eqz (i64.eqz")
+    "BranchFlow WAT must render Wasm if for bump and/or switch"
+  IO.println "  ✓ BranchFlow if + integer match"
+
+private unsafe def testMaybeMatch
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "MaybeMatch" <|
+    "  state slot : Option UInt64\n\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n\n" ++
+    "  entry take() : UInt64 do\n" ++
+    "    match slot with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return 0\n"
+  let compiled ← compileSource session src "Examples.MaybeMatch" "<icp-maybe-match>"
+  let plan ← liftResult <| planIcp compiled
+  let take ← findMethod plan "take"
+  let hasSwitch :=
+    take.body.any fun s =>
+      match s with
+      | .switchOn _ cases _ =>
+          cases.any (fun (v, _) => v == 0) || cases.any (fun (v, _) => v == 1)
+      | _ => false
+  expect hasSwitch "MaybeMatch take must switch on the Option tag leaf"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"MaybeMatch plan must validate: {e.render}"
+  IO.println "  ✓ MaybeMatch Option tag switch"
 
 unsafe def run : IO Unit := do
   IO.println "IcpPlanV1"
@@ -1509,6 +1563,8 @@ unsafe def run : IO Unit := do
   testMapInt64ElementFc session
   testMapReturnFc session
   testIfFlow session
+  testBranchFlow session
+  testMaybeMatch session
   IO.println "IcpPlanV1: all checks passed"
 
 end Tests.Materialization.IcpPlanV1

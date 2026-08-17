@@ -292,6 +292,17 @@ private partial def lowerStmts (layout : ParamLayout) (next0 : Nat) (body : Arra
             if elseTemps.isEmpty then resultTemps else elseTemps
           else thenTemps
         next := next2
+    | .switchOn scrutinee cases defaultBody =>
+        let folded : Array Statement :=
+          cases.foldr
+            (fun (v, body) acc =>
+              #[.ifThenElse (.compare .eq scrutinee (.literal v)) body acc])
+            defaultBody
+        let (swOps, swRes, swTemps, next1) := lowerStmts next folded
+        ops := ops ++ swOps
+        result? := swRes <|> result?
+        resultTemps := if swTemps.isEmpty then resultTemps else swTemps
+        next := next1
     | .returnValue value =>
         let lv := lowerExpr layout next value
         ops := ops ++ lv.operations

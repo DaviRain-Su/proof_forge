@@ -135,8 +135,12 @@ inductive Statement where
   /-- Trap when the condition is 0. Used for Map cap-8 upsert overflow. -/
   | assert (condition : Expr)
   /-- T9a: two-way Bool branch. Arms flush their own stores; join continues
-      after this statement. `switchOn` / `forLoop` arrive in later T9 slices. -/
+      after this statement. -/
   | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
+  /-- T9b: integer/tag `Term.switch` with a required default. Cases are
+      `(scrutinee == value)` arms; `forLoop` arrives in T9c. -/
+  | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
+      (defaultBody : Array Statement)
   | returnValue (value : Expr)
   | returnNone
   /-- Flattened return (Candid positional tuple of i64 leaves). -/
@@ -1392,11 +1396,38 @@ private partial def lowerBlockInstructions
         planError "unsupported ICP semantic shape: op is outside the ICP-2 Counter/StateCell envelope"
   pure acc
 
-private def callableHasSwitch (callable : CallableV1) : Bool :=
-  callable.blocks.any fun b =>
-    match b.terminator with
-    | .switch .. => true
+private def decodeSwitchCaseValue
+    (types : IcpTypeClosureV1) (typeId : TypeIdV1) (bytes : ByteArray) :
+    CompileResult UInt64 := do
+  if isBoolType types typeId then
+    let b ← decodeBoolLiteralBit icpPlanErr "ICP" bytes
+    pure (if b then 1 else 0)
+  else if isUInt32Type types typeId then
+    decodeUInt32LiteralLe icpPlanErr "ICP" bytes
+  else if isUInt64Type types typeId || isInt64Type types typeId then
+    decodeUInt64LiteralLe icpPlanErr "ICP" bytes
+  else
+    planError
+      "unsupported ICP semantic shape: switch case type is outside UInt64/Int64/UInt32/Bool"
+
+private partial def regionHasReturn (body : Array Statement) : Bool :=
+  body.any fun s =>
+    match s with
+    | .returnValue _ | .returnAggregate _ | .returnNone => true
+    | .ifThenElse _ t e => regionHasReturn t || regionHasReturn e
+    | .switchOn _ cases d =>
+        cases.any (fun (_, b) => regionHasReturn b) || regionHasReturn d
     | _ => false
+
+private def returnStmts (ret? : Option LoweredValue) : CompileResult (Array Statement) := do
+  match ret? with
+  | none => pure #[.returnNone]
+  | some v =>
+      if !v.leaves.isEmpty then
+        pure #[.returnAggregate v.leaves]
+      else do
+        let e ← requireScalar v "return value"
+        pure #[.returnValue e]
 
 private inductive RegionCont where
   | join (blockId : Nat)
@@ -1419,10 +1450,10 @@ private def lookupReturn
       | some v => pure (some v)
       | none => planError "unsupported ICP semantic shape: return value undefined"
 
-/-- T9a region walker: straight ops, empty-arg `jump` → join, Bool `branch`
-    → `ifThenElse` then continue at the shared join. Rejects `switch` and
-    `loopBounds` (those stay on the historical single-block error so
-    BranchFlow / LoopSum needles do not flip). -/
+/-- T9a/T9b region walker: straight ops, empty-arg `jump` → join, Bool
+    `branch` → `ifThenElse`, `switch` → `switchOn` (default required).
+    `loopBounds` stay on the historical single-block error so LoopSum
+    needles do not flip. -/
 private partial def emitRegion
     (data : SemanticProgramDataV1) (types : IcpTypeClosureV1)
     (layout : StateLayout) (mode : MethodMode) (allowStateWrite : Bool)
@@ -1445,7 +1476,8 @@ private partial def emitRegion
       | .return_ value => do
           let (stmts, acc) := flushRegion layout acc
           let ret? ← lookupReturn acc value
-          pure (stmts, acc, ret?, .closed)
+          let retStmts ← returnStmts ret?
+          pure (stmts ++ retStmts, acc, ret?, .closed)
       | .jump target => do
           unless target.args.isEmpty do
             planError
@@ -1505,9 +1537,65 @@ private partial def emitRegion
                 pure
                   (preStmts ++ #[.ifThenElse cond thenStmts elseStmts] ++ rest,
                     acc3, thenRet <|> elseRet <|> restRet, restCont)
-      | .switch .. =>
-          planError
-            "unsupported ICP semantic shape: multi-block/branch/switch/trap terminators are outside ICP-2 (no control flow)"
+      | .switch scrutId cases defaultTarget => do
+          let some defaultT := defaultTarget |
+            planError
+              "unsupported ICP semantic shape: switch must carry a default target"
+          unless !cases.isEmpty do
+            planError "unsupported ICP semantic shape: switch cases must be nonempty"
+          let scrut ← match envLookup acc.env scrutId with
+            | some v => requireScalar v "switch scrutinee"
+            | none =>
+                planError "unsupported ICP semantic shape: switch scrutinee undefined"
+          unless defaultT.args.isEmpty do
+            planError
+              "unsupported ICP semantic shape: switch default args / block-param phi are outside ICP-2"
+          let (preStmts, acc) := flushRegion layout acc
+          let mut caseBodies : Array (UInt64 × Array Statement) := #[]
+          let mut accA := acc
+          let mut joinAcc : Option Nat := none
+          let mut retAcc : Option LoweredValue := none
+          for switchCase in cases do
+            unless switchCase.target.args.isEmpty do
+              planError
+                "unsupported ICP semantic shape: switch case args / block-param phi are outside ICP-2"
+            let caseValue ←
+              decodeSwitchCaseValue types switchCase.typeId switchCase.valueBytes
+            let (body, acc1, armRet, armCont) ←
+              emitRegion data types layout allowStateWrite signedNumeric
+                callable fuel' switchCase.target.blockId.toNat accA
+            caseBodies := caseBodies.push (caseValue, body)
+            accA := acc1
+            retAcc := retAcc <|> armRet
+            match armCont, joinAcc with
+            | .closed, _ => pure ()
+            | .join j, none => joinAcc := some j
+            | .join j, some j0 =>
+                unless j == j0 do
+                  planError
+                    "unsupported ICP semantic shape: switch arms converge on divergent joins"
+          let (defaultBody, acc2, defaultRet, defaultCont) ←
+            emitRegion data types layout allowStateWrite signedNumeric
+              callable fuel' defaultT.blockId.toNat accA
+          retAcc := retAcc <|> defaultRet
+          match defaultCont, joinAcc with
+          | .closed, _ => pure ()
+          | .join j, none => joinAcc := some j
+          | .join j, some j0 =>
+              unless j == j0 do
+                planError
+                  "unsupported ICP semantic shape: switch arms converge on divergent joins"
+          let switchStmt := Statement.switchOn scrut caseBodies defaultBody
+          match joinAcc with
+          | none =>
+              pure (preStmts.push switchStmt, acc2, retAcc, .closed)
+          | some j => do
+              let (rest, acc3, restRet, restCont) ←
+                emitRegion data types layout allowStateWrite signedNumeric
+                  callable fuel' j acc2
+              pure
+                (preStmts.push switchStmt ++ rest, acc3,
+                  retAcc <|> restRet, restCont)
       | .revert .. =>
           planError
             "unsupported ICP semantic shape: revert is outside the ICP-2 envelope (errors table must be empty)"
@@ -1639,20 +1727,17 @@ private def lowerCallableBody
         expr := rewriteReturnThroughOverlay layout acc.overlay v.expr
         leaves := v.leaves.map (rewriteReturnThroughOverlay layout acc.overlay) })
     pure (paramNames, paramKinds, stores, ret?)
-  else if callable.loopBounds.isEmpty && !callableHasSwitch callable then
+  else if callable.loopBounds.isEmpty then
     unless callable.entryBlock.toNat == 0 do
       planError "unsupported ICP semantic shape: entryBlock must be 0"
-    let (stmts, _acc, ret?, cont) ←
+    let (stmts, _acc, _ret?, cont) ←
       emitRegion data types layout mode allowStateWrite signedNumeric
         callable callable.blocks.size callable.entryBlock.toNat acc0
     unless cont == .closed do
       planError "unsupported ICP semantic shape: CFG walk ended without a return"
-    let emptyOv : StateOverlay := { entries := #[] }
-    let ret? := ret?.map (fun v =>
-      { v with
-        expr := rewriteReturnThroughOverlay layout emptyOv v.expr
-        leaves := v.leaves.map (rewriteReturnThroughOverlay layout emptyOv) })
-    pure (paramNames, paramKinds, stmts, ret?)
+    -- Returns are already in-region (T9b). Do not bubble a join ret? that
+    -- would append a second trailing return after a closed switch.
+    pure (paramNames, paramKinds, stmts, none)
   else
     planError
       "unsupported ICP semantic shape: each callable must have exactly one block (Counter/StateCell envelope has no control flow)"
@@ -1779,22 +1864,24 @@ private def makePlanFromSemanticDataV1
         let (params, paramKinds, stores, ret?) ←
           lowerCallableBody data types layout .mutate (allowStateWrite := true)
             (seedZeroState := false) signedNumeric s!"entry '{name}'" callable
-        let body ← match rk, ret? with
-          | .unit, none => pure stores
-          | .unit, some _ =>
+        let alreadyReturned := regionHasReturn stores
+        let body ← match rk, ret?, alreadyReturned with
+          | _, _, true => pure stores
+          | .unit, none, false => pure stores
+          | .unit, some _, false =>
               planError s!"entry '{name}' Unit result must not return a value"
-          | .uint64, some v | .int64, some v | .bool, some v => do
+          | .uint64, some v, false | .int64, some v, false | .bool, some v, false => do
               let e ← requireScalar v s!"entry '{name}' result"
               pure (stores.push (.returnValue e))
-          | .uint64, none | .int64, none | .bool, none =>
+          | .uint64, none, false | .int64, none, false | .bool, none, false =>
               planError s!"entry '{name}' non-Unit result is missing"
-          | .aggregate n, some tv => do
+          | .aggregate n, some tv, false => do
               unless (isArrayValue tv || isOptionValue tv || isNamedValue tv) &&
                   tv.leaves.size == n do
                 planError
                   s!"entry '{name}' aggregate return must flatten to exactly {n} leaves"
               pure (stores.push (.returnAggregate tv.leaves))
-          | .aggregate _, none =>
+          | .aggregate _, none, false =>
               planError s!"entry '{name}' aggregate return is missing"
         entries := entries.push {
           name, params, mode := .mutate, resultKind := rk, body, paramKinds

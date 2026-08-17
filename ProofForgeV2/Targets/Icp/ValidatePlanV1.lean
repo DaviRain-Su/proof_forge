@@ -132,6 +132,9 @@ private partial def stmtCount : Statement → Nat
   | .ifThenElse _ thenBody elseBody =>
       1 + (thenBody.map stmtCount).foldl (· + ·) 0 +
         (elseBody.map stmtCount).foldl (· + ·) 0
+  | .switchOn _ cases defaultBody =>
+      1 + (cases.map (fun (_, b) => (b.map stmtCount).foldl (· + ·) 0)).foldl (· + ·) 0 +
+        (defaultBody.map stmtCount).foldl (· + ·) 0
   | _ => 1
 
 /-- Validate a Statement list: `.assert` / `.store` / T9a `.ifThenElse`,
@@ -175,6 +178,18 @@ private partial def validateRegion
           validateRegion owner resultKind allowStores paramCount stateCount
             remaining elseBody
         remaining := r2
+    | .switchOn scrutinee cases defaultBody =>
+        remaining ←
+          validateExpr scrutinee "switch scrutinee" paramCount stateCount remaining
+        for (_, caseBody) in cases do
+          let (r, _) ←
+            validateRegion owner resultKind allowStores paramCount stateCount
+              remaining caseBody
+          remaining := r
+        let (rd, _) ←
+          validateRegion owner resultKind allowStores paramCount stateCount
+            remaining defaultBody
+        remaining := rd
     | .returnValue value =>
         sawTerminal := true
         sawTerminalValue := true
@@ -201,6 +216,15 @@ private partial def validateRegion
           planError s!"ICP {owner} non-Unit result must return a value"
   pure (remaining, sawTerminalValue)
 
+private partial def regionHasReturn (body : Array Statement) : Bool :=
+  body.any fun s =>
+    match s with
+    | .returnValue _ | .returnAggregate _ | .returnNone => true
+    | .ifThenElse _ t e => regionHasReturn t || regionHasReturn e
+    | .switchOn _ cases d =>
+        cases.any (fun (_, b) => regionHasReturn b) || regionHasReturn d
+    | _ => false
+
 private def validateBody
     (owner : String) (mode : MethodMode) (resultKind : ResultKind)
     (allowStores : Bool) (paramCount stateCount remaining0 : Nat)
@@ -208,9 +232,10 @@ private def validateBody
   let total := (body.map stmtCount).foldl (· + ·) 0
   unless total ≤ maxStores + 8 do
     planError s!"ICP {owner} body statement count exceeds limit"
-  let (remaining, sawTerminalValue) ←
+  let (remaining, _) ←
     validateRegion owner resultKind allowStores paramCount stateCount
       remaining0 body
+  let sawTerminalValue := regionHasReturn body
   match mode with
   | .initialize | .mutate =>
       match resultKind, sawTerminalValue with
