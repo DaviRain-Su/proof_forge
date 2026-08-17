@@ -748,7 +748,7 @@ private unsafe def testOptBoxFlatten
   expect (!did.contains "opt") "no Candid opt in did"
   IO.println "  ✓ Option UInt64 flatten (two i64 globals; no Candid opt)"
 
-private unsafe def testOptionReturnFailClosed
+unsafe def testOptionReturnFailClosed
     (session : Language.Loader.ParserSession) : IO Unit := do
   let src := wrapProgram "OptRetBox" <|
     "  state o : Option UInt64\n\n" ++
@@ -804,7 +804,7 @@ private unsafe def testArrayElementFailClosed
     (planFromCompiledSemanticV1 compiled)
   IO.println "  ✓ Array Int64 element fail closed"
 
-private unsafe def testArrayReturnFailClosed
+unsafe def testArrayReturnFailClosed
     (session : Language.Loader.ParserSession) : IO Unit := do
   let src := wrapProgram "ArrRet" <|
     "  state slots : Array UInt64 2\n\n" ++
@@ -945,6 +945,127 @@ private unsafe def testArrayInt64ReturnFailClosed
     (planFromCompiledSemanticV1 compiled)
   IO.println "  ✓ Array Int64 return fail closed"
 
+/-- T6: view-only Array UInt64 N return as Candid positional tuple. Entry stays FC. -/
+unsafe def testArrViewRet
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "ArrViewRet" <|
+    "  state slots : Array UInt64 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  view peek() : Array UInt64 2 do\n" ++
+    "    return slots\n"
+  let compiled ← compileSource session src "Examples.ArrViewRet" "<icp-arr-view-ret>"
+  let plan ← liftResult <| planIcp compiled
+  let some v := plan.views[0]? |
+    throw <| IO.userError "ArrViewRet must emit a view"
+  expect (v.resultKind == .aggregate 2)
+    s!"ArrViewRet view must be aggregate 2, got {repr v.resultKind}"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"ArrViewRet plan must validate: {e.render}"
+  let files ← liftResult <| filesIcp compiled
+  expect (!files.isEmpty) "ArrViewRet must emit nonempty files"
+  let did ← findFile files "ArrViewRet.did"
+  let wat ← findFile files "ArrViewRet.wat"
+  expect (did.contains "-> (nat64, nat64) query")
+    s!"ArrViewRet .did must be a positional nat64 tuple query, got:\n{did}"
+  expect (!wat.contains "(opt") "ArrViewRet wat must not emit Candid opt"
+  expect (!wat.contains "record") "ArrViewRet wat must not emit Candid record"
+  expect (!wat.contains "variant") "ArrViewRet wat must not emit Candid variant"
+  expect (!wat.contains "vec") "ArrViewRet wat must not emit Candid vec"
+  expect (!did.contains "record") "ArrViewRet .did must not emit Candid record"
+  expect (!did.contains "opt") "ArrViewRet .did must not emit Candid opt"
+  expect (!did.contains "vec") "ArrViewRet .did must not emit Candid vec"
+  expect (!did.contains "variant") "ArrViewRet .did must not emit Candid variant"
+  IO.println "  ✓ ArrViewRet view-only Candid positional tuple"
+
+/-- T6: view-only Option UInt64 return as Candid positional tuple. Entry stays FC. -/
+unsafe def testOptViewRet
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "OptViewRet" <|
+    "  state o : Option UInt64\n\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n\n" ++
+    "  view peek() : Option UInt64 do\n" ++
+    "    return o\n"
+  let compiled ← compileSource session src "Examples.OptViewRet" "<icp-opt-view-ret>"
+  let plan ← liftResult <| planIcp compiled
+  let some v := plan.views[0]? |
+    throw <| IO.userError "OptViewRet must emit a view"
+  expect (v.resultKind == .aggregate 2)
+    s!"OptViewRet view must be aggregate 2, got {repr v.resultKind}"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"OptViewRet plan must validate: {e.render}"
+  let files ← liftResult <| filesIcp compiled
+  expect (!files.isEmpty) "OptViewRet must emit nonempty files"
+  let did ← findFile files "OptViewRet.did"
+  expect (did.contains "-> (nat64, nat64) query")
+    s!"OptViewRet .did must be a positional nat64 tuple query, got:\n{did}"
+  expect (!did.contains "opt") "OptViewRet .did must not emit Candid opt"
+  IO.println "  ✓ OptViewRet view-only Candid positional tuple"
+
+/-- T6: view-only named Struct return as Candid positional tuple. Entry stays FC. -/
+unsafe def testPointViewRet
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "PointViewRet" <|
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  state p : Point\n\n" ++
+    "  init() do\n" ++
+    "    p := Point.new(0, 0)\n\n" ++
+    "  view getPoint() : Point do\n" ++
+    "    return p\n"
+  let compiled ← compileSource session src "Examples.PointViewRet" "<icp-point-view-ret>"
+  let plan ← liftResult <| planIcp compiled
+  let some v := plan.views[0]? |
+    throw <| IO.userError "PointViewRet must emit a view"
+  expect (v.resultKind == .aggregate 2)
+    s!"PointViewRet view must be aggregate 2, got {repr v.resultKind}"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"PointViewRet plan must validate: {e.render}"
+  let files ← liftResult <| filesIcp compiled
+  expect (!files.isEmpty) "PointViewRet must emit nonempty files"
+  let did ← findFile files "PointViewRet.did"
+  let wat ← findFile files "PointViewRet.wat"
+  expect (did.contains "-> (nat64, nat64) query")
+    s!"PointViewRet .did must be a positional nat64 tuple query, got:\n{did}"
+  expect (!did.contains "record") "PointViewRet .did must not emit Candid record"
+  expect (!wat.contains "record") "PointViewRet wat must not emit Candid record"
+  IO.println "  ✓ PointViewRet view-only Candid positional tuple"
+
+/-- T6: view-only named Enum return as Candid positional tuple. Entry stays FC. -/
+unsafe def testMaybeViewRet
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "MaybeViewRet" <|
+    "  enum Maybe where\n" ++
+    "    | None\n" ++
+    "    | Some(UInt64)\n" ++
+    "  state m : Maybe\n\n" ++
+    "  init() do\n" ++
+    "    m := Maybe.None()\n\n" ++
+    "  view peek() : Maybe do\n" ++
+    "    return m\n"
+  let compiled ← compileSource session src "Examples.MaybeViewRet" "<icp-maybe-view-ret>"
+  let plan ← liftResult <| planIcp compiled
+  let some v := plan.views[0]? |
+    throw <| IO.userError "MaybeViewRet must emit a view"
+  expect (v.resultKind == .aggregate 2)
+    s!"MaybeViewRet view must be aggregate 2, got {repr v.resultKind}"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"MaybeViewRet plan must validate: {e.render}"
+  let files ← liftResult <| filesIcp compiled
+  expect (!files.isEmpty) "MaybeViewRet must emit nonempty files"
+  let did ← findFile files "MaybeViewRet.did"
+  expect (did.contains "-> (nat64, nat64) query")
+    s!"MaybeViewRet .did must be a positional nat64 tuple query, got:\n{did}"
+  expect (!did.contains "variant") "MaybeViewRet .did must not emit Candid variant"
+  IO.println "  ✓ MaybeViewRet view-only Candid positional tuple"
+
 private unsafe def testPrincipalIdentityLeaves
     (session : Language.Loader.ParserSession) : IO Unit := do
   let src := wrapProgram "PrincipalMix" <|
@@ -1018,6 +1139,10 @@ unsafe def run : IO Unit := do
   testArrayElementFailClosed session
   testArrayReturnFailClosed session
   testArrayInt64ReturnFailClosed session
+  testArrViewRet session
+  testOptViewRet session
+  testPointViewRet session
+  testMaybeViewRet session
   testRegistryDispatch session
   testCapabilityProductPath session
   testUnknownProfileFailClosed

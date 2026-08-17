@@ -126,6 +126,19 @@ private def validateBody
           planError s!"ICP {owner} Unit result must not return a value"
         remaining ←
           validateExpr value "return value" paramCount stateCount remaining
+    | .returnAggregate leaves =>
+        sawTerminal := true
+        sawTerminalValue := true
+        match resultKind with
+        | .aggregate n =>
+            unless leaves.size == n && 1 ≤ n && n ≤ 8 do
+              planError
+                s!"ICP {owner} aggregate return must have exactly {n} leaves"
+            for e in leaves do
+              remaining ←
+                validateExpr e "aggregate return leaf" paramCount stateCount remaining
+        | _ =>
+            planError s!"ICP {owner} cannot return an aggregate"
     | .returnNone =>
         sawTerminal := true
         unless resultKind == .unit do
@@ -150,8 +163,8 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     planError "ICP plan exceeds the entry limit"
   unless plan.views.size ≤ maxMethods do
     planError "ICP plan exceeds the view limit"
-  unless plan.entries.size > 0 do
-    planError "ICP plan requires at least one entry"
+  unless plan.entries.size > 0 || plan.views.size > 0 do
+    planError "ICP plan requires at least one entry or view"
   let mut exprBudget := maxPlanExprNodes
   let mut stateNames : Array String := #[]
   for st in plan.states do
@@ -179,6 +192,10 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     methodNames := methodNames.push ent.name
     unless ent.mode == .mutate do
       planError s!"ICP entry '{ent.name}' must carry MethodMode.mutate"
+    match ent.resultKind with
+    | .aggregate _ =>
+        planError s!"ICP entry '{ent.name}' aggregate return is outside ICP-2"
+    | .unit | .uint64 | .int64 | .bool => pure ()
     validateParams s!"entry '{ent.name}'" ent.params
     exprBudget ←
       validateBody s!"entry '{ent.name}'" .mutate ent.resultKind (allowStores := true)
@@ -191,8 +208,9 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     methodNames := methodNames.push v.name
     unless v.mode == .query do
       planError s!"ICP view '{v.name}' must carry MethodMode.query"
-    unless v.resultKind == .uint64 || v.resultKind == .int64 || v.resultKind == .bool do
-      planError s!"ICP view '{v.name}' result must be UInt64, Int64, or Bool"
+    unless v.resultKind == .uint64 || v.resultKind == .int64 || v.resultKind == .bool ||
+        (match v.resultKind with | .aggregate n => 1 ≤ n && n ≤ 8 | _ => false) do
+      planError s!"ICP view '{v.name}' result must be UInt64, Int64, Bool, or a view-only aggregate"
     validateParams s!"view '{v.name}'" v.params
     exprBudget ←
       validateBody s!"view '{v.name}'" .query v.resultKind (allowStores := false)

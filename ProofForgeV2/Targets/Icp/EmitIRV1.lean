@@ -61,6 +61,8 @@ structure MethodIR where
   tempCount : Nat
   operations : Array Operation
   result? : Option Nat
+  /-- Aggregate view reply temps (Candid positional tuple). Empty for scalars. -/
+  resultTemps : Array Nat := #[]
   deriving BEq, Inhabited, Repr
 
 structure IR where
@@ -138,10 +140,11 @@ private partial def lowerExpr (next : Nat) : Expr → LoweredExpr
       }
 
 private def lowerBody (paramCount : Nat) (body : Array Statement) :
-    Array Operation × Option Nat × Nat := Id.run do
+    Array Operation × Option Nat × Array Nat × Nat := Id.run do
   let mut ops : Array Operation := #[]
   let mut next := paramCount
   let mut result? : Option Nat := none
+  let mut resultTemps : Array Nat := #[]
   for stmt in body do
     match stmt with
     | .store fieldIndex value =>
@@ -153,11 +156,18 @@ private def lowerBody (paramCount : Nat) (body : Array Statement) :
         ops := ops ++ lv.operations
         result? := some lv.value
         next := lv.next
+    | .returnAggregate leaves =>
+        for e in leaves do
+          let lv := lowerExpr next e
+          ops := ops ++ lv.operations
+          resultTemps := resultTemps.push lv.value
+          next := lv.next
+        result? := resultTemps[0]?
     | .returnNone => pure ()
-  pure (ops, result?, next)
+  pure (ops, result?, resultTemps, next)
 
 private def lowerMethod (m : Method) : MethodIR :=
-  let (ops, result?, tempCount) := lowerBody m.params.size m.body
+  let (ops, result?, resultTemps, tempCount) := lowerBody m.params.size m.body
   {
     name := m.name
     mode := m.mode
@@ -166,6 +176,7 @@ private def lowerMethod (m : Method) : MethodIR :=
     tempCount
     operations := ops
     result?
+    resultTemps
   }
 
 private def lower (plan : Plan) : CompileResult IR := do
@@ -379,16 +390,30 @@ private def renderArgDecodePrologue (signed : Bool) (paramCount : Nat) : String 
 /-- Encode the Candid reply ("DIDL" + empty type table + 0/1 integer result)
     and hand it to the host. -/
 private def renderReplyEpilogue
-    (signed : Bool) (resultKind : ResultKind) (result? : Option Nat) : String :=
+    (signed : Bool) (resultKind : ResultKind) (result? : Option Nat)
+    (resultTemps : Array Nat) : String :=
   Id.run do
   let mut out := ""
   out := out ++ s!"    (global.set $pf_reply_len (i32.const {replyBufOffset}))\n"
   out := out ++ "    (call $pf_write_didl)\n"
   out := out ++ "    (call $pf_leb_write (i64.const 0))\n"
-  match result? with
-  | none =>
+  match resultKind, resultTemps, result? with
+  | .aggregate n, temps, _ =>
+      if temps.size == n then
+        out := out ++ s!"    (call $pf_leb_write (i64.const {n}))\n"
+        let opcode := candidIntOpcode signed
+        for _ in [0:n] do
+          out := out ++ s!"    (call $pf_write_byte (i32.const {opcode}))\n"
+        for temp in temps do
+          out := out ++
+            s!"    (i64.store (global.get $pf_reply_len) (local.get $t{temp}))\n"
+          out := out ++
+            "    (global.set $pf_reply_len (i32.add (global.get $pf_reply_len) (i32.const 8)))\n"
+      else
+        out := out ++ "    (call $pf_leb_write (i64.const 0))\n"
+  | _, _, none =>
       out := out ++ "    (call $pf_leb_write (i64.const 0))\n"
-  | some temp =>
+  | _, _, some temp =>
       out := out ++ "    (call $pf_leb_write (i64.const 1))\n"
       if resultKind == .bool then
         out := out ++ s!"    (call $pf_write_byte (i32.const {candidBoolOpcode}))\n"
@@ -415,7 +440,7 @@ private def renderMethodFunc
     for op in m.operations do
       out := out ++ renderOperation signed op
     if emitReply then
-      out := out ++ renderReplyEpilogue signed m.resultKind m.result?
+      out := out ++ renderReplyEpilogue signed m.resultKind m.result? m.resultTemps
     out := out ++ "  )\n"
     pure out
 
@@ -501,12 +526,15 @@ private def renderCandidService (ir : IR) : String := Id.run do
       | .uint64 => "nat64"
       | .int64 => "int64"
       | .bool => "bool"
+      | .aggregate _ => ""
     out := out ++
       s!"  {ent.name} : ({intArgList signed ent.paramCount}) -> ({resultStr});\n"
   for v in ir.views do
     let viewRet := match v.resultKind with
       | .bool => "bool"
       | .int64 => "int64"
+      | .aggregate n =>
+          String.intercalate ", " (List.replicate n (candidIntName signed))
       | _ => candidIntName signed
     out := out ++
       s!"  {v.name} : ({intArgList signed v.paramCount}) -> ({viewRet}) query;\n"

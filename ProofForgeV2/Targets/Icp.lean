@@ -26,11 +26,13 @@ Candid `vec`); Option UInt64 2-leaf and named Struct/Enum flatten to extra
 i64 globals (no Candid `opt`/`record`/`variant`); Map stays fail closed;
 `init`/entry(mutate)/view;
 single-block callable bodies; checked `+`/`-`/`*`/`/`/`%` and comparisons
-(literal/param/stateLoad/store/return; Bool results). `Op.ContextRead`
-admits only `context.unixTimeSeconds`.
+(literal/param/stateLoad/store/return; Bool results). View-only Array
+UInt64 N / Option UInt64 / named Struct·Enum returns flatten to a Candid
+positional tuple `(nat64, …)` (consecutive LE i64 reply; no `record`/`opt`/`vec`).
+`Op.ContextRead` admits only `context.unixTimeSeconds`.
 Everything else — pureFn, invariants, events, errors, emit,
 sync call, schedule, residual ContextRead keys, `Op.Commit`, Map,
-Option/named/Principal return, Array return, Int8/16/32, UInt8/16/128/256,
+entry aggregate return, Principal/Bytes return, Int8/16/32, UInt8/16/128/256,
 Field — fails closed. ICP-1's async advertisement (`effect.asynchronous-workflow`)
 stays a resolver-level advertisement only; no ICP-2 Plan shape realizes
 it.

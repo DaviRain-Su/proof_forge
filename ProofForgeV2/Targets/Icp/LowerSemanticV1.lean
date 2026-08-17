@@ -104,6 +104,8 @@ inductive Statement where
   | store (fieldIndex : Nat) (value : Expr)
   | returnValue (value : Expr)
   | returnNone
+  /-- View-only flattened return (Candid positional tuple of i64 leaves). -/
+  | returnAggregate (leaves : Array Expr)
   deriving BEq, Inhabited, Repr
 
 /-- IC method dispatch mode: initializer runs once at canister install;
@@ -119,6 +121,9 @@ inductive ResultKind where
   | uint64
   | int64
   | bool
+  /-- View-only flattened return (1..8 UInt64/Int64 leaves). Entry stays
+      fail closed. Candid positional tuple, not record/opt/vec. -/
+  | aggregate (leafCount : Nat)
   deriving BEq, Inhabited, Repr
 
 structure StateField where
@@ -341,6 +346,89 @@ private def flattenNamedLeafSpecsV1
       | _ =>
           planError
             "unsupported ICP semantic shape: named type must be Struct or Enum"
+
+private def flattenNamedLeafIsIntV1
+    (typeDecls : Array TypeDeclV1) (types : IcpTypeClosureV1)
+    (typeId : TypeIdV1) : CompileResult (Array Bool) := do
+  if isUInt64Type types typeId then
+    return #[false]
+  if isInt64Type types typeId then
+    return #[true]
+  unless types.isNamedAggregate typeId do
+    planError
+      "unsupported ICP semantic shape: named aggregate leaf must be UInt64, Int64, or named Struct/Enum"
+  match typeDecls[typeId.toNat]? with
+  | none =>
+      planError
+        s!"unsupported ICP semantic shape: missing TypeDecl for aggregate {typeId}"
+  | some decl =>
+      match decl.shape with
+      | .struct fields => do
+          unless fields.size > 0 do
+            planError
+              "unsupported ICP semantic shape: named Struct requires at least one field"
+          let mut out : Array Bool := #[]
+          for f in fields do
+            unless isUInt64Type types f.typeId || isInt64Type types f.typeId do
+              planError
+                "unsupported ICP semantic shape: named Struct field must be UInt64 or Int64 (nested named stay fail closed)"
+            out := out.push (isInt64Type types f.typeId)
+          pure out
+      | .enum variants => do
+          unless variants.size > 0 do
+            planError
+              "unsupported ICP semantic shape: named Enum requires at least one variant"
+          let mut maxPay : Nat := 0
+          for v in variants do
+            unless v.payloadTypes.size ≤ 1 do
+              planError
+                "unsupported ICP semantic shape: named Enum variant admits at most one UInt64/Int64 payload"
+            for pt in v.payloadTypes do
+              unless isUInt64Type types pt || isInt64Type types pt do
+                planError
+                  "unsupported ICP semantic shape: named Enum payload must be UInt64 or Int64 (nested named stay fail closed)"
+            if v.payloadTypes.size > maxPay then maxPay := v.payloadTypes.size
+          let mut out : Array Bool := #[false]
+          for i in [0:maxPay] do
+            let mut seen : Option Bool := none
+            for v in variants do
+              match v.payloadTypes[i]? with
+              | none => pure ()
+              | some pt =>
+                  let isInt := isInt64Type types pt
+                  match seen with
+                  | none => seen := some isInt
+                  | some prev =>
+                      unless prev == isInt do
+                        planError
+                          "unsupported ICP semantic shape: named Enum payload slot mixes Int64 and UInt64"
+            out := out.push (seen.getD false)
+          pure out
+      | _ =>
+          planError
+            "unsupported ICP semantic shape: named type must be Struct or Enum"
+
+private def viewAggregateLeafIsIntV1
+    (typeDecls : Array TypeDeclV1) (types : IcpTypeClosureV1)
+    (typeId : TypeIdV1) : CompileResult (Option (Array Bool)) := do
+  if isAnonymousOptionTypeIdV1 typeDecls typeId then
+    requireOptionUInt64V1 typeDecls types typeId "view-return"
+    return some #[false, false]
+  if types.isNamedAggregate typeId then
+    let marks ← flattenNamedLeafIsIntV1 typeDecls types typeId
+    return some marks
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .array elTid len, name := none, .. } =>
+      unless isUInt64Type types elTid do
+        planError
+          "unsupported ICP semantic shape: Array view return element must be UInt64"
+      let n := len.toNat
+      unless 1 ≤ n && n ≤ 8 do
+        planError
+          s!"unsupported ICP semantic shape: Array UInt64 N view return must be 1..8 (got {n})"
+      return some (Array.replicate n false)
+  | _ =>
+      return none
 
 /-- Physical PlanState leaves after Array/Option/named flatten. `leavesOf[logicalId]`
     is the dense field-index list (`name`, `name_0`..`name_{N-1}`,
@@ -705,7 +793,7 @@ private partial def lowerInstructions
     (layout : StateLayout) (allowStateWrite : Bool) (signedNumeric : Bool)
     (callable : CallableV1)
     (acc0 : BodyAccum) :
-    CompileResult (BodyAccum × Option Expr) := do
+    CompileResult (BodyAccum × Option LoweredValue) := do
   unless callable.blocks.size == 1 do
     planError
       "unsupported ICP semantic shape: each callable must have exactly one block (Counter/StateCell envelope has no control flow)"
@@ -1068,8 +1156,7 @@ private partial def lowerInstructions
       | some vid =>
           match envLookup acc.env vid with
           | some v =>
-              let e ← requireScalar v "return value"
-              pure (acc, some e)
+              pure (acc, some v)
           | none => planError "unsupported ICP semantic shape: return value undefined"
   | .revert .. =>
       planError "unsupported ICP semantic shape: revert is outside the ICP-2 envelope (errors table must be empty)"
@@ -1123,7 +1210,7 @@ private def lowerCallableBody
     (layout : StateLayout) (allowStateWrite seedZeroState : Bool)
     (signedNumeric : Bool)
     (owner : String) (callable : CallableV1) :
-    CompileResult (Array String × Array Statement × Option Expr) := do
+    CompileResult (Array String × Array Statement × Option LoweredValue) := do
   let (env0, paramNames) ← seedParamEnv data.types types owner callable
   let mut overlay0 : StateOverlay := { entries := #[] }
   if seedZeroState then
@@ -1155,26 +1242,46 @@ private def lowerCallableBody
   let (acc, ret?) ←
     lowerInstructions data types layout allowStateWrite signedNumeric callable acc0
   let stores := overlayFinalStores layout acc.overlay
-  let ret? := ret?.map (rewriteReturnThroughOverlay layout acc.overlay)
+  let ret? := ret?.map (fun v =>
+    { v with
+      expr := rewriteReturnThroughOverlay layout acc.overlay v.expr
+      leaves := v.leaves.map (rewriteReturnThroughOverlay layout acc.overlay) })
   pure (paramNames, stores, ret?)
 
 private def resultKindOf
     (data : SemanticProgramDataV1) (types : IcpTypeClosureV1)
-    (typeId : TypeIdV1) (owner : String) :
+    (typeId : TypeIdV1) (owner : String) (allowViewAggregate : Bool) :
     CompileResult ResultKind := do
-  if isAnonymousOptionTypeIdV1 data.types typeId then
+  if isUnitType types typeId then pure .unit
+  else if isBoolType types typeId then pure .bool
+  else if isInt64Type types typeId then pure .int64
+  else if isUInt64Type types typeId then pure .uint64
+  else if isPrincipalType types typeId then
+    planError s!"{owner} Principal return is outside ICP-2"
+  else if allowViewAggregate then
+    match ← viewAggregateLeafIsIntV1 data.types types typeId with
+    | some marks => do
+        let n := marks.size
+        unless 1 ≤ n && n ≤ 8 do
+          planError
+            s!"{owner} aggregate return must have 1..8 leaves (got {n})"
+        pure (.aggregate n)
+    | none =>
+        if isAnonymousOptionTypeIdV1 data.types typeId then
+          planError s!"{owner} Option return is outside ICP-2"
+        else if types.isNamedAggregate typeId then
+          planError s!"{owner} named Struct/Enum return is outside ICP-2"
+        else if types.isContainer typeId then
+          planError
+            s!"{owner} Array return is outside ICP-2 (only Array UInt64 N state flattens; no Candid vec)"
+        else planError s!"{owner} result must be public Unit, UInt64, Int64, or Bool"
+  else if isAnonymousOptionTypeIdV1 data.types typeId then
     planError s!"{owner} Option return is outside ICP-2"
   else if types.isNamedAggregate typeId then
     planError s!"{owner} named Struct/Enum return is outside ICP-2"
   else if types.isContainer typeId then
     planError
       s!"{owner} Array return is outside ICP-2 (only Array UInt64 N state flattens; no Candid vec)"
-  else if isUnitType types typeId then pure .unit
-  else if isBoolType types typeId then pure .bool
-  else if isInt64Type types typeId then pure .int64
-  else if isUInt64Type types typeId then pure .uint64
-  else if isPrincipalType types typeId then
-    planError s!"{owner} Principal return is outside ICP-2"
   else planError s!"{owner} result must be public Unit, UInt64, Int64, or Bool"
 
 private def makePlanFromSemanticDataV1
@@ -1240,7 +1347,7 @@ private def makePlanFromSemanticDataV1
           | none => planError "unsupported ICP semantic shape: entry requires a name"
         unless isIdentifier name do
           planError s!"entry '{name}' is not a safe identifier"
-        let rk ← resultKindOf data types callable.result.typeId s!"entry '{name}'"
+        let rk ← resultKindOf data types callable.result.typeId s!"entry '{name}'" false
         unless rk == .unit || rk == .bool do
           signed? ←
             noteIntegerDomain types callable.result.typeId signed? s!"entry '{name}' result"
@@ -1256,10 +1363,13 @@ private def makePlanFromSemanticDataV1
           | .unit, none => pure stores
           | .unit, some _ =>
               planError s!"entry '{name}' Unit result must not return a value"
-          | .uint64, some e | .int64, some e | .bool, some e =>
+          | .uint64, some v | .int64, some v | .bool, some v => do
+              let e ← requireScalar v s!"entry '{name}' result"
               pure (stores.push (.returnValue e))
           | .uint64, none | .int64, none | .bool, none =>
               planError s!"entry '{name}' non-Unit result is missing"
+          | .aggregate _, _ =>
+              planError s!"entry '{name}' aggregate return is outside ICP-2"
         entries := entries.push {
           name, params, mode := .mutate, resultKind := rk, body
         }
@@ -1269,9 +1379,10 @@ private def makePlanFromSemanticDataV1
           | none => planError "unsupported ICP semantic shape: view requires a name"
         unless isIdentifier name do
           planError s!"view '{name}' is not a safe identifier"
-        let rk ← resultKindOf data types callable.result.typeId s!"view '{name}'"
-        unless rk == .uint64 || rk == .int64 || rk == .bool do
-          planError s!"view '{name}' result must be UInt64, Int64, or Bool (query methods must return a value)"
+        let rk ← resultKindOf data types callable.result.typeId s!"view '{name}'" true
+        unless rk == .uint64 || rk == .int64 || rk == .bool ||
+            (match rk with | .aggregate _ => true | _ => false) do
+          planError s!"view '{name}' result must be UInt64, Int64, Bool, or a view-only aggregate"
         unless rk == .bool do
           signed? ←
             noteIntegerDomain types callable.result.typeId signed? s!"view '{name}' result"
@@ -1285,17 +1396,29 @@ private def makePlanFromSemanticDataV1
             (seedZeroState := false) signedNumeric s!"view '{name}'" callable
         unless stores.isEmpty do
           planError s!"view '{name}' cannot write state"
-        let e ← match ret? with
-          | some e => pure e
+        let tv ← match ret? with
+          | some v => pure v
           | none => planError s!"view '{name}' must return a value"
+        let body ← match rk with
+          | .uint64 | .int64 | .bool => do
+              let e ← requireScalar tv s!"view '{name}' result"
+              pure #[.returnValue e]
+          | .aggregate n => do
+              unless (isArrayValue tv || isOptionValue tv || isNamedValue tv) &&
+                  tv.leaves.size == n do
+                planError
+                  s!"view '{name}' aggregate return must flatten to exactly {n} leaves"
+              pure #[.returnAggregate tv.leaves]
+          | .unit =>
+              planError s!"view '{name}' result must be UInt64, Int64, Bool, or a view-only aggregate"
         views := views.push {
-          name, params, mode := .query, resultKind := rk, body := #[.returnValue e]
+          name, params, mode := .query, resultKind := rk, body
         }
   let initializer ← match initializer? with
     | some m => pure m
     | none => planError "unsupported ICP semantic shape: ICP-2 requires exactly one initializer"
-  unless entries.size > 0 do
-    planError "unsupported ICP semantic shape: at least one entry is required"
+  unless entries.size > 0 || views.size > 0 do
+    planError "unsupported ICP semantic shape: at least one entry or view is required"
   pure {
     programName
     sourceHash
