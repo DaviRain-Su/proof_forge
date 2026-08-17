@@ -104,7 +104,7 @@ inductive Statement where
   | store (fieldIndex : Nat) (value : Expr)
   | returnValue (value : Expr)
   | returnNone
-  /-- View-only flattened return (Candid positional tuple of i64 leaves). -/
+  /-- Flattened return (Candid positional tuple of i64 leaves). -/
   | returnAggregate (leaves : Array Expr)
   deriving BEq, Inhabited, Repr
 
@@ -121,8 +121,8 @@ inductive ResultKind where
   | uint64
   | int64
   | bool
-  /-- View-only flattened return (1..8 UInt64/Int64 leaves). Entry stays
-      fail closed. Candid positional tuple, not record/opt/vec. -/
+  /-- Flattened return (1..8 UInt64/Int64 leaves). View and entry admit;
+      Candid positional tuple, not record/opt/vec. -/
   | aggregate (leafCount : Nat)
   deriving BEq, Inhabited, Repr
 
@@ -1347,8 +1347,9 @@ private def makePlanFromSemanticDataV1
           | none => planError "unsupported ICP semantic shape: entry requires a name"
         unless isIdentifier name do
           planError s!"entry '{name}' is not a safe identifier"
-        let rk ← resultKindOf data types callable.result.typeId s!"entry '{name}'" false
-        unless rk == .unit || rk == .bool do
+        let rk ← resultKindOf data types callable.result.typeId s!"entry '{name}'" true
+        unless rk == .unit || rk == .bool ||
+            (match rk with | .aggregate _ => true | _ => false) do
           signed? ←
             noteIntegerDomain types callable.result.typeId signed? s!"entry '{name}' result"
         unless callable.result.visibility == .public_ do
@@ -1368,8 +1369,14 @@ private def makePlanFromSemanticDataV1
               pure (stores.push (.returnValue e))
           | .uint64, none | .int64, none | .bool, none =>
               planError s!"entry '{name}' non-Unit result is missing"
-          | .aggregate _, _ =>
-              planError s!"entry '{name}' aggregate return is outside ICP-2"
+          | .aggregate n, some tv => do
+              unless (isArrayValue tv || isOptionValue tv || isNamedValue tv) &&
+                  tv.leaves.size == n do
+                planError
+                  s!"entry '{name}' aggregate return must flatten to exactly {n} leaves"
+              pure (stores.push (.returnAggregate tv.leaves))
+          | .aggregate _, none =>
+              planError s!"entry '{name}' aggregate return is missing"
         entries := entries.push {
           name, params, mode := .mutate, resultKind := rk, body
         }

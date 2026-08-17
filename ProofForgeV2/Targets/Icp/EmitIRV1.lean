@@ -61,7 +61,7 @@ structure MethodIR where
   tempCount : Nat
   operations : Array Operation
   result? : Option Nat
-  /-- Aggregate view reply temps (Candid positional tuple). Empty for scalars. -/
+  /-- Aggregate reply temps (Candid positional tuple). Empty for scalars. -/
   resultTemps : Array Nat := #[]
   deriving BEq, Inhabited, Repr
 
@@ -526,7 +526,8 @@ private def renderCandidService (ir : IR) : String := Id.run do
       | .uint64 => "nat64"
       | .int64 => "int64"
       | .bool => "bool"
-      | .aggregate _ => ""
+      | .aggregate n =>
+          String.intercalate ", " (List.replicate n (candidIntName signed))
     out := out ++
       s!"  {ent.name} : ({intArgList signed ent.paramCount}) -> ({resultStr});\n"
   for v in ir.views do

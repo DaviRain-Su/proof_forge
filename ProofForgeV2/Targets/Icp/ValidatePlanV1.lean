@@ -146,7 +146,7 @@ private def validateBody
   match mode with
   | .initialize | .mutate =>
       match resultKind, sawTerminalValue with
-      | .uint64, false | .int64, false | .bool, false =>
+      | .uint64, false | .int64, false | .bool, false | .aggregate _, false =>
           planError s!"ICP {owner} non-Unit result is missing its return statement"
       | _, _ => pure ()
   | .query =>
@@ -193,8 +193,9 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     unless ent.mode == .mutate do
       planError s!"ICP entry '{ent.name}' must carry MethodMode.mutate"
     match ent.resultKind with
-    | .aggregate _ =>
-        planError s!"ICP entry '{ent.name}' aggregate return is outside ICP-2"
+    | .aggregate n =>
+        unless 1 ≤ n && n ≤ 8 do
+          planError s!"ICP entry '{ent.name}' aggregate return must have 1..8 leaves"
     | .unit | .uint64 | .int64 | .bool => pure ()
     validateParams s!"entry '{ent.name}'" ent.params
     exprBudget ←

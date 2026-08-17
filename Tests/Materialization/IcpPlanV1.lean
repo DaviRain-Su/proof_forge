@@ -748,7 +748,7 @@ private unsafe def testOptBoxFlatten
   expect (!did.contains "opt") "no Candid opt in did"
   IO.println "  ✓ Option UInt64 flatten (two i64 globals; no Candid opt)"
 
-unsafe def testOptionReturnFailClosed
+unsafe def testOptRetBox
     (session : Language.Loader.ParserSession) : IO Unit := do
   let src := wrapProgram "OptRetBox" <|
     "  state o : Option UInt64\n\n" ++
@@ -757,9 +757,22 @@ unsafe def testOptionReturnFailClosed
     "  entry peek() : Option UInt64 do\n" ++
     "    return o\n"
   let compiled ← compileSource session src "Examples.OptRetBox" "<icp-opt-ret>"
-  expectPlanErrorContaining "Option return" "Option return is outside ICP-2"
-    (planFromCompiledSemanticV1 compiled)
-  IO.println "  ✓ Option return fail closed"
+  let plan ← liftResult <| planFromCompiledSemanticV1 compiled
+  let some e := plan.entries[0]? |
+    throw <| IO.userError "OptRetBox must emit an entry"
+  expect (e.resultKind == .aggregate 2)
+    s!"OptRetBox entry must be aggregate 2, got {repr e.resultKind}"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error err => throw <| IO.userError s!"OptRetBox plan must validate: {err.render}"
+  let files ← liftResult <| buildFromCompiledSemanticV1 compiled
+  expect (!files.isEmpty) "OptRetBox must emit nonempty files"
+  let did ← findFile files "OptRetBox.did"
+  expect (did.contains "-> (nat64, nat64);")
+    s!"OptRetBox .did must be a positional nat64 tuple update, got:\n{did}"
+  expect (!did.contains "query") "OptRetBox entry must not be a Candid query"
+  expect (!did.contains "opt") "OptRetBox .did must not emit Candid opt"
+  IO.println "  ✓ OptRetBox entry Candid positional tuple"
 
 private unsafe def testOptionInt64PayloadFailClosed
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -804,19 +817,83 @@ private unsafe def testArrayElementFailClosed
     (planFromCompiledSemanticV1 compiled)
   IO.println "  ✓ Array Int64 element fail closed"
 
-unsafe def testArrayReturnFailClosed
+unsafe def testArrRetBox
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let src := wrapProgram "ArrRet" <|
+  let src := wrapProgram "ArrRetBox" <|
     "  state slots : Array UInt64 2\n\n" ++
     "  init() do\n" ++
     "    slots[0] := 0\n" ++
     "    slots[1] := 0\n\n" ++
     "  entry peek() : Array UInt64 2 do\n" ++
     "    return slots\n"
-  let compiled ← compileSource session src "Examples.ArrRet" "<icp-arr-ret>"
-  expectPlanErrorContaining "Array return" "Array return is outside ICP-2"
-    (planFromCompiledSemanticV1 compiled)
-  IO.println "  ✓ Array return fail closed"
+  let compiled ← compileSource session src "Examples.ArrRetBox" "<icp-arr-ret>"
+  let plan ← liftResult <| planFromCompiledSemanticV1 compiled
+  let some e := plan.entries[0]? |
+    throw <| IO.userError "ArrRetBox must emit an entry"
+  expect (e.resultKind == .aggregate 2)
+    s!"ArrRetBox entry must be aggregate 2, got {repr e.resultKind}"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error err => throw <| IO.userError s!"ArrRetBox plan must validate: {err.render}"
+  let files ← liftResult <| buildFromCompiledSemanticV1 compiled
+  expect (!files.isEmpty) "ArrRetBox must emit nonempty files"
+  let did ← findFile files "ArrRetBox.did"
+  let wat ← findFile files "ArrRetBox.wat"
+  expect (did.contains "-> (nat64, nat64);")
+    s!"ArrRetBox .did must be a positional nat64 tuple update, got:\n{did}"
+  expect (!did.contains "query") "ArrRetBox entry must not be a Candid query"
+  expect (!wat.contains "record") "ArrRetBox wat must not emit Candid record"
+  expect (!did.contains "record") "ArrRetBox .did must not emit Candid record"
+  expect (!did.contains "vec") "ArrRetBox .did must not emit Candid vec"
+  IO.println "  ✓ ArrRetBox entry Candid positional tuple"
+
+unsafe def testMaybeRetBox
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "MaybeRetBox" <|
+    "  enum Maybe where\n" ++
+    "    | None\n" ++
+    "    | Some(UInt64)\n" ++
+    "  state m : Maybe\n\n" ++
+    "  init() do\n" ++
+    "    m := Maybe.None()\n\n" ++
+    "  entry peek() : Maybe do\n" ++
+    "    return m\n"
+  let compiled ← compileSource session src "Examples.MaybeRetBox" "<icp-maybe-ret>"
+  let plan ← liftResult <| planFromCompiledSemanticV1 compiled
+  let some e := plan.entries[0]? |
+    throw <| IO.userError "MaybeRetBox must emit an entry"
+  expect (e.resultKind == .aggregate 2)
+    s!"MaybeRetBox entry must be aggregate 2, got {repr e.resultKind}"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error err => throw <| IO.userError s!"MaybeRetBox plan must validate: {err.render}"
+  let files ← liftResult <| buildFromCompiledSemanticV1 compiled
+  expect (!files.isEmpty) "MaybeRetBox must emit nonempty files"
+  IO.println "  ✓ MaybeRetBox entry Candid positional tuple"
+
+unsafe def testPairRetEntry
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "PairRetEntry" <|
+    "  struct Pair where\n" ++
+    "    a : UInt64\n" ++
+    "    b : UInt64\n" ++
+    "  state unused : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    unused := 0\n\n" ++
+    "  entry makePair(x : UInt64, y : UInt64) : Pair do\n" ++
+    "    return Pair.new(x, y)\n"
+  let compiled ← compileSource session src "Examples.PairRetEntry" "<icp-pair-ret-entry>"
+  let plan ← liftResult <| planFromCompiledSemanticV1 compiled
+  let some e := plan.entries[0]? |
+    throw <| IO.userError "PairRetEntry must emit an entry"
+  expect (e.resultKind == .aggregate 2)
+    s!"PairRetEntry entry must be aggregate 2, got {repr e.resultKind}"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error err => throw <| IO.userError s!"PairRetEntry plan must validate: {err.render}"
+  let files ← liftResult <| buildFromCompiledSemanticV1 compiled
+  expect (!files.isEmpty) "PairRetEntry must emit nonempty files"
+  IO.println "  ✓ PairRetEntry entry Candid positional tuple"
 
 private unsafe def testRegistryDispatch
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -941,7 +1018,7 @@ private unsafe def testArrayInt64ReturnFailClosed
     "  entry peek(v : Int64) : Array Int64 2 do\n" ++
     "    return slots\n"
   let compiled ← compileSource session src "Examples.ArrInt64Ret" "<icp-arr-int64-ret>"
-  expectPlanErrorContaining "Array Int64 return" "Array return is outside ICP-2"
+  expectPlanErrorContaining "Array Int64 return" "element must be UInt64"
     (planFromCompiledSemanticV1 compiled)
   IO.println "  ✓ Array Int64 return fail closed"
 
@@ -1131,13 +1208,15 @@ unsafe def run : IO Unit := do
   testArraySlotsFlatten session
   testBytesBoxFlatten session
   testOptBoxFlatten session
-  testOptionReturnFailClosed session
+  testOptRetBox session
+  testMaybeRetBox session
+  testPairRetEntry session
   testOptionInt64PayloadFailClosed session
   testArrInt64Flatten session
   testArrayN9FailClosed session
   testArrayInt64N9FailClosed session
   testArrayElementFailClosed session
-  testArrayReturnFailClosed session
+  testArrRetBox session
   testArrayInt64ReturnFailClosed session
   testArrViewRet session
   testOptViewRet session
