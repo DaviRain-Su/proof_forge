@@ -11,7 +11,8 @@ normative: false
 
 > Engineering inventory only. Does **not** close `TASK-D2-06`, `TST-SEM-001`,
 > `TST-PROOF-001`, or any EV/qualification object. Does **not** invent a new
-> `TASK-*`. Does **not** install a TypeKey usage or rank structure gate.
+> `TASK-*`. Rank + usage-closure StructureV1 wiring are **engineering-only**
+> (Stage A–D); they do not create EV or formal closeout.
 
 Authority: [`04-task-breakdown.md`](../04-task-breakdown.md) `TASK-D2-06` →
 [`05-test-spec.md`](../05-test-spec.md) `TST-SEM-001` ·
@@ -45,9 +46,9 @@ structure-gated encode.
 | `recursiveAnonymous` | Anonymous Array/Map/Option structural-class uniqueness via fixed-size signatures (not nested child keys). Anonymous-only cycles `.nonCanonical`. | `testRecursiveAnonymousTypeKeyUniqueness` |
 | `namedBodyCycle` | After removing Option nodes/edges, the induced graph is acyclic. Combined with `recursiveAnonymous`, an accepted cycle has a named key **and** an Option. | `testNamedBodyOptionCycleLegality` |
 
-`TypeKeyV1` comments already state the remainder: SPEC canonical anonymous
-sort/rank bytes and usage closure remain deferred. The recursive signature
-builder is **not** the SPEC `typeKey` ranking form.
+`anonymousRank` and `usageClosure` are now StructureV1 phases (engineering).
+The recursive signature builder remains **not** a substitute for claiming
+formal SPEC rank reconstruction / EV closeout.
 
 Earlier than TypeKey: table id==index, shallow TypeId range
 (`checkTypeShapeRefs` / `checkTypeIdInRange` on constants, state, events,
@@ -68,8 +69,8 @@ SPEC cite for all three: [`semantic-program-wire.md`](../specs/semantic-program-
 | | |
 |---|---|
 | SPEC | Step 5: decoder rebuilds the same closure/key order from the named prefix, all type usage, and anonymous declarations. An anonymous declaration that is not reached from a named body, Core slot, or another required anonymous type is `nonCanonical`. |
-| Code | No usage walk. A TypeDecl may sit in `types` with zero Core / child references. `entryGateCallable` only forces `result.typeId = 0`. |
-| Fixture risk | **Would mass-break hand-built Wire tables.** `cfgOpTypes` is an 8-row shared fixture (named Struct/Enum + Bool / UInt8 / UInt32 / Option / Map / Bytes). Most CFG/op suites only touch Bool and UInt8; UInt32, Option, Map, Bytes, and the named Enum are frequently unreferenced. Fat tables in `testCfgExternalCallArgSerializability` and similar are the same pattern. Sem001 goes through Normalize (tight). Sem002 `ctx/core-type` keeps Bool + UInt64 even when only UInt64 is read. Sem003 trap fixtures are already tight (Unit-only). **Do not install this as a structure gate.** |
+| Code | **Engineering Stage D done:** `validateAnonymousTypeUsageClosureV1` runs after `anonymousRank` inside StructureV1. Unused anonymous → `.nonCanonical` (`usageClosure` phase). |
+| Fixture risk | Mitigated: `programWithTypes` / builders compact unused anonymous rows; shape positives Core-anchor via `logicalState`; Normalize no longer force-interns unused UInt64 envelope. **Still not** formal TASK-D2-06 / TST-SEM-001. |
 
 ### Missing referenced type (if not already shallow-ref)
 
@@ -89,24 +90,22 @@ SPEC cite for all three: [`semantic-program-wire.md`](../specs/semantic-program-
 
 ## Recommended next implementable engineering slice
 
-**One slice:** pin the SPEC `typeKey` **byte form** as an isolated encoder +
-WireV1 unit tests. Do **not** feed it into `validateSemanticProgramStructureV1`.
-Do **not** reject unused rows. Do **not** reorder or rank-check `types`.
-**Pinned 2026-08-14** (`encodeTypeKeyBytesForTestV1`; structure gate unchanged).
+**Stage D (done 2026-08-17):** SPEC §5 **usage closure** is wired into
+`validateSemanticProgramStructureV1` after `anonymousRank` via
+`validateTypeKeyPhasesWithUsageClosureV1`. Unused anonymous TypeDecls fail
+`.nonCanonical` at phase `usageClosure`. Fat fixtures compact or Core-anchor;
+Normalize no longer force-interns unused UInt64 envelope types (StructureV1
+rejects any residual unused anonymous). SimpleClosure is Bool-only. Still
+**not** formal TASK-D2-06 / TST-SEM-001.
 
-| | |
-|---|---|
-| Why this one | It is the missing SPEC artifact (`## 5` byte-form block) that later rank/usage work must consume. It does not change acceptance, so `cfgOpTypes`, Sem001/002/003, and entry-gate fat tables stay legal. |
-| Why not usage/rank gates | **Superseded 2026-08-17:** owner accepted staged cutover. Normalize emits SPEC anonymous rank (Stage A); production subjects + `cfgOpTypes` migrated (Stage B); structure gate now includes `anonymousRank` (Stage C). Usage-closure validator exists but StructureV1 wiring waits on unused-row fixture purge. |
-| Allowlist | `ProofForgeV2/Semantic/Wire/TypeKeyV1.lean` (SPEC `typeKey` encoder + `validateAnonymousTypeKeyRankV1` / `validateAnonymousTypeUsageClosureV1`). `Tests/Semantic/WireV1.lean` (`cfgOpTypes` SPEC order). SBOM refresh if `ProofForgeV2/**` changes. |
-| Why safe | Rank gate matches Normalize emit. Formal TASK/TST stay pending. |
+**Next engineering (outside this TypeKey plan):** `B-CALL-SEM` decision pack
+(human) or `CAP-X-BYTES` shared-core cutover — not formal TASK closeout.
 
-**2026-08-17 update:** product decision authorized structure **rank**. Usage
-rejection remains a follow-on after tight fixtures. This inventory no longer
-blocks the rank gate.
+**History:** byte-form pin 2026-08-14; Stage A/B/C rank cutover 2026-08-17;
+Stage D usage-closure StructureV1 wiring 2026-08-17.
 
 ## Non-claims
 
-No formal TASK/TST status change. Rank structure gate is engineering-only.
-Usage-closure StructureV1 wiring still open. No Anvil lossless. No second
-Semantic serializer. No accepted-PRD expansion. No EV / `TASK-D1-01` ceremony.
+No formal TASK/TST status change. Usage-closure StructureV1 wiring is
+engineering-only. No Anvil lossless. No second Semantic serializer. No
+accepted-PRD expansion. No EV / `TASK-D1-01` ceremony.

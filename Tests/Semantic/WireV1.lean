@@ -956,6 +956,23 @@ private def entryGateCallable (id : CallableIdV1) : CallableV1 :=
     invariantSteps := none
   }
 
+/-- Core-anchor TypeIds via logicalState rows (type slot only; no valueBytes).
+    Hand-built structure positives that retain multiple anonymous shapes use
+    this instead of inventing fake op use edges. -/
+private def anchorTypesViaLogicalState (typeIds : Array TypeIdV1) : Array StateDeclV1 :=
+  typeIds.mapIdx fun i tid =>
+    { id := UInt32.ofNat i, name := s!"type_anchor_{i}", typeId := tid,
+      visibility := .public_ }
+
+/-- Anchor every anonymous TypeId index `1 .. typeCount-1` (index `0` is the
+    usual entry_gate result slot). Keeps fat anonymous tables intact through
+    usage-closure compaction when duplicate/rank negatives need them. -/
+private def anchorAnonymousSuffixViaLogicalState (typeCount : Nat) :
+    Array StateDeclV1 :=
+  if typeCount ≤ 1 then #[] else
+    anchorTypesViaLogicalState <|
+      (Array.range (typeCount - 1)).map fun i => UInt32.ofNat (i + 1)
+
 /-- Bool type at TypeId 0 + one minimal `.entry` callable. This is the
     smallest structurally valid program under the SPEC §6 entry/view presence
     gate; it replaces the zero-callable `emptyProgram` as the base for
@@ -1507,6 +1524,7 @@ private def testTypeShapePositives : IO Unit := do
       { id := 3, name := none, shape := .bytes 0 },
       { id := 4, name := none, shape := .bytes 4096 }
     ]
+    logicalState := anchorTypesViaLogicalState #[1, 2, 3, 4]
     callables := #[entryGateCallable 0]
   }
   expectOk "widths/lengths structure" (validateSemanticProgramStructureV1 okWidths)
@@ -1587,6 +1605,7 @@ private def testTypeShapePositives : IO Unit := do
       { id := 4, name := none, shape := .uint 64 },
       { id := 5, name := none, shape := .bytes 8 }
     ]
+    logicalState := anchorTypesViaLogicalState #[1, 2]
     callables := #[entryGateCallable 0]
   }
   expectOk "map primitive keys structure" (validateSemanticProgramStructureV1 okMapPrim)
@@ -1604,6 +1623,7 @@ private def testTypeShapePositives : IO Unit := do
       { id := 2, name := none, shape := .bool },
       { id := 3, name := none, shape := .uint 32 }
     ]
+    logicalState := anchorTypesViaLogicalState #[1, 2]
     callables := #[entryGateCallable 0]
   }
   expectOk "map struct key structure" (validateSemanticProgramStructureV1 okMapStruct)
@@ -1937,15 +1957,20 @@ private def exactEnvReadRequirementRowV1 : IO RequirementRequestV1 :=
 private def programWithTypes (name : String) (types : Array TypeDeclV1)
     (constants : Array ConstantV1 := #[])
     (callables : Array CallableV1 := #[])
-    (requirements : Array RequirementRequestV1 := #[]) :
+    (requirements : Array RequirementRequestV1 := #[])
+    (logicalState : Array StateDeclV1 := #[]) :
     IO SemanticProgramDataV1 := do
   let data0 ← emptyProgram name
   let entryId : CallableIdV1 := callables.size.toUInt32
-  pure { data0 with
+  let data : SemanticProgramDataV1 := { data0 with
     types := types
     constants := constants
+    logicalState := logicalState
     callables := callables.push (entryGateCallable entryId)
     requirements := { items := requirements } }
+  -- Stage D: drop unused anonymous rows from fat shared tables (cfgOpTypes)
+  -- so structure usage-closure matches production Normalize emit.
+  pure (compactSemanticProgramDataToUsageClosureV1 data)
 
 /-- Same as `programWithTypes` but makes the requirement-row argument
     mandatory so ContextRead/Commit fixtures document intent at the call
@@ -1953,8 +1978,9 @@ private def programWithTypes (name : String) (types : Array TypeDeclV1)
 private def programWithTypesWithReqs (name : String) (types : Array TypeDeclV1)
     (requirements : Array RequirementRequestV1)
     (constants : Array ConstantV1 := #[])
-    (callables : Array CallableV1 := #[]) : IO SemanticProgramDataV1 :=
-  programWithTypes name types constants callables requirements
+    (callables : Array CallableV1 := #[])
+    (logicalState : Array StateDeclV1 := #[]) : IO SemanticProgramDataV1 :=
+  programWithTypes name types constants callables requirements logicalState
 
 private def minimalCallableLiteral (typeId : TypeIdV1) (valueBytes : ByteArray) :
     CallableV1 :=
@@ -2541,12 +2567,15 @@ private def testPrimitiveAnonymousTypeKeyUniqueness : IO Unit := do
     { id := 9, name := none, shape := .principal }
   ]
   let p0 ← programWithTypes "PrimitiveTypeKeyP0Distinct" distinctTypes
+    #[] #[] #[] (anchorAnonymousSuffixViaLogicalState distinctTypes.size)
   expectCfgOk "P0 distinct primitive anonymous shapes" p0
   let expectDuplicate (name label : String) (shape : TypeShapeV1) : IO Unit := do
-    let data ← programWithTypes name #[
+    let types := #[
       { id := 0, name := none, shape },
       { id := 1, name := none, shape }
     ]
+    let data ← programWithTypes name types #[] #[] #[]
+      (anchorTypesViaLogicalState #[1])
     expectCfgErrCode label .nonCanonical data
   expectDuplicate "PrimitiveTypeKeyN1Bool" "N1 duplicate Bool" .bool
   expectDuplicate "PrimitiveTypeKeyN2UInt" "N2 duplicate UInt width" (.uint 32)
@@ -2556,33 +2585,44 @@ private def testPrimitiveAnonymousTypeKeyUniqueness : IO Unit := do
   expectDuplicate "PrimitiveTypeKeyN6Bytes" "N6 duplicate Bytes length" (.bytes 8)
   expectDuplicate "PrimitiveTypeKeyN7Field" "N7 duplicate exact FieldSpec"
     (.field bn254FrFieldSpecV1)
-  let smallNonAdjacent ← programWithTypes "PrimitiveTypeKeySmallNonAdjacent" #[
+  let smallNonAdjacentTypes : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
     { id := 1, name := none, shape := .principal },
     { id := 2, name := none, shape := .bool }
   ]
+  let smallNonAdjacent ← programWithTypes "PrimitiveTypeKeySmallNonAdjacent"
+    smallNonAdjacentTypes #[] #[] #[]
+    (anchorAnonymousSuffixViaLogicalState smallNonAdjacentTypes.size)
   expectCfgErrCode "small-table path checks non-adjacent source pair"
     .nonCanonical smallNonAdjacent
-  let smallTailDuplicate ← programWithTypes "PrimitiveTypeKeySmallTailDuplicate" #[
+  let smallTailDuplicateTypes : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
     { id := 1, name := none, shape := .principal },
     { id := 2, name := none, shape := .principal }
   ]
+  let smallTailDuplicate ← programWithTypes "PrimitiveTypeKeySmallTailDuplicate"
+    smallTailDuplicateTypes #[] #[] #[]
+    (anchorAnonymousSuffixViaLogicalState smallTailDuplicateTypes.size)
   expectCfgErrCode "small-table path checks final source pair"
     .nonCanonical smallTailDuplicate
-  let qsortBoundary ← programWithTypes "PrimitiveTypeKeyQsortBoundary" #[
+  let qsortBoundaryTypes : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
     { id := 1, name := none, shape := .principal },
     { id := 2, name := none, shape := .unit },
     { id := 3, name := none, shape := .bool }
   ]
+  let qsortBoundary ← programWithTypes "PrimitiveTypeKeyQsortBoundary"
+    qsortBoundaryTypes #[] #[] #[]
+    (anchorAnonymousSuffixViaLogicalState qsortBoundaryTypes.size)
   expectCfgErrCode "four-key path retains qsort duplicate rejection"
     .nonCanonical qsortBoundary
   -- Table id/index validation precedes every type graph check.
-  let n8 ← programWithTypes "PrimitiveTypeKeyN8TableIdFirst" #[
+  let n8Types : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
     { id := 7, name := none, shape := .bool }
   ]
+  let n8 ← programWithTypes "PrimitiveTypeKeyN8TableIdFirst" n8Types
+    #[] #[] #[] (anchorTypesViaLogicalState #[1])
   expectCfgErrCode "N8 table id before primitive uniqueness" .duplicate n8
   -- Every shallow TypeId reference is checked before primitive interning.
   let n9 ← programWithTypes "PrimitiveTypeKeyN9ReferenceFirst" #[
@@ -2595,33 +2635,39 @@ private def testPrimitiveAnonymousTypeKeyUniqueness : IO Unit := do
     .badReference n9
   -- Every declaration shape, FieldSpec catalog entry, and Map-key legality
   -- check completes before primitive interning.
-  let n10 ← programWithTypes "PrimitiveTypeKeyN10ShapeFirst" #[
+  let n10Types : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
     { id := 1, name := none, shape := .bool },
     { id := 2, name := none, shape := .uint 7 }
   ]
+  let n10 ← programWithTypes "PrimitiveTypeKeyN10ShapeFirst" n10Types
+    #[] #[] #[] (anchorAnonymousSuffixViaLogicalState n10Types.size)
   expectCfgErrCode "N10 type shape before primitive uniqueness" .badType n10
   let zeroMod := ByteArray.mk (Array.replicate 32 (0 : UInt8))
-  let n11 ← programWithTypes "PrimitiveTypeKeyN11FieldFirst" #[
+  let n11Types : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
     { id := 1, name := none, shape := .bool },
     { id := 2, name := none,
       shape := .field { id := bn254FrFieldSpecV1.id, modulusBE := zeroMod } }
   ]
+  let n11 ← programWithTypes "PrimitiveTypeKeyN11FieldFirst" n11Types
+    #[] #[] #[] (anchorAnonymousSuffixViaLogicalState n11Types.size)
   expectCfgErrCode "N11 FieldSpec before primitive uniqueness" .badType n11
-  let n12 ← programWithTypes "PrimitiveTypeKeyN12MapKeyFirst" #[
+  let n12Types : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
     { id := 1, name := none, shape := .bool },
     { id := 2, name := none, shape := .option 0 },
     { id := 3, name := none, shape := .map 2 0 }
   ]
+  let n12 ← programWithTypes "PrimitiveTypeKeyN12MapKeyFirst" n12Types
+    #[] #[] #[] (anchorAnonymousSuffixViaLogicalState n12Types.size)
   expectCfgErrCode "N12 Map-key legality before primitive uniqueness"
     .badType n12
   -- Primitive interning precedes named-name, canonical-value, callable-
   -- signature, and requirement phases, preserving one authoritative order.
   -- Named declarations occupy the contiguous prefix; the duplicate anonymous
   -- Bool pair triggers the primitive-leaf subphase before named-name checks.
-  let n13 ← programWithTypes "PrimitiveTypeKeyN13NamedLater" #[
+  let n13Types : Array TypeDeclV1 := #[
     { id := 0, name := some "Dup",
       shape := .struct #[{ name := "x", typeId := 2 }] },
     { id := 1, name := some "Dup",
@@ -2629,24 +2675,28 @@ private def testPrimitiveAnonymousTypeKeyUniqueness : IO Unit := do
     { id := 2, name := none, shape := .bool },
     { id := 3, name := none, shape := .bool }
   ]
+  let n13 ← programWithTypes "PrimitiveTypeKeyN13NamedLater" n13Types
+    #[] #[] #[] (anchorTypesViaLogicalState #[3])
   expectCfgErrCode "N13 primitive uniqueness before named names"
     .nonCanonical n13
   let n14 ← programWithTypes "PrimitiveTypeKeyN14ValueLater" #[
       { id := 0, name := none, shape := .bool },
       { id := 1, name := none, shape := .bool }
-    ] #[constOf 0 "bad" 0 (ByteArray.mk #[2])]
+    ] #[constOf 0 "bad" 0 (ByteArray.mk #[2])] #[] #[]
+      (anchorTypesViaLogicalState #[1])
   expectCfgErrCode "N14 primitive uniqueness before canonical value"
     .nonCanonical n14
   let n15 ← programWithTypes "PrimitiveTypeKeyN15SignatureLater" #[
       { id := 0, name := none, shape := .bool },
       { id := 1, name := none, shape := .bool }
-    ] #[] #[cfgCallableKindName .pureFn none]
+    ] #[] #[cfgCallableKindName .pureFn none] #[]
+      (anchorTypesViaLogicalState #[1])
   expectCfgErrCode "N15 primitive uniqueness before callable signature"
     .nonCanonical n15
   let n16Base ← programWithTypes "PrimitiveTypeKeyN16RequirementLater" #[
     { id := 0, name := none, shape := .bool },
     { id := 1, name := none, shape := .bool }
-  ]
+  ] #[] #[] #[] (anchorTypesViaLogicalState #[1])
   let n16 : SemanticProgramDataV1 := {
     n16Base with requirements := { items := #[req "unknown.capability"] }
   }
@@ -2691,12 +2741,14 @@ private def testRecursiveAnonymousTypeKeyUniqueness : IO Unit := do
     { id := 8, name := none, shape := .option 3 }
   ]
   let p0 ← programWithTypes "RecursiveTypeKeyP0Distinct" p0Types
+    #[] #[] #[] (anchorAnonymousSuffixViaLogicalState p0Types.size)
   expectCfgOk "P0 distinct anonymous container structural classes" p0
   -- Helper: duplicate exact container shape → `.nonCanonical` on both
   -- shipped paths (structure gate + structure-gated encoder).
   let expectDup (name label : String)
       (types : Array TypeDeclV1) : IO Unit := do
-    let data ← programWithTypes name types
+    let data ← programWithTypes name types #[] #[] #[]
+      (anchorAnonymousSuffixViaLogicalState types.size)
     expectCfgErrCode label .nonCanonical data
   -- N1 duplicate exact Array structural class (same element + length).
   expectDup "RecursiveTypeKeyN1Array" "N1 duplicate Array structural class" #[
@@ -2790,6 +2842,7 @@ private def testRecursiveAnonymousTypeKeyUniqueness : IO Unit := do
     { id := 4, name := none, shape := .option 1 }
   ]
   let p3 ← programWithTypes "RecursiveTypeKeyP3NamedDistinct" p3Types
+    #[] #[] #[] (anchorTypesViaLogicalState #[3, 4])
   expectCfgOk "P3 Option containers over distinct named anchors distinct" p3
   -- Class-seam evidence for P3: the two Option containers (ids 3,4) over
   -- different reserved named anchors receive distinct structural class IDs.
@@ -2813,6 +2866,7 @@ private def testRecursiveAnonymousTypeKeyUniqueness : IO Unit := do
   expect (s1Classes[0]! != s1Classes[1]!)
     "S1 Bool leaf must differ from Array class"
   let s1 ← programWithTypes "RecursiveTypeKeyS1DuplicateRejected" s1Types
+    #[] #[] #[] (anchorAnonymousSuffixViaLogicalState s1Types.size)
   expectCfgErrCode "S1 duplicate class rejected by shipped gate"
     .nonCanonical s1
   -- Seam S2: nested structural equivalence. Two `Option (Array Bool 4)` at
@@ -2873,6 +2927,7 @@ private def testRecursiveAnonymousTypeKeyUniqueness : IO Unit := do
         shape := .bytes lens[wi]! }
     wi := wi + 1
   let wide ← programWithTypes "RecursiveTypeKeyWideBytes" wideTypes
+    #[] #[] #[] (anchorAnonymousSuffixViaLogicalState wideTypes.size)
   expectCfgOk "Wide table (4097 ranked Bytes) structure gate" wide
   let _ ← expectOk "Wide table class computation"
     (computeStructuralTypeClassIdsV1 wideTypes)
@@ -2889,6 +2944,7 @@ private def testRecursiveAnonymousTypeKeyUniqueness : IO Unit := do
     { id := 3, name := none, shape := .array 0 4 }
   ]
   let prec1 ← programWithTypes "RecursiveTypeKeyPrec1PrimitiveFirst" prec1Types
+    #[] #[] #[] (anchorAnonymousSuffixViaLogicalState prec1Types.size)
   expectCfgErrCode "Prec1 primitive duplicate before recursive (wire)"
     .nonCanonical prec1
   expectTypeKeyPhase "Prec1 primitive duplicate before recursive (phase)"
@@ -2915,58 +2971,68 @@ private def testRecursiveAnonymousTypeKeyUniqueness : IO Unit := do
   -- Phase precedence: table id/index validation precedes the TypeKey
   -- segment. A bad table id plus a duplicate recursive container fails on
   -- the table-id check first (`.duplicate`).
-  let prec2a ← programWithTypes "RecursiveTypeKeyPrec2aTableIdFirst" #[
+  let prec2aTypes : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
     { id := 7, name := none, shape := .array 0 4 },
     { id := 8, name := none, shape := .array 0 4 }
   ]
+  let prec2a ← programWithTypes "RecursiveTypeKeyPrec2aTableIdFirst" prec2aTypes
+    #[] #[] #[] (anchorAnonymousSuffixViaLogicalState prec2aTypes.size)
   expectCfgErrCode "Prec2a table id before recursive" .duplicate prec2a
   -- Phase precedence: shallow reference range precedes the TypeKey segment.
   -- An OOR container child fails as `.badReference` first, even when a
   -- duplicate Array structural class would also exist.
-  let prec2b ← programWithTypes "RecursiveTypeKeyPrec2bRefFirst" #[
+  let prec2bTypes : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
     { id := 1, name := none, shape := .array 99 4 },
     { id := 2, name := none, shape := .array 99 4 }
   ]
+  let prec2b ← programWithTypes "RecursiveTypeKeyPrec2bRefFirst" prec2bTypes
+    #[] #[] #[] (anchorAnonymousSuffixViaLogicalState prec2bTypes.size)
   expectCfgErrCode "Prec2b shallow ref before recursive" .badReference prec2b
   -- Phase precedence: type-shape legality precedes the TypeKey segment. An
   -- invalid Array length (>4096) plus a duplicate Array fails on the shape
   -- check first (`.badType`).
-  let prec2c ← programWithTypes "RecursiveTypeKeyPrec2cArrayLengthFirst" #[
+  let prec2cTypes : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
     { id := 1, name := none, shape := .array 0 5000 },
     { id := 2, name := none, shape := .array 0 4 },
     { id := 3, name := none, shape := .array 0 4 }
   ]
+  let prec2c ← programWithTypes "RecursiveTypeKeyPrec2cArrayLengthFirst" prec2cTypes
+    #[] #[] #[] (anchorAnonymousSuffixViaLogicalState prec2cTypes.size)
   expectCfgErrCode "Prec2c invalid Array length before recursive" .badType
     prec2c
   -- Phase precedence: FieldSpec catalog legality precedes the TypeKey
   -- segment. An invalid FieldSpec (wrong modulus) plus a duplicate Option
   -- fails on the FieldSpec check first (`.badType`).
   let zeroMod := ByteArray.mk (Array.replicate 32 (0 : UInt8))
-  let prec2d ← programWithTypes "RecursiveTypeKeyPrec2dFieldSpecFirst" #[
+  let prec2dTypes : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
     { id := 1, name := none,
       shape := .field { id := bn254FrFieldSpecV1.id, modulusBE := zeroMod } },
     { id := 2, name := none, shape := .option 0 },
     { id := 3, name := none, shape := .option 0 }
   ]
+  let prec2d ← programWithTypes "RecursiveTypeKeyPrec2dFieldSpecFirst" prec2dTypes
+    #[] #[] #[] (anchorAnonymousSuffixViaLogicalState prec2dTypes.size)
   expectCfgErrCode "Prec2d invalid FieldSpec before recursive" .badType prec2d
   -- Phase precedence: Map-key legality precedes the TypeKey segment. An
   -- illegal Map key fails as `.badType` first, even when a duplicate Option
   -- also exists.
-  let prec3 ← programWithTypes "RecursiveTypeKeyPrec3MapKeyFirst" #[
+  let prec3Types : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
     { id := 1, name := none, shape := .option 0 },
     { id := 2, name := none, shape := .map 1 0 },
     { id := 3, name := none, shape := .option 0 }
   ]
+  let prec3 ← programWithTypes "RecursiveTypeKeyPrec3MapKeyFirst" prec3Types
+    #[] #[] #[] (anchorAnonymousSuffixViaLogicalState prec3Types.size)
   expectCfgErrCode "Prec3 Map-key legality before recursive" .badType prec3
   -- Phase precedence: recursive structural uniqueness runs before named
   -- type-name uniqueness. A recursive duplicate + duplicate named names
   -- fails on the recursive duplicate first.
-  let prec4 ← programWithTypes "RecursiveTypeKeyPrec4NamedLater" #[
+  let prec4Types : Array TypeDeclV1 := #[
     { id := 0, name := some "Dup",
       shape := .struct #[{ name := "x", typeId := 4 }] },
     { id := 1, name := some "Dup",
@@ -2975,24 +3041,32 @@ private def testRecursiveAnonymousTypeKeyUniqueness : IO Unit := do
     { id := 3, name := none, shape := .array 2 4 },
     { id := 4, name := none, shape := .array 2 4 }
   ]
+  let prec4 ← programWithTypes "RecursiveTypeKeyPrec4NamedLater" prec4Types
+    #[] #[] #[] (anchorTypesViaLogicalState #[3])
   expectCfgErrCode "Prec4 recursive before named names" .nonCanonical prec4
   -- Phase precedence: recursive structural uniqueness runs before canonical
   -- valueBytes. A recursive duplicate + a malformed Constant value fails on
   -- the recursive duplicate first.
-  let prec5 ← programWithTypes "RecursiveTypeKeyPrec5ValueLater"
-    #[{ id := 0, name := none, shape := .bool },
-      { id := 1, name := none, shape := .array 0 4 },
-      { id := 2, name := none, shape := .array 0 4 }]
-    #[constOf 0 "bad" 0 (ByteArray.mk #[2])]
+  let prec5Types : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .array 0 4 },
+    { id := 2, name := none, shape := .array 0 4 }
+  ]
+  let prec5 ← programWithTypes "RecursiveTypeKeyPrec5ValueLater" prec5Types
+    #[constOf 0 "bad" 0 (ByteArray.mk #[2])] #[] #[]
+    (anchorAnonymousSuffixViaLogicalState prec5Types.size)
   expectCfgErrCode "Prec5 recursive before canonical value" .nonCanonical
     prec5
   -- Phase precedence: recursive structural uniqueness runs before callable
   -- signature.
-  let prec6 ← programWithTypes "RecursiveTypeKeyPrec6SignatureLater"
-    #[{ id := 0, name := none, shape := .bool },
-      { id := 1, name := none, shape := .array 0 4 },
-      { id := 2, name := none, shape := .array 0 4 }]
-    #[] #[cfgCallableKindName .pureFn none]
+  let prec6Types : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .array 0 4 },
+    { id := 2, name := none, shape := .array 0 4 }
+  ]
+  let prec6 ← programWithTypes "RecursiveTypeKeyPrec6SignatureLater" prec6Types
+    #[] #[cfgCallableKindName .pureFn none] #[]
+    (anchorAnonymousSuffixViaLogicalState prec6Types.size)
   expectCfgErrCode "Prec6 recursive before callable signature" .nonCanonical
     prec6
   -- Phase precedence: recursive structural uniqueness runs before
@@ -3001,7 +3075,7 @@ private def testRecursiveAnonymousTypeKeyUniqueness : IO Unit := do
     { id := 0, name := none, shape := .bool },
     { id := 1, name := none, shape := .array 0 4 },
     { id := 2, name := none, shape := .array 0 4 }
-  ]
+  ] #[] #[] #[] (anchorAnonymousSuffixViaLogicalState 3)
   let prec7 : SemanticProgramDataV1 := {
     prec7Base with requirements := { items := #[req "unknown.capability"] }
   }
@@ -3097,7 +3171,8 @@ private def testCallableNameUniqueness : IO Unit := do
     (cfgCallableKindName .invariant (some "safe")) with id := 4
   }
   let p0Base ← programWithTypes "CallableUniqueP0Kinds" boolUnitTypes #[]
-    #[initializer0, entry1, view2, pure3, invariant4]
+    #[initializer0, entry1, view2, pure3, invariant4] #[]
+    (anchorAnonymousSuffixViaLogicalState boolUnitTypes.size)
   let p0 : SemanticProgramDataV1 := {
     p0Base with
     callables := #[initializer0, entry1, view2, pure3, invariant4]
@@ -3271,9 +3346,10 @@ private def testCallableParameterNameUniqueness : IO Unit := do
     structure-gated fixtures use `programWithTypes`, which appends a minimal
     valid `.entry` callable so they satisfy the new gate. -/
 private def rawProgramWithTypes (name : String) (types : Array TypeDeclV1)
-    (callables : Array CallableV1 := #[]) : IO SemanticProgramDataV1 := do
+    (callables : Array CallableV1 := #[])
+    (logicalState : Array StateDeclV1 := #[]) : IO SemanticProgramDataV1 := do
   let data0 ← emptyProgram name
-  pure { data0 with types, callables }
+  pure { data0 with types, callables, logicalState }
 
 /-- SPEC-SEM-WIRE-001 §6 callables must contain at least one `.entry` or
     `.view`. Positives: entry only; view only; initializer+entry;
@@ -3312,10 +3388,11 @@ private def testCallableEntryViewPresence : IO Unit := do
   expectCfgOk "P4 pureFn/invariant plus later view" p4
   -- Negatives: no entry/view anywhere. Both shipped structure validator and
   -- structure-gated encoder must reject `.badCfg`.
-  let n0 ← rawProgramWithTypes "EntryViewN0Zero" cfgBoolTypes
+  let n0 ← rawProgramWithTypes "EntryViewN0Zero" #[]
   expectCfgErr "N0 zero callables" n0
   let n1 ← rawProgramWithTypes "EntryViewN1InitOnly" boolUnitTypes
     #[cfgCallableKindName .initializer none 1]
+    (anchorTypesViaLogicalState #[0])
   expectCfgErr "N1 initializer only" n1
   let n2 ← rawProgramWithTypes "EntryViewN2PureOnly" cfgBoolTypes
     #[cfgCallableKindName .pureFn (some "f")]
@@ -3369,6 +3446,7 @@ private def testCallableEntryViewPresence : IO Unit := do
   let n8 ← rawProgramWithTypes "EntryViewN8BeforeDupInit" boolUnitTypes
     #[cfgCallableKindName .initializer none 1,
       { (cfgCallableKindName .initializer none 1) with id := 1 }]
+    (anchorTypesViaLogicalState #[0])
   expectCfgErr "N8 absence of entry/view before duplicate initializer" n8
   expectCallableSignaturePhase "N8 entry/view before duplicate initializer"
     .entryView .badCfg n8
@@ -3532,6 +3610,65 @@ private def testNamedTypeNameUniqueness : IO Unit := do
     #[badCfgCallable]
   expectCfgErrCode "N8 named types before CFG" .duplicate n8
 
+/-- Pin the Stage D `usageClosure` subphase (full-program TypeKey seam). -/
+private def expectTypeKeyUsagePhase (label : String)
+    (phase : TypeKeyValidationPhaseV1) (code : SemanticWireErrorV1)
+    (data : SemanticProgramDataV1) : IO Unit := do
+  match validateTypeKeyPhasesWithUsageClosureV1 data with
+  | .ok () =>
+      throw <| IO.userError s!"{label}: expected phase failure {repr phase}"
+  | .error failure =>
+      unless failure.phase == phase do
+        throw <| IO.userError
+          s!"{label}: expected phase {repr phase}, got {repr failure.phase}"
+      unless failure.error == code do
+        throw <| IO.userError
+          s!"{label}: expected error {repr code}, got {repr failure.error}"
+
+/-- SPEC §5 anonymous usage-closure: every anonymous TypeDecl must be reached
+    from a named body or Core type slot. Fat shared tables that keep unused
+    anonymous rows fail `.nonCanonical` at `usageClosure` after rank. -/
+private def testAnonymousTypeUsageClosure : IO Unit := do
+  -- P0: Bool-only table with entry_gate result typeId 0 — closed.
+  let p0 ← programWithTypes "UsageClosureP0" cfgBoolTypes
+  expectCfgOk "P0 closed Bool table" p0
+  match validateTypeKeyPhasesWithUsageClosureV1 p0 with
+  | .ok () => pure ()
+  | .error failure =>
+      throw <| IO.userError
+        s!"P0 usageClosure: unexpected {repr failure.phase}/{repr failure.error}"
+  -- N0: named Struct (uses UInt8) + unused anonymous Bool — usageClosure fail.
+  -- Table is already SPEC anonymous rank (bool before uint by tag-length? bool
+  -- and uint both tagLen 4; bool < uint by tag bytes). Keep named prefix.
+  let fatTypes : Array TypeDeclV1 := #[
+    { id := 0, name := some "S",
+      shape := .struct #[{ name := "a", typeId := 2 }] },
+    { id := 1, name := none, shape := .bool },
+    { id := 2, name := none, shape := .uint 8 }
+  ]
+  let data0 ← emptyProgram "UsageClosureN0"
+  let n0 : SemanticProgramDataV1 := {
+    data0 with
+      types := fatTypes
+      callables := #[entryGateCallable 0]
+  }
+  expectTypeKeyUsagePhase "N0 unused anonymous Bool" .usageClosure .nonCanonical n0
+  expectCfgErrCode "N0 structure rejects unused anonymous" .nonCanonical n0
+  -- Prec: primitive duplicate fails at `primitiveLeaf` before usageClosure.
+  let precTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .bool },
+    { id := 2, name := none, shape := .unit }
+  ]
+  let prec0 ← emptyProgram "UsageClosurePrec"
+  let prec : SemanticProgramDataV1 := {
+    prec0 with
+      types := precTypes
+      callables := #[entryGateCallable 0]
+  }
+  expectTypeKeyUsagePhase "Prec primitiveLeaf before usageClosure"
+    .primitiveLeaf .nonCanonical prec
+
 /-- SPEC-SEM-WIRE-001 §5 named TypeDecl contiguous-prefix rank: all
     `name=some` named Struct/Enum declarations must occupy a contiguous prefix
     of the `types` table (indices `0 .. namedCount-1`). Any named declaration
@@ -3572,7 +3709,7 @@ private def testNamedTypePrefixRank : IO Unit := do
       shape := .enum #[{ name := "v", payloadTypes := #[2] }] },
     { id := 2, name := none, shape := .bool },
     { id := 3, name := none, shape := .array 2 4 }
-  ]
+  ] #[] #[] #[] (anchorTypesViaLogicalState #[3])
   expectCfgOk "P2 named prefix then anonymous suffix" p2
   -- N1: anonymous→named — an anonymous declaration precedes a named one, so
   -- the named declarations are not a contiguous prefix.
@@ -3602,7 +3739,7 @@ private def testNamedTypePrefixRank : IO Unit := do
       shape := .struct #[{ name := "x", typeId := 0 }] }
   ]
   let phase1 ← programWithTypes "NamedPrefixPhase1PrefixBeforePrimitive"
-    phase1Types
+    phase1Types #[] #[] #[] (anchorTypesViaLogicalState #[1])
   expectCfgErrCode "Phase1 prefix before primitive (wire)" .nonCanonical phase1
   expectTypeKeyPhase "Phase1 prefix before primitive (phase)"
     .namedPrefix .nonCanonical phase1Types
@@ -3651,33 +3788,39 @@ private def testNamedTypePrefixRank : IO Unit := do
   expectCfgErrCode "Pre2 shallow ref before prefix" .badReference pre2
   -- Predecessor ordering: type-shape legality precedes namedPrefix. An invalid
   -- integer width plus a broken prefix fails as `.badType` first.
-  let pre3 ← programWithTypes "NamedPrefixPre3ShapeFirst" #[
+  let pre3Types : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
     { id := 1, name := none, shape := .uint 7 },
     { id := 2, name := some "S",
       shape := .struct #[{ name := "x", typeId := 0 }] }
   ]
+  let pre3 ← programWithTypes "NamedPrefixPre3ShapeFirst" pre3Types
+    #[] #[] #[] (anchorTypesViaLogicalState #[1])
   expectCfgErrCode "Pre3 type shape before prefix" .badType pre3
   -- Predecessor ordering: FieldSpec catalog legality precedes namedPrefix. An
   -- invalid FieldSpec modulus plus a broken prefix fails as `.badType` first.
   let zeroMod := ByteArray.mk (Array.replicate 32 (0 : UInt8))
-  let pre4 ← programWithTypes "NamedPrefixPre4FieldSpecFirst" #[
+  let pre4Types : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
     { id := 1, name := none,
       shape := .field { id := bn254FrFieldSpecV1.id, modulusBE := zeroMod } },
     { id := 2, name := some "S",
       shape := .struct #[{ name := "x", typeId := 0 }] }
   ]
+  let pre4 ← programWithTypes "NamedPrefixPre4FieldSpecFirst" pre4Types
+    #[] #[] #[] (anchorTypesViaLogicalState #[1])
   expectCfgErrCode "Pre4 FieldSpec before prefix" .badType pre4
   -- Predecessor ordering: Map-key legality precedes namedPrefix. An illegal
   -- Map key plus a broken prefix fails as `.badType` first.
-  let pre5 ← programWithTypes "NamedPrefixPre5MapKeyFirst" #[
+  let pre5Types : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
     { id := 1, name := none, shape := .option 0 },
     { id := 2, name := none, shape := .map 1 0 },
     { id := 3, name := some "S",
       shape := .struct #[{ name := "x", typeId := 0 }] }
   ]
+  let pre5 ← programWithTypes "NamedPrefixPre5MapKeyFirst" pre5Types
+    #[] #[] #[] (anchorAnonymousSuffixViaLogicalState pre5Types.size)
   expectCfgErrCode "Pre5 Map-key legality before prefix" .badType pre5
   -- Successor ordering: namedPrefix precedes named-name uniqueness. A broken
   -- prefix plus duplicate named names fails on the prefix first.
@@ -6738,11 +6881,12 @@ private def programWithState (name : String) (types : Array TypeDeclV1)
     (callables : Array CallableV1) : IO SemanticProgramDataV1 := do
   let data0 ← emptyProgram name
   let entryId : CallableIdV1 := callables.size.toUInt32
-  pure { data0 with
+  let data : SemanticProgramDataV1 := { data0 with
     types := types
     constants := constants
     logicalState := state
     callables := callables.push (entryGateCallable entryId) }
+  pure (compactSemanticProgramDataToUsageClosureV1 data)
 
 /-- State row (id, name, typeId, visibility). -/
 private def stateRow (id : StateIdV1) (name : String) (typeId : TypeIdV1) :
@@ -6767,20 +6911,22 @@ private def programWithEvents (name : String) (types : Array TypeDeclV1)
     IO SemanticProgramDataV1 := do
   let data0 ← emptyProgram name
   let entryId : CallableIdV1 := callables.size.toUInt32
-  pure { data0 with
+  let data : SemanticProgramDataV1 := { data0 with
     types := types
     events := events
     callables := callables.push (entryGateCallable entryId) }
+  pure (compactSemanticProgramDataToUsageClosureV1 data)
 
 private def programWithErrors (name : String) (types : Array TypeDeclV1)
     (errors : Array ErrorDeclV1) (callables : Array CallableV1) :
     IO SemanticProgramDataV1 := do
   let data0 ← emptyProgram name
   let entryId : CallableIdV1 := callables.size.toUInt32
-  pure { data0 with
+  let data : SemanticProgramDataV1 := { data0 with
     types := types
     errors := errors
     callables := callables.push (entryGateCallable entryId) }
+  pure (compactSemanticProgramDataToUsageClosureV1 data)
 
 /-- SPEC-SEM-WIRE-001 §8 bounded invariant-root direct-op closure slice:
     StateLoad is allowed, but StateStore is forbidden directly in an invariant
@@ -9865,7 +10011,8 @@ private def testCfgVariantTagTyping : IO Unit := do
                (.construct 0 0 #[10]),
              cfgInstr (some (cfgUInt32ValueDef 2)) (.variantTag 1) ]
           (.return_ none)
-      ] 1]
+      ] 1] #[]
+    (anchorTypesViaLogicalState #[3, 4])
   expectCfgErrCode "N4 variantTag duplicate UInt32 anonymous shape"
     .nonCanonical n4
 
@@ -10144,7 +10291,8 @@ private def testCfgIndexSetTyping : IO Unit := do
             cfgInstr (some (cfgOpU8Def 3)) (cfgOpU8Lit 9),
             cfgInstr (some { valueId := 4, typeId := 6 })
               (.indexSet 1 2 3)]
-          (.return_ none)] 3]
+          (.return_ none)] 3] #[]
+    (anchorTypesViaLogicalState #[8])
   expectCfgErrCode "N9 indexSet duplicate UInt8 anonymous shape"
     .nonCanonical n9
 
@@ -10806,7 +10954,8 @@ private def testCfgExternalCallArgSerializability : IO Unit := do
       #[cfgBlockInstrs 0
         #[lit 0 6 ByteArray.empty,
           cfgInstr none (.externalCall 0 callee #[0])]
-        (.return_ none)] 3]
+        (.return_ none)] 3] #[]
+    (anchorTypesViaLogicalState #[12])
   expectCfgErrCode "M2 shallow-ref before arg serializability" .badReference m2
   -- Phase: this gate precedes requirements.
   let m3 : SemanticProgramDataV1 := {
@@ -11720,6 +11869,7 @@ def run : IO Unit := do
   testCallableParameterNameUniqueness
   testCallableEntryViewPresence
   testNamedTypeNameUniqueness
+  testAnonymousTypeUsageClosure
   testNamedTypePrefixRank
   testNamedBodyOptionCycleLegality
   testTypeKeyByteForm

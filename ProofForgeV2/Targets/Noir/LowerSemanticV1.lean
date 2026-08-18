@@ -613,7 +613,7 @@ private def containerLeafLayoutV1
     (typeId : TypeIdV1) : CompileResult (Option (Nat × Nat × Bool)) := do
   match typeDecls[typeId.toNat]? with
   | some { shape := .array elTid len, .. } =>
-      unless elTid == types.uint64TypeId || types.int64TypeId == some elTid do
+      unless types.isUInt64 elTid || types.int64TypeId == some elTid do
         throw <| .planInvariant .noir
           "unsupported Noir semantic shape: Array state element must be UInt64 or Int64"
       let n := len.toNat
@@ -623,8 +623,8 @@ private def containerLeafLayoutV1
       let leafIsInt := types.int64TypeId == some elTid
       pure (some (n, 8, leafIsInt))
   | some { shape := .map keyTid valTid, .. } =>
-      unless keyTid == types.uint64TypeId &&
-          (valTid == types.uint64TypeId || types.int64TypeId == some valTid) do
+      unless types.isUInt64 keyTid &&
+          (types.isUInt64 valTid || types.int64TypeId == some valTid) do
         throw <| .planInvariant .noir
           "unsupported Noir semantic shape: Map state admits only Map UInt64 UInt64"
       let valIsInt := types.int64TypeId == some valTid
@@ -658,7 +658,7 @@ private def requireOptionUInt64StateV1
     (typeId : TypeIdV1) (stateName : String) : CompileResult Bool := do
   match typeDecls[typeId.toNat]? with
   | some { shape := .option elTid, name := none, .. } =>
-      if elTid == types.uint64TypeId then
+      if types.isUInt64 elTid then
         pure false
       else if types.int64TypeId == some elTid then
         pure true
@@ -829,7 +829,7 @@ private partial def flattenTypeLeafSpecsV1
     (typeDecls : Array TypeDeclV1) (types : NoirTypeClosureV1)
     (typeId : TypeIdV1) (namePrefix : String) :
     CompileResult (Array (String × Bool)) := do
-  if typeId == types.uint64TypeId then
+  if types.isUInt64 typeId then
     pure #[(namePrefix, false)]
   else if types.int64TypeId == some typeId then
     pure #[(namePrefix, true)]
@@ -897,7 +897,7 @@ private def anonymousReturnLeafAbiV1
   match typeDecls[typeId.toNat]? with
   | some { shape := .array elTid len, name := none, .. } =>
       let leafIsInt := types.int64TypeId == some elTid
-      unless elTid == types.uint64TypeId || leafIsInt do
+      unless types.isUInt64 elTid || leafIsInt do
         throw <| .planInvariant .noir
           "unsupported Noir semantic shape: anonymous Array return requires UInt64 or Int64 elements"
       let n := len.toNat
@@ -907,7 +907,7 @@ private def anonymousReturnLeafAbiV1
       pure (some (Array.replicate n (if leafIsInt then InputType.i64 else InputType.u64)))
   | some { shape := .option elTid, name := none, .. } =>
       let payloadIsInt := types.int64TypeId == some elTid
-      unless elTid == types.uint64TypeId || payloadIsInt do
+      unless types.isUInt64 elTid || payloadIsInt do
         throw <| .planInvariant .noir
           "unsupported Noir semantic shape: anonymous Option return requires UInt64 or Int64 payload"
       pure (some #[.u64, if payloadIsInt then InputType.i64 else InputType.u64])
@@ -1188,7 +1188,7 @@ private def makeParamsV1 (owner : String) (inputOffset : Nat)
     if isAnonymousOptionTypeIdV1 typeDecls param.typeId then
       match typeDecls[param.typeId.toNat]? with
       | some { shape := .option elTid, name := none, .. } =>
-          unless elTid == types.uint64TypeId || types.int64TypeId == some elTid do
+          unless types.isUInt64 elTid || types.int64TypeId == some elTid do
             throw <| .planInvariant .noir
               s!"unsupported Noir semantic shape: Option parameter '{param.name}' payload must be UInt64 or Int64"
           if planned.size + 2 > maxParams then
@@ -1270,7 +1270,7 @@ private def makeParamsV1 (owner : String) (inputOffset : Nat)
             leafIsInt := leafIsInt.push false
           values := values.push (mkAggregateValueV1 leafExprs leafIsInt #[] 1 leafExprs.size)
       | some { shape := .array elTid len, .. } =>
-          unless elTid == types.uint64TypeId || types.int64TypeId == some elTid do
+          unless types.isUInt64 elTid || types.int64TypeId == some elTid do
             throw <| .planInvariant .noir
               s!"unsupported Noir semantic shape: Array parameter '{param.name}' element must be UInt64 or Int64"
           let n := len.toNat
@@ -2507,7 +2507,7 @@ private def lowerBlockInstructionsV1
           else if types.int64TypeId == some result.typeId then .int64
           else .uint64
         let resultTypeId ← match resultKind with
-          | .uint64 => pure types.uint64TypeId
+          | .uint64 => types.requireUInt64 noirPlanErr "noir"
           | .uint8 | .uint16 | .uint32 | .uint128 | .uint256 =>
               throw <| .planInvariant .noir
                 "unsupported Noir semantic shape: pureCall result cannot be multi-width UInt"
@@ -2605,7 +2605,7 @@ private def lowerBlockInstructionsV1
           -- Option Int64 return stays UInt64-only in `anonymousReturnLeafAbiV1`.
           match layout.typeDecls[typeId.toNat]? with
           | some { shape := .option elTid, name := none, .. } => do
-              unless elTid == types.uint64TypeId ||
+              unless types.isUInt64 elTid ||
                   types.int64TypeId == some elTid do
                 throw <| .planInvariant .noir
                   "unsupported Noir semantic shape: Option construct requires UInt64 payload"
@@ -2840,7 +2840,7 @@ private def lowerBlockInstructionsV1
           | some 32 => pure NoirValueKindV1.uint32
           | some 64 => pure NoirValueKindV1.uint64
           | _ =>
-              if result.typeId == types.uint64TypeId then pure NoirValueKindV1.uint64
+              if types.isUInt64 result.typeId then pure NoirValueKindV1.uint64
               else
                 throw <| .planInvariant .noir
                   "unsupported Noir semantic shape: variantTag result must be UInt32"
@@ -2863,7 +2863,7 @@ private def lowerBlockInstructionsV1
           let some payload := base.leafExprs[1]? |
             throw <| .planInvariant .noir "Option variantPayload leaf missing"
           let wantInt := types.int64TypeId == some result.typeId
-          unless result.typeId == types.uint64TypeId || wantInt do
+          unless types.isUInt64 result.typeId || wantInt do
             throw <| .planInvariant .noir
               "unsupported Noir semantic shape: Option variantPayload result must be UInt64 or Int64"
           values := ← appendResultValueV1 result.typeId values result {
@@ -2972,7 +2972,7 @@ private def lowerBlockInstructionsV1
           else
             -- Array 8-byte leaf: UInt64 or Int64. Reject mixed signedness.
             let wantInt := types.int64TypeId == some result.typeId
-            unless result.typeId == types.uint64TypeId || wantInt do
+            unless types.isUInt64 result.typeId || wantInt do
               throw <| .planInvariant .noir
                 "unsupported Noir semantic shape: Array IndexGet result must be UInt64 or Int64"
             values := ← appendResultValueV1 result.typeId values result {
@@ -3254,7 +3254,7 @@ private partial def emitRegionV1
             let some headerParam := header.params[0]? |
               throw (.planInvariant .noir
                 "unsupported Noir semantic shape: loop header parameter is missing")
-            unless headerParam.typeId == types.uint64TypeId do
+            unless types.isUInt64 headerParam.typeId do
               throw <| .planInvariant .noir
                 "unsupported Noir semantic shape: loop induction variable must be UInt64"
             let initId := target.args[0]!
@@ -3454,7 +3454,7 @@ private def lowerCallableV1
     let some headerParam := header.params[0]? |
       throw (.planInvariant .noir
         "unsupported Noir semantic shape: loop header parameter is missing")
-    unless headerParam.typeId == types.uint64TypeId do
+    unless types.isUInt64 headerParam.typeId do
       throw <| .planInvariant .noir
         "unsupported Noir semantic shape: loop header must carry one UInt64 parameter"
     match header.terminator with
@@ -3651,10 +3651,12 @@ private def makePlanFromSemanticDataV1
   let layout0 ← makeStateLayoutV1 types source.types source.logicalState
   let layout := { layout0 with constants := source.constants }
   let states := layout.fields
-  let events ← source.events.mapM (fun d =>
-    makeInterfaceBindingV1 "event" d.name d.fields types.uint64TypeId)
-  let errors ← source.errors.mapM (fun d =>
-    makeInterfaceBindingV1 "error" d.name d.fields types.uint64TypeId)
+    let events ← source.events.mapM (fun d => do
+    let u64Tid ← types.requireUInt64 noirPlanErr "noir"
+    makeInterfaceBindingV1 "event" d.name d.fields u64Tid)
+  let errors ← source.errors.mapM (fun d => do
+    let u64Tid ← types.requireUInt64 noirPlanErr "noir"
+    makeInterfaceBindingV1 "error" d.name d.fields u64Tid)
   let components := source.qualifiedName.components.toArray
   let programName := components.back!
   unless programName == artifactProgramName do
@@ -3682,7 +3684,7 @@ private def makePlanFromSemanticDataV1
           throw <| .planInvariant .noir
             s!"unsupported Noir semantic shape: fn name '{fnName}' is not a safe identifier"
         let resultIsBool ←
-          if callable.result.typeId == types.uint64TypeId ||
+          if types.isUInt64 callable.result.typeId ||
               types.int64TypeId == some callable.result.typeId ||
               types.isField callable.result.typeId then
             pure false

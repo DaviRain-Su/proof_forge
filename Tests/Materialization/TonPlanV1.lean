@@ -2904,13 +2904,9 @@ private unsafe def testContextReadUnixTime
       }
   else
     IO.println "  · ClockBox tolk→fif skipped (tool-root/tolk or stdlib absent)"
-  -- (d) context.caller stays fail closed. TON type-closure is
-  -- `pilotPrincipalPolicyNone`, so Principal from `context.caller` is rejected
-  -- at type closure (message cites Principal) before the ContextRead arm —
-  -- still fail closed. LowerSemantic keeps an explicit ContextRead/caller arm
-  -- for defense-in-depth if Principal storage is later admitted.
-  -- Pad state so the empty-state profile gate does not mask the
-  -- ContextRead/caller/Principal fail-closed arm (same as HeightBox).
+  -- (d) context.caller stays fail closed. TON Principal storage is admitted
+  -- (T12), so rejection is at the ContextRead/caller arm (not type-closure).
+  -- Needs a state leaf so profile state-count gates do not mask that arm.
   let callerSrc := wrapProgram "CallerBox" <|
     "  state pad : UInt64\n" ++
     "  init() do\n" ++
@@ -2988,12 +2984,9 @@ private unsafe def testContextReadUnixTime
   | .ok _ =>
       throw <| IO.userError "TON context.chainId must fail closed at Plan"
   -- (e3) context.self (source spelling `context.contractId`; wire key
-  -- `proof-forge.context.self.v1`) is Principal. TON type-closure is
-  -- `pilotPrincipalPolicyNone`, so Principal is rejected at type closure
-  -- before the ContextRead/self arm — still fail closed. LowerSemantic
-  -- keeps an explicit self arm (same as caller) for defense-in-depth.
-  -- Pad state so the empty-state profile gate does not mask the
-  -- ContextRead/self/Principal fail-closed arm (same as CallerBox).
+  -- `proof-forge.context.self.v1`) is Principal. TON Principal storage is
+  -- admitted (T12), so rejection is at the ContextRead/self arm. Needs a
+  -- state leaf so profile state-count gates do not mask that arm.
   let selfSrc := wrapProgram "SelfBox" <|
     "  state pad : UInt64\n" ++
     "  init() do\n" ++
@@ -3113,7 +3106,7 @@ private unsafe def testScalarConstInline
     "  view get() : UInt64 do\n" ++
     "    return count\n"
   let strCompiled ← compileSource session strSource "Examples.ConstStr" "<ton-const-str>"
-  expectPlanErrorContaining "ConstStr" "constant"
+  expectPlanErrorContaining "ConstStr" "supported"
     (planTon strCompiled)
   IO.println "  ✓ Ton scalar const inline + String FC pin ok"
 

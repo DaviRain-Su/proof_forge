@@ -371,18 +371,15 @@ theorem encodeTypeDecl_uint64_eq_ok :
   rwa [heq] at htag
 
 def typesArrayBytesV1 : ByteArray :=
-  encodeU32le 2 ++ typeDeclBoolBytesV1 ++ typeDeclUInt64BytesV1
+  encodeU32le 1 ++ typeDeclBoolBytesV1
 
 theorem encodeTypes_simpleClosure_eq_ok :
-    encodeArray encodeTypeDeclV1
-        #[simpleClosureBoolTypeV1, simpleClosureUInt64TypeV1] =
+    encodeArray encodeTypeDeclV1 #[simpleClosureBoolTypeV1] =
       .ok typesArrayBytesV1 := by
   have h :=
-    encodeArray_twoV1 encodeTypeDeclV1
-      simpleClosureBoolTypeV1 simpleClosureUInt64TypeV1
-      typeDeclBoolBytesV1 typeDeclUInt64BytesV1
-      encodeTypeDecl_bool_eq_ok encodeTypeDecl_uint64_eq_ok
-  simpa [typesArrayBytesV1, ByteArray.append_assoc] using h
+    encodeArray_oneV1 encodeTypeDeclV1 simpleClosureBoolTypeV1 typeDeclBoolBytesV1
+      encodeTypeDecl_bool_eq_ok
+  simpa [typesArrayBytesV1] using h
 
 theorem encodeTypes_materialize_eq_ok (p : SimpleClosureParamsV1) :
     encodeArray encodeTypeDeclV1 (materializeSimpleClosureDataV1 p).types =
@@ -635,74 +632,46 @@ theorem decodeTypes_simpleClosure_midV1
     (hdepth : nesting + 1 < maxNesting) :
     decodeArray maxTableElements decodeTypeDeclV1
         ⟨left ++ typesArrayBytesV1 ++ right, left.size, nesting⟩ =
-      .ok (#[simpleClosureBoolTypeV1, simpleClosureUInt64TypeV1],
+      .ok (#[simpleClosureBoolTypeV1],
         ⟨left ++ typesArrayBytesV1 ++ right,
           left.size + typesArrayBytesV1.size, nesting⟩) := by
   have hcount :
       readArrayCountAtV1 (left ++ typesArrayBytesV1 ++ right) left.size
           maxTableElements =
-        .ok (2, left.size + 4) := by
+        .ok (1, left.size + 4) := by
     have hin :
         left ++ typesArrayBytesV1 ++ right =
-          left ++ encodeU32le 2 ++
-            (typeDeclBoolBytesV1 ++ typeDeclUInt64BytesV1 ++ right) := by
+          left ++ encodeU32le 1 ++ (typeDeclBoolBytesV1 ++ right) := by
       simp [typesArrayBytesV1, ByteArray.append_assoc]
     rw [hin]
-    exact readArrayCount_encode_midV1 left
-      (typeDeclBoolBytesV1 ++ typeDeclUInt64BytesV1 ++ right) 2 maxTableElements
-      (by decide) (by decide)
+    exact readArrayCount_encode_midV1 left (typeDeclBoolBytesV1 ++ right) 1
+      maxTableElements (by decide) (by decide)
   have h0 :
       decodeTypeDeclV1
           ⟨left ++ typesArrayBytesV1 ++ right, left.size + 4, nesting⟩ =
         .ok (simpleClosureBoolTypeV1,
           ⟨left ++ typesArrayBytesV1 ++ right,
-            left.size + 4 + typeDeclBoolBytesV1.size, nesting⟩) := by
-    have hassoc :
-        left ++ typesArrayBytesV1 ++ right =
-          (left ++ encodeU32le 2) ++ typeDeclBoolBytesV1 ++
-            (typeDeclUInt64BytesV1 ++ right) := by
-      simp [typesArrayBytesV1, ByteArray.append_assoc]
-    have hsz : (left ++ encodeU32le 2).size = left.size + 4 := by
-      rw [ByteArray.size_append, encodeU32le_sizeV1]
-    have h :=
-      decodeTypeDecl_bool_midV1 (left ++ encodeU32le 2)
-        (typeDeclUInt64BytesV1 ++ right) nesting hdepth
-    simpa [hassoc.symm, hsz] using h
-  have h1 :
-      decodeTypeDeclV1
-          ⟨left ++ typesArrayBytesV1 ++ right,
-            left.size + 4 + typeDeclBoolBytesV1.size, nesting⟩ =
-        .ok (simpleClosureUInt64TypeV1,
-          ⟨left ++ typesArrayBytesV1 ++ right,
             left.size + typesArrayBytesV1.size, nesting⟩) := by
     have hassoc :
         left ++ typesArrayBytesV1 ++ right =
-          (left ++ encodeU32le 2 ++ typeDeclBoolBytesV1) ++ typeDeclUInt64BytesV1 ++
-            right := by
+          (left ++ encodeU32le 1) ++ typeDeclBoolBytesV1 ++ right := by
       simp [typesArrayBytesV1, ByteArray.append_assoc]
-    have hsz :
-        (left ++ encodeU32le 2 ++ typeDeclBoolBytesV1).size =
-          left.size + 4 + typeDeclBoolBytesV1.size := by
-      rw [ByteArray.size_append, ByteArray.size_append, encodeU32le_sizeV1]
-    have hszFinal :
-        left.size + 4 + typeDeclBoolBytesV1.size + typeDeclUInt64BytesV1.size =
-          left.size + typesArrayBytesV1.size := by
-      simp only [typesArrayBytesV1]
-      rw [ByteArray.size_append, ByteArray.size_append, encodeU32le_sizeV1]
-      omega
-    have h :=
-      decodeTypeDecl_uint64_midV1
-        (left ++ encodeU32le 2 ++ typeDeclBoolBytesV1) right nesting hdepth
-    simpa [hassoc.symm, hsz, hszFinal] using h
-  exact decodeArray_twoV1 maxTableElements decodeTypeDeclV1
+    have hsz : (left ++ encodeU32le 1).size = left.size + 4 := by
+      rw [ByteArray.size_append, encodeU32le_sizeV1]
+    have hszTypes : typesArrayBytesV1.size = 4 + typeDeclBoolBytesV1.size := by
+      simp [typesArrayBytesV1, ByteArray.size_append, encodeU32le_sizeV1]
+    rw [hassoc, show left.size + 4 = (left ++ encodeU32le 1).size from hsz.symm]
+    have hdec :=
+      decodeTypeDecl_bool_midV1 (left ++ encodeU32le 1) right nesting hdepth
+    exact hdec.trans (by
+      simp [Except.ok, hassoc, hsz, hszTypes, typesArrayBytesV1, ByteArray.size_append,
+        encodeU32le_sizeV1, Nat.add_assoc])
+  exact decodeArray_oneV1 maxTableElements decodeTypeDeclV1
     ⟨left ++ typesArrayBytesV1 ++ right, left.size, nesting⟩
-    (left.size + 4)
-    simpleClosureBoolTypeV1 simpleClosureUInt64TypeV1
-    ⟨left ++ typesArrayBytesV1 ++ right,
-      left.size + 4 + typeDeclBoolBytesV1.size, nesting⟩
+    (left.size + 4) simpleClosureBoolTypeV1
     ⟨left ++ typesArrayBytesV1 ++ right,
       left.size + typesArrayBytesV1.size, nesting⟩
-    hcount h0 h1
+    hcount h0
 
 /-! ### Four empty tables -/
 
@@ -1548,7 +1517,7 @@ theorem demoParams_legal : SimpleClosureParamsLegalV1 demoParamsV1 := by
 theorem demo_decodeTypes_mid (left right : ByteArray) :
     decodeArray maxTableElements decodeTypeDeclV1
         ⟨left ++ typesArrayBytesV1 ++ right, left.size, 1⟩ =
-      .ok (#[simpleClosureBoolTypeV1, simpleClosureUInt64TypeV1],
+      .ok (#[simpleClosureBoolTypeV1],
         ⟨left ++ typesArrayBytesV1 ++ right,
           left.size + typesArrayBytesV1.size, 1⟩) :=
   decodeTypes_simpleClosure_midV1 left right 1 (by decide)

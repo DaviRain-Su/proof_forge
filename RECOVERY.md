@@ -138,7 +138,7 @@ materialize）→ capability Plan/publish。历史上的 B9–B12 监督层与 s
 `Frontend/ProtocolV1` 与 `WorkerV1` 不是产品 CLI 源权威。D1-04 shared IntegerLiteral 与
 ProgramV1 command/export/v2 仍为 sole 源表面。
 
-**当前执行指针 = Goal-auto drain 已空（LH-1…28 + Track F engineering-done；不要再开 `prompt-next-wave`）**：formal `TASK-D2-07` / `TST-SEM-002/003` **仍 pending，不是下一刀编码**。日常工程下一刀 = [`docs/plan/capability-layer-parity.md`](docs/plan/capability-layer-parity.md) / [`docs/plan/capability-layer-tasks.md`](docs/plan/capability-layer-tasks.md)（默认 **CAP-1a** ICP time）。对账见 [`docs/research/28-project-wide-honesty-audit.md`](docs/research/28-project-wide-honesty-audit.md) 与 [`AGENTS.md`](AGENTS.md) Next task。
+**当前执行指针 = Goal-auto drain 已空（LH-1…28 + Track F engineering-done；不要再开 `prompt-next-wave`）**：formal `TASK-D2-07` / `TST-SEM-002/003` **仍 pending，不是下一刀编码**。CAP-1a…5 已收口。TypeKey Stage D（usage-closure → StructureV1）**已接线**——[`docs/plan/evm-formal-d2-06-typekey-usage.md`](docs/plan/evm-formal-d2-06-typekey-usage.md)。日常工程下一刀（择一）：**B-CALL-SEM**（人拍）或 **CAP-X-BYTES**（共享核另立）。对账见 [`docs/research/28-project-wide-honesty-audit.md`](docs/research/28-project-wide-honesty-audit.md) 与 [`AGENTS.md`](AGENTS.md) Next task。
 产品路径仍为进程内单次 read → `Loader` → `Normalize` → `compile` → `certifyInlineProofV1`
 → capability；十二个 materializer Plan body 已直连 retained `SemanticProgramV1`，`CompiledSemanticV1`
 + `ProgramRequirementsV1` sole freeze + engineering resolver/capability 已接线。registry

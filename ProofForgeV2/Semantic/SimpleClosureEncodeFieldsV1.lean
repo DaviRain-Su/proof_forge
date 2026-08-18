@@ -207,15 +207,12 @@ theorem encodeTypes_materialize_ok_size (p : SimpleClosureParamsV1) :
     ∃ b, encodeArray encodeTypeDeclV1 (materializeSimpleClosureDataV1 p).types =
         .ok b ∧ b.size ≤ 200 := by
   let b0 := taggedBytesV1 "TypeDecl" #[encodeU32le 0, encodeU8 0, boolShapeB]
-  let b1 := taggedBytesV1 "TypeDecl" #[encodeU32le 1, encodeU8 0, uint64ShapeB]
-  have htwo :=
-    encodeArray_twoV1 encodeTypeDeclV1 simpleClosureBoolTypeV1 simpleClosureUInt64TypeV1
-      b0 b1 encodeTypeDecl_bool_eq encodeTypeDecl_uint64_eq
-  refine ⟨(encodeU32le 2).append (b0.append b1), ?_, ?_⟩
-  · simpa [materializeSimpleClosureDataV1] using htwo
+  have hone :=
+    encodeArray_oneV1 encodeTypeDeclV1 simpleClosureBoolTypeV1 b0 encodeTypeDecl_bool_eq
+  refine ⟨(encodeU32le 1).append b0, ?_, ?_⟩
+  · simpa [materializeSimpleClosureDataV1] using hone
   · have s0 : b0.size ≤ 64 := typeDecl_bool_size_le
-    have s1 : b1.size ≤ 64 := typeDecl_uint64_size_le
-    rw [ByteArray_size_append, encodeU32le_size, ByteArray_size_append]
+    rw [ByteArray_size_append, encodeU32le_size]
     omega
 
 

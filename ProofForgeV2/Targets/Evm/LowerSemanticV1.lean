@@ -744,7 +744,7 @@ private partial def flattenTypeLeafSpecsV1
     (typeDecls : Array TypeDeclV1) (types : EvmTypeClosureV1)
     (typeId : TypeIdV1) (namePrefix : String) :
     CompileResult (Array (String × Bool)) := do
-  if typeId == types.uint64TypeId then
+  if types.isUInt64 typeId then
     pure #[(namePrefix, false)]
   else if types.int64TypeId == some typeId then
     pure #[(namePrefix, true)]
@@ -853,7 +853,7 @@ private def aggregateResultKindOfV1
     match typeDecls[typeId.toNat]? with
     | some { shape := .array elTid len, .. } => do
         let leafIsInt := types.int64TypeId == some elTid
-        unless elTid == types.uint64TypeId || leafIsInt do
+        unless types.isUInt64 elTid || leafIsInt do
           throw <| .planInvariant .evm
             s!"{owner} anonymous Array return admits only UInt64 or Int64 elements (not other widths)"
         let n := len.toNat
@@ -869,7 +869,7 @@ private def aggregateResultKindOfV1
         pure (.aggregate leaves)
     | some { shape := .option elTid, .. } => do
         let payloadIsInt := types.int64TypeId == some elTid
-        unless elTid == types.uint64TypeId || payloadIsInt do
+        unless types.isUInt64 elTid || payloadIsInt do
           throw <| .planInvariant .evm
             s!"{owner} anonymous Option return admits only UInt64 or Int64 payload"
         -- Tag leaf + payload leaf (none = (0,0), some v = (1,v)).
@@ -973,15 +973,15 @@ private def mapUInt64LeafCountV1
     CompileResult (Option Nat) := do
   match typeDecls[typeId.toNat]? with
   | some { shape := .map keyTid valTid, .. } =>
-      unless valTid == types.uint64TypeId || types.int64TypeId == some valTid do
+      unless types.isUInt64 valTid || types.int64TypeId == some valTid do
         throw <| .planInvariant .evm
           "unsupported EVM semantic shape: Map state value must be UInt64 or Int64"
-      if keyTid == types.uint64TypeId then
+      if types.isUInt64 keyTid then
         -- Hashed profile: one base slot (entries at keccak256(key||base)).
         -- Int64 values share this 1-slot path; do not invent 24 signed leaves.
         pure (some (if hashedMapStorage then 1 else evmMapPilotLeafCountV1))
       else if types.isPrincipal keyTid then
-        unless valTid == types.uint64TypeId do
+        unless types.isUInt64 valTid do
           throw <| .planInvariant .evm
             "unsupported EVM semantic shape: Map state value must be UInt64"
         pure (some (if hashedMapStorage then 1 else evmMapPrincipalLeafCountV1))
@@ -1005,7 +1005,7 @@ private def optionUInt64StateLeafCountV1
     (typeId : TypeIdV1) : CompileResult (Option Nat) := do
   match typeDecls[typeId.toNat]? with
   | some { shape := .option elTid, .. } => do
-      unless elTid == types.uint64TypeId || types.int64TypeId == some elTid do
+      unless types.isUInt64 elTid || types.int64TypeId == some elTid do
         throw <| .planInvariant .evm
           "unsupported EVM semantic shape: Option state admits only UInt64 payload or Int64 payload"
       pure (some 2)
@@ -1384,7 +1384,7 @@ private def collectMapUInt64StaticKeysV1
             typesByVid := typesByVid.set! vd.valueId.toNat (some vd.typeId)
             match instr.op with
             | .literal typeId bytes =>
-                if typeId == types.uint64TypeId then
+                if types.isUInt64 typeId then
                   let v ← decodeUInt64LiteralLe evmPlanErr "EVM" bytes
                   litByVid := ensureOptionArrV1 litByVid vd.valueId.toNat
                   litByVid := litByVid.set! vd.valueId.toNat (some v)
@@ -1408,11 +1408,11 @@ private def collectMapUInt64StaticKeysV1
             | some baseTid =>
                 match typeDecls[baseTid.toNat]? with
                 | some { shape := .map keyTid valTid, .. } => do
-                    unless valTid == types.uint64TypeId ||
+                    unless types.isUInt64 valTid ||
                         types.int64TypeId == some valTid do
                       throw <| .planInvariant .evm
                         "unsupported EVM semantic shape: Map index value must be UInt64 or Int64"
-                    if keyTid == types.uint64TypeId then
+                    if types.isUInt64 keyTid then
                       -- Dense UInt64 pilot admits dynamic keys (Token params).
                       -- Literals are still collected for diagnostics/layout hints.
                       match litByVid[idxId.toNat]? with
@@ -2849,7 +2849,6 @@ private def lowerBlockInstructionsV1
     (armReadables : Array ValueIdV1)
     (block : BlockV1)
     (values0 : Array LoweredValueV1) : CompileResult LoweredBlockV1 := do
-  let uint64TypeId := types.uint64TypeId
   unless block.id.toNat < 1000000 do
     throw <| .planInvariant .evm
       "unsupported EVM semantic shape: block id is out of range"
@@ -2859,7 +2858,7 @@ private def lowerBlockInstructionsV1
     unless p.valueId.toNat < values0.size do
       throw <| .planInvariant .evm
         "unsupported EVM semantic shape: block parameter ValueId is not pre-allocated"
-    unless p.typeId == uint64TypeId do
+    unless types.isUInt64 p.typeId do
       throw <| .planInvariant .evm
         "unsupported EVM semantic shape: block parameter must be anonymous UInt64"
   if block.instructions.size > maxBodyStatements then
@@ -3335,10 +3334,11 @@ private def lowerBlockInstructionsV1
           let tid ← admitInt64ResultTypeV1 types result.typeId
           values := ← appendResultValueV1 tid values result value
         else
-          unless result.typeId == uint64TypeId do
+          unless types.isUInt64 result.typeId do
             throw <| .planInvariant .evm
               "unsupported EVM semantic shape: pureCall result type must match callee UInt64"
-          values := ← appendResultValueV1 uint64TypeId values result value
+          let u64Tid ← types.requireUInt64 evmPlanErr "evm"
+          values := ← appendResultValueV1 u64Tid values result value
     | .stateStore stateId valueId, none =>
         if mode == .view || mode == .pureFn then
           throw <| .planInvariant .evm
@@ -3708,7 +3708,7 @@ private def lowerBlockInstructionsV1
           let some { shape := .option elTid, .. } := layout.typeDecls[typeId.toNat]? |
             throw <| .planInvariant .evm
               "unsupported EVM semantic shape: Option construct TypeDecl missing"
-          unless elTid == uint64TypeId || types.int64TypeId == some elTid do
+          unless types.isUInt64 elTid || types.int64TypeId == some elTid do
             throw <| .planInvariant .evm
               "unsupported EVM semantic shape: Option construct admits only UInt64 payload or Int64 payload"
           let payloadIsInt := types.int64TypeId == some elTid
@@ -3941,7 +3941,7 @@ private def lowerBlockInstructionsV1
           | _ =>
               -- Also accept UInt64 if the type closure lacks a distinct UInt32
               -- (should not happen after Normalize).
-              if result.typeId == uint64TypeId then pure result.typeId
+              if types.isUInt64 result.typeId then pure result.typeId
               else
                 throw <| .planInvariant .evm
                   "unsupported EVM semantic shape: variantTag result must be UInt32"
@@ -4309,25 +4309,25 @@ private def lowerBlockInstructionsV1
           let value := mkAggregateValueV1 leaves leafIsInt #[] 1 leaves.size
           values := ← appendResultValueV1 result.typeId values result value
         else if key == unixTimeSecondsContextKeyV1 then
-          unless result.typeId == types.uint64TypeId do
+          unless types.isUInt64 result.typeId do
             throw <| .planInvariant .evm
               "unsupported EVM semantic shape: ContextRead unix-time-seconds result must be UInt64"
           values := ← appendResultValueV1 result.typeId values result
             (mkScalarValueV1 .timestamp #[] false false 64 1 1)
         else if key == blockHeightContextKeyV1 then
-          unless result.typeId == types.uint64TypeId do
+          unless types.isUInt64 result.typeId do
             throw <| .planInvariant .evm
               "unsupported EVM semantic shape: ContextRead context.blockHeight result must be UInt64"
           values := ← appendResultValueV1 result.typeId values result
             (mkScalarValueV1 .blockNumber #[] false false 64 1 1)
         else if key == chainIdContextKeyV1 then
-          unless result.typeId == types.uint64TypeId do
+          unless types.isUInt64 result.typeId do
             throw <| .planInvariant .evm
               "unsupported EVM semantic shape: ContextRead context.chainId result must be UInt64"
           values := ← appendResultValueV1 result.typeId values result
             (mkScalarValueV1 .chainId #[] false false 64 1 1)
         else if key == attachedValueContextKeyV1 then
-          unless result.typeId == types.uint64TypeId do
+          unless types.isUInt64 result.typeId do
             throw <| .planInvariant .evm
               "unsupported EVM semantic shape: ContextRead context.attachedValue result must be UInt64"
           values := ← appendResultValueV1 result.typeId values result
@@ -4458,7 +4458,7 @@ private def lowerBlockInstructionsV1
             throw <| .planInvariant .evm
               "unsupported EVM semantic shape: nativeVaultBalanceU128 is NEAR-only (EVM SELFBALANCE stays UInt64 balanceOfSelf)"
         | .nativeVaultBalance =>
-            unless result.typeId == types.uint64TypeId do
+            unless types.isUInt64 result.typeId do
               throw <| .planInvariant .evm
                 "unsupported EVM semantic shape: envRead result must be UInt64"
             -- SELFBALANCE opcode: zero args, view/entry-callable.
@@ -4468,7 +4468,7 @@ private def lowerBlockInstructionsV1
             values := ← appendResultValueV1 result.typeId values result
               (mkScalarValueV1 .selfBalance #[] false false 64 1 1)
         | .tokenVaultBalance =>
-            unless result.typeId == types.uint64TypeId do
+            unless types.isUInt64 result.typeId do
               throw <| .planInvariant .evm
                 "unsupported EVM semantic shape: envRead result must be UInt64"
             -- STATICCALL to mint address: one Principal arg (the mint).
@@ -5133,7 +5133,7 @@ private def lowerCallableV1
       unless p.valueId.toNat == values.size do
         throw <| .planInvariant .evm
           "unsupported EVM semantic shape: block parameter ValueIds are not canonical"
-      unless p.typeId == types.uint64TypeId do
+      unless types.isUInt64 p.typeId do
         throw <| .planInvariant .evm
           "unsupported EVM semantic shape: block parameter must be anonymous UInt64"
       -- Placeholder; overwrite with `.temp` when the loop is materialised.
@@ -5348,7 +5348,7 @@ private def makeFnV1
     throw <| .planInvariant .evm
       s!"fn '{name}' does not return public UInt64, Int64, or Bool"
   let (resultIsBool, resultIsInt, resultKind) : Bool × Bool × ResultKind ←
-    if callable.result.typeId == types.uint64TypeId then
+    if types.isUInt64 callable.result.typeId then
       pure (false, false, .uint64)
     else
       match types.intWidthOf callable.result.typeId with
@@ -5415,10 +5415,12 @@ private def makePlanFromSemanticDataV1
     makeStorageLayoutV1 types source.types source.logicalState mapStaticKeys
       pfAssetsDeclared hashedMapStorage
   let storageLayout := { storageLayout0 with constants := source.constants }
-  let events ← source.events.mapM (fun d =>
-    makeInterfaceBindingV1 "event" d.name d.fields types.uint64TypeId)
-  let errors ← source.errors.mapM (fun d =>
-    makeInterfaceBindingV1 "error" d.name d.fields types.uint64TypeId)
+    let events ← source.events.mapM (fun d => do
+    let u64Tid ← types.requireUInt64 evmPlanErr "evm"
+    makeInterfaceBindingV1 "event" d.name d.fields u64Tid)
+  let errors ← source.errors.mapM (fun d => do
+    let u64Tid ← types.requireUInt64 evmPlanErr "evm"
+    makeInterfaceBindingV1 "error" d.name d.fields u64Tid)
   let components := source.qualifiedName.components.toArray
   let objectName := components.back!
   -- Phase 1: dense pureFn signature table + CallableId → fnIndex map so nested
@@ -5445,7 +5447,7 @@ private def makePlanFromSemanticDataV1
           throw <| .planInvariant .evm
             s!"fn '{name}' does not return public UInt64, Int8/16/32/64, or Bool"
         let (resultIsBool, resultIsInt) : Bool × Bool ←
-          if callable.result.typeId == types.uint64TypeId then
+          if types.isUInt64 callable.result.typeId then
             pure (false, false)
           else if (types.intWidthOf callable.result.typeId).isSome then
             pure (false, true)

@@ -490,7 +490,7 @@ theorem decodeTypes_body_of_fieldsOk_legal
     (legal : SimpleClosureParamsLegalV1 p)
     (fok : SemanticProgramFieldsOkV1 (materializeSimpleClosureDataV1 p) b) :
     decodeArray maxTableElements decodeTypeDeclV1 ⟨b, oTypes p, 1⟩ =
-      .ok (#[simpleClosureBoolTypeV1, simpleClosureUInt64TypeV1],
+      .ok (#[simpleClosureBoolTypeV1],
         ⟨b, oConst p, 1⟩) := by
   have hlayout := fieldsOk_bytes_layout_of_legal p b legal fok
   let L :=
@@ -719,7 +719,7 @@ theorem materialize_eq_fields
     materializeSimpleClosureDataV1 p =
       {
         qualifiedName := p.toQualifiedName
-        types := #[simpleClosureBoolTypeV1, simpleClosureUInt64TypeV1]
+        types := #[simpleClosureBoolTypeV1]
         constants := #[]
         logicalState := #[]
         events := #[]
@@ -768,7 +768,7 @@ theorem decodeSemanticProgramDataTagged_of_simpleClosure_field_bytes
       ⟨b, oRequirements p, 1⟩
       ⟨b, oEnd p, 1⟩
       (p.toQualifiedName)
-      #[simpleClosureBoolTypeV1, simpleClosureUInt64TypeV1]
+      #[simpleClosureBoolTypeV1]
       #[] #[] #[] #[]
       #[simpleClosureViewCallableV1 p.viewName,
         simpleClosureInvCallableV1 p.invName]

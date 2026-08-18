@@ -305,7 +305,7 @@ private def isIdentifier (value : String) : Bool :=
   isAsciiIdentifier maxIdentifierBytes value
 
 private def isUInt64Type (types : OpenVmTypeClosureV1) (typeId : TypeIdV1) : Bool :=
-  typeId == types.uint64TypeId
+  types.isUInt64 typeId
 
 private def isInt64Type (types : OpenVmTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   types.int64TypeId == some typeId

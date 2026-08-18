@@ -427,13 +427,16 @@ def pilotContextPolicyAdmit : PilotContextPolicy where
   admitCommitIdentity := true
 
 /-- Anonymous type ids admitted by a pilot type-closure policy.
-    UInt64 is required; Unit / Bool / Int64 / Field / Principal / String are
-    optional (at most one each). Named Struct/Enum TypeIds appear in
-    `namedTypeIds` when N3 policy admits them. Anonymous container TypeIds
-    (Array/Map/Bytes) appear in `containerTypeIds` when ArrayState policy
-    admits the matching shape. -/
+    UInt64 is optional under Stage D usage-closure (Normalize no longer
+    force-interns an unused envelope row); Unit / Bool / Int64 / Field /
+    Principal / String are optional (at most one each). Named Struct/Enum
+    TypeIds appear in `namedTypeIds` when N3 policy admits them. Anonymous
+    container TypeIds (Array/Map/Bytes) appear in `containerTypeIds` when
+    ArrayState policy admits the matching container shape. -/
 structure PilotTypeClosureV1 where
-  uint64TypeId : TypeIdV1
+  /-- Anonymous UInt64 TypeId when the program actually uses UInt64.
+      Absent for Int-only / Bool-only / Unit-only tables (Stage D). -/
+  uint64TypeId : Option TypeIdV1
   unitTypeId : Option TypeIdV1
   boolTypeId : Option TypeIdV1
   /-- Optional anonymous UInt32, interned only when a shift-count literal or
@@ -464,16 +467,20 @@ structure PilotTypeClosureV1 where
 /-- Look up an admitted non-64 UInt TypeId by bit width. -/
 def PilotTypeClosureV1.uintTypeIdAt
     (c : PilotTypeClosureV1) (width : Nat) : Option TypeIdV1 :=
-  if width == 64 then some c.uint64TypeId
+  if width == 64 then c.uint64TypeId
   else c.otherUintByWidth.findSome? fun (w, tid) =>
     if w == width then some tid else none
 
 /-- Resolve an admitted anonymous UInt TypeId to its bit width. -/
 def PilotTypeClosureV1.uintWidthOf
     (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Option Nat :=
-  if typeId == c.uint64TypeId then some 64
-  else c.otherUintByWidth.findSome? fun (w, tid) =>
-    if tid == typeId then some w else none
+  match c.uint64TypeId with
+  | some tid => if tid == typeId then some 64 else
+      c.otherUintByWidth.findSome? fun (w, tid') =>
+        if tid' == typeId then some w else none
+  | none =>
+      c.otherUintByWidth.findSome? fun (w, tid) =>
+        if tid == typeId then some w else none
 
 /-- Look up an admitted Int TypeId by bit width. -/
 def PilotTypeClosureV1.intTypeIdAt
@@ -496,7 +503,12 @@ def PilotTypeClosureV1.intWidthOf
 /-- True when `typeId` is the admitted UInt64 or Int64 type. -/
 def PilotTypeClosureV1.isUInt64OrInt64
     (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
-  typeId == c.uint64TypeId || c.int64TypeId == some typeId
+  c.uint64TypeId == some typeId || c.int64TypeId == some typeId
+
+/-- True when `typeId` is the admitted anonymous UInt64 (if present). -/
+def PilotTypeClosureV1.isUInt64
+    (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  c.uint64TypeId == some typeId
 
 /-- Admitted **ABI** UInt widths for state/param: `{8,16,32,64}`.
     Shared by EVM, Solana, NEAR, and Noir T8b. Distinct from body multi-width
@@ -758,6 +770,14 @@ def psyTypeClosureWording : PilotTypeClosureWording where
 private def shapeMsg (label detail : String) : String :=
   s!"unsupported {label} semantic shape: {detail}"
 
+/-- Require a UInt64 TypeId for lowerings that cannot proceed without it. -/
+def PilotTypeClosureV1.requireUInt64
+    (c : PilotTypeClosureV1) (mkErr : String → CompileError) (label : String) :
+    CompileResult TypeIdV1 :=
+  match c.uint64TypeId with
+  | some tid => pure tid
+  | none => throw (mkErr (shapeMsg label "UInt64 type is missing"))
+
 private def widthAdmitted (policy : PilotUintWidthPolicy) (width : Nat) : Bool :=
   policy.admittedWidths.contains width
 
@@ -924,15 +944,13 @@ def validatePilotTypeClosure
               "anonymous Option is outside the current container-state pilot")
       | _ =>
           throw <| mkErr (shapeMsg label wording.unsupportedShapeDetail)
-  let resolvedUInt64TypeId ← match uint64TypeId with
-    | some value => pure value
-    | none => throw (mkErr (shapeMsg label "UInt64 type is missing"))
+  -- Stage D: UInt64 may be absent when the program never uses it.
   let uint32TypeId :=
     otherUintByWidth.findSome? fun (w, tid) => if w == 32 then some tid else none
   let int64TypeId :=
     otherIntByWidth.findSome? fun (w, tid) => if w == 64 then some tid else none
   pure {
-    uint64TypeId := resolvedUInt64TypeId
+    uint64TypeId
     unitTypeId
     boolTypeId
     uint32TypeId

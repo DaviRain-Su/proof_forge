@@ -628,6 +628,53 @@ theorem cfgInvariantPhasesV1
   · simpa [subjectDataV1] using
       invariantFuelPhasesV1 viewName invariantName
 
+private def usageClosureFixtureV1 : SemanticProgramDataV1 :=
+  subjectDataV1
+    { components := { head := "Proof", tail := #["Forge"] } }
+    "s0" "s1" "view" "inv"
+
+private def initializerViewCoreRootsV1 : Array TypeIdV1 :=
+  collectCoreTypeSlotRootsV1 usageClosureFixtureV1
+
+private theorem collectCoreTypeSlotRootsV1_initializerView_fixture :
+    collectCoreTypeSlotRootsV1 usageClosureFixtureV1 = initializerViewCoreRootsV1 := rfl
+
+private theorem foldBoolUInt64UnitCoreRootsV1_initializerView_fixture :
+    foldBoolUInt64UnitCoreRootsV1 initializerViewCoreRootsV1 = #[true, true, true] := by
+  dsimp [initializerViewCoreRootsV1, usageClosureFixtureV1, subjectDataV1,
+    collectCoreTypeSlotRootsV1, foldBoolUInt64UnitCoreRootsV1]
+  simp [typesV1, callablesV1, initializerStoreZeroTwoCallableV1, viewLoadCallableV1,
+    twoStateCompareInvariantCallableV1, Array.foldl, Array.set!, Array.replicate]
+  rfl
+
+private theorem anonymousTypeUsageBitmapV1_initializerView_fixture :
+    anonymousTypeUsageBitmapV1 usageClosureFixtureV1 = #[true, true, true] := by
+  rw [anonymousTypeUsageBitmapV1_allAnonymousLeaf_boolUInt64Unit usageClosureFixtureV1
+    (by simp [usageClosureFixtureV1, subjectDataV1, typesV1])]
+  rw [collectCoreTypeSlotRootsV1_initializerView_fixture,
+    foldBoolUInt64UnitCoreRootsV1_initializerView_fixture]
+
+private theorem anonymousTypeUsageBitmapV1_initializerView_names_irrel
+    (qualifiedName : QualifiedName)
+    (state0Name state1Name viewName invariantName : String) :
+    anonymousTypeUsageBitmapV1
+      (subjectDataV1 qualifiedName state0Name state1Name viewName invariantName) =
+      anonymousTypeUsageBitmapV1 usageClosureFixtureV1 := by
+  simp [anonymousTypeUsageBitmapV1, subjectDataV1, usageClosureFixtureV1, typesV1,
+    callablesV1, initializerStoreZeroTwoCallableV1, viewLoadCallableV1,
+    twoStateCompareInvariantCallableV1, collectCoreTypeSlotRootsV1]
+
+private theorem usageClosureV1
+    (qualifiedName : QualifiedName)
+    (state0Name state1Name viewName invariantName : String) :
+    validateAnonymousTypeUsageClosureV1
+      (subjectDataV1 qualifiedName state0Name state1Name viewName
+        invariantName) = .ok () := by
+  apply validateAnonymousTypeUsageClosureV1_bool_uint64_unit_coreMarked_eq_ok
+  · simp [subjectDataV1, typesV1]
+  · rw [anonymousTypeUsageBitmapV1_initializerView_names_irrel qualifiedName state0Name
+      state1Name viewName invariantName, anonymousTypeUsageBitmapV1_initializerView_fixture]
+
 /-! ### Full production structure composition and admission -/
 
 theorem structureV1
@@ -646,6 +693,7 @@ theorem structureV1
       invariantName legal.hnameShape
   · simpa [data, subjectDataV1] using typesStructureV1
   · simpa [data, subjectDataV1] using typeKeyPhasesV1
+  · exact usageClosureV1 qualifiedName state0Name state1Name viewName invariantName
   · simpa [data, subjectDataV1] using namedTypeNamesV1
   · exact constantsValueBytesV1 qualifiedName state0Name state1Name viewName
       invariantName

@@ -854,7 +854,7 @@ private def containerLeafLayoutV1
       -- ArrI8 / ArrU256 stay fail closed without a new string.
       let n := len.toNat
       let leaf :=
-        if elTid == types.uint64TypeId then some (8, false)
+        if types.isUInt64 elTid then some (8, false)
         else if types.int64TypeId == some elTid then some (8, true)
         else if types.uintTypeIdAt 128 == some elTid then some (16, false)
         else none
@@ -874,8 +874,8 @@ private def containerLeafLayoutV1
       -- Historical needle stays a contains-match so MapInt8 / MapU128 /
       -- Int64-key / other value shapes stay fail closed. Third Bool is
       -- value-is-Int64, not a uniform 24-leaf signed flag.
-      unless keyTid == types.uint64TypeId &&
-          (valTid == types.uint64TypeId || types.int64TypeId == some valTid) do
+      unless types.isUInt64 keyTid &&
+          (types.isUInt64 valTid || types.int64TypeId == some valTid) do
         throw <| .planInvariant .ton
           "unsupported Ton semantic shape: Map state admits only Map UInt64 UInt64"
       let valIsInt := types.int64TypeId == some valTid
@@ -911,7 +911,7 @@ private def requireOptionUInt64StateV1
     (typeId : TypeIdV1) (stateName : String) : CompileResult (Nat × Bool) := do
   match typeDecls[typeId.toNat]? with
   | some { shape := .option elTid, name := none, .. } =>
-      if elTid == types.uint64TypeId then
+      if types.isUInt64 elTid then
         pure (8, false)
       else if types.int64TypeId == some elTid then
         pure (8, true)
@@ -934,7 +934,7 @@ private partial def flattenTypeLeafSpecsV1
     (typeDecls : Array TypeDeclV1) (types : TonTypeClosureV1)
     (typeId : TypeIdV1) (namePrefix : String) :
     CompileResult (Array String) := do
-  if typeId == types.uint64TypeId then
+  if types.isUInt64 typeId then
     pure #[namePrefix]
   else if types.int64TypeId == some typeId then
     pure #[namePrefix]
@@ -1003,7 +1003,7 @@ unsigned zero-fill (variant max-payload layout). -/
 private partial def flattenTypeLeafAbiV1
     (typeDecls : Array TypeDeclV1) (types : TonTypeClosureV1)
     (typeId : TypeIdV1) : CompileResult (Array LeafAbiType) := do
-  if typeId == types.uint64TypeId then
+  if types.isUInt64 typeId then
     pure #[{ isInt := false, byteWidth := 8 }]
   else if types.int64TypeId == some typeId then
     pure #[{ isInt := true, byteWidth := 8 }]
@@ -1055,7 +1055,7 @@ private def anonymousReturnLeafAbiV1
   match typeDecls[typeId.toNat]? with
   | some { shape := .array elTid len, name := none, .. } =>
       let leafIsInt := types.int64TypeId == some elTid
-      unless elTid == types.uint64TypeId || leafIsInt do
+      unless types.isUInt64 elTid || leafIsInt do
         throw <| .planInvariant .ton
           "unsupported Ton semantic shape: anonymous Array return requires UInt64 or Int64 elements"
       let n := len.toNat
@@ -1065,7 +1065,7 @@ private def anonymousReturnLeafAbiV1
       pure (some (Array.replicate n { isInt := leafIsInt, byteWidth := 8 }))
   | some { shape := .option elTid, name := none, .. } =>
       let payloadIsInt := types.int64TypeId == some elTid
-      unless elTid == types.uint64TypeId || payloadIsInt do
+      unless types.isUInt64 elTid || payloadIsInt do
         throw <| .planInvariant .ton
           "unsupported Ton semantic shape: anonymous Option return requires UInt64 or Int64 payload"
       pure (some #[
@@ -1179,7 +1179,7 @@ private def enumPayloadLeafRangeV1
 private def scalarKindOfNamedLeafResultV1
     (types : TonTypeClosureV1) (typeId : TypeIdV1) :
     CompileResult TonValueKindV1 := do
-  if typeId == types.uint64TypeId then
+  if types.isUInt64 typeId then
     pure .uint64
   else if types.int64TypeId == some typeId then
     pure .int64
@@ -1589,7 +1589,7 @@ private def makeParamsV1 (owner : String) (types : TonTypeClosureV1)
     else if isAnonymousOptionTypeIdV1 typeDecls param.typeId then
       match typeDecls[param.typeId.toNat]? with
       | some { shape := .option elTid, name := none, .. } =>
-          unless elTid == types.uint64TypeId || types.int64TypeId == some elTid do
+          unless types.isUInt64 elTid || types.int64TypeId == some elTid do
             throw <| .planInvariant .ton
               s!"unsupported Ton semantic shape: Option parameter '{param.name}' payload must be UInt64 or Int64"
           if planned.size + 2 > maxParams then
@@ -2252,7 +2252,7 @@ private def lowerBlockInstructionsV1
         "unsupported Ton semantic shape: block parameter ValueId is out of range"
     match slot.expr with
     | .localTemp _ =>
-        unless slot.kind == .uint64 && p.typeId == types.uint64TypeId do
+        unless slot.kind == .uint64 && types.isUInt64 p.typeId do
           throw <| .planInvariant .ton
             "unsupported Ton semantic shape: loop induction must be public UInt64"
     | _ =>
@@ -2791,7 +2791,7 @@ private def lowerBlockInstructionsV1
           throw <| .planInvariant .ton
             "unsupported Ton semantic shape: pureCall arity does not match the callee"
         let expectedTypeId ← match sig.resultKind with
-          | .uint64 => pure types.uint64TypeId
+          | .uint64 => types.requireUInt64 tonPlanErr "ton"
           | .int64 =>
               match types.int64TypeId with
               | some tid => pure tid
@@ -3088,7 +3088,7 @@ private def lowerBlockInstructionsV1
             -- `anonymousReturnLeafAbiV1`.
             match typeDecls[typeId.toNat]? with
             | some { shape := .option elTid, name := none, .. } => do
-                unless elTid == types.uint64TypeId ||
+                unless types.isUInt64 elTid ||
                     types.int64TypeId == some elTid ||
                     types.uintTypeIdAt 128 == some elTid do
                   throw <| .planInvariant .ton
@@ -3262,7 +3262,7 @@ private def lowerBlockInstructionsV1
             -- Array 8-byte leaf: UInt64 or Int64. Reject mixed signedness
             -- (Int64 result from a UInt64 array or the reverse).
             let wantInt := types.int64TypeId == some result.typeId
-            unless result.typeId == types.uint64TypeId || wantInt do
+            unless types.isUInt64 result.typeId || wantInt do
               throw <| .planInvariant .ton
                 "unsupported Ton semantic shape: Array IndexGet result must be UInt64 or Int64"
             values := ← appendResultValueV1 result.typeId values result {
@@ -3485,7 +3485,7 @@ private def lowerBlockInstructionsV1
           | some 32 => pure TonValueKindV1.uint32
           | some 64 => pure TonValueKindV1.uint64
           | _ =>
-              if result.typeId == types.uint64TypeId then pure TonValueKindV1.uint64
+              if types.isUInt64 result.typeId then pure TonValueKindV1.uint64
               else
                 throw <| .planInvariant .ton
                   "unsupported Ton semantic shape: variantTag result must be UInt32"
@@ -3545,7 +3545,7 @@ private def lowerBlockInstructionsV1
             let some e0 := outLeaves[0]? |
               throw <| .planInvariant .ton "variantPayload scalar leaf missing"
             let kind ←
-              if result.typeId == types.uint64TypeId then pure TonValueKindV1.uint64
+              if types.isUInt64 result.typeId then pure TonValueKindV1.uint64
               else if types.uintTypeIdAt 128 == some result.typeId then
                 -- Option UInt128 payload extract. Do not open UInt128 as
                 -- a named-Struct/Enum leaf (those stay UInt64/Int64).
@@ -3598,7 +3598,7 @@ private def lowerBlockInstructionsV1
         unless key == unixTimeSecondsContextKeyV1 do
           throw <| .planInvariant .ton
             s!"unsupported Ton semantic shape: unknown ContextRead key '{key.value}'"
-        unless result.typeId == types.uint64TypeId do
+        unless types.isUInt64 result.typeId do
           throw <| .planInvariant .ton
             "unsupported Ton semantic shape: ContextRead unix-time-seconds result must be UInt64"
         values := ← appendResultValueV1 result.typeId values result {
@@ -3665,7 +3665,7 @@ private def validateCallableLoopsV1
       let some p := block.params[0]? |
         throw <| .planInvariant .ton
           "unsupported Ton semantic shape: loop header must carry exactly one block param"
-      unless p.typeId == types.uint64TypeId do
+      unless types.isUInt64 p.typeId do
         throw <| .planInvariant .ton
           "unsupported Ton semantic shape: loop induction must be public UInt64"
       unless p.valueId.toNat == callable.params.size + blockParamCount do
@@ -4271,7 +4271,7 @@ private def makePureFnV1
     throw <| .planInvariant .ton
       s!"pureFn '{name}' cannot return a multi-leaf aggregate (B-RET-ABI: pureFn aggregate returns stay fail-closed; view-only named Struct/Enum and anonymous Array/Option)"
   let (resultIsBool, expectedReturn) ←
-    if callable.result.typeId == types.uint64TypeId then
+    if types.isUInt64 callable.result.typeId then
       pure (false, ExpectedReturnV1.scalar .uint64)
     else if types.boolTypeId == some callable.result.typeId then
       pure (true, ExpectedReturnV1.scalar .bool)
@@ -4330,7 +4330,7 @@ private def buildTonFnEnvV1
     match callable.kind with
     | .pureFn =>
         let resultKind ←
-          if callable.result.typeId == types.uint64TypeId then
+          if types.isUInt64 callable.result.typeId then
             pure TonValueKindV1.uint64
           else if types.int64TypeId == some callable.result.typeId then
             pure TonValueKindV1.int64
@@ -4375,10 +4375,12 @@ private def makePlanFromSemanticDataV1
       constantKinds := constKinds
       constantValues := constValues
   }
-  let events ← source.events.mapM (fun d =>
-    makeInterfaceBindingV1 "event" d.name d.fields types.uint64TypeId)
-  let errors ← source.errors.mapM (fun d =>
-    makeInterfaceBindingV1 "error" d.name d.fields types.uint64TypeId)
+    let events ← source.events.mapM (fun d => do
+    let u64Tid ← types.requireUInt64 tonPlanErr "ton"
+    makeInterfaceBindingV1 "event" d.name d.fields u64Tid)
+  let errors ← source.errors.mapM (fun d => do
+    let u64Tid ← types.requireUInt64 tonPlanErr "ton"
+    makeInterfaceBindingV1 "error" d.name d.fields u64Tid)
   let components := source.qualifiedName.components.toArray
   let programName := components.back!
   let fnEnv ← buildTonFnEnvV1 types source.callables

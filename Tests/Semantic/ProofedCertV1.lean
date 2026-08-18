@@ -32,7 +32,6 @@ def qn : QualifiedName :=
   { components := ⟨"Tests", #["Language", "InlineProofAuthoringV1", "Proofed"]⟩ }
 
 def boolT : TypeDeclV1 := { id := 0, name := none, shape := .bool }
-def u64T : TypeDeclV1 := { id := 1, name := none, shape := .uint 64 }
 
 def litTrue : InstructionV1 :=
   { result := some { valueId := 0, typeId := 0 }, op := .literal 0 (encodeU8 1) }
@@ -73,7 +72,7 @@ def boolReq : RequirementRequestV1 := {
 
 def proofedData : SemanticProgramDataV1 := {
   qualifiedName := qn
-  types := #[boolT, u64T]
+  types := #[boolT]
   constants := #[]
   logicalState := #[]
   events := #[]
@@ -101,7 +100,7 @@ theorem structurePrelude_proofed :
         NonEmptyArray String).toArray.size := by
     decide
   simp [validateSemanticProgramStructurePreludeV1, checkTableIdsV1,
-    validateProgramQualifiedNameShapeV1, proofedData, qn, boolT, u64T,
+    validateProgramQualifiedNameShapeV1, proofedData, qn, boolT,
     viewC, invC, singleBlock, litTrue, Pure.pure, Except.pure, Bind.bind, Except.bind,
     checkTypeShapeRefs, checkTypeIdInRange, checkCallableIdInRange, checkIdEqualsIndex,
     hqn]
@@ -109,19 +108,16 @@ theorem structurePrelude_proofed :
 theorem typesStructure_proofed :
     validateTypesStructureV1 proofedData.types = .ok () := by
   simp [validateTypesStructureV1, validateTypeDeclShapeV1, validateTypeDeclNamedRuleV1,
-    proofedData, boolT, u64T, legalIntegerWidthV1_64, Pure.pure, Except.pure, Bind.bind,
+    proofedData, boolT, Pure.pure, Except.pure, Bind.bind,
     Except.bind]
 
 theorem typeKeyNamedPrefix_proofed :
     validateNamedPrefixRankV1 proofedData.types = .ok () := by
-  simp [validateNamedPrefixRankV1, proofedData, boolT, u64T, Pure.pure, Except.pure,
+  simp [validateNamedPrefixRankV1, proofedData, boolT, Pure.pure, Except.pure,
     Bind.bind, Except.bind]
 
 private def boolTypeShapeBytes : ByteArray :=
   ByteArray.mk #[9, 0, 0, 0, 84, 121, 112, 101, 46, 66, 111, 111, 108, 0, 0]
-
-private def uint64TypeShapeBytes : ByteArray :=
-  ByteArray.mk #[9, 0, 0, 0, 84, 121, 112, 101, 46, 85, 73, 110, 116, 1, 0, 64, 0]
 
 private theorem encodeTypeShape_bool_proofed :
     encodeTypeShapeV1 (.bool : TypeShapeV1) = .ok boolTypeShapeBytes := by
@@ -129,45 +125,20 @@ private theorem encodeTypeShape_bool_proofed :
   rw [encodeNullary_eq_okV1 "Type.Bool" (by decide) (by decide) (by decide)]
   congr 1
 
-/-- UInt64 TypeShape production encoding (tag + width u16le 64). -/
-private theorem encodeTypeShape_uint64_proofed :
-    encodeTypeShapeV1 (.uint 64) = .ok uint64TypeShapeBytes := by
-  change encodeTagged "Type.UInt" #[encodeU16le 64] = .ok uint64TypeShapeBytes
-  rw [encodeTagged_eq_okV1 "Type.UInt" #[encodeU16le 64]
-    (by decide) (by decide) (by decide) (by decide) (by decide)]
-  rfl
-
-private theorem compare_bool_uint64_proofed :
-    compareByteArrayLex boolTypeShapeBytes uint64TypeShapeBytes = .lt := by
-  rw [compareByteArrayLex]
-  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 0 (by decide) (by decide)]
-  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 1 (by decide) (by decide)]
-  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 2 (by decide) (by decide)]
-  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 3 (by decide) (by decide)]
-  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 4 (by decide) (by decide)]
-  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 5 (by decide) (by decide)]
-  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 6 (by decide) (by decide)]
-  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 7 (by decide) (by decide)]
-  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 8 (by decide) (by decide)]
-  apply compareByteArrayLexLoopV1_eq_lt
-  · decide
-  · decide
-
 theorem typeKeyPrimitiveLeaf_proofed :
     validatePrimitiveAnonymousTypeKeyUniquenessV1 proofedData.types = .ok () := by
   simp [validatePrimitiveAnonymousTypeKeyUniquenessV1,
-    collectPrimitiveAnonymousTypeKeysV1, proofedData, boolT, u64T,
-    encodeTypeShape_bool_proofed, encodeTypeShape_uint64_proofed,
-    compare_bool_uint64_proofed, Pure.pure, Except.pure, Bind.bind, Except.bind]
+    collectPrimitiveAnonymousTypeKeysV1, proofedData, boolT,
+    encodeTypeShape_bool_proofed, Pure.pure, Except.pure, Bind.bind, Except.bind]
 
 theorem typeKeyRecursiveAnonymous_proofed :
     validateRecursiveAnonymousTypeKeyUniquenessV1 proofedData.types = .ok () := by
-  simp [validateRecursiveAnonymousTypeKeyUniquenessV1, proofedData, boolT, u64T,
+  simp [validateRecursiveAnonymousTypeKeyUniquenessV1, proofedData, boolT,
     Pure.pure, Except.pure]
 
 theorem typeKeyNamedBodyCycle_proofed :
     validateNamedBodyOptionCycleLegalityV1 proofedData.types = .ok () := by
-  simp [validateNamedBodyOptionCycleLegalityV1, proofedData, boolT, u64T,
+  simp [validateNamedBodyOptionCycleLegalityV1, proofedData, boolT,
     Pure.pure, Except.pure]
 
 theorem typeKeyPhases_proofed :
@@ -177,12 +148,26 @@ theorem typeKeyPhases_proofed :
   · exact typeKeyPrimitiveLeaf_proofed
   · exact typeKeyRecursiveAnonymous_proofed
   · exact typeKeyNamedBodyCycle_proofed
-  · exact validateAnonymousTypeKeyRankV1_bool_uint64_eq_ok boolT u64T rfl rfl
+  · exact validateAnonymousTypeKeyRankV1_bool_only_eq_ok boolT rfl
+
+theorem usageClosure_proofed :
+    validateAnonymousTypeUsageClosureV1 proofedData = .ok () := by
+  apply validateAnonymousTypeUsageClosureV1_singletonBool_coreMarked_eq_ok proofedData
+  · simp [proofedData, boolT]
+  · unfold anonymousTypeUsageBitmapV1
+    simp [proofedData, boolT, viewC, invC, singleBlock, litTrue,
+      collectCoreTypeSlotRootsV1]
+    native_decide
+
+theorem typeKeyPhasesWithUsageClosure_proofed :
+    validateTypeKeyPhasesWithUsageClosureV1 proofedData = .ok () := by
+  exact validateTypeKeyPhasesWithUsageClosureV1_eq_ok_of_phases proofedData
+    typeKeyPhases_proofed usageClosure_proofed
 
 theorem namedTypeNames_proofed :
     validateNamedTypeNameUniquenessV1 proofedData.types = .ok () := by
   simp [validateNamedTypeNameUniquenessV1, checkUniqueDeclarationNamesV1, proofedData,
-    boolT, u64T, Pure.pure, Except.pure, Bind.bind, Except.bind]
+    boolT, Pure.pure, Except.pure, Bind.bind, Except.bind]
 
 theorem constantsValueBytes_proofed :
     validateConstantsValueBytesV1 proofedData.types proofedData.constants
@@ -266,7 +251,7 @@ theorem interfaceFieldNames_proofed :
 /-- Bool true valueBytes are canonical for typeId 0 on `proofedData`. -/
 theorem boolLiteralTrue_canonical :
     validateValueBytesV1 proofedData.types 0 (encodeU8 1) = .ok () := by
-  simp [proofedData, boolT, u64T, encodeU8, validateValueBytesV1,
+  simp [proofedData, boolT, encodeU8, validateValueBytesV1,
     Pure.pure, Except.pure, Bind.bind, Except.bind]
   rfl
 
@@ -284,7 +269,7 @@ theorem callableSignatures_proofed :
   have hInvariantInvariant : ((.invariant : CallableKindV1) == .invariant) = true := by decide
   have hPublicPublic : ((.public_ : VisibilityV1) == .public_) = true := by decide
   apply validateCallableSignaturePhasesV1_eq_ok_of_phases
-  all_goals simp [proofedData, boolT, u64T, viewC, invC, singleBlock, litTrue,
+  all_goals simp [proofedData, boolT, viewC, invC, singleBlock, litTrue,
     validateCallableKindNamePresenceV1, validateCallableNameUniquenessV1,
     validateCallableParameterNameUniquenessV1, validateCallableEntryViewPresenceV1,
     validateInitializerCardinalityV1, validateInitializerResultShapeV1,
@@ -330,7 +315,7 @@ theorem declarationIdentifierNames_proofed :
     simp only [Pure.pure, Except.pure]
     rfl
   simp [validateDeclarationIdentifierNamesV1, validateTypeShapeIdentifierNamesV1,
-    proofedData, boolT, u64T, viewC, invC, singleBlock, litTrue, halive, hsafe,
+    proofedData, boolT, viewC, invC, singleBlock, litTrue, halive, hsafe,
     Pure.pure, Except.pure, Bind.bind, Except.bind]
 
 /-! ### Two-callable literal-true CFG -/
@@ -481,6 +466,7 @@ theorem structure_proofed :
   · exact structurePrelude_proofed
   · exact typesStructure_proofed
   · exact typeKeyPhases_proofed
+  · exact usageClosure_proofed
   · exact namedTypeNames_proofed
   · exact constantsValueBytes_proofed
   · exact callablesValueBytes_proofed

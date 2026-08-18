@@ -824,7 +824,7 @@ private def encodeTypeKeyFrameCheckedV1 (tag : String)
 
 /-- Closed Bool anonymous rank key (`typeKey("bool", [])`). Pinned concrete
     bytes so product certificates never depend on `String.toUTF8` reduction
-    or `native_decide` / `Lean.ofReduceBool`. -/
+    or `decide` / `Lean.ofReduceBool`. -/
 def typeKeyBoolRankBytesV1 : ByteArray :=
   ByteArray.mk #[4, 0, 98, 111, 111, 108, 0, 0, 0, 0]
 
@@ -861,7 +861,7 @@ def typeKeyStringRankBytesV1 : ByteArray :=
 
     Leaf Bool / Unit / UInt64 / string frames return pinned concrete bytes
     (same bit pattern as `typeKeyFrameBytesV1`) so InlineProofAudit product
-    certificates stay free of `native_decide`. -/
+    certificates stay free of `decide`. -/
 private def encodeTypeKeyFromTypeIdV1 (types : Array TypeDeclV1)
     (typeId : TypeIdV1) (stringExtension : Bool) :
     Nat → Except SemanticWireErrorV1 ByteArray
@@ -1164,6 +1164,31 @@ theorem compare_typeKeyUnit_typeKeyPrincipal_ltV1 :
   · decide
   · decide
 
+/-- Kernel certificate: anonymous table `#[Bool]` passes rank. -/
+theorem validateAnonymousTypeKeyRankV1_bool_only_eq_ok
+    (t0 : TypeDeclV1)
+    (h0 : t0 = { id := 0, name := none, shape := .bool }) :
+    validateAnonymousTypeKeyRankV1 #[t0] = .ok () := by
+  subst h0
+  have hnamed :
+      namedTypePrefixCountV1
+        #[{ id := (0 : TypeIdV1), name := none, shape := .bool }] = 0 := by
+    simp [namedTypePrefixCountV1, namedTypePrefixCountListV1]
+  have hk0 :=
+    encodeAnonymousTypeRankKeyV1_bool
+      #[{ id := (0 : TypeIdV1), name := none, shape := .bool }]
+      0 0 (by simp) (by decide)
+  have hkeys :
+      collectAnonymousTypeRankKeysFromV1
+        #[{ id := (0 : TypeIdV1), name := none, shape := .bool }] 0 =
+        .ok [typeKeyBoolRankBytesV1] := by
+    unfold collectAnonymousTypeRankKeysFromV1
+    simp only [collectAnonymousTypeRankKeysListV1, Array.toList, List.drop]
+    rw [hk0]
+    rfl
+  simp [validateAnonymousTypeKeyRankV1, hnamed, hkeys,
+    checkAnonymousTypeKeyRankListV1, Pure.pure, Except.pure, Bind.bind, Except.bind]
+
 /-- Kernel certificate: anonymous table `#[Bool, UInt64]` passes rank. -/
 theorem validateAnonymousTypeKeyRankV1_bool_uint64_eq_ok
     (t0 t1 : TypeDeclV1)
@@ -1366,37 +1391,104 @@ private def markTypeIdUsedV1 (types : Array TypeDeclV1)
               work := work.push child
     pure used
 
+private def isUsageLeafTypeShapeV1 (shape : TypeShapeV1) : Bool :=
+  match shape with
+  | .bool | .uint _ | .int _ | .unit | .principal | .bytes _ => true
+  | _ => false
+
+private def isUsageLeafTypeDeclV1 (decl : TypeDeclV1) : Bool :=
+  decl.name.isNone && isUsageLeafTypeShapeV1 decl.shape
+
+private def allUsageLeafTypesV1 (types : Array TypeDeclV1) : Bool :=
+  types.all isUsageLeafTypeDeclV1
+
+/-- Kernel-friendly Core-root fold for anonymous Bool+UInt64 tables (leaf rows only). -/
+def foldBoolUInt64CoreRootsV1 (roots : Array TypeIdV1) : Array Bool :=
+  roots.foldl
+    (init := Array.replicate 2 false)
+    fun used root =>
+      match root.toNat with
+      | 0 => used.set! 0 true
+      | 1 => used.set! 1 true
+      | _ => used
+
+/-- Kernel-friendly Core-root fold for anonymous Bool+UInt64+Unit tables. -/
+def foldBoolUInt64UnitCoreRootsV1 (roots : Array TypeIdV1) : Array Bool :=
+  roots.foldl
+    (init := Array.replicate 3 false)
+    fun used root =>
+      match root.toNat with
+      | 0 => used.set! 0 true
+      | 1 => used.set! 1 true
+      | 2 => used.set! 2 true
+      | _ => used
+
+/-- Kernel-friendly Core-root fold for a single anonymous Bool row. -/
+def foldBoolCoreRootsV1 (roots : Array TypeIdV1) : Array Bool :=
+  roots.foldl
+    (init := Array.replicate 1 false)
+    fun used _root => used.set! 0 true
+
+/-- Direct Core-root marking for all-anonymous leaf tables (no shape children).
+    Dispatches to the kernel-friendly fold helpers for the standard 1/2/3-row
+    anonymous leaf tables used by product usage-closure certificates. -/
+private def markCoreTypeSlotRootsLeafV1 (typeCount : Nat) (used : Array Bool)
+    (roots : Array TypeIdV1) : Array Bool :=
+  match typeCount with
+  | 1 => foldBoolCoreRootsV1 roots
+  | 2 => foldBoolUInt64CoreRootsV1 roots
+  | 3 => foldBoolUInt64UnitCoreRootsV1 roots
+  | _ =>
+      roots.foldl (init := used) fun u r =>
+        let i := r.toNat
+        if i < typeCount then u.set! i true else u
+
 /-- Collect Core type-slot roots from a SemanticProgramData carrier. -/
-private def collectCoreTypeSlotRootsV1 (data : SemanticProgramDataV1) :
-    Array TypeIdV1 := Id.run do
-  let mut roots : Array TypeIdV1 := #[]
-  for c in data.constants do
-    roots := roots.push c.typeId
-  for s in data.logicalState do
-    roots := roots.push s.typeId
-  for e in data.events do
-    for f in e.fields do
-      roots := roots.push f.typeId
-  for e in data.errors do
-    for f in e.fields do
-      roots := roots.push f.typeId
-  for callable in data.callables do
-    for p in callable.params do
-      roots := roots.push p.typeId
-    roots := roots.push callable.result.typeId
-    for block in callable.blocks do
-      for bp in block.params do
-        roots := roots.push bp.typeId
-      for instr in block.instructions do
-        match instr.result with
-        | some vd => roots := roots.push vd.typeId
-        | none => pure ()
-        match instr.op with
-        | .literal typeId _ => roots := roots.push typeId
-        | .construct typeId _ _ => roots := roots.push typeId
-        | .checkedCast _ toType => roots := roots.push toType
-        | _ => pure ()
-  pure roots
+def collectCoreTypeSlotRootsV1 (data : SemanticProgramDataV1) : Array TypeIdV1 :=
+  let roots := data.constants.map (·.typeId)
+  let roots := roots ++ data.logicalState.map (·.typeId)
+  let roots := roots ++ data.events.flatMap (fun e => e.fields.map (·.typeId))
+  let roots := roots ++ data.errors.flatMap (fun e => e.fields.map (·.typeId))
+  let roots := roots ++ data.callables.flatMap fun callable =>
+    let roots := callable.params.map (·.typeId)
+    let roots := roots.push callable.result.typeId
+    roots ++ callable.blocks.flatMap fun block =>
+      let roots := roots ++ block.params.map (·.typeId)
+      roots ++ block.instructions.flatMap fun instr =>
+        let roots :=
+          match instr.result with
+          | some vd => #[vd.typeId]
+          | none => #[]
+        let roots :=
+          match instr.op with
+          | .literal typeId _ => roots.push typeId
+          | .construct typeId _ _ => roots.push typeId
+          | .checkedCast _ toType => roots.push toType
+          | _ => roots
+        roots
+  roots
+
+/-- Compute the usage bitmap for `validateAnonymousTypeUsageClosureV1`
+    (named anchors + named-body children + Core type-slot roots). -/
+def anonymousTypeUsageBitmapV1 (data : SemanticProgramDataV1) :
+    Array Bool :=
+  let types := data.types
+  let roots := collectCoreTypeSlotRootsV1 data
+  if allUsageLeafTypesV1 types then
+    markCoreTypeSlotRootsLeafV1 types.size (Array.replicate types.size false) roots
+  else
+    Id.run do
+      let mut used : Array Bool := Array.replicate types.size false
+      let mut i := 0
+      for decl in types do
+        if decl.name.isSome then
+          used := used.set! i true
+          for child in typeShapeChildTypeIdsV1 decl.shape do
+            used := markTypeIdUsedV1 types used child
+        i := i + 1
+      for root in roots do
+        used := markTypeIdUsedV1 types used root
+      pure used
 
 /-- SPEC §5 usage closure: every anonymous TypeDecl must be reached from a
     named body field/payload or a Core type slot (transitively through shape
@@ -1407,33 +1499,311 @@ def validateAnonymousTypeUsageClosureV1
   let types := data.types
   if types.isEmpty then
     return ()
-  let mut used : Array Bool := Array.replicate types.size false
-  -- Named bodies are closure roots (and stay marked used as anchors).
+  let used := anonymousTypeUsageBitmapV1 data
   let mut i := 0
-  for decl in types do
-    if decl.name.isSome then
-      used := used.set! i true
-      for child in typeShapeChildTypeIdsV1 decl.shape do
-        used := markTypeIdUsedV1 types used child
-    i := i + 1
-  for root in collectCoreTypeSlotRootsV1 data do
-    used := markTypeIdUsedV1 types used root
-  i := 0
   for decl in types do
     if decl.name.isNone && !used[i]! then
       return ← err .nonCanonical
     i := i + 1
   pure ()
 
+/-- Kernel certificate: one anonymous Bool row passes usage closure when the
+    usage bitmap marks TypeId 0 used. -/
+theorem validateAnonymousTypeUsageClosureV1_singletonBool_coreMarked_eq_ok
+    (data : SemanticProgramDataV1)
+    (htypes : data.types = #[{ id := 0, name := none, shape := .bool }])
+    (hbitmap : anonymousTypeUsageBitmapV1 data = #[true]) :
+    validateAnonymousTypeUsageClosureV1 data = .ok () := by
+  unfold validateAnonymousTypeUsageClosureV1
+  rw [htypes]
+  simp only [Array.size_singleton, ↓reduceIte]
+  rw [hbitmap]
+  simp [Pure.pure, Except.pure, Bind.bind, Except.bind, ForIn.forIn]
+
+private def usageClosureBoolUInt64TypesV1 : Array TypeDeclV1 := #[
+  { id := 0, name := none, shape := .bool },
+  { id := 1, name := none, shape := .uint 64 }
+]
+
+private def usageClosureBoolUInt64UnitTypesV1 : Array TypeDeclV1 := #[
+  { id := 0, name := none, shape := .bool },
+  { id := 1, name := none, shape := .uint 64 },
+  { id := 2, name := none, shape := .unit }
+]
+
+private def usageClosureSingletonBoolTypesV1 : Array TypeDeclV1 := #[
+  { id := 0, name := none, shape := .bool }
+]
+
+theorem anonymousTypeUsageBitmapV1_allAnonymousLeaf_boolUInt64
+    (data : SemanticProgramDataV1)
+    (htypes : data.types = #[{ id := 0, name := none, shape := .bool },
+                            { id := 1, name := none, shape := .uint 64 }]) :
+    anonymousTypeUsageBitmapV1 data =
+      foldBoolUInt64CoreRootsV1 (collectCoreTypeSlotRootsV1 data) := by
+  have hleaf : allUsageLeafTypesV1
+      #[{ id := 0, name := none, shape := .bool },
+        { id := 1, name := none, shape := .uint 64 }] = true := by
+    simp [allUsageLeafTypesV1, isUsageLeafTypeDeclV1, isUsageLeafTypeShapeV1]
+  dsimp [anonymousTypeUsageBitmapV1, markCoreTypeSlotRootsLeafV1]
+  rw [htypes, hleaf]
+  simp [usageClosureBoolUInt64TypesV1, Array.replicate, Array.size, ↓reduceIte]
+
+theorem anonymousTypeUsageBitmapV1_allAnonymousLeaf_boolUInt64Unit
+    (data : SemanticProgramDataV1)
+    (htypes : data.types = #[{ id := 0, name := none, shape := .bool },
+                            { id := 1, name := none, shape := .uint 64 },
+                            { id := 2, name := none, shape := .unit }]) :
+    anonymousTypeUsageBitmapV1 data =
+      foldBoolUInt64UnitCoreRootsV1 (collectCoreTypeSlotRootsV1 data) := by
+  have hleaf : allUsageLeafTypesV1
+      #[{ id := 0, name := none, shape := .bool },
+        { id := 1, name := none, shape := .uint 64 },
+        { id := 2, name := none, shape := .unit }] = true := by
+    simp [allUsageLeafTypesV1, isUsageLeafTypeDeclV1, isUsageLeafTypeShapeV1]
+  dsimp [anonymousTypeUsageBitmapV1, markCoreTypeSlotRootsLeafV1]
+  rw [htypes, hleaf]
+  simp [usageClosureBoolUInt64UnitTypesV1, Array.replicate, Array.size, ↓reduceIte]
+
+theorem anonymousTypeUsageBitmapV1_allAnonymousLeaf_singletonBool
+    (data : SemanticProgramDataV1)
+    (htypes : data.types = #[{ id := 0, name := none, shape := .bool }]) :
+    anonymousTypeUsageBitmapV1 data =
+      foldBoolCoreRootsV1 (collectCoreTypeSlotRootsV1 data) := by
+  have hleaf : allUsageLeafTypesV1 #[{ id := 0, name := none, shape := .bool }] = true := by
+    simp [allUsageLeafTypesV1, isUsageLeafTypeDeclV1, isUsageLeafTypeShapeV1]
+  dsimp [anonymousTypeUsageBitmapV1, markCoreTypeSlotRootsLeafV1]
+  rw [htypes, hleaf]
+  simp [usageClosureSingletonBoolTypesV1, Array.replicate, Array.size, ↓reduceIte]
+
+theorem foldBoolCoreRootsV1_simpleClosureSixZeros :
+    foldBoolCoreRootsV1 #[0, 0, 0, 0, 0, 0] = #[true] := by
+  unfold foldBoolCoreRootsV1
+  simp [Array.foldl, Array.set!, Array.replicate]
+
+theorem foldBoolUInt64CoreRootsV1_parityRoots :
+    foldBoolUInt64CoreRootsV1
+      #[1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0] = #[true, true] := by
+  unfold foldBoolUInt64CoreRootsV1
+  simp [Array.foldl, Array.set!, Array.replicate]
+
+theorem foldBoolUInt64CoreRootsV1_fieldComparisonRoots :
+    foldBoolUInt64CoreRootsV1
+      #[1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 1, 0] = #[true, true] := by
+  unfold foldBoolUInt64CoreRootsV1
+  simp [Array.foldl, Array.set!, Array.replicate]
+
+theorem foldBoolUInt64CoreRootsV1_statefulEqualityRoots :
+    foldBoolUInt64CoreRootsV1 #[1, 1, 1, 1, 1, 0, 1, 1, 0] = #[true, true] := by
+  unfold foldBoolUInt64CoreRootsV1
+  simp [Array.foldl, Array.set!, Array.replicate]
+
+theorem foldBoolUInt64UnitCoreRootsV1_initializerViewRoots :
+    foldBoolUInt64UnitCoreRootsV1
+      #[1, 1, 2, 1, 1, 1, 1, 1, 1, 0, 1, 1, 0] = #[true, true, true] := by
+  unfold foldBoolUInt64UnitCoreRootsV1
+  simp [Array.foldl, Array.set!, Array.replicate]
+
+theorem foldBoolUInt64UnitCoreRootsV1_initializerDepositRoots :
+    foldBoolUInt64UnitCoreRootsV1
+      #[1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 0] =
+        #[true, true, true] := by
+  unfold foldBoolUInt64UnitCoreRootsV1
+  simp [Array.foldl, Array.set!, Array.replicate]
+
+theorem foldBoolUInt64UnitCoreRootsV1_initializerDepositWithdrawRoots :
+    foldBoolUInt64UnitCoreRootsV1
+      #[1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 0] =
+        #[true, true, true] := by
+  unfold foldBoolUInt64UnitCoreRootsV1
+  simp [Array.foldl, Array.set!, Array.replicate]
+
+theorem validateAnonymousTypeUsageClosureV1_twoRow_coreMarked_eq_ok
+    (data : SemanticProgramDataV1)
+    (htypes : data.types = #[{ id := 0, name := none, shape := .bool },
+                            { id := 1, name := none, shape := .unit }])
+    (hbitmap : anonymousTypeUsageBitmapV1 data = #[true, true]) :
+    validateAnonymousTypeUsageClosureV1 data = .ok () := by
+  unfold validateAnonymousTypeUsageClosureV1
+  rw [htypes]
+  simp only [Array.isEmpty, Array.size, ↓reduceIte]
+  rw [hbitmap]
+  simp [Pure.pure, Except.pure, Bind.bind, Except.bind, ForIn.forIn]
+
+theorem validateAnonymousTypeUsageClosureV1_threeRow_coreMarked_eq_ok
+    (data : SemanticProgramDataV1)
+    (htypes : data.types = #[{ id := 0, name := none, shape := .bool },
+                            { id := 1, name := none, shape := .uint 64 },
+                            { id := 2, name := none, shape := .unit }])
+    (hbitmap : anonymousTypeUsageBitmapV1 data = #[true, true, true]) :
+    validateAnonymousTypeUsageClosureV1 data = .ok () := by
+  unfold validateAnonymousTypeUsageClosureV1
+  rw [htypes]
+  simp only [Array.isEmpty, Array.size, ↓reduceIte]
+  rw [hbitmap]
+  simp [Pure.pure, Except.pure, Bind.bind, Except.bind, ForIn.forIn]
+
+theorem validateAnonymousTypeUsageClosureV1_bool_uint64_coreMarked_eq_ok
+    (data : SemanticProgramDataV1)
+    (htypes : data.types = #[{ id := 0, name := none, shape := .bool },
+                            { id := 1, name := none, shape := .uint 64 }])
+    (hbitmap : anonymousTypeUsageBitmapV1 data = #[true, true]) :
+    validateAnonymousTypeUsageClosureV1 data = .ok () := by
+  unfold validateAnonymousTypeUsageClosureV1
+  rw [htypes]
+  simp only [Array.isEmpty, Array.size, ↓reduceIte]
+  rw [hbitmap]
+  simp [Pure.pure, Except.pure, Bind.bind, Except.bind, ForIn.forIn]
+
+theorem validateAnonymousTypeUsageClosureV1_bool_unit_coreMarked_eq_ok
+    (data : SemanticProgramDataV1)
+    (htypes : data.types = #[{ id := 0, name := none, shape := .bool },
+                            { id := 1, name := none, shape := .unit }])
+    (hbitmap : anonymousTypeUsageBitmapV1 data = #[true, true]) :
+    validateAnonymousTypeUsageClosureV1 data = .ok () := by
+  exact validateAnonymousTypeUsageClosureV1_twoRow_coreMarked_eq_ok data htypes hbitmap
+
+theorem validateAnonymousTypeUsageClosureV1_bool_uint64_unit_coreMarked_eq_ok
+    (data : SemanticProgramDataV1)
+    (htypes : data.types = #[{ id := 0, name := none, shape := .bool },
+                            { id := 1, name := none, shape := .uint 64 },
+                            { id := 2, name := none, shape := .unit }])
+    (hbitmap : anonymousTypeUsageBitmapV1 data = #[true, true, true]) :
+    validateAnonymousTypeUsageClosureV1 data = .ok () := by
+  exact validateAnonymousTypeUsageClosureV1_threeRow_coreMarked_eq_ok data htypes hbitmap
+
+private def remapTypeIdForUsageCompactV1 (remap : Array TypeIdV1) (t : TypeIdV1) :
+    TypeIdV1 :=
+  remap[t.toNat]?.getD t
+
+private def remapTypeShapeForUsageCompactV1 (remap : Array TypeIdV1) :
+    TypeShapeV1 → TypeShapeV1
+  | .array element length =>
+      .array (remapTypeIdForUsageCompactV1 remap element) length
+  | .map key value =>
+      .map (remapTypeIdForUsageCompactV1 remap key)
+        (remapTypeIdForUsageCompactV1 remap value)
+  | .option element => .option (remapTypeIdForUsageCompactV1 remap element)
+  | .struct fields =>
+      .struct (fields.map fun f =>
+        { f with typeId := remapTypeIdForUsageCompactV1 remap f.typeId })
+  | .enum variants =>
+      .enum (variants.map fun v =>
+        { v with
+          payloadTypes :=
+            v.payloadTypes.map (remapTypeIdForUsageCompactV1 remap) })
+  | shape => shape
+
+private def remapOpForUsageCompactV1 (remap : Array TypeIdV1) :
+    SemanticOpV1 → SemanticOpV1
+  | .literal typeId valueBytes =>
+      .literal (remapTypeIdForUsageCompactV1 remap typeId) valueBytes
+  | .construct typeId ctor args =>
+      .construct (remapTypeIdForUsageCompactV1 remap typeId) ctor args
+  | .checkedCast value toType =>
+      .checkedCast value (remapTypeIdForUsageCompactV1 remap toType)
+  | op => op
+
+private def remapTerminatorForUsageCompactV1 (remap : Array TypeIdV1) :
+    TerminatorV1 → TerminatorV1
+  | .switch scrutinee cases defaultTarget =>
+      .switch scrutinee
+        (cases.map fun c =>
+          { c with typeId := remapTypeIdForUsageCompactV1 remap c.typeId })
+        defaultTarget
+  | terminator => terminator
+
+private def remapCallableForUsageCompactV1 (remap : Array TypeIdV1)
+    (callable : CallableV1) : CallableV1 :=
+  { callable with
+    params := callable.params.map fun p =>
+      { p with typeId := remapTypeIdForUsageCompactV1 remap p.typeId }
+    result := { callable.result with
+      typeId := remapTypeIdForUsageCompactV1 remap callable.result.typeId }
+    blocks := callable.blocks.map fun block =>
+      { block with
+        params := block.params.map fun bp =>
+          { bp with typeId := remapTypeIdForUsageCompactV1 remap bp.typeId }
+        instructions := block.instructions.map fun instr =>
+          { result := instr.result.map fun r =>
+              { r with typeId := remapTypeIdForUsageCompactV1 remap r.typeId }
+            op := remapOpForUsageCompactV1 remap instr.op }
+        terminator := remapTerminatorForUsageCompactV1 remap block.terminator } }
+
+/-- Drop unused anonymous TypeDecls (keep every named row + used anonymous rows
+    in table order), then remap every TypeId reference. Hand-built fat fixtures
+    call this before structure validation so Stage D usage-closure does not
+    invent fake Core uses. Production Normalize already emits closed tables;
+    applying this to a closed table is identity on the `types` rows. -/
+def compactSemanticProgramDataToUsageClosureV1
+    (data : SemanticProgramDataV1) : SemanticProgramDataV1 := Id.run do
+  let types := data.types
+  if types.isEmpty then
+    return data
+  let used := anonymousTypeUsageBitmapV1 data
+  let mut kept : Array TypeDeclV1 := #[]
+  let mut remap : Array TypeIdV1 := Array.replicate types.size (0 : TypeIdV1)
+  let mut newId : Nat := 0
+  let mut i := 0
+  for decl in types do
+    let keep := decl.name.isSome || used[i]!
+    if keep then
+      remap := remap.set! i (UInt32.ofNat newId)
+      kept := kept.push { decl with id := UInt32.ofNat newId }
+      newId := newId + 1
+    i := i + 1
+  if kept.size == types.size then
+    return data
+  let keptRemapped := kept.map fun decl =>
+    { decl with shape := remapTypeShapeForUsageCompactV1 remap decl.shape }
+  { data with
+    types := keptRemapped
+    constants := data.constants.map fun c =>
+      { c with typeId := remapTypeIdForUsageCompactV1 remap c.typeId }
+    logicalState := data.logicalState.map fun s =>
+      { s with typeId := remapTypeIdForUsageCompactV1 remap s.typeId }
+    events := data.events.map fun e =>
+      { e with fields := e.fields.map fun f =>
+        { f with typeId := remapTypeIdForUsageCompactV1 remap f.typeId } }
+    errors := data.errors.map fun e =>
+      { e with fields := e.fields.map fun f =>
+        { f with typeId := remapTypeIdForUsageCompactV1 remap f.typeId } }
+    callables := data.callables.map (remapCallableForUsageCompactV1 remap) }
+
+/-- Boolean observation of usage-closure success (tests / non-product only). -/
+def isOkAnonymousTypeUsageClosureV1 (data : SemanticProgramDataV1) : Bool :=
+  match validateAnonymousTypeUsageClosureV1 data with
+  | .ok () => true
+  | .error _ => false
+
+theorem validateAnonymousTypeUsageClosureV1_eq_ok_of_isOk
+    (data : SemanticProgramDataV1)
+    (h : isOkAnonymousTypeUsageClosureV1 data = true) :
+    validateAnonymousTypeUsageClosureV1 data = .ok () := by
+  unfold isOkAnonymousTypeUsageClosureV1 at h
+  split at h
+  · assumption
+  · exact (Bool.noConfusion h)
+
 /-- Full production TypeKey seam over a `types` table: prefix uniqueness/cycle
-    phases, then anonymous SPEC `typeKey` rank. Core/named usage closure is a
-    subsequent StructureV1 phase (`validateAnonymousTypeUsageClosureV1`) because
-    it requires the full SemanticProgramData carrier. -/
+    phases, then anonymous SPEC `typeKey` rank. Core/named usage closure is
+    composed by `validateTypeKeyPhasesWithUsageClosureV1` because it requires
+    the full SemanticProgramData carrier. -/
 def validateTypeKeyPhasesV1 (types : Array TypeDeclV1) :
     Except TypeKeyValidationFailureV1 Unit := do
   validateTypeKeyPhasesPrefixV1 types
   liftTypeKeyValidationPhaseV1 .anonymousRank
     (validateAnonymousTypeKeyRankV1 types)
+
+/-- Production TypeKey seam including SPEC §5 anonymous usage closure
+    (`usageClosure` phase). StructureV1 consumes this helper and erases only
+    the phase. -/
+def validateTypeKeyPhasesWithUsageClosureV1
+    (data : SemanticProgramDataV1) :
+    Except TypeKeyValidationFailureV1 Unit := do
+  validateTypeKeyPhasesV1 data.types
+  liftTypeKeyValidationPhaseV1 .usageClosure
+    (validateAnonymousTypeUsageClosureV1 data)
 
 /-- Compose the types-table TypeKey seam from prefix success and rank success. -/
 theorem validateTypeKeyPhasesV1_eq_ok_of_phases
@@ -1442,6 +1812,15 @@ theorem validateTypeKeyPhasesV1_eq_ok_of_phases
     (hRank : validateAnonymousTypeKeyRankV1 types = .ok ()) :
     validateTypeKeyPhasesV1 types = .ok () := by
   simp only [validateTypeKeyPhasesV1, hPrefix, hRank,
+    liftTypeKeyValidationPhaseV1, Bind.bind, Except.bind]
+
+/-- Compose types-table TypeKey + usage-closure from both successes. -/
+theorem validateTypeKeyPhasesWithUsageClosureV1_eq_ok_of_phases
+    (data : SemanticProgramDataV1)
+    (hTypeKeys : validateTypeKeyPhasesV1 data.types = .ok ())
+    (hUsageClosure : validateAnonymousTypeUsageClosureV1 data = .ok ()) :
+    validateTypeKeyPhasesWithUsageClosureV1 data = .ok () := by
+  simp only [validateTypeKeyPhasesWithUsageClosureV1, hTypeKeys, hUsageClosure,
     liftTypeKeyValidationPhaseV1, Bind.bind, Except.bind]
 
 /-- Convenience: compose from the four prefix premises plus rank. -/
@@ -1456,6 +1835,32 @@ theorem validateTypeKeyPhasesV1_eq_ok_of_prefix_phases
   exact validateTypeKeyPhasesV1_eq_ok_of_phases types
     (validateTypeKeyPhasesPrefixV1_eq_ok_of_phases types
       hNamedPrefix hPrimitive hRecursive hNamedBody) hRank
+
+/-- Kernel certificate: anonymous table `#[Bool, Unit]` passes rank. -/
+theorem validateAnonymousTypeKeyRankV1_bool_unit_eq_ok
+    (t0 t1 : TypeDeclV1)
+    (h0 : t0 = { id := 0, name := none, shape := .bool })
+    (h1 : t1 = { id := 1, name := none, shape := .unit }) :
+    validateAnonymousTypeKeyRankV1 #[t0, t1] = .ok () := by
+  subst h0; subst h1
+  let types : Array TypeDeclV1 :=
+    #[{ id := (0 : TypeIdV1), name := none, shape := .bool },
+      { id := (1 : TypeIdV1), name := none, shape := .unit }]
+  have hnamed : namedTypePrefixCountV1 types = 0 := by
+    simp [types, namedTypePrefixCountV1, namedTypePrefixCountListV1]
+  have hk0 := encodeAnonymousTypeRankKeyV1_bool types 0 0 (by simp [types]) (by decide)
+  have hk1 := encodeAnonymousTypeRankKeyV1_unit types 1 1 (by simp [types]) (by decide)
+  have hkeys :
+      collectAnonymousTypeRankKeysFromV1 types 0 =
+        .ok [typeKeyBoolRankBytesV1, typeKeyUnitRankBytesV1] := by
+    unfold collectAnonymousTypeRankKeysFromV1
+    simp only [collectAnonymousTypeRankKeysListV1, types, Array.toList, List.drop]
+    rw [hk0, hk1]
+    rfl
+  simp [validateAnonymousTypeKeyRankV1, types, hnamed, hkeys,
+    checkAnonymousTypeKeyRankListV1_two_eq_ok _ _
+      compare_typeKeyBool_typeKeyUnit_ltV1,
+    Bind.bind, Except.bind]
 
 /-- Test-only top-level `typeKey` tag/frame hook. Nested helpers and
     unknown tags are rejected (`allowNestedHelper = false`). Not a

@@ -6,7 +6,7 @@
     encodeSemanticProgramDataV1 proofedData = .ok proofedBytes
   where `proofedBytes = Proofed.Proof.subjectBytesV1` (sole product identity).
 
-  Bottom-up: QN, Bool/UInt64 types, empty tables, shared literal callables,
+  Bottom-up: QN, Bool-only types, empty tables, shared literal callables,
   InvariantDecl, value.bool requirement, root framing, magic append.
   No structure re-proof, no axiom/sorry/native_decide/ofReduceBool.
 -/
@@ -42,10 +42,8 @@ def proofedQnSpine : TransparentByteSpineV1 := [
 ]
 
 def proofedTypesSpine : TransparentByteSpineV1 := [
-  2, 0, 0, 0, 8, 0, 0, 0, 84, 121, 112, 101, 68, 101, 99, 108, 3, 0, 0, 0, 0, 0, 0,
-  9, 0, 0, 0, 84, 121, 112, 101, 46, 66, 111, 111, 108, 0, 0, 8, 0, 0, 0, 84, 121, 112,
-  101, 68, 101, 99, 108, 3, 0, 1, 0, 0, 0, 0, 9, 0, 0, 0, 84, 121, 112, 101, 46, 85,
-  73, 110, 116, 1, 0, 64, 0
+  1, 0, 0, 0, 8, 0, 0, 0, 84, 121, 112, 101, 68, 101, 99, 108, 3, 0, 0, 0, 0, 0, 0,
+  9, 0, 0, 0, 84, 121, 112, 101, 46, 66, 111, 111, 108, 0, 0
 ]
 
 def proofedEmptySpine : TransparentByteSpineV1 := [0, 0, 0, 0]
@@ -101,7 +99,7 @@ def proofedBodySpine : TransparentByteSpineV1 :=
 def proofedEncodeSpine : TransparentByteSpineV1 :=
   proofedMagicSpine ++ proofedBodySpine
 
-theorem proofedEncodeSpine_length : proofedEncodeSpine.length = 802 := by
+theorem proofedEncodeSpine_length : proofedEncodeSpine.length = 766 := by
   rfl
 
 /-- Encode-side spine is definitionally the elaborator subject bytes (sole identity). -/

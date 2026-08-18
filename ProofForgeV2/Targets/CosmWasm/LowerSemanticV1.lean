@@ -1008,7 +1008,7 @@ private def containerLeafLayoutV1
   | some { shape := .array elTid len, .. } =>
       -- Keep the historical "must be UInt64" needle as a contains-match so
       -- ArrI8 / ArrU128 / ArrU256 stay fail closed without a new string.
-      unless elTid == types.uint64TypeId || types.int64TypeId == some elTid do
+      unless types.isUInt64 elTid || types.int64TypeId == some elTid do
         throw <| .planInvariant .cosmwasm
           "unsupported CosmWasm semantic shape: Array state element must be UInt64 or Int64"
       let n := len.toNat
@@ -1021,8 +1021,8 @@ private def containerLeafLayoutV1
       -- Historical needle stays a contains-match so MapInt8 / MapU128 /
       -- Int64-key / other value shapes stay fail closed. Third Bool is
       -- value-is-Int64, not a uniform 24-leaf signed flag.
-      unless keyTid == types.uint64TypeId &&
-          (valTid == types.uint64TypeId || types.int64TypeId == some valTid) do
+      unless types.isUInt64 keyTid &&
+          (types.isUInt64 valTid || types.int64TypeId == some valTid) do
         throw <| .planInvariant .cosmwasm
           "unsupported CosmWasm semantic shape: Map state admits only Map UInt64 UInt64"
       let valIsInt := types.int64TypeId == some valTid
@@ -1046,7 +1046,7 @@ private partial def flattenTypeLeafSpecsV1
     (typeDecls : Array TypeDeclV1) (types : CosmWasmTypeClosureV1)
     (typeId : TypeIdV1) (namePrefix : String) :
     CompileResult (Array (String × Bool)) := do
-  if typeId == types.uint64TypeId then
+  if types.isUInt64 typeId then
     pure #[(namePrefix, false)]
   else if types.int64TypeId == some typeId then
     pure #[(namePrefix, true)]
@@ -1129,7 +1129,7 @@ private def requireOptionUInt64StateV1
     (typeId : TypeIdV1) (stateName : String) : CompileResult Bool := do
   match typeDecls[typeId.toNat]? with
   | some { shape := .option elTid, name := none, .. } =>
-      if elTid == types.uint64TypeId then
+      if types.isUInt64 elTid then
         pure false
       else if types.int64TypeId == some elTid then
         pure true
@@ -1150,7 +1150,7 @@ private def anonymousReturnLeafAbiV1
   match typeDecls[typeId.toNat]? with
   | some { shape := .array elTid len, name := none, .. } =>
       let leafIsInt := types.int64TypeId == some elTid
-      unless elTid == types.uint64TypeId || leafIsInt do
+      unless types.isUInt64 elTid || leafIsInt do
         throw <| .planInvariant .cosmwasm
           "unsupported CosmWasm semantic shape: anonymous Array return requires UInt64 or Int64 elements"
       let n := len.toNat
@@ -1160,7 +1160,7 @@ private def anonymousReturnLeafAbiV1
       pure (some (Array.replicate n { isInt := leafIsInt, byteWidth := 8 }))
   | some { shape := .option elTid, name := none, .. } =>
       let payloadIsInt := types.int64TypeId == some elTid
-      unless elTid == types.uint64TypeId || payloadIsInt do
+      unless types.isUInt64 elTid || payloadIsInt do
         throw <| .planInvariant .cosmwasm
           "unsupported CosmWasm semantic shape: anonymous Option return requires UInt64 or Int64 payload"
       pure (some #[
@@ -1178,8 +1178,8 @@ private def anonymousReturnLeafAbiV1
       -- Dense Map return: flat occ/key/val × capacity as u64 JSON decimals
       -- (same wire class as Array UInt64 N). Cap-8 → 24 leaves (B-RET-MAP).
       let valIsInt := types.int64TypeId == some valTid
-      unless keyTid == types.uint64TypeId &&
-          (valTid == types.uint64TypeId || valIsInt) do
+      unless types.isUInt64 keyTid &&
+          (types.isUInt64 valTid || valIsInt) do
         throw <| .planInvariant .cosmwasm
           "unsupported CosmWasm semantic shape: anonymous Map return requires Map UInt64 UInt64 or Map UInt64 Int64"
       let n := nearMapPilotLeafCountV1
@@ -1294,7 +1294,7 @@ private def enumPayloadLeafRangeV1
 private def scalarKindOfNamedLeafResultV1
     (types : CosmWasmTypeClosureV1) (typeId : TypeIdV1) :
     CompileResult CosmWasmValueKindV1 := do
-  if typeId == types.uint64TypeId then
+  if types.isUInt64 typeId then
     pure .uint64
   else if types.int64TypeId == some typeId then
     pure .int64
@@ -1641,7 +1641,7 @@ private def makeParamsV1 (owner : String) (types : CosmWasmTypeClosureV1)
     else if isAnonymousOptionTypeIdV1 typeDecls param.typeId then
       match typeDecls[param.typeId.toNat]? with
       | some { shape := .option elTid, name := none, .. } =>
-          unless elTid == types.uint64TypeId || types.int64TypeId == some elTid do
+          unless types.isUInt64 elTid || types.int64TypeId == some elTid do
             throw <| .planInvariant .cosmwasm
               s!"unsupported CosmWasm semantic shape: Option parameter '{param.name}' payload must be UInt64 or Int64"
           if planned.size + 2 > maxParams then
@@ -2435,7 +2435,7 @@ private def lowerBlockInstructionsV1
         "unsupported CosmWasm semantic shape: block parameter ValueId is out of range"
     match slot.expr with
     | .localTemp _ =>
-        unless slot.kind == .uint64 && p.typeId == types.uint64TypeId do
+        unless slot.kind == .uint64 && types.isUInt64 p.typeId do
           throw <| .planInvariant .cosmwasm
             "unsupported CosmWasm semantic shape: loop induction must be public UInt64"
     | _ =>
@@ -3005,7 +3005,7 @@ private def lowerBlockInstructionsV1
           throw <| .planInvariant .cosmwasm
             "unsupported CosmWasm semantic shape: pureCall arity does not match the callee"
         let expectedTypeId ← match sig.resultKind with
-          | .uint64 => pure types.uint64TypeId
+          | .uint64 => types.requireUInt64 cosmwasmPlanErr "cosmwasm"
           | .int64 =>
               match types.int64TypeId with
               | some tid => pure tid
@@ -3436,7 +3436,7 @@ private def lowerBlockInstructionsV1
             -- UInt64-only in `anonymousReturnLeafAbiV1`.
             match typeDecls[typeId.toNat]? with
             | some { shape := .option elTid, name := none, .. } => do
-                unless elTid == types.uint64TypeId ||
+                unless types.isUInt64 elTid ||
                     types.int64TypeId == some elTid do
                   throw <| .planInvariant .cosmwasm
                     "unsupported CosmWasm semantic shape: Option construct requires UInt64 payload"
@@ -3584,7 +3584,7 @@ private def lowerBlockInstructionsV1
             -- Array 8-byte leaf: UInt64 or Int64. Reject mixed signedness
             -- (Int64 result from a UInt64 array or the reverse).
             let wantInt := types.int64TypeId == some result.typeId
-            unless result.typeId == types.uint64TypeId || wantInt do
+            unless types.isUInt64 result.typeId || wantInt do
               throw <| .planInvariant .cosmwasm
                 "unsupported CosmWasm semantic shape: Array IndexGet result must be UInt64 or Int64"
             values := ← appendResultValueV1 result.typeId values result {
@@ -3786,7 +3786,7 @@ private def lowerBlockInstructionsV1
           | some 32 => pure CosmWasmValueKindV1.uint32
           | some 64 => pure CosmWasmValueKindV1.uint64
           | _ =>
-              if result.typeId == types.uint64TypeId then pure CosmWasmValueKindV1.uint64
+              if types.isUInt64 result.typeId then pure CosmWasmValueKindV1.uint64
               else
                 throw <| .planInvariant .cosmwasm
                   "unsupported CosmWasm semantic shape: variantTag result must be UInt32"
@@ -3846,7 +3846,7 @@ private def lowerBlockInstructionsV1
             let some e0 := outLeaves[0]? |
               throw <| .planInvariant .cosmwasm "variantPayload scalar leaf missing"
             let kind ←
-              if result.typeId == types.uint64TypeId then pure CosmWasmValueKindV1.uint64
+              if types.isUInt64 result.typeId then pure CosmWasmValueKindV1.uint64
               else scalarKindOfNamedLeafResultV1 types result.typeId
             pure {
               expr := e0
@@ -3873,7 +3873,7 @@ private def lowerBlockInstructionsV1
             throw <| .planInvariant .cosmwasm
               "unsupported CosmWasm semantic shape: nativeVaultBalanceU128 is NEAR-only (CW bank query stays UInt64 balanceOfSelf)"
         | .nativeVaultBalance =>
-            unless result.typeId == types.uint64TypeId do
+            unless types.isUInt64 result.typeId do
               throw <| .planInvariant .cosmwasm
                 "unsupported CosmWasm semantic shape: envRead result must be UInt64"
             -- query_chain bank balance of env.contract.address (frozen denom).
@@ -3889,7 +3889,7 @@ private def lowerBlockInstructionsV1
               dependencies := #[]
             }
         | .tokenVaultBalance =>
-            unless result.typeId == types.uint64TypeId do
+            unless types.isUInt64 result.typeId do
               throw <| .planInvariant .cosmwasm
                 "unsupported CosmWasm semantic shape: envRead result must be UInt64"
             -- query_chain CW20 smart-query balanceOf(mint, self).
@@ -3974,7 +3974,7 @@ private def lowerBlockInstructionsV1
           let value := mkAggregateValueV1 leaves #[] 1 leaves.size
           values := ← appendResultValueV1 result.typeId values result value
         else if key == unixTimeSecondsContextKeyV1 then
-          unless result.typeId == types.uint64TypeId do
+          unless types.isUInt64 result.typeId do
             throw <| .planInvariant .cosmwasm
               "unsupported CosmWasm semantic shape: ContextRead unix-time-seconds result must be UInt64"
           values := ← appendResultValueV1 result.typeId values result {
@@ -3985,7 +3985,7 @@ private def lowerBlockInstructionsV1
             dependencies := #[]
           }
         else if key == blockHeightContextKeyV1 then
-          unless result.typeId == types.uint64TypeId do
+          unless types.isUInt64 result.typeId do
             throw <| .planInvariant .cosmwasm
               "unsupported CosmWasm semantic shape: ContextRead context.blockHeight result must be UInt64"
           values := ← appendResultValueV1 result.typeId values result {
@@ -4002,7 +4002,7 @@ private def lowerBlockInstructionsV1
           if mode == .pureFn then
             throw <| .planInvariant .cosmwasm
               "unsupported CosmWasm semantic shape: pureFn cannot use ContextRead context.attachedValue"
-          unless result.typeId == types.uint64TypeId do
+          unless types.isUInt64 result.typeId do
             throw <| .planInvariant .cosmwasm
               "unsupported CosmWasm semantic shape: ContextRead context.attachedValue result must be UInt64"
           values := ← appendResultValueV1 result.typeId values result {
@@ -4082,7 +4082,7 @@ private def validateCallableLoopsV1
       let some p := block.params[0]? |
         throw <| .planInvariant .cosmwasm
           "unsupported CosmWasm semantic shape: loop header must carry exactly one block param"
-      unless p.typeId == types.uint64TypeId do
+      unless types.isUInt64 p.typeId do
         throw <| .planInvariant .cosmwasm
           "unsupported CosmWasm semantic shape: loop induction must be public UInt64"
       unless p.valueId.toNat == callable.params.size + blockParamCount do
@@ -4793,7 +4793,7 @@ private def makePureFnV1
   unless callable.result.visibility == .public_ do
     throw <| .planInvariant .cosmwasm s!"pureFn '{name}' does not return a public result"
   let (resultIsBool, expectedReturn) ←
-    if callable.result.typeId == types.uint64TypeId then
+    if types.isUInt64 callable.result.typeId then
       pure (false, CosmWasmValueKindV1.uint64)
     else if types.boolTypeId == some callable.result.typeId then
       pure (true, CosmWasmValueKindV1.bool)
@@ -5022,7 +5022,7 @@ private def buildCosmWasmFnEnvV1
     match callable.kind with
     | .pureFn =>
         let resultKind ←
-          if callable.result.typeId == types.uint64TypeId then
+          if types.isUInt64 callable.result.typeId then
             pure CosmWasmValueKindV1.uint64
           else if types.int64TypeId == some callable.result.typeId then
             pure CosmWasmValueKindV1.int64
@@ -5070,10 +5070,12 @@ private def makePlanFromSemanticDataV1
       constantKinds := constKinds
       constantValues := constValues
   }
-  let events ← source.events.mapM (fun d =>
-    makeInterfaceBindingV1 "event" d.name d.fields types.uint64TypeId)
-  let errors ← source.errors.mapM (fun d =>
-    makeInterfaceBindingV1 "error" d.name d.fields types.uint64TypeId)
+    let events ← source.events.mapM (fun d => do
+    let u64Tid ← types.requireUInt64 cosmwasmPlanErr "cosmwasm"
+    makeInterfaceBindingV1 "event" d.name d.fields u64Tid)
+  let errors ← source.errors.mapM (fun d => do
+    let u64Tid ← types.requireUInt64 cosmwasmPlanErr "cosmwasm"
+    makeInterfaceBindingV1 "error" d.name d.fields u64Tid)
   let components := source.qualifiedName.components.toArray
   let programName := components.back!
   let fnEnv ← buildCosmWasmFnEnvV1 types source.callables

@@ -469,6 +469,59 @@ theorem cfgInvariantPhasesV1
   · simpa [subjectDataV1] using
       invariantFuelPhasesV1 entryName parameterName invariantName
 
+private def usageClosureFixtureV1 : SemanticProgramDataV1 :=
+  subjectDataV1
+    { components := { head := "Proof", tail := #["Forge"] } }
+    "s0" "s1" "entry" "param" "inv"
+
+private def statefulEqualityCoreRootsV1 : Array TypeIdV1 :=
+  collectCoreTypeSlotRootsV1 usageClosureFixtureV1
+
+private theorem collectCoreTypeSlotRootsV1_statefulEquality_fixture :
+    collectCoreTypeSlotRootsV1 usageClosureFixtureV1 = statefulEqualityCoreRootsV1 := rfl
+
+private theorem foldBoolUInt64CoreRootsV1_statefulEquality_fixture :
+    foldBoolUInt64CoreRootsV1 statefulEqualityCoreRootsV1 = #[true, true] := by
+  dsimp [statefulEqualityCoreRootsV1, usageClosureFixtureV1, subjectDataV1,
+    collectCoreTypeSlotRootsV1, foldBoolUInt64CoreRootsV1]
+  simp [typesV1, callablesV1, storeParameterTwoReturnCallableV1,
+    twoStateCompareInvariantCallableV1,
+    ProofForgeV2.Semantic.FieldComparisonSubjectV1.typesV1,
+    Array.foldl, Array.set!, Array.replicate]
+  rfl
+
+private theorem anonymousTypeUsageBitmapV1_statefulEquality_fixture :
+    anonymousTypeUsageBitmapV1 usageClosureFixtureV1 = #[true, true] := by
+  rw [anonymousTypeUsageBitmapV1_allAnonymousLeaf_boolUInt64 usageClosureFixtureV1
+    (by simp [usageClosureFixtureV1, subjectDataV1, typesV1,
+      ProofForgeV2.Semantic.FieldComparisonSubjectV1.typesV1])]
+  rw [collectCoreTypeSlotRootsV1_statefulEquality_fixture,
+    foldBoolUInt64CoreRootsV1_statefulEquality_fixture]
+
+private theorem anonymousTypeUsageBitmapV1_statefulEquality_names_irrel
+    (qualifiedName : QualifiedName)
+    (state0Name state1Name entryName parameterName invariantName : String) :
+    anonymousTypeUsageBitmapV1
+      (subjectDataV1 qualifiedName state0Name state1Name entryName
+        parameterName invariantName) =
+      anonymousTypeUsageBitmapV1 usageClosureFixtureV1 := by
+  simp [anonymousTypeUsageBitmapV1, subjectDataV1, usageClosureFixtureV1, typesV1,
+    callablesV1, storeParameterTwoReturnCallableV1, twoStateCompareInvariantCallableV1,
+    ProofForgeV2.Semantic.FieldComparisonSubjectV1.typesV1, collectCoreTypeSlotRootsV1]
+
+private theorem usageClosureV1
+    (qualifiedName : QualifiedName)
+    (state0Name state1Name entryName parameterName invariantName : String) :
+    validateAnonymousTypeUsageClosureV1
+      (subjectDataV1 qualifiedName state0Name state1Name entryName
+        parameterName invariantName) = .ok () := by
+  apply validateAnonymousTypeUsageClosureV1_bool_uint64_coreMarked_eq_ok
+  · simp [subjectDataV1, typesV1,
+      ProofForgeV2.Semantic.FieldComparisonSubjectV1.typesV1]
+  · rw [anonymousTypeUsageBitmapV1_statefulEquality_names_irrel qualifiedName state0Name
+      state1Name entryName parameterName invariantName,
+    anonymousTypeUsageBitmapV1_statefulEquality_fixture]
+
 /-! ### Full production structure composition -/
 
 /-- Every production structure phase accepts the parameterized state-changing
@@ -490,6 +543,8 @@ theorem structureV1
       parameterName invariantName legal.hnameShape
   · simpa [data, subjectDataV1] using typesStructureV1
   · simpa [data, subjectDataV1] using typeKeyPhasesV1
+  · exact usageClosureV1 qualifiedName state0Name state1Name entryName
+      parameterName invariantName
   · simpa [data, subjectDataV1] using namedTypeNamesV1
   · exact constantsValueBytesV1 qualifiedName state0Name state1Name entryName
       parameterName invariantName

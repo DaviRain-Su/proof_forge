@@ -60,7 +60,7 @@ theorem demo_wellFormed : SimpleClosureParamsWellFormedV1 demoParams :=
 
 theorem demo_materialize_types :
     (materializeSimpleClosureDataV1 demoParams).types =
-      #[simpleClosureBoolTypeV1, simpleClosureUInt64TypeV1] :=
+      #[simpleClosureBoolTypeV1] :=
   rfl
 
 theorem demo_materialize_callables_size :

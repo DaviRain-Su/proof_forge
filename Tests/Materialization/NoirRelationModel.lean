@@ -4416,7 +4416,7 @@ private unsafe def testScalarConstInline : IO Unit := do
       "  view get() : UInt64 do\n" ++
       "    return count\n\n" ++
       "end ProofForgeV2.Examples\n")
-    "constant"
+    "supported"
   IO.println "  ✓ Noir scalar const inline + String FC pin ok"
 
 unsafe def run : IO Unit := do

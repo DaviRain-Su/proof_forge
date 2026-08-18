@@ -21,7 +21,7 @@ import ProofForgeV2.Semantic.WireV1
 
   Current shipped slice (engineering; not formal TST-PROOF-001):
     * single nullary public Bool view + single nullary literal-true invariant
-    * anonymous Bool + UInt64 type table (Normalize target envelope)
+    * anonymous Bool-only type table (usage-closure closed)
     * sole S2 `value.bool` requirement row
     * empty constants/state/events/errors
     * invariant ordinal 0, callableId 1, invariantSteps = some 3
@@ -104,7 +104,8 @@ structure SimpleClosureParamsWellFormedV1 (p : SimpleClosureParamsV1) : Prop whe
 def simpleClosureBoolTypeV1 : TypeDeclV1 :=
   { id := 0, name := none, shape := .bool }
 
-/-- Anonymous UInt64 type at TypeId 1 (Normalize target envelope). -/
+/-- Standalone UInt64 TypeDecl for isolated shape encode/decode certificates only
+    (not part of the Bool-only materialized family table). -/
 def simpleClosureUInt64TypeV1 : TypeDeclV1 :=
   { id := 1, name := none, shape := .uint 64 }
 
@@ -170,7 +171,7 @@ def materializeSimpleClosureDataV1 (p : SimpleClosureParamsV1) :
     SemanticProgramDataV1 :=
   {
     qualifiedName := p.toQualifiedName
-    types := #[simpleClosureBoolTypeV1, simpleClosureUInt64TypeV1]
+    types := #[simpleClosureBoolTypeV1]
     constants := #[]
     logicalState := #[]
     events := #[]
@@ -197,13 +198,12 @@ theorem materializeSimpleClosureDataV1?_eq (p : SimpleClosureParamsV1) :
     and recover its free name parameters. Fail closed on any other shape. -/
 def extractSimpleClosureParamsV1
     (data : SemanticProgramDataV1) : Option SimpleClosureParamsV1 :=
-  -- Types: anonymous Bool + anonymous UInt64 only.
-  if data.types.size != 2 then none
+  -- Types: anonymous Bool only.
+  if data.types.size != 1 then none
   else
-    match data.types[0]?, data.types[1]? with
-    | some t0, some t1 =>
+    match data.types[0]? with
+    | some t0 =>
         if !(t0 == simpleClosureBoolTypeV1) then none
-        else if !(t1 == simpleClosureUInt64TypeV1) then none
         else if !data.constants.isEmpty then none
         else if !data.logicalState.isEmpty then none
         else if !data.events.isEmpty then none
@@ -242,7 +242,7 @@ def extractSimpleClosureParamsV1
                                 }
                     | _, _ => none
                 | _, _, _ => none
-    | _, _ => none
+    | none => none
 
 /-! ### Parametric literal-true witness -/
 
@@ -251,9 +251,9 @@ def extractSimpleClosureParamsV1
     native_decide / ofReduceBool. -/
 theorem simpleClosure_boolLiteralTrue_canonical :
     validateValueBytesV1
-      #[simpleClosureBoolTypeV1, simpleClosureUInt64TypeV1]
+      #[simpleClosureBoolTypeV1]
       0 (encodeU8 1) = .ok () := by
-  simp [simpleClosureBoolTypeV1, simpleClosureUInt64TypeV1, encodeU8,
+  simp [simpleClosureBoolTypeV1, encodeU8,
     validateValueBytesV1, Pure.pure, Except.pure, Bind.bind, Except.bind]
   rfl
 

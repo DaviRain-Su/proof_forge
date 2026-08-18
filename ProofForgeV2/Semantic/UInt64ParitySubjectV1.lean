@@ -15,6 +15,8 @@ import ProofForgeV2.Semantic.Wire.CodecInvertFieldsV1
 
 namespace ProofForgeV2.Semantic.UInt64ParitySubjectV1
 
+set_option maxHeartbeats 80000000
+
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Semantic.PreservationShapeV1
 open ProofForgeV2.Semantic.ReferenceV1
@@ -962,6 +964,53 @@ private theorem cfgInvariantPhasesV1
   · exact invariantClosurePhasesV1 entryName viewName invariantName
   · exact invariantFuelPhasesV1 entryName viewName invariantName
 
+private def usageClosureFixtureV1 : SemanticProgramDataV1 :=
+  subjectDataV1
+    { components := { head := "Proof", tail := #["Forge"] } }
+    "state" "entry" "view" "inv"
+
+private def parityCoreRootsV1 : Array TypeIdV1 :=
+  collectCoreTypeSlotRootsV1 usageClosureFixtureV1
+
+private theorem collectCoreTypeSlotRootsV1_parity_fixture :
+    collectCoreTypeSlotRootsV1 usageClosureFixtureV1 = parityCoreRootsV1 := rfl
+
+private theorem foldBoolUInt64CoreRootsV1_parity_fixture :
+    foldBoolUInt64CoreRootsV1 parityCoreRootsV1 = #[true, true] := by
+  dsimp [parityCoreRootsV1, usageClosureFixtureV1, subjectDataV1,
+    collectCoreTypeSlotRootsV1, foldBoolUInt64CoreRootsV1]
+  simp [typesV1, boolType0V1, uint64Type1V1, publicUInt64State0V1,
+    incrementAddTwoCallableV1, viewLoadCallableV1, uint64ParityInvariantCallableV1,
+    Array.foldl, Array.set!, Array.replicate]
+  rfl
+
+private theorem anonymousTypeUsageBitmapV1_parity_fixture :
+    anonymousTypeUsageBitmapV1 usageClosureFixtureV1 = #[true, true] := by
+  rw [anonymousTypeUsageBitmapV1_allAnonymousLeaf_boolUInt64 usageClosureFixtureV1
+    (by simp [usageClosureFixtureV1, subjectDataV1, typesV1, boolType0V1, uint64Type1V1])]
+  rw [collectCoreTypeSlotRootsV1_parity_fixture, foldBoolUInt64CoreRootsV1_parity_fixture]
+
+private theorem anonymousTypeUsageBitmapV1_parity_names_irrel
+    (qualifiedName : QualifiedName)
+    (stateName entryName viewName invariantName : String) :
+    anonymousTypeUsageBitmapV1
+      (subjectDataV1 qualifiedName stateName entryName viewName invariantName) =
+      anonymousTypeUsageBitmapV1 usageClosureFixtureV1 := by
+  simp [anonymousTypeUsageBitmapV1, subjectDataV1, usageClosureFixtureV1, typesV1,
+    boolType0V1, uint64Type1V1, publicUInt64State0V1, incrementAddTwoCallableV1,
+    viewLoadCallableV1, uint64ParityInvariantCallableV1, collectCoreTypeSlotRootsV1]
+
+private theorem usageClosureV1
+    (qualifiedName : QualifiedName)
+    (stateName entryName viewName invariantName : String) :
+    validateAnonymousTypeUsageClosureV1
+      (subjectDataV1 qualifiedName stateName entryName viewName invariantName) =
+      .ok () := by
+  apply validateAnonymousTypeUsageClosureV1_bool_uint64_coreMarked_eq_ok
+  · simp [subjectDataV1, typesV1, boolType0V1, uint64Type1V1]
+  · rw [anonymousTypeUsageBitmapV1_parity_names_irrel qualifiedName stateName entryName
+      viewName invariantName, anonymousTypeUsageBitmapV1_parity_fixture]
+
 /-- Every production Semantic structure phase accepts the generic one-slot UInt64
     parity subject whenever the caller supplies the production name gates and
     exact callable-name distinctness required by the same structure validator. -/
@@ -984,6 +1033,7 @@ theorem structureOkV1
   · exact structurePreludeV1 qualifiedName stateName entryName viewName invariantName hnameShape
   · exact typesStructureV1
   · exact typeKeyPhasesV1
+  · exact usageClosureV1 qualifiedName stateName entryName viewName invariantName
   · exact namedTypeNamesV1
   · exact constantsValueBytesV1 qualifiedName stateName entryName viewName invariantName
   · exact callablesValueBytesV1 qualifiedName stateName entryName viewName invariantName

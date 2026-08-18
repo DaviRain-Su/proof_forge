@@ -103,7 +103,7 @@ theorem demo_qn_components_decode (left right : ByteArray) :
     (by decide) (by decide)
 
 theorem demo_materialize_shape :
-    (materializeSimpleClosureDataV1 demoParamsV1).types.size = 2 ∧
+    (materializeSimpleClosureDataV1 demoParamsV1).types.size = 1 ∧
     (materializeSimpleClosureDataV1 demoParamsV1).callables.size = 2 ∧
     (materializeSimpleClosureDataV1 demoParamsV1).invariants.size = 1 := by
   refine ⟨?_, ?_, ?_⟩ <;> rfl
@@ -199,9 +199,9 @@ private def testUnicodeLegalRuntime : IO Unit := do
     "unicode viewName identifier"
   expect (validateIdentifierComponent p.invName matches .ok _)
     "unicode invName identifier"
-  -- Materialize shape is parametric (2 types / 2 callables / 1 inv).
+  -- Materialize shape is parametric (1 Bool type / 2 callables / 1 inv).
   let data := materializeSimpleClosureDataV1 p
-  expect (data.types.size == 2) "unicode types size"
+  expect (data.types.size == 1) "unicode types size"
   expect (data.callables.size == 2) "unicode callables size"
   expect (data.invariants.size == 1) "unicode invariants size"
   -- Field-path encode must succeed for legal Unicode names (NFC + size).
@@ -220,7 +220,7 @@ private def testUnicodeLegalRuntime : IO Unit := do
 private def testProofedParity : IO Unit := do
   let p := Proofed.Proof.simpleClosureParamsV1
   let data := materializeSimpleClosureDataV1 p
-  expect (data.types.size == 2) "proofed types"
+  expect (data.types.size == 1) "proofed types"
   expect (data.callables.size == 2) "proofed callables"
   expect (data.invariants.size == 1) "proofed invariants"
   match encodeSemanticProgramDataV1 data with

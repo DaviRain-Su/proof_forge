@@ -710,7 +710,7 @@ private partial def flattenTypeLeafSpecsV1
     (typeDecls : Array TypeDeclV1) (types : AleoTypeClosureV1)
     (typeId : TypeIdV1) (namePrefix : String) :
     CompileResult (Array (String × Bool × Nat)) := do
-  if typeId == types.uint64TypeId then
+  if types.isUInt64 typeId then
     pure #[(namePrefix, false, 0)]
   else if types.uintTypeIdAt 8 == some typeId then
     pure #[(namePrefix, false, 8)]
@@ -773,7 +773,7 @@ private partial def flattenTypeLeafSpecsV1
   else if types.isContainer typeId then
     match typeDecls[typeId.toNat]? with
     | some { shape := .array elTid len, .. } =>
-        unless elTid == types.uint64TypeId || types.int64TypeId == some elTid do
+        unless types.isUInt64 elTid || types.int64TypeId == some elTid do
           planError "unsupported Aleo semantic shape: Array state element must be UInt64"
         let n := len.toNat
         unless n ≥ 1 do
@@ -787,8 +787,8 @@ private partial def flattenTypeLeafSpecsV1
           out := out.push (leafName, leafIsInt, 0)
         pure out
     | some { shape := .map keyTid valTid, .. } =>
-        unless keyTid == types.uint64TypeId &&
-            (valTid == types.uint64TypeId || types.int64TypeId == some valTid) do
+        unless types.isUInt64 keyTid &&
+            (types.isUInt64 valTid || types.int64TypeId == some valTid) do
           planError "unsupported Aleo semantic shape: Map state admits only Map UInt64 UInt64"
         let valIsInt := types.int64TypeId == some valTid
         let mut out : Array (String × Bool × Nat) := #[]
@@ -888,15 +888,15 @@ private def arrayUInt64LeafCountV1
     return none
   match typeDecls[typeId.toNat]? with
   | some { shape := .array elTid len, .. } =>
-      unless elTid == types.uint64TypeId || types.int64TypeId == some elTid do
+      unless types.isUInt64 elTid || types.int64TypeId == some elTid do
         planError "unsupported Aleo semantic shape: Array state element must be UInt64"
       let n := len.toNat
       unless n ≥ 1 do
         planError "unsupported Aleo semantic shape: Array state length must be ≥ 1"
       pure (some n)
   | some { shape := .map keyTid valTid, .. } =>
-      unless keyTid == types.uint64TypeId &&
-          (valTid == types.uint64TypeId || types.int64TypeId == some valTid) do
+      unless types.isUInt64 keyTid &&
+          (types.isUInt64 valTid || types.int64TypeId == some valTid) do
         planError "unsupported Aleo semantic shape: Map state admits only Map UInt64 UInt64"
       pure (some aleoMapPilotLeafCountV1)
   | some { shape := .bytes len, .. } =>
@@ -1043,7 +1043,7 @@ private def makeStateLayoutV1
       let payloadIsInt ←
         match typeDecls[state.typeId.toNat]? with
         | some { shape := .option elTid, name := none, .. } =>
-            if elTid == types.uint64TypeId then
+            if types.isUInt64 elTid then
               pure false
             else if types.int64TypeId == some elTid then
               pure true
@@ -1064,7 +1064,7 @@ private def makeStateLayoutV1
         fieldUintWidth := fieldUintWidth.push uintWidth
         fieldIsField := fieldIsField.push false
       stateLeaves := stateLeaves.push leaves
-    else if state.typeId == types.uint64TypeId then
+    else if types.isUInt64 state.typeId then
       let leafIdx := fieldNames.size
       fieldNames := fieldNames.push state.name
       fieldIsInt := fieldIsInt.push false
@@ -1784,7 +1784,7 @@ private partial def lowerRegion
               -- named Struct/Enum remains the other non-container path.
               match layout.typeDecls[typeId.toNat]? with
               | some { shape := .option elTid, name := none, .. } => do
-                  unless elTid == layout.types.uint64TypeId ||
+                  unless layout.types.isUInt64 elTid ||
                       layout.types.int64TypeId == some elTid do
                     planError
                       "unsupported Aleo semantic shape: Option construct requires UInt64 payload"
@@ -2461,7 +2461,7 @@ private def anonymousReturnLeafAbiV1
   match typeDecls[typeId.toNat]? with
   | some { shape := .array elTid len, name := none, .. } =>
       let leafIsInt := types.int64TypeId == some elTid
-      unless elTid == types.uint64TypeId || leafIsInt do
+      unless types.isUInt64 elTid || leafIsInt do
         planError
           "unsupported Aleo semantic shape: anonymous Array return requires UInt64 or Int64 elements"
       let n := len.toNat
@@ -2471,7 +2471,7 @@ private def anonymousReturnLeafAbiV1
       pure (some (Array.replicate n { isInt := leafIsInt, byteWidth := 8 }))
   | some { shape := .option elTid, name := none, .. } =>
       let payloadIsInt := types.int64TypeId == some elTid
-      unless elTid == types.uint64TypeId || payloadIsInt do
+      unless types.isUInt64 elTid || payloadIsInt do
         planError
           "unsupported Aleo semantic shape: anonymous Option return requires UInt64 or Int64 payload"
       pure (some #[
@@ -2659,7 +2659,7 @@ private partial def lowerCallable
     if isAnonymousOptionTypeIdV1 layout.typeDecls p.typeId then
       match layout.typeDecls[p.typeId.toNat]? with
       | some { shape := .option elTid, name := none, .. } =>
-          unless elTid == layout.types.uint64TypeId ||
+          unless layout.types.isUInt64 elTid ||
               layout.types.int64TypeId == some elTid do
             planError
               s!"unsupported Aleo semantic shape: Option parameter '{p.name}' payload must be UInt64 or Int64"

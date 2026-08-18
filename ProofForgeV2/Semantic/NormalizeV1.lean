@@ -2639,17 +2639,21 @@ private def lowerExprFuelV1
       -- Arm values lower in separate blocks and jump to a join block param.
       if arms.isEmpty then
         return ← failUnsupported "S1 match expression requires at least one arm"
-      let (iB, boolTid) := internShape st.interner .bool
-      let st0 := { st with interner := iB }
+      -- Intern Bool only on Bool-producing scrutinee paths (Stage D: no unused
+      -- anonymous Bool from UInt/place/ctor matches).
       let (scrutVid, scrutTid, st1) ←
         match scrutinee with
-        | .literal (.bool _) =>
-            lowerExprFuelV1 fuel scrutinee boolTid st0 states fns
+        | .literal (.bool _) => do
+            let (iB, boolTid) := internShape st.interner .bool
+            let stB := { st with interner := iB }
+            lowerExprFuelV1 fuel scrutinee boolTid stB states fns
         | .place p => do
-            let (vid, tid, stP) ← lowerPlaceFuelV1 fuel p st0 states fns
+            let (vid, tid, stP) ← lowerPlaceFuelV1 fuel p st states fns
             pure (vid, tid, stP)
-        | .unary .not _ =>
-            lowerExprFuelV1 fuel scrutinee boolTid st0 states fns
+        | .unary .not _ => do
+            let (iB, boolTid) := internShape st.interner .bool
+            let stB := { st with interner := iB }
+            lowerExprFuelV1 fuel scrutinee boolTid stB states fns
         | .binary op _ _ => do
             let srcOp := op
             if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.eq ||
@@ -2660,14 +2664,16 @@ private def lowerExprFuelV1
                 srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.ge ||
                 srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.logicalAnd ||
                 srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.logicalOr then
-              lowerExprFuelV1 fuel scrutinee boolTid st0 states fns
+              let (iB, boolTid) := internShape st.interner .bool
+              let stB := { st with interner := iB }
+              lowerExprFuelV1 fuel scrutinee boolTid stB states fns
             else
-              let (iU, u64Tid) := internShape st0.interner (.uint 64)
-              let stU := { st0 with interner := iU }
+              let (iU, u64Tid) := internShape st.interner (.uint 64)
+              let stU := { st with interner := iU }
               lowerExprFuelV1 fuel scrutinee u64Tid stU states fns
         | _ => do
-            let (iU, u64Tid) := internShape st0.interner (.uint 64)
-            let stU := { st0 with interner := iU }
+            let (iU, u64Tid) := internShape st.interner (.uint 64)
+            let stU := { st with interner := iU }
             lowerExprFuelV1 fuel scrutinee u64Tid stU states fns
       let scrutIsBool :=
         match anonShapeOf? st1.interner.types scrutTid with
@@ -3224,24 +3230,26 @@ private def lowerStmtFuelV1
   | fuel + 1, .match_ scrutinee arms => do
       if arms.isEmpty then
         return ← failUnsupported "S1 match requires at least one arm"
-      let (iB, boolTid) := internShape st.interner .bool
-      let st0 := { st with interner := iB }
       -- Scrutinee: Bool/String literal, bare place (UInt/Bool/String/Enum/Option),
       -- or UInt64 fallback for non-place heads (legacy UInt match programs).
+      -- Do not preemptively intern Bool — Stage D usage-closure rejects unused
+      -- anonymous rows (UInt-only match must not emit a spare Bool TypeDecl).
       let (scrutVid, scrutTid, st1) ←
         match scrutinee with
-        | .literal (.bool _) =>
-            lowerExpr scrutinee boolTid st0 states fns
+        | .literal (.bool _) => do
+            let (iB, boolTid) := internShape st.interner .bool
+            let stB := { st with interner := iB }
+            lowerExpr scrutinee boolTid stB states fns
         | .literal (.string _) => do
-            let (iS, stringTid) := internShape st0.interner .string
-            let stS := { st0 with interner := iS }
+            let (iS, stringTid) := internShape st.interner .string
+            let stS := { st with interner := iS }
             lowerExpr scrutinee stringTid stS states fns
         | .place p => do
-            let (vid, tid, stP) ← lowerPlace p st0 states fns
+            let (vid, tid, stP) ← lowerPlace p st states fns
             pure (vid, tid, stP)
         | _ => do
-            let (iU, u64Tid) := internShape st0.interner (.uint 64)
-            let stU := { st0 with interner := iU }
+            let (iU, u64Tid) := internShape st.interner (.uint 64)
+            let stU := { st with interner := iU }
             lowerExpr scrutinee u64Tid stU states fns
       let scrutIsBool :=
         match anonShapeOf? st1.interner.types scrutTid with
@@ -4400,25 +4408,18 @@ def lowerProgramCallableBodiesV1
     (initialProgramCallableLoweringStateV1 tables)
   pure state.toBodies
 
-/-- Production result of invariant-step assignment and target-envelope type
-    closure. `finishProgramLoweringV1` consumes this exact stage result. -/
+/-- Production result of invariant-step assignment before requirements are
+    frozen. `finishProgramLoweringV1` consumes this exact stage result. -/
 structure ProgramLoweringFinalizationCoreV1 where
   interner : TypeInternerV1
   callables : Array CallableV1
 
-/-- Assign the sole exact invariant metadata and ensure the target-envelope
-    UInt64 type before requirements are frozen. -/
+/-- Assign the sole exact invariant metadata before requirements are frozen. -/
 def prepareProgramLoweringFinalizationCoreV1
     (bodies : ProgramLoweringBodiesV1) :
     Except NormalizeErrorV1 ProgramLoweringFinalizationCoreV1 := do
-  let mut interner := bodies.interner
   let callables ← assignExactInvariantStepsV1 bodies.callables
-  match findTypeId interner (.uint 64) with
-  | some _ => pure ()
-  | none =>
-      let (interner', _) := internShape interner (.uint 64)
-      interner := interner'
-  pure { interner, callables }
+  pure { interner := bodies.interner, callables }
 
 /-- Normalize the existing S2 requirement freezer's error into the production
     normalizer error domain. -/
@@ -4622,9 +4623,11 @@ def canonicalizeAnonymousTypeRankV1 (data : SemanticProgramDataV1) :
   pure (remapDataTypeIdsV1 remap { data with types := newTypes })
 
 /-- Production finalization stage: assign the sole exact invariant metadata,
-    ensure the target-envelope UInt64 type, freeze requirements, assemble
-    the canonical SemanticProgram data record, and assign the SPEC §5
-    canonical anonymous TypeId rank. -/
+    freeze requirements, assemble the canonical SemanticProgram data record,
+    and assign the SPEC §5 canonical anonymous TypeId rank. Unused anonymous
+    rows are rejected by StructureV1 `usageClosure` (Stage D); this stage does
+    not silently compact (production certificates depend on exact assembled
+    identity when rank is already canonical). -/
 def finishProgramLoweringV1
     (qualifiedName : QualifiedName) (program : ProgramV1)
     (tables : ProgramLoweringTablesV1) (bodies : ProgramLoweringBodiesV1) :

@@ -738,7 +738,7 @@ private def containerLeafLayoutV1
     return none
   match typeDecls[typeId.toNat]? with
   | some { shape := .array elTid len, .. } =>
-      unless elTid == types.uint64TypeId || types.int64TypeId == some elTid do
+      unless types.isUInt64 elTid || types.int64TypeId == some elTid do
         throw <| .planInvariant .solana
           "unsupported Solana semantic shape: Array state element must be UInt64 or Int64"
       let n := len.toNat
@@ -749,13 +749,13 @@ private def containerLeafLayoutV1
       pure (some (n, 8, leafIsInt))
   | some { shape := .map keyTid valTid, .. } =>
       let valIsInt := types.int64TypeId == some valTid
-      unless valTid == types.uint64TypeId || valIsInt do
+      unless types.isUInt64 valTid || valIsInt do
         throw <| .planInvariant .solana
           "unsupported Solana semantic shape: Map state value must be UInt64"
-      if keyTid == types.uint64TypeId then
+      if types.isUInt64 keyTid then
         pure (some (solanaMapPilotLeafCountV1, 8, valIsInt))
       else if types.isPrincipal keyTid then
-        unless valTid == types.uint64TypeId do
+        unless types.isUInt64 valTid do
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: Map state value must be UInt64"
         pure (some (solanaMapPrincipalLeafCountV1, 8, false))
@@ -779,7 +779,7 @@ private partial def flattenTypeLeafSpecsV1
     (typeDecls : Array TypeDeclV1) (types : SolanaTypeClosureV1)
     (typeId : TypeIdV1) (namePrefix : String) :
     CompileResult (Array (String × Bool)) := do
-  if typeId == types.uint64TypeId then
+  if types.isUInt64 typeId then
     pure #[(namePrefix, false)]
   else if types.int64TypeId == some typeId then
     pure #[(namePrefix, true)]
@@ -863,7 +863,7 @@ private def isOptionUInt64TypeIdV1
     (typeId : TypeIdV1) : Bool :=
   match typeDecls[typeId.toNat]? with
   | some { shape := .option elTid, name := none, .. } =>
-      elTid == types.uint64TypeId || types.int64TypeId == some elTid
+      types.isUInt64 elTid || types.int64TypeId == some elTid
   | _ => false
 
 /-- B-OPT-STATE: `Option UInt64` or `Option Int64` storage leaves mirror
@@ -911,7 +911,7 @@ private def aggregateResultKindOfV1
     match typeDecls[typeId.toNat]? with
     | some { shape := .array elTid len, .. } =>
         let leafIsInt := types.int64TypeId == some elTid
-        unless elTid == types.uint64TypeId || leafIsInt do
+        unless types.isUInt64 elTid || leafIsInt do
           throw <| .planInvariant .solana
             s!"{owner} anonymous Array return element must be UInt64 or Int64"
         let n := len.toNat
@@ -947,7 +947,7 @@ private def aggregateResultKindOfV1
     match typeDecls[typeId.toNat]? with
     | some { shape := .option elTid, .. } =>
         let payloadIsInt := types.int64TypeId == some elTid
-        unless elTid == types.uint64TypeId || payloadIsInt do
+        unless types.isUInt64 elTid || payloadIsInt do
           throw <| .planInvariant .solana
             s!"{owner} anonymous Option return element must be UInt64 or Int64"
         -- none = (0, 0), some v = (1, v): tag unsigned, payload follows TypeId.
@@ -1122,11 +1122,11 @@ private def mapKeyShapeOfV1
     (typeId : TypeIdV1) : CompileResult (Option (Bool × Nat)) := do
   match typeDecls[typeId.toNat]? with
   | some { shape := .map keyTid valTid, .. } =>
-      unless valTid == types.uint64TypeId ||
-          (keyTid == types.uint64TypeId && types.int64TypeId == some valTid) do
+      unless types.isUInt64 valTid ||
+          (types.isUInt64 keyTid && types.int64TypeId == some valTid) do
         throw <| .planInvariant .solana
           "unsupported Solana semantic shape: Map value must be UInt64"
-      if keyTid == types.uint64TypeId then
+      if types.isUInt64 keyTid then
         pure (some (false, solanaMapPilotLeafCountV1))
       else if types.isPrincipal keyTid then
         pure (some (true, solanaMapPrincipalLeafCountV1))
@@ -1163,7 +1163,7 @@ private def makeStateAccountV1
           throw <| .planInvariant .solana "state count is outside the profile limits"
         let isMapU64 :=
           match typeDecls[state.typeId.toNat]? with
-          | some { shape := .map keyTid _, .. } => keyTid == types.uint64TypeId
+          | some { shape := .map keyTid _, .. } => types.isUInt64 keyTid
           | _ => false
         let mut leaves : Array Nat := #[]
         for i in [0:n] do
@@ -1239,7 +1239,7 @@ private def makeStateAccountV1
           -- names. none default via zeroAllFields; Option.none zeros payload.
           match typeDecls[state.typeId.toNat]? with
           | some { shape := .option elTid, .. } =>
-              unless elTid == types.uint64TypeId ||
+              unless types.isUInt64 elTid ||
                   types.int64TypeId == some elTid do
                 throw <| .planInvariant .solana
                   s!"unsupported Solana semantic shape: Option state '{state.name}' element must be UInt64"
@@ -1524,7 +1524,7 @@ private def makeParamsV1 (owner : String) (types : SolanaTypeClosureV1)
     else if isAnonymousOptionTypeIdV1 typeDecls param.typeId then
       match typeDecls[param.typeId.toNat]? with
       | some { shape := .option elTid, name := none, .. } =>
-          unless elTid == types.uint64TypeId || types.int64TypeId == some elTid do
+          unless types.isUInt64 elTid || types.int64TypeId == some elTid do
             throw <| .planInvariant .solana
               s!"unsupported Solana semantic shape: Option parameter '{param.name}' payload must be UInt64 or Int64"
           if planned.size + 2 > maxParams then
@@ -2121,7 +2121,7 @@ private def buildPureFnTableV1
           throw <| .planInvariant .solana s!"fn '{name}' result is not public"
         let isBool := types.boolTypeId == some callable.result.typeId
         let isInt := (types.intWidthOf callable.result.typeId).isSome
-        unless callable.result.typeId == types.uint64TypeId || isBool || isInt do
+        unless types.isUInt64 callable.result.typeId || isBool || isInt do
           throw <| .planInvariant .solana
             s!"fn '{name}' does not return public UInt64, Int64, or Bool"
         for param in callable.params do
@@ -2359,9 +2359,12 @@ private def lowerBlockInstructionsV1
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: Constant result typeId must match the declaration"
         admitSolanaConstantTypeV1 types c.typeId
-        if c.typeId == types.uint64TypeId then
+        if types.isUInt64 c.typeId then
           let value ← decodeUInt64LiteralV1 c.valueBytes
-          values := ← appendResultValueV1 types.uint64TypeId values result {
+          let some u64Tid := types.uint64TypeId |
+            throw (.planInvariant .solana
+              "unsupported Solana semantic shape: UInt64 type is missing")
+          values := ← appendResultValueV1 u64Tid values result {
             expr := .literal value
             depth := 1
             expandedNodes := 1
@@ -2417,9 +2420,12 @@ private def lowerBlockInstructionsV1
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: constant is not admitted UInt width, Int64, or Bool"
     | .literal typeId bytes, some result =>
-        if typeId == types.uint64TypeId then
+        if types.isUInt64 typeId then
           let value ← decodeUInt64LiteralV1 bytes
-          values := ← appendResultValueV1 types.uint64TypeId values result {
+          let some u64Tid := types.uint64TypeId |
+            throw (.planInvariant .solana
+              "unsupported Solana semantic shape: UInt64 type is missing")
+          values := ← appendResultValueV1 u64Tid values result {
             expr := .literal value
             depth := 1
             expandedNodes := 1
@@ -2537,7 +2543,7 @@ private def lowerBlockInstructionsV1
           -- B-OPT-STATE: Option UInt64 multi-leaf load (tag + payload).
           match typeDecls[result.typeId.toNat]? with
           | some { shape := .option elTid, .. } =>
-              unless elTid == types.uint64TypeId ||
+              unless types.isUInt64 elTid ||
                   types.int64TypeId == some elTid do
                 throw <| .planInvariant .solana
                   "unsupported Solana semantic shape: Option state load element must be UInt64"
@@ -2849,7 +2855,7 @@ private def lowerBlockInstructionsV1
             -- Callee may return any admitted Int width; accept the wire result TypeId.
             pure result.typeId
           else
-            pure types.uint64TypeId
+            types.requireUInt64 solanaPlanErr "solana"
         unless result.typeId == expectedTypeId do
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: pureCall result type does not match callee"
@@ -3184,7 +3190,7 @@ private def lowerBlockInstructionsV1
           -- ctorIdx 0 = none → (0, 0); ctorIdx 1 = some → (1, v).
           match typeDecls[typeId.toNat]? with
           | some { shape := .option elTid, .. } => do
-              unless elTid == types.uint64TypeId ||
+              unless types.isUInt64 elTid ||
                   types.int64TypeId == some elTid do
                 throw <| .planInvariant .solana
                   "unsupported Solana semantic shape: Option construct element must be UInt64"
@@ -3298,7 +3304,7 @@ private def lowerBlockInstructionsV1
           let some leaf := leaves[i]? |
             throw <| .planInvariant .solana "Array IndexGet leaf missing"
           let wantInt := types.int64TypeId == some result.typeId
-          unless result.typeId == types.uint64TypeId || wantInt do
+          unless types.isUInt64 result.typeId || wantInt do
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: Array IndexGet result must be UInt64 or Int64"
           values := ← appendResultValueV1 result.typeId values result {
@@ -3652,7 +3658,7 @@ private def lowerBlockInstructionsV1
         if key == blockHeightContextKeyV1 then
           -- pureFn ContextRead is already fail-closed at Normalize; handlers
           -- (init/entry/view) admit the host sysvar read.
-          unless result.typeId == types.uint64TypeId do
+          unless types.isUInt64 result.typeId do
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: ContextRead context.blockHeight result must be UInt64"
           values := ← appendResultValueV1 result.typeId values result {
@@ -3666,7 +3672,7 @@ private def lowerBlockInstructionsV1
             bitWidth := 64
           }
         else if key == unixTimeSecondsContextKeyV1 then
-          unless result.typeId == types.uint64TypeId do
+          unless types.isUInt64 result.typeId do
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: ContextRead context.unixTimeSeconds result must be UInt64"
           values := ← appendResultValueV1 result.typeId values result {
@@ -3732,7 +3738,7 @@ private def isLoopHeaderV1 (loopBounds : Array LoopBoundV1) (blockId : Nat) : Bo
     callable params and before instruction results; only loop headers may
     carry the single UInt64 induction parameter. -/
 private def allocateBlockParamSlotsV1
-    (uint64TypeId : TypeIdV1)
+    (types : SolanaTypeClosureV1)
     (loopBounds : Array LoopBoundV1)
     (blocks : Array BlockV1)
     (values0 : Array LoweredValueV1) : CompileResult (Array LoweredValueV1) := do
@@ -3753,7 +3759,7 @@ private def allocateBlockParamSlotsV1
       unless p.valueId.toNat == values.size do
         throw <| .planInvariant .solana
           "unsupported Solana semantic shape: block parameter ValueIds are not canonical"
-      unless p.typeId == uint64TypeId do
+      unless types.isUInt64 p.typeId do
         throw <| .planInvariant .solana
           "unsupported Solana semantic shape: loop induction parameter must be UInt64"
       values := values.push {
@@ -4080,7 +4086,7 @@ private partial def lowerForLoopV1
     throw <| .planInvariant .solana
       "unsupported Solana semantic shape: loop header must carry exactly one block parameter"
   let varTemp := induction.valueId.toNat
-  unless induction.typeId == types.uint64TypeId do
+  unless types.isUInt64 induction.typeId do
     throw <| .planInvariant .solana
       "unsupported Solana semantic shape: loop induction parameter must be UInt64"
   unless varTemp < values0.size do
@@ -4178,7 +4184,7 @@ private def lowerCallableV1
         throw <| .planInvariant .solana
           "unsupported Solana semantic shape: loop latch must be a jump back to its header"
   let (params, initialValues) ← makeParamsV1 owner types typeDecls callable.params
-  let valuesPadded ← allocateBlockParamSlotsV1 types.uint64TypeId callable.loopBounds
+  let valuesPadded ← allocateBlockParamSlotsV1 types callable.loopBounds
     callable.blocks initialValues
   let (body0, values0, exit0) ←
     emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account constants pureFns callable.blocks
@@ -4352,7 +4358,7 @@ private def makePureFnV1
     throw <| .planInvariant .solana s!"fn '{name}' result is not public"
   let resultIsBool := types.boolTypeId == some callable.result.typeId
   let resultIsInt := (types.intWidthOf callable.result.typeId).isSome
-  unless callable.result.typeId == types.uint64TypeId || resultIsBool || resultIsInt do
+  unless types.isUInt64 callable.result.typeId || resultIsBool || resultIsInt do
     throw <| .planInvariant .solana
       s!"fn '{name}' does not return public UInt64, Int8/16/32/64, or Bool"
   -- pureFn bodies use view mode so store/emit fail closed at the lowerer.
@@ -4404,10 +4410,12 @@ private def makePlanFromSemanticDataV1
       admitProductExternalCall
   }
   let constants := source.constants
-  let events ← source.events.mapM (fun d =>
-    makeInterfaceBindingV1 "event" d.name d.fields types.uint64TypeId)
-  let errors ← source.errors.mapM (fun d =>
-    makeInterfaceBindingV1 "error" d.name d.fields types.uint64TypeId)
+    let events ← source.events.mapM (fun d => do
+    let u64Tid ← types.requireUInt64 solanaPlanErr "solana"
+    makeInterfaceBindingV1 "event" d.name d.fields u64Tid)
+  let errors ← source.errors.mapM (fun d => do
+    let u64Tid ← types.requireUInt64 solanaPlanErr "solana"
+    makeInterfaceBindingV1 "error" d.name d.fields u64Tid)
   let pureFnTable ← buildPureFnTableV1 types source.callables
   let components := source.qualifiedName.components.toArray
   let programName := components.back!

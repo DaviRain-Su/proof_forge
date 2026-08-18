@@ -655,7 +655,7 @@ private def isInt64Type (data : SemanticProgramDataV1) (typeId : TypeIdV1) : Boo
 /-- Admitted 64-bit word for Psy container element/payload/value (UInt64 or
     Int64). Int8 and other widths stay fail closed at the historical needles. -/
 private def isUInt64OrInt64Tid (types : PsyTypeClosureV1) (tid : TypeIdV1) : Bool :=
-  tid == types.uint64TypeId || types.int64TypeId == some tid
+  types.isUInt64 tid || types.int64TypeId == some tid
 
 private def intWidthOfType
     (data : SemanticProgramDataV1) (typeId : TypeIdV1) : Option Nat :=
@@ -722,7 +722,7 @@ private partial def flattenTypeLeafSpecsV1
     (typeDecls : Array TypeDeclV1) (types : PsyTypeClosureV1)
     (typeId : TypeIdV1) (namePrefix : String) :
     CompileResult (Array String) := do
-  if typeId == types.uint64TypeId then
+  if types.isUInt64 typeId then
     pure #[namePrefix]
   else if match types.uintWidthOf typeId with
       | some w => isNarrowUintWidth w
@@ -792,7 +792,7 @@ private partial def flattenTypeLeafSpecsV1
           out := out.push leafName
         pure out
     | some { shape := .map keyTid valTid, .. } =>
-        unless keyTid == types.uint64TypeId && isUInt64OrInt64Tid types valTid do
+        unless types.isUInt64 keyTid && isUInt64OrInt64Tid types valTid do
           planError "unsupported Psy semantic shape: Map state pilot requires UInt64 keys and values"
         let mut out : Array String := #[]
         for e in [0:psyMapPilotCapacityV1] do
@@ -845,7 +845,7 @@ private def leafCountOfTypeV1
 private partial def flattenReturnLeafAbiV1
     (typeDecls : Array TypeDeclV1) (types : PsyTypeClosureV1)
     (typeId : TypeIdV1) : CompileResult (Array LeafAbiType) := do
-  if typeId == types.uint64TypeId then
+  if types.isUInt64 typeId then
     pure #[{ isInt := false, byteWidth := 8 }]
   else if types.int64TypeId == some typeId then
     pure #[{ isInt := true, byteWidth := 8 }]
@@ -893,7 +893,7 @@ private def anonymousReturnLeafAbiV1
   match typeDecls[typeId.toNat]? with
   | some { shape := .array elTid len, name := none, .. } =>
       let leafIsInt := types.int64TypeId == some elTid
-      unless elTid == types.uint64TypeId || leafIsInt do
+      unless types.isUInt64 elTid || leafIsInt do
         planError
           "unsupported Psy semantic shape: anonymous Array return requires UInt64 or Int64 elements"
       let n := len.toNat
@@ -903,7 +903,7 @@ private def anonymousReturnLeafAbiV1
       pure (some (Array.replicate n { isInt := leafIsInt, byteWidth := 8 }))
   | some { shape := .option elTid, name := none, .. } =>
       let payloadIsInt := types.int64TypeId == some elTid
-      unless elTid == types.uint64TypeId || payloadIsInt do
+      unless types.isUInt64 elTid || payloadIsInt do
         planError
           "unsupported Psy semantic shape: anonymous Option return requires UInt64 or Int64 payload"
       pure (some #[
@@ -1030,7 +1030,7 @@ private def mapUInt64LeafCountV1
     return none
   match typeDecls[typeId.toNat]? with
   | some { shape := .map keyTid valTid, .. } =>
-      unless keyTid == types.uint64TypeId && isUInt64OrInt64Tid types valTid do
+      unless types.isUInt64 keyTid && isUInt64OrInt64Tid types valTid do
         planError "unsupported Psy semantic shape: Map pilot requires UInt64 keys and values"
       pure (some psyMapPilotLeafCountV1)
   | _ => pure none
@@ -1203,7 +1203,7 @@ private def makeStateLayoutV1
         leaves := leaves.push fieldNames.size
         fieldNames := fieldNames.push name
       stateLeaves := stateLeaves.push leaves
-    else if state.typeId == types.uint64TypeId
+    else if types.isUInt64 state.typeId
         || (match types.uintWidthOf state.typeId with
             | some w => isNarrowUintWidth w
             | none => false)
@@ -2220,7 +2220,7 @@ private partial def lowerRegion
             let hashOutElIsUInt64 : Bool :=
               match layout.typeDecls[valueDef.typeId.toNat]? with
               | some { shape := .array elTid _, .. } =>
-                  elTid == layout.types.uint64TypeId
+                  layout.types.isUInt64 elTid
               | _ => false
             let wantFullHashOut : Bool :=
               match hashOut4? with
@@ -3087,7 +3087,7 @@ private partial def lowerLoop
     planError "unsupported Psy semantic shape: loop header must carry exactly one block parameter"
   let some paramDef := header.params[0]? |
     planError "unsupported Psy semantic shape: loop header parameter is missing"
-  unless paramDef.typeId == layout.types.uint64TypeId do
+  unless layout.types.isUInt64 paramDef.typeId do
     planError "unsupported Psy semantic shape: loop header must carry one UInt64 parameter"
   unless target.args.size == 1 do
     planError "unsupported Psy semantic shape: loop entry must carry exactly one argument"
@@ -3301,7 +3301,7 @@ private def lowerCallable
                 else if isAnonymousOptionTypeIdV1 layout.typeDecls p.typeId then
                   match layout.typeDecls[p.typeId.toNat]? with
                   | some { shape := .option elTid, name := none, .. } =>
-                      unless elTid == types.uint64TypeId ||
+                      unless types.isUInt64 elTid ||
                           types.int64TypeId == some elTid do
                         planError s!"unsupported Psy semantic shape: Option parameter '{p.name}' payload must be UInt64 or Int64"
                       let payloadIsInt := types.int64TypeId == some elTid

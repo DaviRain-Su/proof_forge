@@ -48,10 +48,8 @@ def proofedQualifiedNameSpine : TransparentByteSpineV1 := [
 ]
 
 def proofedTypesSpine : TransparentByteSpineV1 := [
-  2, 0, 0, 0, 8, 0, 0, 0, 84, 121, 112, 101, 68, 101, 99, 108, 3, 0, 0, 0, 0, 0, 0, 9,
-  0, 0, 0, 84, 121, 112, 101, 46, 66, 111, 111, 108, 0, 0, 8, 0, 0, 0, 84, 121, 112,
-  101, 68, 101, 99, 108, 3, 0, 1, 0, 0, 0, 0, 9, 0, 0, 0, 84, 121, 112, 101, 46, 85, 73,
-  110, 116, 1, 0, 64, 0
+  1, 0, 0, 0, 8, 0, 0, 0, 84, 121, 112, 101, 68, 101, 99, 108, 3, 0, 0, 0, 0, 0, 0, 9,
+  0, 0, 0, 84, 121, 112, 101, 46, 66, 111, 111, 108, 0, 0
 ]
 
 def proofedEmptyTablesSpine : TransparentByteSpineV1 := [
@@ -110,7 +108,7 @@ def proofedSpine : TransparentByteSpineV1 :=
     proofedInvariantsSpine ++ proofedRequirementsSpine
 
 
-theorem proofedSpine_length : proofedSpine.length = 802 := by rfl
+theorem proofedSpine_length : proofedSpine.length = 766 := by rfl
 
 theorem proofedBytes_eq_spine :
     proofedBytes = ByteArray.mk proofedSpine.toArray := by
@@ -237,8 +235,8 @@ theorem expectRootTag_proofed :
 /-! ### QualifiedName (4 components) -/
 
 theorem readQnCount_proofed :
-    readArrayCountAtV1 proofedWireBytes 41 256 = .ok (4, 45) := by
-  change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 41 256 = .ok (4, 45)
+    readArrayCountAtV1 proofedWireBytes 41 220 = .ok (4, 45) := by
+  change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 41 220 = .ok (4, 45)
   rw [readArrayCountAtV1_refinesSpine]
   rfl
 
@@ -345,12 +343,12 @@ theorem decodeQualifiedName_proofed :
     · exact decodeQnProofedName_proofed
   · rfl
 
-/-! ### Types (Bool + UInt64) -/
+/-! ### Types (Bool-only) -/
 
 theorem readTypesCount_proofed :
-    readArrayCountAtV1 proofedWireBytes 103 maxTableElements = .ok (2, 107) := by
+    readArrayCountAtV1 proofedWireBytes 103 maxTableElements = .ok (1, 107) := by
   change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 103 maxTableElements =
-    .ok (2, 107)
+    .ok (1, 107)
   rw [readArrayCountAtV1_refinesSpine]
   rfl
 
@@ -360,18 +358,6 @@ theorem expectTypeDecl0_proofed :
   apply expectTag_eq_of_headerV1
   change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 107
       (ByteArray.mk [84, 121, 112, 101, 68, 101, 99, 108].toArray) 3 = .ok 121
-  rw [expectTaggedHeaderBytesAtV1_refinesSpine]
-  unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
-    spineRemainingV1 readSpineU16leV1
-  rw [proofedSpine_length]
-  rfl
-
-theorem expectTypeDecl1_proofed :
-    expectTag "TypeDecl" 3 ⟨proofedWireBytes, 141, 2⟩ =
-      .ok ((), ⟨proofedWireBytes, 155, 2⟩) := by
-  apply expectTag_eq_of_headerV1
-  change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 141
-      (ByteArray.mk [84, 121, 112, 101, 68, 101, 99, 108].toArray) 3 = .ok 155
   rw [expectTaggedHeaderBytesAtV1_refinesSpine]
   unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
     spineRemainingV1 readSpineU16leV1
@@ -394,24 +380,6 @@ theorem decodeTypeShapeBool_proofed :
   · apply decodeProofedZeroFieldsV1
     rfl
 
-theorem decodeTypeShapeUInt64_proofed :
-    decodeTypeShapeV1 ⟨proofedWireBytes, 160, 2⟩ =
-      .ok (.uint 64, ⟨proofedWireBytes, 177, 2⟩) := by
-  refine decodeTypeShapeV1_eq_of_bodyV1 ⟨proofedWireBytes, 160, 2⟩ (.uint 64)
-    ⟨proofedWireBytes, 177, 3⟩ (by decide) ?_
-  apply decodeTypeShapeBodyV1_uint
-  · apply decodeProofedTagV1 160 173 3
-      [84, 121, 112, 101, 46, 85, 73, 110, 116] "Type.UInt"
-    · unfold readTagSpineBytesV1 takeSpineBytesV1 spineRemainingV1
-      rw [proofedSpine_length]
-      rfl
-    · rfl
-    · rfl
-  · apply decodeProofedOneFieldV1
-    rfl
-  · apply decodeProofedU16V1
-    rfl
-
 theorem decodeTypeDecl0_proofed :
     decodeTypeDeclV1 ⟨proofedWireBytes, 107, 1⟩ =
       .ok (boolT, ⟨proofedWireBytes, 141, 1⟩) := by
@@ -428,66 +396,49 @@ theorem decodeTypeDecl0_proofed :
     rfl
   · exact decodeTypeShapeBool_proofed
 
-theorem decodeTypeDecl1_proofed :
-    decodeTypeDeclV1 ⟨proofedWireBytes, 141, 1⟩ =
-      .ok (u64T, ⟨proofedWireBytes, 177, 1⟩) := by
-  refine decodeTypeDeclV1_eq_of_bodyV1 ⟨proofedWireBytes, 141, 1⟩ u64T
-    ⟨proofedWireBytes, 177, 2⟩ (by decide) ?_
-  apply decodeTypeDeclBodyV1_eq_of_fields
-  · exact expectTypeDecl1_proofed
-  · apply decodeProofedU32V1
-    rfl
-  · apply decodeOption_noneV1
-    apply decodeU8_eq_of_readV1
-    change readByteAtV1 (ByteArray.mk proofedSpine.toArray) 159 = .ok 0
-    rw [readByteAtV1_refinesSpine]
-    rfl
-  · exact decodeTypeShapeUInt64_proofed
-
 theorem decodeTypes_proofed :
     decodeArray maxTableElements decodeTypeDeclV1 ⟨proofedWireBytes, 103, 1⟩ =
-      .ok (#[boolT, u64T], ⟨proofedWireBytes, 177, 1⟩) := by
-  have h := decodeArray_twoV1 maxTableElements decodeTypeDeclV1
-    ⟨proofedWireBytes, 103, 1⟩ 107 boolT u64T
-    ⟨proofedWireBytes, 141, 1⟩ ⟨proofedWireBytes, 177, 1⟩
-    readTypesCount_proofed decodeTypeDecl0_proofed decodeTypeDecl1_proofed
+      .ok (#[boolT], ⟨proofedWireBytes, 141, 1⟩) := by
+  have h := decodeArray_oneV1 maxTableElements decodeTypeDeclV1
+    ⟨proofedWireBytes, 103, 1⟩ 107 boolT ⟨proofedWireBytes, 141, 1⟩
+    readTypesCount_proofed decodeTypeDecl0_proofed
   simpa using h
 
 /-! ### Four empty tables -/
 
 theorem decodeConstants_proofed :
-    decodeArray maxTableElements decodeConstantV1 ⟨proofedWireBytes, 177, 1⟩ =
-      .ok (#[], ⟨proofedWireBytes, 181, 1⟩) := by
+    decodeArray maxTableElements decodeConstantV1 ⟨proofedWireBytes, 141, 1⟩ =
+      .ok (#[], ⟨proofedWireBytes, 145, 1⟩) := by
   apply decodeArray_zeroV1
-  change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 177 maxTableElements =
-    .ok (0, 181)
+  change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 141 maxTableElements =
+    .ok (0, 145)
   rw [readArrayCountAtV1_refinesSpine]
   rfl
 
 theorem decodeLogicalState_proofed :
-    decodeArray maxTableElements decodeStateDeclV1 ⟨proofedWireBytes, 181, 1⟩ =
-      .ok (#[], ⟨proofedWireBytes, 185, 1⟩) := by
+    decodeArray maxTableElements decodeStateDeclV1 ⟨proofedWireBytes, 145, 1⟩ =
+      .ok (#[], ⟨proofedWireBytes, 149, 1⟩) := by
   apply decodeArray_zeroV1
-  change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 181 maxTableElements =
-    .ok (0, 185)
+  change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 145 maxTableElements =
+    .ok (0, 149)
   rw [readArrayCountAtV1_refinesSpine]
   rfl
 
 theorem decodeEvents_proofed :
-    decodeArray maxTableElements decodeEventDeclV1 ⟨proofedWireBytes, 185, 1⟩ =
-      .ok (#[], ⟨proofedWireBytes, 189, 1⟩) := by
+    decodeArray maxTableElements decodeEventDeclV1 ⟨proofedWireBytes, 149, 1⟩ =
+      .ok (#[], ⟨proofedWireBytes, 153, 1⟩) := by
   apply decodeArray_zeroV1
-  change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 185 maxTableElements =
-    .ok (0, 189)
+  change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 149 maxTableElements =
+    .ok (0, 153)
   rw [readArrayCountAtV1_refinesSpine]
   rfl
 
 theorem decodeErrors_proofed :
-    decodeArray maxTableElements decodeErrorDeclV1 ⟨proofedWireBytes, 189, 1⟩ =
-      .ok (#[], ⟨proofedWireBytes, 193, 1⟩) := by
+    decodeArray maxTableElements decodeErrorDeclV1 ⟨proofedWireBytes, 153, 1⟩ =
+      .ok (#[], ⟨proofedWireBytes, 157, 1⟩) := by
   apply decodeArray_zeroV1
-  change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 189 maxTableElements =
-    .ok (0, 193)
+  change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 153 maxTableElements =
+    .ok (0, 157)
   rw [readArrayCountAtV1_refinesSpine]
   rfl
 
@@ -496,19 +447,19 @@ theorem decodeErrors_proofed :
 private theorem encodeU8_one : encodeU8 1 = ByteArray.mk #[1] := rfl
 
 theorem readCallablesCount_proofed :
-    readArrayCountAtV1 proofedWireBytes 193 maxTableElements = .ok (2, 197) := by
-  change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 193 maxTableElements =
-    .ok (2, 197)
+    readArrayCountAtV1 proofedWireBytes 157 maxTableElements = .ok (2, 161) := by
+  change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 157 maxTableElements =
+    .ok (2, 161)
   rw [readArrayCountAtV1_refinesSpine]
   rfl
 
-/-! #### View callable `alive` (197→418) -/
+/-! #### View callable `alive` (161→382) -/
 theorem expectViewCallable_proofed :
-    expectTag "Callable" 9 ⟨proofedWireBytes, 197, 2⟩ =
-      .ok ((), ⟨proofedWireBytes, 211, 2⟩) := by
+    expectTag "Callable" 9 ⟨proofedWireBytes, 161, 2⟩ =
+      .ok ((), ⟨proofedWireBytes, 175, 2⟩) := by
   apply expectTag_eq_of_headerV1
-  change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 197
-      (ByteArray.mk [67, 97, 108, 108, 97, 98, 108, 101].toArray) 9 = .ok 211
+  change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 161
+      (ByteArray.mk [67, 97, 108, 108, 97, 98, 108, 101].toArray) 9 = .ok 175
   rw [expectTaggedHeaderBytesAtV1_refinesSpine]
   unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
     spineRemainingV1 readSpineU16leV1
@@ -516,12 +467,12 @@ theorem expectViewCallable_proofed :
   rfl
 
 theorem decodeViewKind_proofed :
-    decodeCallableKindV1 ⟨proofedWireBytes, 215, 2⟩ =
-      .ok (.view, ⟨proofedWireBytes, 234, 2⟩) := by
-  refine decodeCallableKindV1_eq_of_bodyV1 ⟨proofedWireBytes, 215, 2⟩ .view
-    ⟨proofedWireBytes, 234, 3⟩ (by decide) ?_
+    decodeCallableKindV1 ⟨proofedWireBytes, 179, 2⟩ =
+      .ok (.view, ⟨proofedWireBytes, 198, 2⟩) := by
+  refine decodeCallableKindV1_eq_of_bodyV1 ⟨proofedWireBytes, 179, 2⟩ .view
+    ⟨proofedWireBytes, 198, 3⟩ (by decide) ?_
   apply decodeCallableKindBodyV1_view
-  · apply decodeProofedTagV1 215 232 3
+  · apply decodeProofedTagV1 179 196 3
       [67, 97, 108, 108, 97, 98, 108, 101, 46, 86, 105, 101, 119] "Callable.View"
     · unfold readTagSpineBytesV1 takeSpineBytesV1 spineRemainingV1
       rw [proofedSpine_length]
@@ -532,11 +483,11 @@ theorem decodeViewKind_proofed :
     rfl
 
 theorem readViewName_proofed :
-    readSizedBytesAtV1 proofedWireBytes 235 maxStringBytes =
-      .ok (ByteArray.mk [97, 108, 105, 118, 101].toArray, 244) := by
+    readSizedBytesAtV1 proofedWireBytes 199 maxStringBytes =
+      .ok (ByteArray.mk [97, 108, 105, 118, 101].toArray, 208) := by
   apply readSized_proofed
   apply readSizedSpineBytesV1_eq_of_parts proofedSpine [97, 108, 105, 118, 101]
-      235 maxStringBytes 5 239
+      199 maxStringBytes 5 203
   · rfl
   · decide
   · decide
@@ -545,24 +496,24 @@ theorem readViewName_proofed :
     rfl
 
 theorem decodeViewName_proofed :
-    decodeOption decodeString ⟨proofedWireBytes, 234, 2⟩ =
-      .ok (some "alive", ⟨proofedWireBytes, 244, 2⟩) := by
-  apply decodeOption_someV1 decodeString ⟨proofedWireBytes, 234, 2⟩
-    ⟨proofedWireBytes, 235, 2⟩ ⟨proofedWireBytes, 244, 2⟩ "alive"
+    decodeOption decodeString ⟨proofedWireBytes, 198, 2⟩ =
+      .ok (some "alive", ⟨proofedWireBytes, 208, 2⟩) := by
+  apply decodeOption_someV1 decodeString ⟨proofedWireBytes, 198, 2⟩
+    ⟨proofedWireBytes, 199, 2⟩ ⟨proofedWireBytes, 208, 2⟩ "alive"
   · apply decodeU8_eq_of_readV1
-    change readByteAtV1 (ByteArray.mk proofedSpine.toArray) 234 = .ok 1
+    change readByteAtV1 (ByteArray.mk proofedSpine.toArray) 198 = .ok 1
     rw [readByteAtV1_refinesSpine]
     rfl
-  · exact decodeAsciiString_of_read proofedWireBytes 235 244
+  · exact decodeAsciiString_of_read proofedWireBytes 199 208
       [97, 108, 105, 118, 101] "alive" 2 readViewName_proofed (by rfl) (by rfl)
 
 theorem expectViewResult_proofed :
-    expectTag "CallableResult" 2 ⟨proofedWireBytes, 248, 3⟩ =
-      .ok ((), ⟨proofedWireBytes, 268, 3⟩) := by
+    expectTag "CallableResult" 2 ⟨proofedWireBytes, 212, 3⟩ =
+      .ok ((), ⟨proofedWireBytes, 232, 3⟩) := by
   apply expectTag_eq_of_headerV1
-  change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 248
+  change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 212
       (ByteArray.mk [67, 97, 108, 108, 97, 98, 108, 101, 82, 101, 115, 117, 108,
-        116].toArray) 2 = .ok 268
+        116].toArray) 2 = .ok 232
   rw [expectTaggedHeaderBytesAtV1_refinesSpine]
   unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
     spineRemainingV1 readSpineU16leV1
@@ -570,18 +521,18 @@ theorem expectViewResult_proofed :
   rfl
 
 theorem decodeViewResult_proofed :
-    decodeCallableResultV1 ⟨proofedWireBytes, 248, 2⟩ =
-      .ok ({ typeId := 0, visibility := .public_ }, ⟨proofedWireBytes, 295, 2⟩) := by
-  refine decodeCallableResultV1_eq_of_bodyV1 ⟨proofedWireBytes, 248, 2⟩
-    { typeId := 0, visibility := .public_ } ⟨proofedWireBytes, 295, 3⟩ (by decide) ?_
+    decodeCallableResultV1 ⟨proofedWireBytes, 212, 2⟩ =
+      .ok ({ typeId := 0, visibility := .public_ }, ⟨proofedWireBytes, 259, 2⟩) := by
+  refine decodeCallableResultV1_eq_of_bodyV1 ⟨proofedWireBytes, 212, 2⟩
+    { typeId := 0, visibility := .public_ } ⟨proofedWireBytes, 259, 3⟩ (by decide) ?_
   apply decodeCallableResultBodyV1_eq_of_fields
   · exact expectViewResult_proofed
   · apply decodeProofedU32V1
     rfl
-  · refine decodeVisibilityV1_eq_of_bodyV1 ⟨proofedWireBytes, 272, 3⟩ .public_
-      ⟨proofedWireBytes, 295, 4⟩ (by decide) ?_
+  · refine decodeVisibilityV1_eq_of_bodyV1 ⟨proofedWireBytes, 236, 3⟩ .public_
+      ⟨proofedWireBytes, 259, 4⟩ (by decide) ?_
     apply decodeVisibilityBodyV1_public
-    · apply decodeProofedTagV1 272 293 4
+    · apply decodeProofedTagV1 236 257 4
         [86, 105, 115, 105, 98, 105, 108, 105, 116, 121, 46, 80, 117, 98, 108, 105, 99]
         "Visibility.Public"
       · unfold readTagSpineBytesV1 takeSpineBytesV1 spineRemainingV1
@@ -593,11 +544,11 @@ theorem decodeViewResult_proofed :
       rfl
 
 theorem expectViewBlock_proofed :
-    expectTag "Block" 4 ⟨proofedWireBytes, 303, 3⟩ =
-      .ok ((), ⟨proofedWireBytes, 314, 3⟩) := by
+    expectTag "Block" 4 ⟨proofedWireBytes, 267, 3⟩ =
+      .ok ((), ⟨proofedWireBytes, 278, 3⟩) := by
   apply expectTag_eq_of_headerV1
-  change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 303
-      (ByteArray.mk [66, 108, 111, 99, 107].toArray) 4 = .ok 314
+  change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 267
+      (ByteArray.mk [66, 108, 111, 99, 107].toArray) 4 = .ok 278
   rw [expectTaggedHeaderBytesAtV1_refinesSpine]
   unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
     spineRemainingV1 readSpineU16leV1
@@ -605,12 +556,12 @@ theorem expectViewBlock_proofed :
   rfl
 
 theorem expectViewInstruction_proofed :
-    expectTag "Instruction" 2 ⟨proofedWireBytes, 326, 4⟩ =
-      .ok ((), ⟨proofedWireBytes, 343, 4⟩) := by
+    expectTag "Instruction" 2 ⟨proofedWireBytes, 290, 4⟩ =
+      .ok ((), ⟨proofedWireBytes, 307, 4⟩) := by
   apply expectTag_eq_of_headerV1
-  change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 326
+  change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 290
       (ByteArray.mk [73, 110, 115, 116, 114, 117, 99, 116, 105, 111, 110].toArray) 2 =
-      .ok 343
+      .ok 307
   rw [expectTaggedHeaderBytesAtV1_refinesSpine]
   unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
     spineRemainingV1 readSpineU16leV1
@@ -618,26 +569,26 @@ theorem expectViewInstruction_proofed :
   rfl
 
 theorem decodeViewInstruction_proofed :
-    decodeInstructionV1 ⟨proofedWireBytes, 326, 3⟩ =
-      .ok (litTrue, ⟨proofedWireBytes, 391, 3⟩) := by
-  have h := decodeInstructionV1_eq_of_fieldsV1 ⟨proofedWireBytes, 326, 3⟩
-    ⟨proofedWireBytes, 343, 4⟩ ⟨proofedWireBytes, 366, 4⟩
-    ⟨proofedWireBytes, 391, 4⟩ (some { valueId := 0, typeId := 0 })
+    decodeInstructionV1 ⟨proofedWireBytes, 290, 3⟩ =
+      .ok (litTrue, ⟨proofedWireBytes, 355, 3⟩) := by
+  have h := decodeInstructionV1_eq_of_fieldsV1 ⟨proofedWireBytes, 290, 3⟩
+    ⟨proofedWireBytes, 307, 4⟩ ⟨proofedWireBytes, 330, 4⟩
+    ⟨proofedWireBytes, 355, 4⟩ (some { valueId := 0, typeId := 0 })
     (.literal 0 (ByteArray.mk #[1])) (by decide) expectViewInstruction_proofed
     (by
-      apply decodeOption_someV1 decodeValueDefV1 ⟨proofedWireBytes, 343, 4⟩
-        ⟨proofedWireBytes, 344, 4⟩ ⟨proofedWireBytes, 366, 4⟩
+      apply decodeOption_someV1 decodeValueDefV1 ⟨proofedWireBytes, 307, 4⟩
+        ⟨proofedWireBytes, 308, 4⟩ ⟨proofedWireBytes, 330, 4⟩
         { valueId := 0, typeId := 0 }
       · apply decodeU8_eq_of_readV1
-        change readByteAtV1 (ByteArray.mk proofedSpine.toArray) 343 = .ok 1
+        change readByteAtV1 (ByteArray.mk proofedSpine.toArray) 307 = .ok 1
         rw [readByteAtV1_refinesSpine]
         rfl
-      · apply decodeValueDefV1_eq_of_fieldsV1 ⟨proofedWireBytes, 344, 4⟩
-          ⟨proofedWireBytes, 358, 5⟩ ⟨proofedWireBytes, 362, 5⟩
-          ⟨proofedWireBytes, 366, 5⟩ 0 0 (by decide)
+      · apply decodeValueDefV1_eq_of_fieldsV1 ⟨proofedWireBytes, 308, 4⟩
+          ⟨proofedWireBytes, 322, 5⟩ ⟨proofedWireBytes, 326, 5⟩
+          ⟨proofedWireBytes, 330, 5⟩ 0 0 (by decide)
         · apply expectTag_eq_of_headerV1
-          change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 344
-              (ByteArray.mk [86, 97, 108, 117, 101, 68, 101, 102].toArray) 2 = .ok 358
+          change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 308
+              (ByteArray.mk [86, 97, 108, 117, 101, 68, 101, 102].toArray) 2 = .ok 322
           rw [expectTaggedHeaderBytesAtV1_refinesSpine]
           unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
             spineRemainingV1 readSpineU16leV1
@@ -646,11 +597,11 @@ theorem decodeViewInstruction_proofed :
         · apply decodeProofedU32V1; rfl
         · apply decodeProofedU32V1; rfl)
     (by
-      apply decodeSemanticOpV1_literal ⟨proofedWireBytes, 366, 4⟩
-        ⟨proofedWireBytes, 380, 5⟩ ⟨proofedWireBytes, 382, 5⟩
-        ⟨proofedWireBytes, 386, 5⟩ ⟨proofedWireBytes, 391, 5⟩ 0 (ByteArray.mk #[1])
+      apply decodeSemanticOpV1_literal ⟨proofedWireBytes, 330, 4⟩
+        ⟨proofedWireBytes, 344, 5⟩ ⟨proofedWireBytes, 346, 5⟩
+        ⟨proofedWireBytes, 350, 5⟩ ⟨proofedWireBytes, 355, 5⟩ 0 (ByteArray.mk #[1])
         (by decide)
-      · apply decodeProofedTagV1 366 380 5
+      · apply decodeProofedTagV1 330 344 5
           [79, 112, 46, 76, 105, 116, 101, 114, 97, 108] "Op.Literal"
         · unfold readTagSpineBytesV1 takeSpineBytesV1 spineRemainingV1
           rw [proofedSpine_length]
@@ -659,13 +610,13 @@ theorem decodeViewInstruction_proofed :
         · rfl
       · apply decodeProofedTwoFieldsV1; rfl
       · apply decodeProofedU32V1; rfl
-      · have hread : readSizedBytesAtV1 proofedWireBytes 386 maxCanonicalProgramBytes =
-            .ok (ByteArray.mk #[1], 391) := by
-          change readSizedBytesAtV1 (ByteArray.mk proofedSpine.toArray) 386
-            maxCanonicalProgramBytes = .ok (ByteArray.mk [1].toArray, 391)
+      · have hread : readSizedBytesAtV1 proofedWireBytes 350 maxCanonicalProgramBytes =
+            .ok (ByteArray.mk #[1], 355) := by
+          change readSizedBytesAtV1 (ByteArray.mk proofedSpine.toArray) 350
+            maxCanonicalProgramBytes = .ok (ByteArray.mk [1].toArray, 355)
           apply readSizedBytesAtV1_eq_of_spine
-          apply readSizedSpineBytesV1_eq_of_parts proofedSpine [1] 386
-            maxCanonicalProgramBytes 1 390
+          apply readSizedSpineBytesV1_eq_of_parts proofedSpine [1] 350
+            maxCanonicalProgramBytes 1 354
           · rfl
           · decide
           · decide
@@ -676,12 +627,12 @@ theorem decodeViewInstruction_proofed :
   simpa [litTrue, encodeU8_one] using h
 
 theorem decodeViewReturn_proofed :
-    decodeTerminatorV1 ⟨proofedWireBytes, 391, 3⟩ =
-      .ok (.return_ (some 0), ⟨proofedWireBytes, 413, 3⟩) := by
-  apply decodeTerminatorV1_return ⟨proofedWireBytes, 391, 3⟩
-    ⟨proofedWireBytes, 406, 4⟩ ⟨proofedWireBytes, 408, 4⟩
-    ⟨proofedWireBytes, 413, 4⟩ (some 0) (by decide)
-  · apply decodeProofedTagV1 391 406 4
+    decodeTerminatorV1 ⟨proofedWireBytes, 355, 3⟩ =
+      .ok (.return_ (some 0), ⟨proofedWireBytes, 377, 3⟩) := by
+  apply decodeTerminatorV1_return ⟨proofedWireBytes, 355, 3⟩
+    ⟨proofedWireBytes, 370, 4⟩ ⟨proofedWireBytes, 372, 4⟩
+    ⟨proofedWireBytes, 377, 4⟩ (some 0) (by decide)
+  · apply decodeProofedTagV1 355 370 4
       [84, 101, 114, 109, 46, 82, 101, 116, 117, 114, 110] "Term.Return"
     · unfold readTagSpineBytesV1 takeSpineBytesV1 spineRemainingV1
       rw [proofedSpine_length]
@@ -689,76 +640,76 @@ theorem decodeViewReturn_proofed :
     · rfl
     · rfl
   · apply decodeProofedOneFieldV1; rfl
-  · apply decodeOption_someV1 decodeU32le ⟨proofedWireBytes, 408, 4⟩
-      ⟨proofedWireBytes, 409, 4⟩ ⟨proofedWireBytes, 413, 4⟩ 0
+  · apply decodeOption_someV1 decodeU32le ⟨proofedWireBytes, 372, 4⟩
+      ⟨proofedWireBytes, 373, 4⟩ ⟨proofedWireBytes, 377, 4⟩ 0
     · apply decodeU8_eq_of_readV1
-      change readByteAtV1 (ByteArray.mk proofedSpine.toArray) 408 = .ok 1
+      change readByteAtV1 (ByteArray.mk proofedSpine.toArray) 372 = .ok 1
       rw [readByteAtV1_refinesSpine]
       rfl
     · apply decodeProofedU32V1; rfl
 
 theorem decodeViewBlock_proofed :
-    decodeBlockV1 ⟨proofedWireBytes, 303, 2⟩ =
-      .ok (singleBlock, ⟨proofedWireBytes, 413, 2⟩) := by
-  apply decodeBlockV1_oneInstructionV1 ⟨proofedWireBytes, 303, 2⟩
-    ⟨proofedWireBytes, 314, 3⟩ ⟨proofedWireBytes, 318, 3⟩
-    ⟨proofedWireBytes, 391, 3⟩ ⟨proofedWireBytes, 413, 3⟩
-    322 326 0 litTrue (.return_ (some 0)) (by decide)
+    decodeBlockV1 ⟨proofedWireBytes, 267, 2⟩ =
+      .ok (singleBlock, ⟨proofedWireBytes, 377, 2⟩) := by
+  apply decodeBlockV1_oneInstructionV1 ⟨proofedWireBytes, 267, 2⟩
+    ⟨proofedWireBytes, 278, 3⟩ ⟨proofedWireBytes, 282, 3⟩
+    ⟨proofedWireBytes, 355, 3⟩ ⟨proofedWireBytes, 377, 3⟩
+    286 290 0 litTrue (.return_ (some 0)) (by decide)
   · exact expectViewBlock_proofed
   · apply decodeProofedU32V1; rfl
-  · change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 318
-      maxArrayElements = .ok (0, 322)
+  · change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 282
+      maxArrayElements = .ok (0, 286)
     rw [readArrayCountAtV1_refinesSpine]; rfl
-  · change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 322
-      maxArrayElements = .ok (1, 326)
+  · change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 286
+      maxArrayElements = .ok (1, 290)
     rw [readArrayCountAtV1_refinesSpine]; rfl
   · exact decodeViewInstruction_proofed
   · exact decodeViewReturn_proofed
 
 theorem decodeViewSteps_proofed :
-    decodeOption decodeU64le ⟨proofedWireBytes, 417, 2⟩ =
-      .ok (none, ⟨proofedWireBytes, 418, 2⟩) := by
+    decodeOption decodeU64le ⟨proofedWireBytes, 381, 2⟩ =
+      .ok (none, ⟨proofedWireBytes, 382, 2⟩) := by
   apply decodeOption_noneV1
   apply decodeU8_eq_of_readV1
-  change readByteAtV1 (ByteArray.mk proofedSpine.toArray) 417 = .ok 0
+  change readByteAtV1 (ByteArray.mk proofedSpine.toArray) 381 = .ok 0
   rw [readByteAtV1_refinesSpine]
   rfl
 
 theorem decodeView_proofed :
-    decodeCallableV1 ⟨proofedWireBytes, 197, 1⟩ =
-      .ok (viewC, ⟨proofedWireBytes, 418, 1⟩) := by
+    decodeCallableV1 ⟨proofedWireBytes, 161, 1⟩ =
+      .ok (viewC, ⟨proofedWireBytes, 382, 1⟩) := by
   have h := decodeCallableV1_singleBlockV1
-    ⟨proofedWireBytes, 197, 1⟩ ⟨proofedWireBytes, 211, 2⟩
-    ⟨proofedWireBytes, 215, 2⟩ ⟨proofedWireBytes, 234, 2⟩
-    ⟨proofedWireBytes, 244, 2⟩ ⟨proofedWireBytes, 295, 2⟩
-    ⟨proofedWireBytes, 299, 2⟩ ⟨proofedWireBytes, 413, 2⟩
-    ⟨proofedWireBytes, 418, 2⟩ 248 303 417 0 0 .view (some "alive")
+    ⟨proofedWireBytes, 161, 1⟩ ⟨proofedWireBytes, 175, 2⟩
+    ⟨proofedWireBytes, 179, 2⟩ ⟨proofedWireBytes, 198, 2⟩
+    ⟨proofedWireBytes, 208, 2⟩ ⟨proofedWireBytes, 259, 2⟩
+    ⟨proofedWireBytes, 263, 2⟩ ⟨proofedWireBytes, 377, 2⟩
+    ⟨proofedWireBytes, 382, 2⟩ 212 267 381 0 0 .view (some "alive")
     { typeId := 0, visibility := .public_ } singleBlock none (by decide)
-    expectViewCallable_proofed (decodeProofedU32V1 211 215 2 0 (by rfl))
+    expectViewCallable_proofed (decodeProofedU32V1 175 179 2 0 (by rfl))
     decodeViewKind_proofed decodeViewName_proofed (by
-      change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 244
-        maxArrayElements = .ok (0, 248)
+      change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 208
+        maxArrayElements = .ok (0, 212)
       rw [readArrayCountAtV1_refinesSpine]; rfl)
-    decodeViewResult_proofed (decodeProofedU32V1 295 299 2 0 (by rfl))
+    decodeViewResult_proofed (decodeProofedU32V1 259 263 2 0 (by rfl))
     (by
-      change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 299
-        maxArrayElements = .ok (1, 303)
+      change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 263
+        maxArrayElements = .ok (1, 267)
       rw [readArrayCountAtV1_refinesSpine]; rfl)
     decodeViewBlock_proofed (by
-      change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 413
-        maxArrayElements = .ok (0, 417)
+      change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 377
+        maxArrayElements = .ok (0, 381)
       rw [readArrayCountAtV1_refinesSpine]; rfl)
     decodeViewSteps_proofed
   simpa [viewC] using h
 
-/-! #### Invariant callable `safe` (418→651) -/
+/-! #### Invariant callable `safe` (382→615) -/
 
 theorem expectInvCallable_proofed :
-    expectTag "Callable" 9 ⟨proofedWireBytes, 418, 2⟩ =
-      .ok ((), ⟨proofedWireBytes, 432, 2⟩) := by
+    expectTag "Callable" 9 ⟨proofedWireBytes, 382, 2⟩ =
+      .ok ((), ⟨proofedWireBytes, 396, 2⟩) := by
   apply expectTag_eq_of_headerV1
-  change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 418
-      (ByteArray.mk [67, 97, 108, 108, 97, 98, 108, 101].toArray) 9 = .ok 432
+  change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 382
+      (ByteArray.mk [67, 97, 108, 108, 97, 98, 108, 101].toArray) 9 = .ok 396
   rw [expectTaggedHeaderBytesAtV1_refinesSpine]
   unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
     spineRemainingV1 readSpineU16leV1
@@ -766,12 +717,12 @@ theorem expectInvCallable_proofed :
   rfl
 
 theorem decodeInvKind_proofed :
-    decodeCallableKindV1 ⟨proofedWireBytes, 436, 2⟩ =
-      .ok (.invariant, ⟨proofedWireBytes, 460, 2⟩) := by
-  refine decodeCallableKindV1_eq_of_bodyV1 ⟨proofedWireBytes, 436, 2⟩ .invariant
-    ⟨proofedWireBytes, 460, 3⟩ (by decide) ?_
+    decodeCallableKindV1 ⟨proofedWireBytes, 400, 2⟩ =
+      .ok (.invariant, ⟨proofedWireBytes, 424, 2⟩) := by
+  refine decodeCallableKindV1_eq_of_bodyV1 ⟨proofedWireBytes, 400, 2⟩ .invariant
+    ⟨proofedWireBytes, 424, 3⟩ (by decide) ?_
   apply decodeCallableKindBodyV1_invariant
-  · apply decodeProofedTagV1 436 458 3
+  · apply decodeProofedTagV1 400 422 3
       [67, 97, 108, 108, 97, 98, 108, 101, 46, 73, 110, 118, 97, 114, 105, 97, 110, 116]
       "Callable.Invariant"
     · unfold readTagSpineBytesV1 takeSpineBytesV1 spineRemainingV1
@@ -782,11 +733,11 @@ theorem decodeInvKind_proofed :
   · apply decodeProofedZeroFieldsV1; rfl
 
 theorem readInvName_proofed :
-    readSizedBytesAtV1 proofedWireBytes 461 maxStringBytes =
-      .ok (ByteArray.mk [115, 97, 102, 101].toArray, 469) := by
+    readSizedBytesAtV1 proofedWireBytes 425 maxStringBytes =
+      .ok (ByteArray.mk [115, 97, 102, 101].toArray, 433) := by
   apply readSized_proofed
   apply readSizedSpineBytesV1_eq_of_parts proofedSpine [115, 97, 102, 101]
-      461 maxStringBytes 4 465
+      425 maxStringBytes 4 429
   · rfl
   · decide
   · decide
@@ -795,23 +746,23 @@ theorem readInvName_proofed :
     rfl
 
 theorem decodeInvName_proofed :
-    decodeOption decodeString ⟨proofedWireBytes, 460, 2⟩ =
-      .ok (some "safe", ⟨proofedWireBytes, 469, 2⟩) := by
-  apply decodeOption_someV1 decodeString ⟨proofedWireBytes, 460, 2⟩
-    ⟨proofedWireBytes, 461, 2⟩ ⟨proofedWireBytes, 469, 2⟩ "safe"
+    decodeOption decodeString ⟨proofedWireBytes, 424, 2⟩ =
+      .ok (some "safe", ⟨proofedWireBytes, 433, 2⟩) := by
+  apply decodeOption_someV1 decodeString ⟨proofedWireBytes, 424, 2⟩
+    ⟨proofedWireBytes, 425, 2⟩ ⟨proofedWireBytes, 433, 2⟩ "safe"
   · apply decodeU8_eq_of_readV1
-    change readByteAtV1 (ByteArray.mk proofedSpine.toArray) 460 = .ok 1
+    change readByteAtV1 (ByteArray.mk proofedSpine.toArray) 424 = .ok 1
     rw [readByteAtV1_refinesSpine]; rfl
-  · exact decodeAsciiString_of_read proofedWireBytes 461 469
+  · exact decodeAsciiString_of_read proofedWireBytes 425 433
       [115, 97, 102, 101] "safe" 2 readInvName_proofed (by rfl) (by rfl)
 
 theorem expectInvResult_proofed :
-    expectTag "CallableResult" 2 ⟨proofedWireBytes, 473, 3⟩ =
-      .ok ((), ⟨proofedWireBytes, 493, 3⟩) := by
+    expectTag "CallableResult" 2 ⟨proofedWireBytes, 437, 3⟩ =
+      .ok ((), ⟨proofedWireBytes, 457, 3⟩) := by
   apply expectTag_eq_of_headerV1
-  change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 473
+  change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 437
       (ByteArray.mk [67, 97, 108, 108, 97, 98, 108, 101, 82, 101, 115, 117, 108,
-        116].toArray) 2 = .ok 493
+        116].toArray) 2 = .ok 457
   rw [expectTaggedHeaderBytesAtV1_refinesSpine]
   unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
     spineRemainingV1 readSpineU16leV1
@@ -819,17 +770,17 @@ theorem expectInvResult_proofed :
   rfl
 
 theorem decodeInvResult_proofed :
-    decodeCallableResultV1 ⟨proofedWireBytes, 473, 2⟩ =
-      .ok ({ typeId := 0, visibility := .public_ }, ⟨proofedWireBytes, 520, 2⟩) := by
-  refine decodeCallableResultV1_eq_of_bodyV1 ⟨proofedWireBytes, 473, 2⟩
-    { typeId := 0, visibility := .public_ } ⟨proofedWireBytes, 520, 3⟩ (by decide) ?_
+    decodeCallableResultV1 ⟨proofedWireBytes, 437, 2⟩ =
+      .ok ({ typeId := 0, visibility := .public_ }, ⟨proofedWireBytes, 484, 2⟩) := by
+  refine decodeCallableResultV1_eq_of_bodyV1 ⟨proofedWireBytes, 437, 2⟩
+    { typeId := 0, visibility := .public_ } ⟨proofedWireBytes, 484, 3⟩ (by decide) ?_
   apply decodeCallableResultBodyV1_eq_of_fields
   · exact expectInvResult_proofed
   · apply decodeProofedU32V1; rfl
-  · refine decodeVisibilityV1_eq_of_bodyV1 ⟨proofedWireBytes, 497, 3⟩ .public_
-      ⟨proofedWireBytes, 520, 4⟩ (by decide) ?_
+  · refine decodeVisibilityV1_eq_of_bodyV1 ⟨proofedWireBytes, 461, 3⟩ .public_
+      ⟨proofedWireBytes, 484, 4⟩ (by decide) ?_
     apply decodeVisibilityBodyV1_public
-    · apply decodeProofedTagV1 497 518 4
+    · apply decodeProofedTagV1 461 482 4
         [86, 105, 115, 105, 98, 105, 108, 105, 116, 121, 46, 80, 117, 98, 108, 105, 99]
         "Visibility.Public"
       · unfold readTagSpineBytesV1 takeSpineBytesV1 spineRemainingV1
@@ -839,11 +790,11 @@ theorem decodeInvResult_proofed :
     · apply decodeProofedZeroFieldsV1; rfl
 
 theorem expectInvBlock_proofed :
-    expectTag "Block" 4 ⟨proofedWireBytes, 528, 3⟩ =
-      .ok ((), ⟨proofedWireBytes, 539, 3⟩) := by
+    expectTag "Block" 4 ⟨proofedWireBytes, 492, 3⟩ =
+      .ok ((), ⟨proofedWireBytes, 503, 3⟩) := by
   apply expectTag_eq_of_headerV1
-  change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 528
-      (ByteArray.mk [66, 108, 111, 99, 107].toArray) 4 = .ok 539
+  change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 492
+      (ByteArray.mk [66, 108, 111, 99, 107].toArray) 4 = .ok 503
   rw [expectTaggedHeaderBytesAtV1_refinesSpine]
   unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
     spineRemainingV1 readSpineU16leV1
@@ -851,12 +802,12 @@ theorem expectInvBlock_proofed :
   rfl
 
 theorem expectInvInstruction_proofed :
-    expectTag "Instruction" 2 ⟨proofedWireBytes, 551, 4⟩ =
-      .ok ((), ⟨proofedWireBytes, 568, 4⟩) := by
+    expectTag "Instruction" 2 ⟨proofedWireBytes, 515, 4⟩ =
+      .ok ((), ⟨proofedWireBytes, 532, 4⟩) := by
   apply expectTag_eq_of_headerV1
-  change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 551
+  change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 515
       (ByteArray.mk [73, 110, 115, 116, 114, 117, 99, 116, 105, 111, 110].toArray) 2 =
-      .ok 568
+      .ok 532
   rw [expectTaggedHeaderBytesAtV1_refinesSpine]
   unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
     spineRemainingV1 readSpineU16leV1
@@ -864,25 +815,25 @@ theorem expectInvInstruction_proofed :
   rfl
 
 theorem decodeInvInstruction_proofed :
-    decodeInstructionV1 ⟨proofedWireBytes, 551, 3⟩ =
-      .ok (litTrue, ⟨proofedWireBytes, 616, 3⟩) := by
-  have h := decodeInstructionV1_eq_of_fieldsV1 ⟨proofedWireBytes, 551, 3⟩
-    ⟨proofedWireBytes, 568, 4⟩ ⟨proofedWireBytes, 591, 4⟩
-    ⟨proofedWireBytes, 616, 4⟩ (some { valueId := 0, typeId := 0 })
+    decodeInstructionV1 ⟨proofedWireBytes, 515, 3⟩ =
+      .ok (litTrue, ⟨proofedWireBytes, 580, 3⟩) := by
+  have h := decodeInstructionV1_eq_of_fieldsV1 ⟨proofedWireBytes, 515, 3⟩
+    ⟨proofedWireBytes, 532, 4⟩ ⟨proofedWireBytes, 555, 4⟩
+    ⟨proofedWireBytes, 580, 4⟩ (some { valueId := 0, typeId := 0 })
     (.literal 0 (ByteArray.mk #[1])) (by decide) expectInvInstruction_proofed
     (by
-      apply decodeOption_someV1 decodeValueDefV1 ⟨proofedWireBytes, 568, 4⟩
-        ⟨proofedWireBytes, 569, 4⟩ ⟨proofedWireBytes, 591, 4⟩
+      apply decodeOption_someV1 decodeValueDefV1 ⟨proofedWireBytes, 532, 4⟩
+        ⟨proofedWireBytes, 533, 4⟩ ⟨proofedWireBytes, 555, 4⟩
         { valueId := 0, typeId := 0 }
       · apply decodeU8_eq_of_readV1
-        change readByteAtV1 (ByteArray.mk proofedSpine.toArray) 568 = .ok 1
+        change readByteAtV1 (ByteArray.mk proofedSpine.toArray) 532 = .ok 1
         rw [readByteAtV1_refinesSpine]; rfl
-      · apply decodeValueDefV1_eq_of_fieldsV1 ⟨proofedWireBytes, 569, 4⟩
-          ⟨proofedWireBytes, 583, 5⟩ ⟨proofedWireBytes, 587, 5⟩
-          ⟨proofedWireBytes, 591, 5⟩ 0 0 (by decide)
+      · apply decodeValueDefV1_eq_of_fieldsV1 ⟨proofedWireBytes, 533, 4⟩
+          ⟨proofedWireBytes, 547, 5⟩ ⟨proofedWireBytes, 551, 5⟩
+          ⟨proofedWireBytes, 555, 5⟩ 0 0 (by decide)
         · apply expectTag_eq_of_headerV1
-          change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 569
-              (ByteArray.mk [86, 97, 108, 117, 101, 68, 101, 102].toArray) 2 = .ok 583
+          change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 533
+              (ByteArray.mk [86, 97, 108, 117, 101, 68, 101, 102].toArray) 2 = .ok 547
           rw [expectTaggedHeaderBytesAtV1_refinesSpine]
           unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
             spineRemainingV1 readSpineU16leV1
@@ -890,11 +841,11 @@ theorem decodeInvInstruction_proofed :
         · apply decodeProofedU32V1; rfl
         · apply decodeProofedU32V1; rfl)
     (by
-      apply decodeSemanticOpV1_literal ⟨proofedWireBytes, 591, 4⟩
-        ⟨proofedWireBytes, 605, 5⟩ ⟨proofedWireBytes, 607, 5⟩
-        ⟨proofedWireBytes, 611, 5⟩ ⟨proofedWireBytes, 616, 5⟩ 0 (ByteArray.mk #[1])
+      apply decodeSemanticOpV1_literal ⟨proofedWireBytes, 555, 4⟩
+        ⟨proofedWireBytes, 569, 5⟩ ⟨proofedWireBytes, 571, 5⟩
+        ⟨proofedWireBytes, 575, 5⟩ ⟨proofedWireBytes, 580, 5⟩ 0 (ByteArray.mk #[1])
         (by decide)
-      · apply decodeProofedTagV1 591 605 5
+      · apply decodeProofedTagV1 555 569 5
           [79, 112, 46, 76, 105, 116, 101, 114, 97, 108] "Op.Literal"
         · unfold readTagSpineBytesV1 takeSpineBytesV1 spineRemainingV1
           rw [proofedSpine_length]; rfl
@@ -902,13 +853,13 @@ theorem decodeInvInstruction_proofed :
         · rfl
       · apply decodeProofedTwoFieldsV1; rfl
       · apply decodeProofedU32V1; rfl
-      · have hread : readSizedBytesAtV1 proofedWireBytes 611 maxCanonicalProgramBytes =
-            .ok (ByteArray.mk #[1], 616) := by
-          change readSizedBytesAtV1 (ByteArray.mk proofedSpine.toArray) 611
-            maxCanonicalProgramBytes = .ok (ByteArray.mk [1].toArray, 616)
+      · have hread : readSizedBytesAtV1 proofedWireBytes 575 maxCanonicalProgramBytes =
+            .ok (ByteArray.mk #[1], 580) := by
+          change readSizedBytesAtV1 (ByteArray.mk proofedSpine.toArray) 575
+            maxCanonicalProgramBytes = .ok (ByteArray.mk [1].toArray, 580)
           apply readSizedBytesAtV1_eq_of_spine
-          apply readSizedSpineBytesV1_eq_of_parts proofedSpine [1] 611
-            maxCanonicalProgramBytes 1 615
+          apply readSizedSpineBytesV1_eq_of_parts proofedSpine [1] 575
+            maxCanonicalProgramBytes 1 579
           · rfl
           · decide
           · decide
@@ -918,105 +869,105 @@ theorem decodeInvInstruction_proofed :
   simpa [litTrue, encodeU8_one] using h
 
 theorem decodeInvReturn_proofed :
-    decodeTerminatorV1 ⟨proofedWireBytes, 616, 3⟩ =
-      .ok (.return_ (some 0), ⟨proofedWireBytes, 638, 3⟩) := by
-  apply decodeTerminatorV1_return ⟨proofedWireBytes, 616, 3⟩
-    ⟨proofedWireBytes, 631, 4⟩ ⟨proofedWireBytes, 633, 4⟩
-    ⟨proofedWireBytes, 638, 4⟩ (some 0) (by decide)
-  · apply decodeProofedTagV1 616 631 4
+    decodeTerminatorV1 ⟨proofedWireBytes, 580, 3⟩ =
+      .ok (.return_ (some 0), ⟨proofedWireBytes, 602, 3⟩) := by
+  apply decodeTerminatorV1_return ⟨proofedWireBytes, 580, 3⟩
+    ⟨proofedWireBytes, 595, 4⟩ ⟨proofedWireBytes, 597, 4⟩
+    ⟨proofedWireBytes, 602, 4⟩ (some 0) (by decide)
+  · apply decodeProofedTagV1 580 595 4
       [84, 101, 114, 109, 46, 82, 101, 116, 117, 114, 110] "Term.Return"
     · unfold readTagSpineBytesV1 takeSpineBytesV1 spineRemainingV1
       rw [proofedSpine_length]; rfl
     · rfl
     · rfl
   · apply decodeProofedOneFieldV1; rfl
-  · apply decodeOption_someV1 decodeU32le ⟨proofedWireBytes, 633, 4⟩
-      ⟨proofedWireBytes, 634, 4⟩ ⟨proofedWireBytes, 638, 4⟩ 0
+  · apply decodeOption_someV1 decodeU32le ⟨proofedWireBytes, 597, 4⟩
+      ⟨proofedWireBytes, 598, 4⟩ ⟨proofedWireBytes, 602, 4⟩ 0
     · apply decodeU8_eq_of_readV1
-      change readByteAtV1 (ByteArray.mk proofedSpine.toArray) 633 = .ok 1
+      change readByteAtV1 (ByteArray.mk proofedSpine.toArray) 597 = .ok 1
       rw [readByteAtV1_refinesSpine]; rfl
     · apply decodeProofedU32V1; rfl
 
 theorem decodeInvBlock_proofed :
-    decodeBlockV1 ⟨proofedWireBytes, 528, 2⟩ =
-      .ok (singleBlock, ⟨proofedWireBytes, 638, 2⟩) := by
-  apply decodeBlockV1_oneInstructionV1 ⟨proofedWireBytes, 528, 2⟩
-    ⟨proofedWireBytes, 539, 3⟩ ⟨proofedWireBytes, 543, 3⟩
-    ⟨proofedWireBytes, 616, 3⟩ ⟨proofedWireBytes, 638, 3⟩
-    547 551 0 litTrue (.return_ (some 0)) (by decide)
+    decodeBlockV1 ⟨proofedWireBytes, 492, 2⟩ =
+      .ok (singleBlock, ⟨proofedWireBytes, 602, 2⟩) := by
+  apply decodeBlockV1_oneInstructionV1 ⟨proofedWireBytes, 492, 2⟩
+    ⟨proofedWireBytes, 503, 3⟩ ⟨proofedWireBytes, 507, 3⟩
+    ⟨proofedWireBytes, 580, 3⟩ ⟨proofedWireBytes, 602, 3⟩
+    511 515 0 litTrue (.return_ (some 0)) (by decide)
   · exact expectInvBlock_proofed
   · apply decodeProofedU32V1; rfl
-  · change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 543
-      maxArrayElements = .ok (0, 547)
+  · change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 507
+      maxArrayElements = .ok (0, 511)
     rw [readArrayCountAtV1_refinesSpine]; rfl
-  · change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 547
-      maxArrayElements = .ok (1, 551)
+  · change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 511
+      maxArrayElements = .ok (1, 515)
     rw [readArrayCountAtV1_refinesSpine]; rfl
   · exact decodeInvInstruction_proofed
   · exact decodeInvReturn_proofed
 
 theorem decodeInvSteps_proofed :
-    decodeOption decodeU64le ⟨proofedWireBytes, 642, 2⟩ =
-      .ok (some 3, ⟨proofedWireBytes, 651, 2⟩) := by
-  apply decodeOption_someV1 decodeU64le ⟨proofedWireBytes, 642, 2⟩
-    ⟨proofedWireBytes, 643, 2⟩ ⟨proofedWireBytes, 651, 2⟩ 3
+    decodeOption decodeU64le ⟨proofedWireBytes, 606, 2⟩ =
+      .ok (some 3, ⟨proofedWireBytes, 615, 2⟩) := by
+  apply decodeOption_someV1 decodeU64le ⟨proofedWireBytes, 606, 2⟩
+    ⟨proofedWireBytes, 607, 2⟩ ⟨proofedWireBytes, 615, 2⟩ 3
   · apply decodeU8_eq_of_readV1
-    change readByteAtV1 (ByteArray.mk proofedSpine.toArray) 642 = .ok 1
+    change readByteAtV1 (ByteArray.mk proofedSpine.toArray) 606 = .ok 1
     rw [readByteAtV1_refinesSpine]; rfl
   · apply decodeProofedU64V1; rfl
 
 theorem decodeInv_proofed :
-    decodeCallableV1 ⟨proofedWireBytes, 418, 1⟩ =
-      .ok (invC, ⟨proofedWireBytes, 651, 1⟩) := by
+    decodeCallableV1 ⟨proofedWireBytes, 382, 1⟩ =
+      .ok (invC, ⟨proofedWireBytes, 615, 1⟩) := by
   have h := decodeCallableV1_singleBlockV1
-    ⟨proofedWireBytes, 418, 1⟩ ⟨proofedWireBytes, 432, 2⟩
-    ⟨proofedWireBytes, 436, 2⟩ ⟨proofedWireBytes, 460, 2⟩
-    ⟨proofedWireBytes, 469, 2⟩ ⟨proofedWireBytes, 520, 2⟩
-    ⟨proofedWireBytes, 524, 2⟩ ⟨proofedWireBytes, 638, 2⟩
-    ⟨proofedWireBytes, 651, 2⟩ 473 528 642 1 0 .invariant (some "safe")
+    ⟨proofedWireBytes, 382, 1⟩ ⟨proofedWireBytes, 396, 2⟩
+    ⟨proofedWireBytes, 400, 2⟩ ⟨proofedWireBytes, 424, 2⟩
+    ⟨proofedWireBytes, 433, 2⟩ ⟨proofedWireBytes, 484, 2⟩
+    ⟨proofedWireBytes, 488, 2⟩ ⟨proofedWireBytes, 602, 2⟩
+    ⟨proofedWireBytes, 615, 2⟩ 437 492 606 1 0 .invariant (some "safe")
     { typeId := 0, visibility := .public_ } singleBlock (some 3) (by decide)
-    expectInvCallable_proofed (decodeProofedU32V1 432 436 2 1 (by rfl))
+    expectInvCallable_proofed (decodeProofedU32V1 396 400 2 1 (by rfl))
     decodeInvKind_proofed decodeInvName_proofed (by
-      change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 469
-        maxArrayElements = .ok (0, 473)
+      change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 433
+        maxArrayElements = .ok (0, 437)
       rw [readArrayCountAtV1_refinesSpine]; rfl)
-    decodeInvResult_proofed (decodeProofedU32V1 520 524 2 0 (by rfl))
+    decodeInvResult_proofed (decodeProofedU32V1 484 488 2 0 (by rfl))
     (by
-      change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 524
-        maxArrayElements = .ok (1, 528)
+      change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 488
+        maxArrayElements = .ok (1, 492)
       rw [readArrayCountAtV1_refinesSpine]; rfl)
     decodeInvBlock_proofed (by
-      change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 638
-        maxArrayElements = .ok (0, 642)
+      change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 602
+        maxArrayElements = .ok (0, 606)
       rw [readArrayCountAtV1_refinesSpine]; rfl)
     decodeInvSteps_proofed
   simpa [invC] using h
 
 theorem decodeCallables_proofed :
-    decodeArray maxTableElements decodeCallableV1 ⟨proofedWireBytes, 193, 1⟩ =
-      .ok (#[viewC, invC], ⟨proofedWireBytes, 651, 1⟩) := by
+    decodeArray maxTableElements decodeCallableV1 ⟨proofedWireBytes, 157, 1⟩ =
+      .ok (#[viewC, invC], ⟨proofedWireBytes, 615, 1⟩) := by
   have h := decodeArray_twoV1 maxTableElements decodeCallableV1
-    ⟨proofedWireBytes, 193, 1⟩ 197 viewC invC
-    ⟨proofedWireBytes, 418, 1⟩ ⟨proofedWireBytes, 651, 1⟩
+    ⟨proofedWireBytes, 157, 1⟩ 161 viewC invC
+    ⟨proofedWireBytes, 382, 1⟩ ⟨proofedWireBytes, 615, 1⟩
     readCallablesCount_proofed decodeView_proofed decodeInv_proofed
   simpa using h
 
 /-! ### Invariants (one row) -/
 
 theorem readInvariantsCount_proofed :
-    readArrayCountAtV1 proofedWireBytes 651 maxTableElements = .ok (1, 655) := by
-  change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 651 maxTableElements =
-    .ok (1, 655)
+    readArrayCountAtV1 proofedWireBytes 615 maxTableElements = .ok (1, 619) := by
+  change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 615 maxTableElements =
+    .ok (1, 619)
   rw [readArrayCountAtV1_refinesSpine]
   rfl
 
 theorem expectInvariantDecl_proofed :
-    expectTag "InvariantDecl" 3 ⟨proofedWireBytes, 655, 2⟩ =
-      .ok ((), ⟨proofedWireBytes, 674, 2⟩) := by
+    expectTag "InvariantDecl" 3 ⟨proofedWireBytes, 619, 2⟩ =
+      .ok ((), ⟨proofedWireBytes, 638, 2⟩) := by
   apply expectTag_eq_of_headerV1
-  change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 655
+  change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 619
       (ByteArray.mk [73, 110, 118, 97, 114, 105, 97, 110, 116, 68, 101, 99, 108].toArray)
-      3 = .ok 674
+      3 = .ok 638
   rw [expectTaggedHeaderBytesAtV1_refinesSpine]
   unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
     spineRemainingV1 readSpineU16leV1
@@ -1024,11 +975,11 @@ theorem expectInvariantDecl_proofed :
   rfl
 
 theorem readInvDeclName_proofed :
-    readSizedBytesAtV1 proofedWireBytes 678 maxStringBytes =
-      .ok (ByteArray.mk [115, 97, 102, 101].toArray, 686) := by
+    readSizedBytesAtV1 proofedWireBytes 642 maxStringBytes =
+      .ok (ByteArray.mk [115, 97, 102, 101].toArray, 650) := by
   apply readSized_proofed
   apply readSizedSpineBytesV1_eq_of_parts proofedSpine [115, 97, 102, 101]
-      678 maxStringBytes 4 682
+      642 maxStringBytes 4 646
   · rfl
   · decide
   · decide
@@ -1036,29 +987,29 @@ theorem readInvDeclName_proofed :
     rw [proofedSpine_length]; rfl
 
 theorem decodeInvariantDecl_proofed :
-    decodeInvariantDeclV1 ⟨proofedWireBytes, 655, 1⟩ =
-      .ok ({ id := 0, name := "safe", callableId := 1 }, ⟨proofedWireBytes, 690, 1⟩) := by
-  refine decodeInvariantDeclV1_eq_of_bodyV1 ⟨proofedWireBytes, 655, 1⟩
+    decodeInvariantDeclV1 ⟨proofedWireBytes, 619, 1⟩ =
+      .ok ({ id := 0, name := "safe", callableId := 1 }, ⟨proofedWireBytes, 654, 1⟩) := by
+  refine decodeInvariantDeclV1_eq_of_bodyV1 ⟨proofedWireBytes, 619, 1⟩
     { id := 0, name := "safe", callableId := 1 }
-    ⟨proofedWireBytes, 690, 2⟩ (by decide) ?_
+    ⟨proofedWireBytes, 654, 2⟩ (by decide) ?_
   apply decodeInvariantDeclBodyV1_eq_of_fields
   · exact expectInvariantDecl_proofed
   · apply decodeProofedU32V1; rfl
-  · exact decodeAsciiString_of_read proofedWireBytes 678 686
+  · exact decodeAsciiString_of_read proofedWireBytes 642 650
       [115, 97, 102, 101] "safe" 2 readInvDeclName_proofed (by rfl) (by rfl)
   · apply decodeProofedU32V1; rfl
 
 theorem decodeInvariants_proofed :
-    decodeArray maxTableElements decodeInvariantDeclV1 ⟨proofedWireBytes, 651, 1⟩ =
+    decodeArray maxTableElements decodeInvariantDeclV1 ⟨proofedWireBytes, 615, 1⟩ =
       .ok (#[{ id := 0, name := "safe", callableId := 1 }],
-        ⟨proofedWireBytes, 690, 1⟩) := by
+        ⟨proofedWireBytes, 654, 1⟩) := by
   exact decodeArray_oneV1 maxTableElements decodeInvariantDeclV1
-    ⟨proofedWireBytes, 651, 1⟩ 655
+    ⟨proofedWireBytes, 615, 1⟩ 619
     { id := 0, name := "safe", callableId := 1 }
-    ⟨proofedWireBytes, 690, 1⟩
+    ⟨proofedWireBytes, 654, 1⟩
     readInvariantsCount_proofed decodeInvariantDecl_proofed
 
-/-! ### ProgramRequirements (value.bool singleton) 690→802 -/
+/-! ### ProgramRequirements (value.bool singleton) 654→766 -/
 
 /-- Exact wire requirement row for `value.bool` (transparent S2 digest spine). -/
 def wireBoolReq : RequirementRequestV1 := {
@@ -1109,12 +1060,12 @@ theorem boolReq_eq_wire : boolReq = wireBoolReq := by
   rfl
 
 theorem expectProgramRequirements_proofed :
-    expectTag "ProgramRequirements" 1 ⟨proofedWireBytes, 690, 2⟩ =
-      .ok ((), ⟨proofedWireBytes, 715, 2⟩) := by
+    expectTag "ProgramRequirements" 1 ⟨proofedWireBytes, 654, 2⟩ =
+      .ok ((), ⟨proofedWireBytes, 679, 2⟩) := by
   apply expectTag_eq_of_headerV1
-  change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 690
+  change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 654
       (ByteArray.mk [80, 114, 111, 103, 114, 97, 109, 82, 101, 113, 117, 105, 114, 101,
-        109, 101, 110, 116, 115].toArray) 1 = .ok 715
+        109, 101, 110, 116, 115].toArray) 1 = .ok 679
   rw [expectTaggedHeaderBytesAtV1_refinesSpine]
   unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
     spineRemainingV1 readSpineU16leV1
@@ -1122,19 +1073,19 @@ theorem expectProgramRequirements_proofed :
   rfl
 
 theorem readRequirementsCount_proofed :
-    readArrayCountAtV1 proofedWireBytes 715 maxArrayElements = .ok (1, 719) := by
-  change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 715 maxArrayElements =
-    .ok (1, 719)
+    readArrayCountAtV1 proofedWireBytes 679 maxArrayElements = .ok (1, 683) := by
+  change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 679 maxArrayElements =
+    .ok (1, 683)
   rw [readArrayCountAtV1_refinesSpine]
   rfl
 
 theorem expectRequirementRequest_proofed :
-    expectTag "RequirementRequest" 4 ⟨proofedWireBytes, 719, 3⟩ =
-      .ok ((), ⟨proofedWireBytes, 743, 3⟩) := by
+    expectTag "RequirementRequest" 4 ⟨proofedWireBytes, 683, 3⟩ =
+      .ok ((), ⟨proofedWireBytes, 707, 3⟩) := by
   apply expectTag_eq_of_headerV1
-  change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 719
+  change expectTaggedHeaderBytesAtV1 (ByteArray.mk proofedSpine.toArray) 683
       (ByteArray.mk [82, 101, 113, 117, 105, 114, 101, 109, 101, 110, 116, 82, 101, 113,
-        117, 101, 115, 116].toArray) 4 = .ok 743
+        117, 101, 115, 116].toArray) 4 = .ok 707
   rw [expectTaggedHeaderBytesAtV1_refinesSpine]
   unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
     spineRemainingV1 readSpineU16leV1
@@ -1142,11 +1093,11 @@ theorem expectRequirementRequest_proofed :
   rfl
 
 theorem readReqId_proofed :
-    readSizedBytesAtV1 proofedWireBytes 743 maxStringBytes =
-      .ok (ByteArray.mk [118, 97, 108, 117, 101, 46, 98, 111, 111, 108].toArray, 757) := by
+    readSizedBytesAtV1 proofedWireBytes 707 maxStringBytes =
+      .ok (ByteArray.mk [118, 97, 108, 117, 101, 46, 98, 111, 111, 108].toArray, 721) := by
   apply readSized_proofed
   apply readSizedSpineBytesV1_eq_of_parts proofedSpine
-      [118, 97, 108, 117, 101, 46, 98, 111, 111, 108] 743 maxStringBytes 10 747
+      [118, 97, 108, 117, 101, 46, 98, 111, 111, 108] 707 maxStringBytes 10 711
   · rfl
   · decide
   · decide
@@ -1155,18 +1106,18 @@ theorem readReqId_proofed :
     rfl
 
 theorem decodeReqId_proofed :
-    decodeString ⟨proofedWireBytes, 743, 3⟩ =
-      .ok ("value.bool", ⟨proofedWireBytes, 757, 3⟩) :=
-  decodeAsciiString_of_read proofedWireBytes 743 757
+    decodeString ⟨proofedWireBytes, 707, 3⟩ =
+      .ok ("value.bool", ⟨proofedWireBytes, 721, 3⟩) :=
+  decodeAsciiString_of_read proofedWireBytes 707 721
     [118, 97, 108, 117, 101, 46, 98, 111, 111, 108] "value.bool" 3
     readReqId_proofed (by rfl) (by rfl)
 
 theorem readReqVersion_proofed :
-    readSizedBytesAtV1 proofedWireBytes 757 maxStringBytes =
-      .ok (ByteArray.mk [49, 46, 48, 46, 48].toArray, 766) := by
+    readSizedBytesAtV1 proofedWireBytes 721 maxStringBytes =
+      .ok (ByteArray.mk [49, 46, 48, 46, 48].toArray, 730) := by
   apply readSized_proofed
   apply readSizedSpineBytesV1_eq_of_parts proofedSpine
-      [49, 46, 48, 46, 48] 757 maxStringBytes 5 761
+      [49, 46, 48, 46, 48] 721 maxStringBytes 5 725
   · rfl
   · decide
   · decide
@@ -1175,15 +1126,15 @@ theorem readReqVersion_proofed :
     rfl
 
 theorem decodeReqVersionString_proofed :
-    decodeString ⟨proofedWireBytes, 757, 3⟩ =
-      .ok ("1.0.0", ⟨proofedWireBytes, 766, 3⟩) :=
-  decodeAsciiString_of_read proofedWireBytes 757 766
+    decodeString ⟨proofedWireBytes, 721, 3⟩ =
+      .ok ("1.0.0", ⟨proofedWireBytes, 730, 3⟩) :=
+  decodeAsciiString_of_read proofedWireBytes 721 730
     [49, 46, 48, 46, 48] "1.0.0" 3
     readReqVersion_proofed (by rfl) (by rfl)
 
 theorem decodeReqVersion_proofed :
-    decodeSemVer ⟨proofedWireBytes, 757, 3⟩ =
-      .ok (s2RequirementVersionV1, ⟨proofedWireBytes, 766, 3⟩) := by
+    decodeSemVer ⟨proofedWireBytes, 721, 3⟩ =
+      .ok (s2RequirementVersionV1, ⟨proofedWireBytes, 730, 3⟩) := by
   apply decodeSemVer_eq_of_stringV1 _ _ _ s2RequirementVersionV1
     decodeReqVersionString_proofed
   · -- parseSemVer "1.0.0" = .ok s2CatalogSemVerCoreV1 = .ok s2RequirementVersionV1
@@ -1192,8 +1143,8 @@ theorem decodeReqVersion_proofed :
     exact h
 
 private def valueBoolDigestSpine : TransparentByteSpineV1 :=
-  [237, 52, 225, 6, 29, 14, 102, 99, 155, 106, 118, 55, 29, 216, 166, 193,
-    204, 215, 46, 122, 154, 20, 116, 84, 218, 122, 83, 193, 167, 71, 84, 124]
+  [237, 52, 225, 6, 29, 14, 102, 99, 155, 106, 118, 55, 29, 216, 166, 193, 204, 215, 46,
+    122, 154, 20, 116, 84, 218, 122, 83, 193, 167, 71, 84, 124]
 
 theorem valueBoolDigestSpine_length : valueBoolDigestSpine.length = 32 := by rfl
 
@@ -1203,20 +1154,18 @@ private abbrev valueBoolDigestBytes : ByteArray :=
 theorem valueBoolDigestSpine_eq_bytes :
     ByteArray.mk valueBoolDigestSpine.toArray = valueBoolDigestBytes := by
   unfold valueBoolDigestBytes
-    ProofForgeV2.Semantic.RequirementsV1.s2ValueBoolDigestBytesV1
-    valueBoolDigestSpine
   rfl
 
 theorem takeDigest_proofed :
-    takeBytesAtV1 proofedWireBytes 766 32 = .ok valueBoolDigestBytes := by
-  have hspine : takeSpineBytesV1 proofedSpine 766 32 = .ok valueBoolDigestSpine := by
+    takeBytesAtV1 proofedWireBytes 730 32 = .ok valueBoolDigestBytes := by
+  have hspine : takeSpineBytesV1 proofedSpine 730 32 = .ok valueBoolDigestSpine := by
     unfold takeSpineBytesV1 spineRemainingV1 valueBoolDigestSpine
     rw [proofedSpine_length]
     rfl
   have htake :
-      takeBytesAtV1 (ByteArray.mk proofedSpine.toArray) 766 valueBoolDigestSpine.length =
+      takeBytesAtV1 (ByteArray.mk proofedSpine.toArray) 730 valueBoolDigestSpine.length =
         .ok (ByteArray.mk valueBoolDigestSpine.toArray) :=
-    takeBytesAtV1_eq_of_spine proofedSpine valueBoolDigestSpine 766 hspine
+    takeBytesAtV1_eq_of_spine proofedSpine valueBoolDigestSpine 730 hspine
   rw [valueBoolDigestSpine_length, valueBoolDigestSpine_eq_bytes] at htake
   exact htake
 
@@ -1233,76 +1182,76 @@ theorem validateDigest_valueBool :
   simp only [validateDigest, valueBoolDigestBytes_size, ↓reduceIte, Pure.pure, Except.pure]
 
 theorem decodeDigest_proofed :
-    decodeDigest ⟨proofedWireBytes, 766, 3⟩ =
+    decodeDigest ⟨proofedWireBytes, 730, 3⟩ =
       .ok ({ algorithm := .sha256, bytes := valueBoolDigestBytes },
-        ⟨proofedWireBytes, 798, 3⟩) :=
-  decodeDigest_eq_of_takeV1 ⟨proofedWireBytes, 766, 3⟩ valueBoolDigestBytes
+        ⟨proofedWireBytes, 762, 3⟩) :=
+  decodeDigest_eq_of_takeV1 ⟨proofedWireBytes, 730, 3⟩ valueBoolDigestBytes
     takeDigest_proofed validateDigest_valueBool
 
 theorem decodeReqPredicates_proofed :
     decodeArray maxArrayElements decodeRequirementPredicateV1
-        ⟨proofedWireBytes, 798, 3⟩ =
-      .ok (#[], ⟨proofedWireBytes, 802, 3⟩) := by
+        ⟨proofedWireBytes, 762, 3⟩ =
+      .ok (#[], ⟨proofedWireBytes, 766, 3⟩) := by
   apply decodeArray_zeroV1
-  change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 798 maxArrayElements =
-    .ok (0, 802)
+  change readArrayCountAtV1 (ByteArray.mk proofedSpine.toArray) 762 maxArrayElements =
+    .ok (0, 766)
   rw [readArrayCountAtV1_refinesSpine]
   rfl
 
 theorem decodeRequirementRequest_proofed :
-    decodeRequirementRequestV1 ⟨proofedWireBytes, 719, 2⟩ =
-      .ok (wireBoolReq, ⟨proofedWireBytes, 802, 2⟩) := by
+    decodeRequirementRequestV1 ⟨proofedWireBytes, 683, 2⟩ =
+      .ok (wireBoolReq, ⟨proofedWireBytes, 766, 2⟩) := by
   unfold decodeRequirementRequestV1 withTaggedNesting
   have hdepth : (2 : Nat) < maxNesting := by decide
   -- Body runs at `nesting + 1` (= 3); restate field successes at that cursor.
   have htag :
-      expectTag "RequirementRequest" 4 ⟨proofedWireBytes, 719, 2 + 1⟩ =
-        .ok ((), ⟨proofedWireBytes, 743, 2 + 1⟩) := by
+      expectTag "RequirementRequest" 4 ⟨proofedWireBytes, 683, 2 + 1⟩ =
+        .ok ((), ⟨proofedWireBytes, 707, 2 + 1⟩) := by
     simpa using expectRequirementRequest_proofed
   have hid :
-      decodeString ⟨proofedWireBytes, 743, 2 + 1⟩ =
-        .ok ("value.bool", ⟨proofedWireBytes, 757, 2 + 1⟩) := by
+      decodeString ⟨proofedWireBytes, 707, 2 + 1⟩ =
+        .ok ("value.bool", ⟨proofedWireBytes, 721, 2 + 1⟩) := by
     simpa using decodeReqId_proofed
   have hver :
-      decodeSemVer ⟨proofedWireBytes, 757, 2 + 1⟩ =
-        .ok (s2RequirementVersionV1, ⟨proofedWireBytes, 766, 2 + 1⟩) := by
+      decodeSemVer ⟨proofedWireBytes, 721, 2 + 1⟩ =
+        .ok (s2RequirementVersionV1, ⟨proofedWireBytes, 730, 2 + 1⟩) := by
     simpa using decodeReqVersion_proofed
   have hdig :
-      decodeDigest ⟨proofedWireBytes, 766, 2 + 1⟩ =
+      decodeDigest ⟨proofedWireBytes, 730, 2 + 1⟩ =
         .ok ({ algorithm := .sha256, bytes := valueBoolDigestBytes },
-          ⟨proofedWireBytes, 798, 2 + 1⟩) := by
+          ⟨proofedWireBytes, 762, 2 + 1⟩) := by
     simpa using decodeDigest_proofed
   have hpred :
       decodeArray maxArrayElements decodeRequirementPredicateV1
-          ⟨proofedWireBytes, 798, 2 + 1⟩ =
-        .ok (#[], ⟨proofedWireBytes, 802, 2 + 1⟩) := by
+          ⟨proofedWireBytes, 762, 2 + 1⟩ =
+        .ok (#[], ⟨proofedWireBytes, 766, 2 + 1⟩) := by
     simpa using decodeReqPredicates_proofed
   simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure,
     htag, hid, hver, hdig, hpred, wireBoolReq]
 
 theorem decodeRequirements_proofed :
-    decodeProgramRequirementsV1 ⟨proofedWireBytes, 690, 1⟩ =
-      .ok ({ items := #[wireBoolReq] }, ⟨proofedWireBytes, 802, 1⟩) := by
-  refine decodeProgramRequirementsV1_eq_of_bodyV1 ⟨proofedWireBytes, 690, 1⟩
-    { items := #[wireBoolReq] } ⟨proofedWireBytes, 802, 2⟩ (by decide) ?_
+    decodeProgramRequirementsV1 ⟨proofedWireBytes, 654, 1⟩ =
+      .ok ({ items := #[wireBoolReq] }, ⟨proofedWireBytes, 766, 1⟩) := by
+  refine decodeProgramRequirementsV1_eq_of_bodyV1 ⟨proofedWireBytes, 654, 1⟩
+    { items := #[wireBoolReq] } ⟨proofedWireBytes, 766, 2⟩ (by decide) ?_
   apply decodeProgramRequirementsBodyV1_eq_of_fields
   · exact expectProgramRequirements_proofed
   · exact decodeArray_oneV1 maxArrayElements decodeRequirementRequestV1
-      ⟨proofedWireBytes, 715, 2⟩ 719 wireBoolReq ⟨proofedWireBytes, 802, 2⟩
+      ⟨proofedWireBytes, 679, 2⟩ 683 wireBoolReq ⟨proofedWireBytes, 766, 2⟩
       readRequirementsCount_proofed decodeRequirementRequest_proofed
 
 /-! ### Full transport framing → `proofedData` -/
 
 theorem decodeTaggedData_proofed :
     decodeSemanticProgramDataTaggedV1 ⟨proofedWireBytes, 15, 0⟩ =
-      .ok (proofedData, ⟨proofedWireBytes, 802, 0⟩) := by
+      .ok (proofedData, ⟨proofedWireBytes, 766, 0⟩) := by
   have h := decodeSemanticProgramDataTaggedV1_eq_of_fields
     ⟨proofedWireBytes, 15, 0⟩ ⟨proofedWireBytes, 41, 1⟩
-    ⟨proofedWireBytes, 103, 1⟩ ⟨proofedWireBytes, 177, 1⟩
-    ⟨proofedWireBytes, 181, 1⟩ ⟨proofedWireBytes, 185, 1⟩
-    ⟨proofedWireBytes, 189, 1⟩ ⟨proofedWireBytes, 193, 1⟩
-    ⟨proofedWireBytes, 651, 1⟩ ⟨proofedWireBytes, 690, 1⟩
-    ⟨proofedWireBytes, 802, 1⟩ qn #[boolT, u64T] #[] #[] #[] #[]
+    ⟨proofedWireBytes, 103, 1⟩ ⟨proofedWireBytes, 141, 1⟩
+    ⟨proofedWireBytes, 145, 1⟩ ⟨proofedWireBytes, 149, 1⟩
+    ⟨proofedWireBytes, 153, 1⟩ ⟨proofedWireBytes, 157, 1⟩
+    ⟨proofedWireBytes, 615, 1⟩ ⟨proofedWireBytes, 654, 1⟩
+    ⟨proofedWireBytes, 766, 1⟩ qn #[boolT] #[] #[] #[] #[]
     #[viewC, invC] #[{ id := 0, name := "safe", callableId := 1 }]
     { items := #[wireBoolReq] } (by decide)
     expectRootTag_proofed decodeQualifiedName_proofed decodeTypes_proofed
@@ -1317,7 +1266,7 @@ theorem decodeTaggedData_proofed :
   have hdata :
       ({
         qualifiedName := qn
-        types := #[boolT, u64T]
+        types := #[boolT]
         constants := #[]
         logicalState := #[]
         events := #[]
@@ -1330,9 +1279,9 @@ theorem decodeTaggedData_proofed :
   simpa [hdata] using h
 
 theorem finish_proofed :
-    finish ⟨proofedWireBytes, 802, 0⟩ = .ok () := by
+    finish ⟨proofedWireBytes, 766, 0⟩ = .ok () := by
   apply finish_eq_ok_of_offset_sizeV1
-  change 802 = proofedSpine.length
+  change 766 = proofedSpine.length
   exact proofedSpine_length.symm
 
 /-- Decode-only kernel certificate: elaborator `proofedBytes` transport-decodes
@@ -1342,7 +1291,7 @@ theorem decodeData_proofed :
   have hwire : proofedBytes = proofedWireBytes := proofedBytes_eq_spine
   rw [hwire]
   apply decodeSemanticProgramDataV1_eq_of_framing proofedWireBytes
-    ⟨proofedWireBytes, 15, 0⟩ ⟨proofedWireBytes, 802, 0⟩ proofedData
+    ⟨proofedWireBytes, 15, 0⟩ ⟨proofedWireBytes, 766, 0⟩ proofedData
   · change proofedSpine.length ≤ maxCanonicalProgramBytes
     rw [proofedSpine_length]
     decide

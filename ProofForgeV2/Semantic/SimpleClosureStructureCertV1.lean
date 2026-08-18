@@ -119,38 +119,11 @@ theorem materialize_qnSize (p : SimpleClosureParamsV1) :
 private def simpleClosureBoolTypeShapeBytes : ByteArray :=
   ByteArray.mk #[9, 0, 0, 0, 84, 121, 112, 101, 46, 66, 111, 111, 108, 0, 0]
 
-private def simpleClosureUInt64TypeShapeBytes : ByteArray :=
-  ByteArray.mk #[9, 0, 0, 0, 84, 121, 112, 101, 46, 85, 73, 110, 116, 1, 0, 64, 0]
-
 private theorem encodeTypeShape_bool_simpleClosure :
     encodeTypeShapeV1 (.bool : TypeShapeV1) = .ok simpleClosureBoolTypeShapeBytes := by
   change encodeNullary "Type.Bool" = .ok simpleClosureBoolTypeShapeBytes
   rw [encodeNullary_eq_okV1 "Type.Bool" (by decide) (by decide) (by decide)]
   congr 1
-
-private theorem encodeTypeShape_uint64_simpleClosure :
-    encodeTypeShapeV1 (.uint 64) = .ok simpleClosureUInt64TypeShapeBytes := by
-  change encodeTagged "Type.UInt" #[encodeU16le 64] = .ok simpleClosureUInt64TypeShapeBytes
-  rw [encodeTagged_eq_okV1 "Type.UInt" #[encodeU16le 64]
-    (by decide) (by decide) (by decide) (by decide) (by decide)]
-  rfl
-
-private theorem compare_bool_uint64_simpleClosure :
-    compareByteArrayLex simpleClosureBoolTypeShapeBytes
-      simpleClosureUInt64TypeShapeBytes = .lt := by
-  rw [compareByteArrayLex]
-  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 0 (by decide) (by decide)]
-  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 1 (by decide) (by decide)]
-  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 2 (by decide) (by decide)]
-  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 3 (by decide) (by decide)]
-  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 4 (by decide) (by decide)]
-  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 5 (by decide) (by decide)]
-  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 6 (by decide) (by decide)]
-  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 7 (by decide) (by decide)]
-  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 8 (by decide) (by decide)]
-  apply compareByteArrayLexLoopV1_eq_lt
-  · decide
-  · decide
 
 /-! ### Phase: prelude -/
 
@@ -166,7 +139,7 @@ theorem structurePrelude_of_legal (p : SimpleClosureParamsV1)
   simp [validateSemanticProgramStructurePreludeV1, checkTableIdsV1,
     validateProgramQualifiedNameShapeV1, materializeSimpleClosureDataV1,
     SimpleClosureParamsV1.toQualifiedName, NonEmptyArray.toArray,
-    Array.size_append, simpleClosureBoolTypeV1, simpleClosureUInt64TypeV1,
+    Array.size_append, simpleClosureBoolTypeV1,
     simpleClosureViewCallableV1, simpleClosureInvCallableV1,
     simpleClosureBlockV1, simpleClosureLitTrueV1, simpleClosureInvariantDeclV1,
     simpleClosureBoolRequirementV1, checkTypeShapeRefs, checkTypeIdInRange,
@@ -179,13 +152,13 @@ theorem typesStructure_simpleClosure (p : SimpleClosureParamsV1) :
     validateTypesStructureV1 (materializeSimpleClosureDataV1 p).types = .ok () := by
   simp [materializeSimpleClosureDataV1, validateTypesStructureV1,
     validateTypeDeclShapeV1, validateTypeDeclNamedRuleV1, simpleClosureBoolTypeV1,
-    simpleClosureUInt64TypeV1, legalIntegerWidthV1_64, Pure.pure, Except.pure,
+    Pure.pure, Except.pure,
     Bind.bind, Except.bind]
 
 theorem typeKeyNamedPrefix_simpleClosure (p : SimpleClosureParamsV1) :
     validateNamedPrefixRankV1 (materializeSimpleClosureDataV1 p).types = .ok () := by
   simp [materializeSimpleClosureDataV1, validateNamedPrefixRankV1,
-    simpleClosureBoolTypeV1, simpleClosureUInt64TypeV1, Pure.pure, Except.pure,
+    simpleClosureBoolTypeV1, Pure.pure, Except.pure,
     Bind.bind, Except.bind]
 
 theorem typeKeyPrimitiveLeaf_simpleClosure (p : SimpleClosureParamsV1) :
@@ -193,22 +166,21 @@ theorem typeKeyPrimitiveLeaf_simpleClosure (p : SimpleClosureParamsV1) :
       (materializeSimpleClosureDataV1 p).types = .ok () := by
   simp [materializeSimpleClosureDataV1, validatePrimitiveAnonymousTypeKeyUniquenessV1,
     collectPrimitiveAnonymousTypeKeysV1,
-    simpleClosureBoolTypeV1, simpleClosureUInt64TypeV1,
-    encodeTypeShape_bool_simpleClosure, encodeTypeShape_uint64_simpleClosure,
-    compare_bool_uint64_simpleClosure, Pure.pure, Except.pure, Bind.bind,
+    simpleClosureBoolTypeV1,
+    encodeTypeShape_bool_simpleClosure, Pure.pure, Except.pure, Bind.bind,
     Except.bind]
 
 theorem typeKeyRecursiveAnonymous_simpleClosure (p : SimpleClosureParamsV1) :
     validateRecursiveAnonymousTypeKeyUniquenessV1
       (materializeSimpleClosureDataV1 p).types = .ok () := by
   simp [materializeSimpleClosureDataV1, validateRecursiveAnonymousTypeKeyUniquenessV1,
-    simpleClosureBoolTypeV1, simpleClosureUInt64TypeV1, Pure.pure, Except.pure]
+    simpleClosureBoolTypeV1, Pure.pure, Except.pure]
 
 theorem typeKeyNamedBodyCycle_simpleClosure (p : SimpleClosureParamsV1) :
     validateNamedBodyOptionCycleLegalityV1
       (materializeSimpleClosureDataV1 p).types = .ok () := by
   simp [materializeSimpleClosureDataV1, validateNamedBodyOptionCycleLegalityV1,
-    simpleClosureBoolTypeV1, simpleClosureUInt64TypeV1, Pure.pure, Except.pure]
+    simpleClosureBoolTypeV1, Pure.pure, Except.pure]
 
 theorem typeKeyPhases_simpleClosure (p : SimpleClosureParamsV1) :
     validateTypeKeyPhasesV1 (materializeSimpleClosureDataV1 p).types = .ok () := by
@@ -219,17 +191,16 @@ theorem typeKeyPhases_simpleClosure (p : SimpleClosureParamsV1) :
   · exact typeKeyNamedBodyCycle_simpleClosure p
   · have htypes :
         (materializeSimpleClosureDataV1 p).types =
-          #[simpleClosureBoolTypeV1, simpleClosureUInt64TypeV1] := by
+          #[simpleClosureBoolTypeV1] := by
       simp [materializeSimpleClosureDataV1]
     rw [htypes]
-    exact validateAnonymousTypeKeyRankV1_bool_uint64_eq_ok
-      simpleClosureBoolTypeV1 simpleClosureUInt64TypeV1 rfl rfl
+    exact validateAnonymousTypeKeyRankV1_bool_only_eq_ok simpleClosureBoolTypeV1 rfl
 
 theorem namedTypeNames_simpleClosure (p : SimpleClosureParamsV1) :
     validateNamedTypeNameUniquenessV1 (materializeSimpleClosureDataV1 p).types =
       .ok () := by
   simp [materializeSimpleClosureDataV1, validateNamedTypeNameUniquenessV1,
-    checkUniqueDeclarationNamesV1, simpleClosureBoolTypeV1, simpleClosureUInt64TypeV1,
+    checkUniqueDeclarationNamesV1, simpleClosureBoolTypeV1,
     Pure.pure, Except.pure, Bind.bind, Except.bind]
 
 /-! ### Phase: valueBytes + empty declaration-name uniqueness -/
@@ -352,7 +323,7 @@ theorem callableSignatures_of_legal (p : SimpleClosureParamsV1)
   apply validateCallableSignaturePhasesV1_eq_ok_of_phases
   all_goals
     simp [materializeSimpleClosureDataV1, simpleClosureBoolTypeV1,
-      simpleClosureUInt64TypeV1, simpleClosureViewCallableV1,
+      simpleClosureViewCallableV1,
       simpleClosureInvCallableV1, simpleClosureBlockV1, simpleClosureLitTrueV1,
       validateCallableKindNamePresenceV1, validateCallableNameUniquenessV1,
       validateCallableParameterNameUniquenessV1, validateCallableEntryViewPresenceV1,
@@ -383,7 +354,7 @@ theorem declarationIdentifierNames_of_legal (p : SimpleClosureParamsV1)
   have hinv : validateIdentifierNameV1 p.invName = .ok () :=
     validateIdentifierNameV1_eq_ok_of_common p.invName legal.hinv
   simp [validateDeclarationIdentifierNamesV1, validateTypeShapeIdentifierNamesV1,
-    materializeSimpleClosureDataV1, simpleClosureBoolTypeV1, simpleClosureUInt64TypeV1,
+    materializeSimpleClosureDataV1, simpleClosureBoolTypeV1,
     simpleClosureViewCallableV1, simpleClosureInvCallableV1, simpleClosureBlockV1,
     simpleClosureLitTrueV1, simpleClosureInvariantDeclV1, hview, hinv,
     Pure.pure, Except.pure, Bind.bind, Except.bind]
@@ -567,6 +538,54 @@ theorem envReadRequirements_simpleClosure (p : SimpleClosureParamsV1) :
       .ok () := by
   rfl
 
+private def usageClosureFixtureParamsV1 : SimpleClosureParamsV1 := {
+  qnHead := "Proof"
+  qnTail := #["Forge"]
+  viewName := "view"
+  invName := "inv"
+}
+
+private def usageClosureFixtureDataV1 : SemanticProgramDataV1 :=
+  materializeSimpleClosureDataV1 usageClosureFixtureParamsV1
+
+private def simpleClosureCoreRootsV1 : Array TypeIdV1 :=
+  collectCoreTypeSlotRootsV1 usageClosureFixtureDataV1
+
+private theorem collectCoreTypeSlotRootsV1_simpleClosure_fixture :
+    collectCoreTypeSlotRootsV1 usageClosureFixtureDataV1 = simpleClosureCoreRootsV1 := rfl
+
+private theorem foldBoolCoreRootsV1_simpleClosure_fixture :
+    foldBoolCoreRootsV1 simpleClosureCoreRootsV1 = #[true] := by
+  dsimp [simpleClosureCoreRootsV1, usageClosureFixtureDataV1,
+    materializeSimpleClosureDataV1, usageClosureFixtureParamsV1,
+    collectCoreTypeSlotRootsV1, foldBoolCoreRootsV1]
+  simp [simpleClosureBoolTypeV1, simpleClosureViewCallableV1, simpleClosureInvCallableV1,
+    Array.foldl, Array.set!, Array.replicate]
+  rfl
+
+private theorem anonymousTypeUsageBitmapV1_simpleClosure_fixture :
+    anonymousTypeUsageBitmapV1 usageClosureFixtureDataV1 = #[true] := by
+  rw [anonymousTypeUsageBitmapV1_allAnonymousLeaf_singletonBool usageClosureFixtureDataV1
+    (by simp [usageClosureFixtureDataV1, materializeSimpleClosureDataV1,
+      usageClosureFixtureParamsV1, simpleClosureBoolTypeV1])]
+  rw [collectCoreTypeSlotRootsV1_simpleClosure_fixture, foldBoolCoreRootsV1_simpleClosure_fixture]
+
+private theorem anonymousTypeUsageBitmapV1_simpleClosure_names_irrel
+    (p : SimpleClosureParamsV1) :
+    anonymousTypeUsageBitmapV1 (materializeSimpleClosureDataV1 p) =
+      anonymousTypeUsageBitmapV1 usageClosureFixtureDataV1 := by
+  simp [anonymousTypeUsageBitmapV1, materializeSimpleClosureDataV1,
+    usageClosureFixtureDataV1, usageClosureFixtureParamsV1, simpleClosureBoolTypeV1,
+    simpleClosureViewCallableV1, simpleClosureInvCallableV1, collectCoreTypeSlotRootsV1]
+
+theorem usageClosure_simpleClosure (p : SimpleClosureParamsV1) :
+    validateAnonymousTypeUsageClosureV1 (materializeSimpleClosureDataV1 p) =
+      .ok () := by
+  apply validateAnonymousTypeUsageClosureV1_singletonBool_coreMarked_eq_ok
+  · simp [materializeSimpleClosureDataV1, simpleClosureBoolTypeV1]
+  · rw [anonymousTypeUsageBitmapV1_simpleClosure_names_irrel p,
+    anonymousTypeUsageBitmapV1_simpleClosure_fixture]
+
 /-! ### Full structure composition -/
 
 /-- B-SC-STRUCT: every production structure phase closes for any legal
@@ -581,6 +600,7 @@ theorem structure_of_legal (p : SimpleClosureParamsV1)
   · exact structurePrelude_of_legal p legal
   · exact typesStructure_simpleClosure p
   · exact typeKeyPhases_simpleClosure p
+  · exact usageClosure_simpleClosure p
   · exact namedTypeNames_simpleClosure p
   · exact constantsValueBytes_simpleClosure p
   · exact callablesValueBytes_simpleClosure p

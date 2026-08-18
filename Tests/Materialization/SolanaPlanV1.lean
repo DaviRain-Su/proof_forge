@@ -3800,7 +3800,7 @@ private unsafe def testScalarConstInline
     "  view get() : UInt64 do\n" ++
     "    return count\n"
   let strCompiled ← compileSource session strSource "Examples.ConstStr" "<solana-const-str>"
-  expectPlanErrorContaining "ConstStr" "constant"
+  expectPlanErrorContaining "ConstStr" "supported"
     (planSolana strCompiled)
   IO.println "  ✓ Solana scalar const inline + String FC pin ok"
 

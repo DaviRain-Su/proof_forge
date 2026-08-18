@@ -234,13 +234,27 @@ private def expectReturned
       expect (logicalStateEq post' post)
         s!"{label}: returned post-state mismatch"
       expect (optionRefEq value' value)
-        s!"{label}: returned value mismatch"
+        s!"{label}: returned value mismatch (got {repr value'}, want {repr value})"
       expect (effectsEq effects' effects)
         s!"{label}: returned effects mismatch (got size {effects'.size})"
   | .reverted reason _ =>
       throw <| IO.userError s!"{label}: expected returned, got reverted {repr reason}"
   | .trapped fault _ =>
       throw <| IO.userError s!"{label}: expected returned, got trapped {repr fault}"
+
+/-- Look up an anonymous TypeId by shape on a post-compact / carrier table. -/
+private def anonTidBy
+    (data : SemanticProgramDataV1) (pred : TypeShapeV1 → Bool) (hint : String) :
+    IO TypeIdV1 := do
+  match data.types.findIdx? fun t => t.name.isNone && pred t.shape with
+  | some i => pure (UInt32.ofNat i)
+  | none => throw <| IO.userError s!"anonTidBy: missing {hint}"
+
+private def dataOfCarrier (label : String) (carrier : SemanticProgramV1) :
+    IO SemanticProgramDataV1 := do
+  match validateSemanticProgramV1 carrier with
+  | .ok d => pure d
+  | .error e => throw <| IO.userError s!"{label}: validateSemanticProgramV1: {repr e}"
 
 private def expectRevertedStandard
     (label : String) (outcome : OutcomeV1)
@@ -285,6 +299,19 @@ private def expectTrapped
 
 private def encodeCarrier (label : String) (data : SemanticProgramDataV1) :
     IO SemanticProgramV1 := do
+  -- Stage D: drop unused anonymous TypeDecls (typically trailing Unit ballast)
+  -- before the structure-gated encoder. Compact remaps TypeIds densely; when
+  -- only trailing unused rows are removed, lower TypeIds stay stable.
+  let data := compactSemanticProgramDataToUsageClosureV1 data
+  match validateTypeKeyPhasesWithUsageClosureV1 data with
+  | .ok () => pure ()
+  | .error f =>
+      throw <| IO.userError
+        s!"{label}: typekey phase={repr f.phase} err={repr f.error} types={data.types.size}"
+  match validateSemanticProgramStructureV1 data with
+  | .ok () => pure ()
+  | .error e =>
+      throw <| IO.userError s!"{label}: structure {repr e} types={data.types.size}"
   let bytes ← match encodeSemanticProgramDataV1 data with
     | .ok b => pure b
     | .error e => throw <| IO.userError s!"{label}: encode failed: {repr e}"
@@ -558,7 +585,15 @@ private unsafe def testIfMatchReferenceSlice
   let matchCarrier ← match normalizeProgramV1 matchValidated with
     | .ok c => pure c
     | .error e => throw <| IO.userError s!"match-ref: normalize failed: {repr e}"
+  let matchData ← match validateSemanticProgramV1 matchCarrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"match-ref: validate failed: {repr e}"
   let matchAdmitted ← admitOk "match-ref" matchCarrier
+  let matchU64Tid : TypeIdV1 :=
+    match matchData.types.findIdx? fun t =>
+        t.name.isNone && match t.shape with | .uint 64 => true | _ => false with
+    | some i => UInt32.ofNat i
+    | none => 0
   let matchInit : CallableIdV1 := 0
   let matchApply : CallableIdV1 := 1
   let matchInitial ← match initialLogicalStateV1 matchCarrier with
@@ -566,29 +601,29 @@ private unsafe def testIfMatchReferenceSlice
     | .error e => throw <| IO.userError s!"match-ref: initialLogicalState: {repr e}"
   let mInitPost :=
     stepReferenceSliceV1 matchAdmitted matchInitial
-      (inv matchInit #[refU64 u64Tid 7]) emptyResponses
+      (inv matchInit #[refU64 matchU64Tid 7]) emptyResponses
   let sevenState : LogicalStateV1 :=
     { initialized := true, canonicalValues := stateSlot (u64Bytes 7) }
   expectReturned "match-ref-init" mInitPost sevenState none #[]
   -- delta=0 → case 0: return count (7), state unchanged
   let case0 :=
     stepReferenceSliceV1 matchAdmitted sevenState
-      (inv matchApply #[refU64 u64Tid 0]) emptyResponses
-  expectReturned "match-ref-case0" case0 sevenState (some (refU64 u64Tid 7)) #[]
+      (inv matchApply #[refU64 matchU64Tid 0]) emptyResponses
+  expectReturned "match-ref-case0" case0 sevenState (some (refU64 matchU64Tid 7)) #[]
   -- delta=1 → case 1: count := 7+1 = 8, return 8
   let case1 :=
     stepReferenceSliceV1 matchAdmitted sevenState
-      (inv matchApply #[refU64 u64Tid 1]) emptyResponses
+      (inv matchApply #[refU64 matchU64Tid 1]) emptyResponses
   let eightState : LogicalStateV1 :=
     { initialized := true, canonicalValues := stateSlot (u64Bytes 8) }
-  expectReturned "match-ref-case1" case1 eightState (some (refU64 u64Tid 8)) #[]
+  expectReturned "match-ref-case1" case1 eightState (some (refU64 matchU64Tid 8)) #[]
   -- delta=5 → default: count := 5, return 5
   let caseD :=
     stepReferenceSliceV1 matchAdmitted eightState
-      (inv matchApply #[refU64 u64Tid 5]) emptyResponses
+      (inv matchApply #[refU64 matchU64Tid 5]) emptyResponses
   let fiveStateM : LogicalStateV1 :=
     { initialized := true, canonicalValues := stateSlot (u64Bytes 5) }
-  expectReturned "match-ref-default" caseD fiveStateM (some (refU64 u64Tid 5)) #[]
+  expectReturned "match-ref-default" caseD fiveStateM (some (refU64 matchU64Tid 5)) #[]
 
 private unsafe def testEmitRevertReferenceSlice
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -1682,20 +1717,23 @@ private def testPrimitiveEffectLogAndResponses : IO Unit := do
 
 /-- Declared/standard program revert with unconsumed trailing response. -/
 private def testProgramRevertWithTrailingResponse : IO Unit := do
-  -- Anonymous rank: bool before unit.
-  let types : Array TypeDeclV1 := #[
+  -- Declared revert only needs Unit (Stage D: no unused anonymous Bool).
+  let unitOnly : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .unit }
+  ]
+  let boolUnit : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
     { id := 1, name := none, shape := .unit }
   ]
   let errors : Array ErrorDeclV1 := #[
     { id := 0, name := "Abort", fields := #[] }
   ]
-  -- declared revert only (no external call)
-  let declaredEntry := mkEntry 0 "boom" #[] 1 #[] (.revert 0 #[])
+  -- declared revert only (no external call); result Unit at TypeId 0
+  let declaredEntry := mkEntry 0 "boom" #[] 0 #[] (.revert 0 #[])
   let baseD ← emptyData "DeclaredTrail"
   let dataD : SemanticProgramDataV1 := {
     baseD with
-    types
+    types := unitOnly
     errors
     callables := #[declaredEntry]
   }
@@ -1711,7 +1749,7 @@ private def testProgramRevertWithTrailingResponse : IO Unit := do
     stepReferenceSliceV1 admittedD preD (inv 0 #[]) trailing
   expectTrapped "declared+trailing" outD .invalidExternalResponse preD
 
-  -- standard assert-false with trailing response
+  -- standard assert-false with trailing response (Bool used by literal/assert)
   let stdEntry := mkEntry 0 "assertFail" #[] 1
     #[
       instr (some { valueId := 0, typeId := 0 })
@@ -1722,7 +1760,7 @@ private def testProgramRevertWithTrailingResponse : IO Unit := do
   let baseS ← emptyData "StandardTrail"
   let dataS : SemanticProgramDataV1 := {
     baseS with
-    types
+    types := boolUnit
     callables := #[stdEntry]
   }
   let carrierS ← encodeCarrier "standard-trail" dataS
@@ -1824,12 +1862,10 @@ private unsafe def testInvalidInvocationAndInitLifecycle
 
   -- wrong kind: pureFn is not invocable via step — build a structure-gated
   -- program with pureFn + entry, then attempt pureFn callableId.
-  let boolTid : TypeIdV1 := 0
-  let unitTid : TypeIdV1 := 1
   let typesPK : Array TypeDeclV1 := #[
-    { id := 0, name := none, shape := .bool },
-    { id := 1, name := none, shape := .unit }
+    { id := 0, name := none, shape := .unit }
   ]
+  let unitTid : TypeIdV1 := 0
   let pureFn := mkPureFn 0 "helper" #[] unitTid #[] (.return_ none)
   let entryGate := mkEntry 1 "gate" #[] unitTid #[] (.return_ none)
   let basePK ← emptyData "PureKind"
@@ -1911,7 +1947,6 @@ private unsafe def testInvalidInvocationAndInitLifecycle
       expect (effectsEq e1 e2) "det: effects"
   | _, _ => throw <| IO.userError "det: both steps must return"
 
-  let _ := boolTid
   pure ()
 
 /-- Admission fail-closed for unsupported shapes/ops (not Outcome), plus the
@@ -1928,7 +1963,10 @@ private def testAdmissionUnsupported : IO Unit := do
   let entryAgg := mkEntry 0 "e" #[] 2 #[] (.return_ none)
   let baseA ← emptyData "AdmAgg"
   let dataA : SemanticProgramDataV1 := {
-    baseA with types := typesAgg, callables := #[entryAgg]
+    baseA with
+      types := typesAgg
+      logicalState := #[{ id := 0, name := "m", typeId := 0, visibility := .public_ }]
+      callables := #[entryAgg]
   }
   let cA ← encodeCarrier "adm-agg" dataA
   let _ ← admitOk "adm-agg" cA
@@ -1980,8 +2018,7 @@ private def testAdmissionUnsupported : IO Unit := do
   -- Commit is admitted and preserves the operand's exact type/bytes without
   -- state or effects.
   let typesCm : Array TypeDeclV1 := #[
-    { id := 0, name := none, shape := .bool },
-    { id := 1, name := none, shape := .unit }
+    { id := 0, name := none, shape := .bool }
   ]
   let entryCm := mkEntry 0 "cm" #[] 0
     #[
@@ -2042,13 +2079,16 @@ private def testAdmissionUnsupported : IO Unit := do
   let eventsV : Array EventDeclV1 := #[
     { id := 0, name := "Ping", fields := #[] }
   ]
-  let viewEmit := mkView 0 "noisy" #[] 1
+  let typesVE : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .unit }
+  ]
+  let viewEmit := mkView 0 "noisy" #[] 0
     #[instr none (.emit 0 0 #[])]
     (.return_ none)
   let baseVE ← emptyData "AdmViewEmit"
   let dataVE : SemanticProgramDataV1 := {
     baseVE with
-    types := typesV
+    types := typesVE
     events := eventsV
     callables := #[viewEmit]
   }
@@ -2250,13 +2290,20 @@ private def testContextReadReferenceSlice : IO Unit := do
       instr none (.assert_ 2 none #[])
     ]
     (.return_ none)
-  let commitStoreOk := mkEntry 0 "commitStoreOk" #[] 2
+  let commitStoreOk := mkEntry 0 "commitStoreOk" #[] 1
     #[
-      instr (some (vd 0 1)) (.literal 1 (u64Bytes 42)),
-      instr (some (vd 1 1)) (.commit 0),
+      instr (some (vd 0 0)) (.literal 0 (u64Bytes 42)),
+      instr (some (vd 1 0)) (.commit 0),
       instr none (.stateStore 0 1)
     ]
     (.return_ none)
+  let rollbackTypesOk : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .uint 64 },
+    { id := 1, name := none, shape := .unit }
+  ]
+  let rollbackStateOk : Array StateDeclV1 := #[
+    { id := 0, name := "count", typeId := 0, visibility := .public_ }
+  ]
   let rbBase ← emptyData "ContextCommitRollback"
   let rbValue := refU64 1 1700000000
   let rbContext : Array ContextInputV1 := #[{ key, value := rbValue }]
@@ -2287,8 +2334,8 @@ private def testContextReadReferenceSlice : IO Unit := do
     .assertionFailed rbPre
   let rbOkCarrier ← encodeCarrier "commit-store-ok" {
     rbBase with
-      types := rollbackTypes
-      logicalState := rollbackState
+      types := rollbackTypesOk
+      logicalState := rollbackStateOk
       callables := #[commitStoreOk]
       requirements := { items := #[commitRequirement] }
   }
@@ -2509,17 +2556,11 @@ private def testBoundedLoopEmitOccurrences : IO Unit := do
 
 /-- Compact UInt standard-revert table: underflow / div-zero / invalid shift. -/
 private def testUIntStandardReverts : IO Unit := do
-  -- Rank: uint8 < uint32 < unit.
-  let types : Array TypeDeclV1 := #[
-    { id := 0, name := none, shape := .uint 8 },
-    { id := 1, name := none, shape := .uint 32 },
-    { id := 2, name := none, shape := .unit }
-  ]
-  let runBin (name label : String) (op : BinaryOpV1)
-      (lhsTid : TypeIdV1) (lhsBytes : ByteArray)
-      (rhsTid : TypeIdV1) (rhsBytes : ByteArray)
-      (code : StandardRevertCodeV1) : IO Unit := do
-    let entryCallable := mkEntry 0 name #[] 2
+  let runBin (types : Array TypeDeclV1) (resultTid : TypeIdV1) (name label : String)
+      (op : BinaryOpV1) (lhsTid : TypeIdV1) (lhsBytes : ByteArray)
+      (rhsTid : TypeIdV1) (rhsBytes : ByteArray) (code : StandardRevertCodeV1) :
+      IO Unit := do
+    let entryCallable := mkEntry 0 name #[] resultTid
       #[
         instr (some (vd 0 lhsTid)) (.literal lhsTid lhsBytes),
         instr (some (vd 1 rhsTid)) (.literal rhsTid rhsBytes),
@@ -2539,14 +2580,24 @@ private def testUIntStandardReverts : IO Unit := do
       (stepReferenceSliceV1 admitted pre (inv 0 #[]) emptyResponses)
       code pre
 
+  let u8Unit : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .uint 8 },
+    { id := 1, name := none, shape := .unit }
+  ]
+  let u8U32Unit : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .uint 8 },
+    { id := 1, name := none, shape := .uint 32 },
+    { id := 2, name := none, shape := .unit }
+  ]
+
   -- UInt8 0 - 1 → underflow
-  runBin "UintUnderflow" "uint-underflow" .sub
+  runBin u8Unit 1 "UintUnderflow" "uint-underflow" .sub
     0 (ByteArray.mk #[0]) 0 (ByteArray.mk #[1]) .arithmeticUnderflow
   -- UInt8 1 / 0 → divisionByZero
-  runBin "UintDiv0" "uint-div0" .div
+  runBin u8Unit 1 "UintDiv0" "uint-div0" .div
     0 (ByteArray.mk #[1]) 0 (ByteArray.mk #[0]) .divisionByZero
   -- UInt8 1 << 8 (rhs UInt32) → invalidShift (shift ≥ width)
-  runBin "UintBadShift" "uint-badshift" .shl
+  runBin u8U32Unit 2 "UintBadShift" "uint-badshift" .shl
     0 (ByteArray.mk #[1]) 1 (leBytesFromNat 8 4) .invalidShift
 
 /-- Struct canonical bytes and reference execution, including nested immutable
@@ -2567,6 +2618,12 @@ private def testStructReferenceSlice : IO Unit := do
     { id := 2, name := none, shape := .bool },
     { id := 3, name := none, shape := .uint 8 },
     { id := 4, name := none, shape := .unit }
+  ]
+  let _typesNoUnit : Array TypeDeclV1 := #[
+    { id := 0, name := some "Pair", shape := .struct pairFields },
+    { id := 1, name := some "Outer", shape := .struct outerFields },
+    { id := 2, name := none, shape := .bool },
+    { id := 3, name := none, shape := .uint 8 }
   ]
 
   -- The public Wire seam uses the sole canonical recursive decoder.
@@ -3016,21 +3073,28 @@ private def testArrayBytesReferenceSlice : IO Unit := do
     (stepReferenceSliceV1 bytesSetOorAdmitted pre (inv 0 #[]) #[])
     .indexOutOfBounds pre
 
+  -- Closed usage table (uint8 < uint32 < array): shared `types` leaves Bool/Unit/Bytes
+  -- unused here; compact would remap uint8 away from hardcoded expect TypeId 1.
+  let pureTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .uint 8 },
+    { id := 1, name := none, shape := .uint 32 },
+    { id := 2, name := none, shape := .array 0 3 }
+  ]
   let indexPure := mkPureFn 1 "indexPure" #[
-    { valueId := 0, name := "xs", typeId := 4, visibility := .public_ },
-    { valueId := 1, name := "i", typeId := 2, visibility := .public_ }
-  ] 1 #[instr (some (vd 2 1)) (.indexGet 0 1)] (.return_ (some 2))
-  let pureEntry := mkEntry 0 "indexPureEntry" #[] 1 #[
-    instr (some (vd 0 4)) (.literal 4 arrayBytes),
-    instr (some (vd 1 2)) (.literal 2 (leBytesFromNat 2 4)),
-    instr (some (vd 2 1)) (.pureCall 1 #[0, 1])
+    { valueId := 0, name := "xs", typeId := 2, visibility := .public_ },
+    { valueId := 1, name := "i", typeId := 1, visibility := .public_ }
+  ] 0 #[instr (some (vd 2 0)) (.indexGet 0 1)] (.return_ (some 2))
+  let pureEntry := mkEntry 0 "indexPureEntry" #[] 0 #[
+    instr (some (vd 0 2)) (.literal 2 arrayBytes),
+    instr (some (vd 1 1)) (.literal 1 (leBytesFromNat 2 4)),
+    instr (some (vd 2 0)) (.pureCall 1 #[0, 1])
   ] (.return_ (some 2))
   let pureCarrier ← encodeCarrier "array-index-pure"
-    { base with types, callables := #[pureEntry, indexPure] }
+    { base with types := pureTypes, callables := #[pureEntry, indexPure] }
   let pureAdmitted ← admitOk "array-index-pure" pureCarrier
   expectReturned "array-index-pure"
     (stepReferenceSliceV1 pureAdmitted pre (inv 0 #[]) #[]) pre
-    (some { typeId := 1, valueBytes := ByteArray.mk #[6] }) #[]
+    (some { typeId := 0, valueBytes := ByteArray.mk #[6] }) #[]
 
   let indexInvariant : CallableV1 := {
     id := 1, kind := .invariant, name := some "indexInvariant", params := #[]
@@ -3075,7 +3139,9 @@ private def testArrayBytesReferenceSlice : IO Unit := do
     { id := 3, name := none, shape := .array 2 4096 },
     { id := 4, name := none, shape := .array 3 outerLength }
   ]
-  let workGate := mkEntry 0 "arrayWorkGate" #[] 0 #[] (.return_ none)
+  -- Result TypeId must Core-root the outer array so Stage D compact keeps the
+  -- nested anonymous chain (otherwise unused arrays are dropped and admit succeeds).
+  let workGate := mkEntry 0 "arrayWorkGate" #[] 4 #[] (.return_ none)
   let workBase ← emptyData "ArrayWork"
   let boundedWorkCarrier ← encodeCarrier "bounded-array-work" {
     workBase with types := nestedWorkTypes 1, callables := #[workGate]
@@ -3094,7 +3160,7 @@ private def testArrayBytesReferenceSlice : IO Unit := do
     { id := 2, name := none, shape := .array 1 outerLength },
     { id := 3, name := none, shape := .bytes 4096 }
   ]
-  let widthGate := mkEntry 0 "arrayWidthGate" #[] 0 #[] (.return_ none)
+  let widthGate := mkEntry 0 "arrayWidthGate" #[] 2 #[] (.return_ none)
   let widthBase ← emptyData "ArrayWidth"
   let boundedWidthCarrier ← encodeCarrier "bounded-array-width" {
     widthBase with types := widthTypes 1, callables := #[widthGate]
@@ -3197,17 +3263,23 @@ private def testArrayBytesReferenceSlice : IO Unit := do
     | .error (.invalidInput .limitExceeded) => true
     | _ => false) "map insertion reserves outer nesting"
 
-  let mapEntry := mkEntry 0 "mapIndex" #[] 5 #[
+  let mapExecTypes : Array TypeDeclV1 := #[
+    -- Closed usage table for IndexGet/IndexSet (map < uint8 < option).
+    { id := 0, name := none, shape := .map 1 1 },
+    { id := 1, name := none, shape := .uint 8 },
+    { id := 2, name := none, shape := .option 1 }
+  ]
+  let mapEntry := mkEntry 0 "mapIndex" #[] 2 #[
     instr (some (vd 0 0)) (.construct 0 0 #[]),
-    instr (some (vd 1 2)) (.literal 2 (ByteArray.mk #[20])),
-    instr (some (vd 2 5)) (.indexGet 0 1),
-    instr (some (vd 3 2)) (.literal 2 (ByteArray.mk #[9])),
+    instr (some (vd 1 1)) (.literal 1 (ByteArray.mk #[20])),
+    instr (some (vd 2 2)) (.indexGet 0 1),
+    instr (some (vd 3 1)) (.literal 1 (ByteArray.mk #[9])),
     instr (some (vd 4 0)) (.indexSet 0 1 3),
-    instr (some (vd 5 5)) (.indexGet 0 1),
-    instr (some (vd 6 5)) (.indexGet 4 1)
+    instr (some (vd 5 2)) (.indexGet 0 1),
+    instr (some (vd 6 2)) (.indexGet 4 1)
   ] (.return_ (some 6))
   let mapCarrier ← encodeCarrier "map-index" {
-    mapBase with types := mapTypes, callables := #[mapEntry]
+    mapBase with types := mapExecTypes, callables := #[mapEntry]
   }
   let mapAdmitted ← admitOk "map-index" mapCarrier
   let mapDefault ← match defaultValueV1 mapCarrier 0 with
@@ -3217,57 +3289,57 @@ private def testArrayBytesReferenceSlice : IO Unit := do
   expectReturned "map-index" (stepReferenceSliceV1 mapAdmitted
     { initialized := true, canonicalValues := ByteArray.empty } (inv 0 #[]) #[])
     { initialized := true, canonicalValues := ByteArray.empty }
-    (some { typeId := 5, valueBytes := ByteArray.mk #[1, 9] }) #[]
+    (some { typeId := 2, valueBytes := ByteArray.mk #[1, 9] }) #[]
 
-  let mapMissing := mkEntry 0 "mapMissing" #[] 5 #[
+  let mapMissing := mkEntry 0 "mapMissing" #[] 2 #[
     instr (some (vd 0 0)) (.construct 0 0 #[]),
-    instr (some (vd 1 2)) (.literal 2 (ByteArray.mk #[20])),
-    instr (some (vd 2 5)) (.indexGet 0 1)
+    instr (some (vd 1 1)) (.literal 1 (ByteArray.mk #[20])),
+    instr (some (vd 2 2)) (.indexGet 0 1)
   ] (.return_ (some 2))
   let mapMissingCarrier ← encodeCarrier "map-missing" {
-    mapBase with types := mapTypes, callables := #[mapMissing]
+    mapBase with types := mapExecTypes, callables := #[mapMissing]
   }
   let mapMissingAdmitted ← admitOk "map-missing" mapMissingCarrier
   expectReturned "map-missing" (stepReferenceSliceV1 mapMissingAdmitted
     { initialized := true, canonicalValues := ByteArray.empty } (inv 0 #[]) #[])
     { initialized := true, canonicalValues := ByteArray.empty }
-    (some { typeId := 5, valueBytes := ByteArray.mk #[0] }) #[]
+    (some { typeId := 2, valueBytes := ByteArray.mk #[0] }) #[]
 
-  let mapOld := mkEntry 0 "mapOld" #[] 5 #[
+  let mapOld := mkEntry 0 "mapOld" #[] 2 #[
     instr (some (vd 0 0)) (.construct 0 0 #[]),
-    instr (some (vd 1 2)) (.literal 2 (ByteArray.mk #[20])),
-    instr (some (vd 2 2)) (.literal 2 (ByteArray.mk #[9])),
+    instr (some (vd 1 1)) (.literal 1 (ByteArray.mk #[20])),
+    instr (some (vd 2 1)) (.literal 1 (ByteArray.mk #[9])),
     instr (some (vd 3 0)) (.indexSet 0 1 2),
-    instr (some (vd 4 5)) (.indexGet 0 1)
+    instr (some (vd 4 2)) (.indexGet 0 1)
   ] (.return_ (some 4))
   let mapOldCarrier ← encodeCarrier "map-old" {
-    mapBase with types := mapTypes, callables := #[mapOld]
+    mapBase with types := mapExecTypes, callables := #[mapOld]
   }
   let mapOldAdmitted ← admitOk "map-old" mapOldCarrier
   expectReturned "map-old" (stepReferenceSliceV1 mapOldAdmitted
     { initialized := true, canonicalValues := ByteArray.empty } (inv 0 #[]) #[])
     { initialized := true, canonicalValues := ByteArray.empty }
-    (some { typeId := 5, valueBytes := ByteArray.mk #[0] }) #[]
+    (some { typeId := 2, valueBytes := ByteArray.mk #[0] }) #[]
 
   let mapLookupPure := mkPureFn 1 "mapLookupPure" #[
     { valueId := 0, name := "m", typeId := 0, visibility := .public_ },
-    { valueId := 1, name := "k", typeId := 2, visibility := .public_ }
-  ] 5 #[instr (some (vd 2 5)) (.indexGet 0 1)] (.return_ (some 2))
-  let mapPureEntry := mkEntry 0 "mapPureEntry" #[] 5 #[
+    { valueId := 1, name := "k", typeId := 1, visibility := .public_ }
+  ] 2 #[instr (some (vd 2 2)) (.indexGet 0 1)] (.return_ (some 2))
+  let mapPureEntry := mkEntry 0 "mapPureEntry" #[] 2 #[
     instr (some (vd 0 0)) (.construct 0 0 #[]),
-    instr (some (vd 1 2)) (.literal 2 (ByteArray.mk #[20])),
-    instr (some (vd 2 2)) (.literal 2 (ByteArray.mk #[9])),
+    instr (some (vd 1 1)) (.literal 1 (ByteArray.mk #[20])),
+    instr (some (vd 2 1)) (.literal 1 (ByteArray.mk #[9])),
     instr (some (vd 3 0)) (.indexSet 0 1 2),
-    instr (some (vd 4 5)) (.pureCall 1 #[3, 1])
+    instr (some (vd 4 2)) (.pureCall 1 #[3, 1])
   ] (.return_ (some 4))
   let mapPureCarrier ← encodeCarrier "map-pure" {
-    mapBase with types := mapTypes, callables := #[mapPureEntry, mapLookupPure]
+    mapBase with types := mapExecTypes, callables := #[mapPureEntry, mapLookupPure]
   }
   let mapPureAdmitted ← admitOk "map-pure" mapPureCarrier
   expectReturned "map-pure" (stepReferenceSliceV1 mapPureAdmitted
     { initialized := true, canonicalValues := ByteArray.empty } (inv 0 #[]) #[])
     { initialized := true, canonicalValues := ByteArray.empty }
-    (some { typeId := 5, valueBytes := ByteArray.mk #[1, 9] }) #[]
+    (some { typeId := 2, valueBytes := ByteArray.mk #[1, 9] }) #[]
 
   let mapInvariant : CallableV1 := {
     id := 1, kind := .invariant, name := some "mapInvariant", params := #[]
@@ -3311,7 +3383,7 @@ private def testArrayBytesReferenceSlice : IO Unit := do
     { id := 3, name := none, shape := .unit },
     { id := 4, name := none, shape := .bytes (UInt32.ofNat valueBytesLen) }
   ]
-  let mapWorkGate := mkEntry 0 "mapWorkGate" #[] 3 #[] (.return_ none)
+  let mapWorkGate := mkEntry 0 "mapWorkGate" #[] 0 #[] (.return_ none)
   let mapWorkBase ← emptyData "MapWork"
   let boundedMapWorkCarrier ← encodeCarrier "bounded-map-work" {
     mapWorkBase with types := mapWorkTypes 64, callables := #[mapWorkGate]
@@ -3331,7 +3403,7 @@ private def testArrayBytesReferenceSlice : IO Unit := do
     { id := 3, name := none, shape := .array 0 2 },
     { id := 4, name := none, shape := .bytes 4096 }
   ]
-  let dualMapGate := mkEntry 0 "dualMapGate" #[] 2 #[] (.return_ none)
+  let dualMapGate := mkEntry 0 "dualMapGate" #[] 3 #[] (.return_ none)
   let dualMapCarrier ← encodeCarrier "dual-map-array" {
     mapWorkBase with types := dualMapTypes, callables := #[dualMapGate]
   }
@@ -3396,7 +3468,7 @@ private def testArrayBytesReferenceSlice : IO Unit := do
     { id := 2, name := none, shape := .unit },
     { id := 3, name := none, shape := .principal }
   ]
-  let principalMapGate := mkEntry 0 "principalMapGate" #[] 2 #[] (.return_ none)
+  let principalMapGate := mkEntry 0 "principalMapGate" #[] 0 #[] (.return_ none)
   let principalMapBase ← emptyData "PrincipalMap"
   let principalMapCarrier ← encodeCarrier "map-principal-u64" {
     principalMapBase with types := principalMapTypes, callables := #[principalMapGate]
@@ -3409,7 +3481,7 @@ private def testArrayBytesReferenceSlice : IO Unit := do
     { id := 1, name := none, shape := .uint 64 },
     { id := 2, name := none, shape := .unit }
   ]
-  let skinnyMapGate := mkEntry 0 "skinnyMapGate" #[] 2 #[] (.return_ none)
+  let skinnyMapGate := mkEntry 0 "skinnyMapGate" #[] 0 #[] (.return_ none)
   let skinnyMapCarrier ← encodeCarrier "map-u64-u64" {
     principalMapBase with types := skinnyMapTypes, callables := #[skinnyMapGate]
   }
@@ -3419,7 +3491,7 @@ private def testArrayBytesReferenceSlice : IO Unit := do
     { id := 1, name := none, shape := .unit },
     { id := 2, name := none, shape := .principal }
   ]
-  let dualPrincipalMapGate := mkEntry 0 "dualPrincipalMapGate" #[] 1 #[] (.return_ none)
+  let dualPrincipalMapGate := mkEntry 0 "dualPrincipalMapGate" #[] 0 #[] (.return_ none)
   let dualPrincipalMapCarrier ← encodeCarrier "map-principal-principal" {
     principalMapBase with
       types := dualPrincipalMapTypes
@@ -3434,7 +3506,7 @@ private def testArrayBytesReferenceSlice : IO Unit := do
     { id := 4, name := none, shape := .principal }
   ]
   let dualPrincipalArrayGate :=
-    mkEntry 0 "dualPrincipalArrayGate" #[] 2 #[] (.return_ none)
+    mkEntry 0 "dualPrincipalArrayGate" #[] 3 #[] (.return_ none)
   let dualPrincipalArrayCarrier ← encodeCarrier "dual-principal-map-array" {
     principalMapBase with
       types := dualPrincipalArrayTypes
@@ -3456,7 +3528,7 @@ private def testArrayBytesReferenceSlice : IO Unit := do
     { id := 3, name := none, shape := .unit },
     { id := 4, name := none, shape := .principal }
   ]
-  let nestedMapGate := mkEntry 0 "nestedMapGate" #[] 3 #[] (.return_ none)
+  let nestedMapGate := mkEntry 0 "nestedMapGate" #[] 1 #[] (.return_ none)
   let nestedMapCarrier ← encodeCarrier "map-nested-principal" {
     principalMapBase with types := nestedMapTypes, callables := #[nestedMapGate]
   }
@@ -3552,9 +3624,12 @@ private def testVariantReferenceSlice : IO Unit := do
       requirements := { items := #[commitRequirement] }
   }
   let optionCommitAdmitted ← admitOk "variant-option-commit" optionCommitCarrier
+  let optionCommitData ← dataOfCarrier "variant-option-commit" optionCommitCarrier
+  let optionTid ← anonTidBy optionCommitData
+    (fun s => match s with | .option _ => true | _ => false) "option"
   expectReturned "variant-option-commit"
     (stepReferenceSliceV1 optionCommitAdmitted pre (inv 0 #[]) #[]) pre
-    (some { typeId := 5, valueBytes := ByteArray.mk #[1, 9] }) #[]
+    (some { typeId := optionTid, valueBytes := ByteArray.mk #[1, 9] }) #[]
 
   let noneTag := mkEntry 0 "noneTag" #[] 3 #[
     instr (some (vd 0 5)) (.construct 5 0 #[]),
@@ -3563,9 +3638,12 @@ private def testVariantReferenceSlice : IO Unit := do
   let noneTagCarrier ← encodeCarrier "variant-none-tag"
     { base with types, callables := #[noneTag] }
   let noneTagAdmitted ← admitOk "variant-none-tag" noneTagCarrier
+  let noneTagData ← dataOfCarrier "variant-none-tag" noneTagCarrier
+  let u32Tid ← anonTidBy noneTagData
+    (fun s => match s with | .uint 32 => true | _ => false) "uint32"
   expectReturned "variant-none-tag"
     (stepReferenceSliceV1 noneTagAdmitted pre (inv 0 #[]) #[]) pre
-    (some { typeId := 3, valueBytes := ByteArray.mk #[0, 0, 0, 0] }) #[]
+    (some { typeId := u32Tid, valueBytes := ByteArray.mk #[0, 0, 0, 0] }) #[]
 
   let nonePayload := mkEntry 0 "nonePayload" #[] 2 #[
     instr (some (vd 0 5)) (.construct 5 0 #[]),
@@ -3584,9 +3662,12 @@ private def testVariantReferenceSlice : IO Unit := do
   let emptyTagCarrier ← encodeCarrier "variant-empty-tag"
     { base with types, callables := #[emptyTag] }
   let emptyTagAdmitted ← admitOk "variant-empty-tag" emptyTagCarrier
+  let emptyTagData ← dataOfCarrier "variant-empty-tag" emptyTagCarrier
+  let emptyU32Tid ← anonTidBy emptyTagData
+    (fun s => match s with | .uint 32 => true | _ => false) "uint32"
   expectReturned "variant-empty-tag"
     (stepReferenceSliceV1 emptyTagAdmitted pre (inv 0 #[]) #[]) pre
-    (some { typeId := 3, valueBytes := ByteArray.mk #[0, 0, 0, 0] }) #[]
+    (some { typeId := emptyU32Tid, valueBytes := ByteArray.mk #[0, 0, 0, 0] }) #[]
 
   let optionPure := mkPureFn 1 "optionPure"
     #[{ valueId := 0, name := "x", typeId := 2, visibility := .public_ }] 2 #[

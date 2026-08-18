@@ -3,7 +3,7 @@
   B-SC-DEC fixed-fields leaf.
 
   Covers kernel mid-offset decode of:
-    * Bool + UInt64 TypeDecl and two-element types array
+    * Bool TypeDecl and singleton types array (usage-closure closed)
     * four empty tables
     * InvariantDecl + singleton array under demo Legal
     * sole value.bool ProgramRequirements
@@ -35,15 +35,14 @@ private def expect (condition : Bool) (message : String) : IO Unit :=
 /-! ### Kernel: types / empty / inv / requirements mid-offset -/
 
 theorem kernel_encode_types :
-    encodeArray encodeTypeDeclV1
-        #[simpleClosureBoolTypeV1, simpleClosureUInt64TypeV1] =
+    encodeArray encodeTypeDeclV1 #[simpleClosureBoolTypeV1] =
       .ok typesArrayBytesV1 :=
   encodeTypes_simpleClosure_eq_ok
 
 theorem kernel_decode_types (left right : ByteArray) :
     decodeArray maxTableElements decodeTypeDeclV1
         ⟨left ++ typesArrayBytesV1 ++ right, left.size, 1⟩ =
-      .ok (#[simpleClosureBoolTypeV1, simpleClosureUInt64TypeV1],
+      .ok (#[simpleClosureBoolTypeV1],
         ⟨left ++ typesArrayBytesV1 ++ right,
           left.size + typesArrayBytesV1.size, 1⟩) :=
   demo_decodeTypes_mid left right
@@ -88,8 +87,7 @@ private def testTypesMidOffset : IO Unit := do
       ⟨left ++ typesArrayBytesV1 ++ right, left.size, 1⟩ with
   | .error e => throw <| IO.userError s!"types mid decode failed: {repr e}"
   | .ok (types, c) =>
-      expect (types == #[simpleClosureBoolTypeV1, simpleClosureUInt64TypeV1])
-        "types value"
+      expect (types == #[simpleClosureBoolTypeV1]) "types value"
       expect (c.offset == left.size + typesArrayBytesV1.size) "types cursor"
 
 private def testEmptyTablesMidOffset : IO Unit := do

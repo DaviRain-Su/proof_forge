@@ -126,18 +126,13 @@ def validateSemanticProgramStructurePreludeV1 (data : SemanticProgramDataV1) :
     type/result contract (incl. value-producing result-presence, void-op
     result-presence, and ExternalCall/Schedule argument serializability) —
     NOT runtime CheckedCast representability,
-    Array/Bytes bounds and Enum tag agreement, recursive/full TypeKey closure
-    beyond the enforced named-prefix rank and closed cycle condition,
-    full anonymous ranking/reachability (SPEC
-    canonical unsigned-lexicographic anonymous TypeKey/ranking bytes; the
-    isolated `typeKey` byte form is pinned but not consumed here), and
-    usage closure/missing/unreferenced rejection,
-    provenance inventory join, or ProgramV1 normalizer. The named-body
-    Option-cycle legality rule (SPEC §5: any recursive cycle must pass
-    through an `Option`) is now closed by the combination of the earlier
-    `recursiveAnonymous` anonymous-cycle gate and the `namedBodyCycle`
-    subphase; anonymous canonical key bytes/rank/order, full TypeKey
-    closure reachability/provenance, and product wiring remain deferred. -/
+    Array/Bytes bounds and Enum tag agreement, recursive/full TypeKey
+    reachability beyond usage closure, provenance inventory join, or
+    ProgramV1 normalizer. The named-body Option-cycle legality rule
+    (SPEC §5: any recursive cycle must pass through an `Option`) is closed
+    by `recursiveAnonymous` + `namedBodyCycle`. Anonymous SPEC `typeKey`
+    rank and anonymous usage closure are StructureV1 phases (Stage C/D);
+    formal TASK-D2-06 / TST-SEM-001 remain pending. -/
 def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
     Except SemanticWireErrorV1 Unit := do
   validateSemanticProgramStructurePreludeV1 data
@@ -148,12 +143,14 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   --   (anonymous-container-cycle rejection without a named anchor), then
   --   named-body Option-cycle legality (SPEC §5: any recursive cycle must
   --   pass through an `Option`, enforced as acyclicity of the TypeId graph
-  --   induced after removing every `Option` node), then named Struct/Enum
-  --   exact-name uniqueness (SPEC §5/§6). The phase seam preserves the
-  --   public `.nonCanonical` wire error while exposing the subphase to
-  --   focused tests.
+  --   induced after removing every `Option` node), then anonymous SPEC
+  --   `typeKey` rank, then SPEC §5 anonymous usage closure (every anonymous
+  --   TypeDecl reached from a named body or Core type slot), then named
+  --   Struct/Enum exact-name uniqueness (SPEC §5/§6). The phase seam
+  --   preserves the public `.nonCanonical` wire error while exposing the
+  --   subphase to focused tests.
   validateTypesStructureV1 data.types
-  match validateTypeKeyPhasesV1 data.types with
+  match validateTypeKeyPhasesWithUsageClosureV1 data with
   | .ok () => pure ()
   | .error failure => throw failure.error
   validateNamedTypeNameUniquenessV1 data.types
@@ -210,6 +207,7 @@ theorem validateSemanticProgramStructureV1_eq_ok_of_phases
     (hPrelude : validateSemanticProgramStructurePreludeV1 data = .ok ())
     (hTypes : validateTypesStructureV1 data.types = .ok ())
     (hTypeKeys : validateTypeKeyPhasesV1 data.types = .ok ())
+    (hUsageClosure : validateAnonymousTypeUsageClosureV1 data = .ok ())
     (hNamedTypes : validateNamedTypeNameUniquenessV1 data.types = .ok ())
     (hConstants : validateConstantsValueBytesV1 data.types data.constants
       maxCanonicalProgramBytes = .ok constantBudget)
@@ -229,10 +227,13 @@ theorem validateSemanticProgramStructureV1_eq_ok_of_phases
     (hCommitRequirements : validateCommitRequirementsV1 data = .ok ())
     (hEnvReadRequirements : validateEnvReadRequirementsV1 data = .ok ()) :
     validateSemanticProgramStructureV1 data = .ok () := by
-  simp only [validateSemanticProgramStructureV1, hPrelude, hTypes, hTypeKeys,
-    hNamedTypes, hConstants, hCallables, hConstantNames, hStateNames, hEventNames,
-    hErrorNames, hInterfaceNames, hSignatures, hInvariantJoin, hIdentifiers, hCfg,
-    hRequirements, hContextRequirements, hCommitRequirements, hEnvReadRequirements,
-    Bind.bind, Pure.pure, Except.bind, Except.pure]
+  have hTypeKeysUsage :
+      validateTypeKeyPhasesWithUsageClosureV1 data = .ok () :=
+    validateTypeKeyPhasesWithUsageClosureV1_eq_ok_of_phases data hTypeKeys hUsageClosure
+  simp only [validateSemanticProgramStructureV1, hPrelude, hTypes, hTypeKeysUsage,
+    hNamedTypes, hConstants, hCallables, hConstantNames, hStateNames,
+    hEventNames, hErrorNames, hInterfaceNames, hSignatures, hInvariantJoin,
+    hIdentifiers, hCfg, hRequirements, hContextRequirements, hCommitRequirements,
+    hEnvReadRequirements, Bind.bind, Pure.pure, Except.bind, Except.pure]
 
 end ProofForgeV2.Semantic.WireV1

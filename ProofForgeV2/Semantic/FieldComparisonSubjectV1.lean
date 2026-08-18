@@ -703,6 +703,57 @@ theorem cfgInvariantPhasesV1
       invariantFuelPhasesV1 viewName literalInvariantName eqInvariantName
         neInvariantName
 
+private def usageClosureFixtureV1 : SemanticProgramDataV1 :=
+  subjectDataV1
+    { components := { head := "Proof", tail := #["Forge"] } }
+    "s0" "s1" "s2" "view" "lit" "eq" "ne"
+
+private def fieldComparisonCoreRootsV1 : Array TypeIdV1 :=
+  collectCoreTypeSlotRootsV1 usageClosureFixtureV1
+
+private theorem collectCoreTypeSlotRootsV1_fieldComparison_fixture :
+    collectCoreTypeSlotRootsV1 usageClosureFixtureV1 = fieldComparisonCoreRootsV1 := rfl
+
+private theorem foldBoolUInt64CoreRootsV1_fieldComparison_fixture :
+    foldBoolUInt64CoreRootsV1 fieldComparisonCoreRootsV1 = #[true, true] := by
+  dsimp [fieldComparisonCoreRootsV1, usageClosureFixtureV1, subjectDataV1,
+    collectCoreTypeSlotRootsV1, foldBoolUInt64CoreRootsV1]
+  simp [typesV1, callablesV1, literalReturnCallableV1, twoStateCompareInvariantCallableV1,
+    Array.foldl, Array.set!, Array.replicate]
+  rfl
+
+private theorem anonymousTypeUsageBitmapV1_fieldComparison_fixture :
+    anonymousTypeUsageBitmapV1 usageClosureFixtureV1 = #[true, true] := by
+  rw [anonymousTypeUsageBitmapV1_allAnonymousLeaf_boolUInt64 usageClosureFixtureV1
+    (by simp [usageClosureFixtureV1, subjectDataV1, typesV1])]
+  rw [collectCoreTypeSlotRootsV1_fieldComparison_fixture,
+    foldBoolUInt64CoreRootsV1_fieldComparison_fixture]
+
+private theorem anonymousTypeUsageBitmapV1_fieldComparison_names_irrel
+    (qualifiedName : QualifiedName)
+    (state0Name state1Name state2Name : String)
+    (viewName literalInvariantName eqInvariantName neInvariantName : String) :
+    anonymousTypeUsageBitmapV1
+      (subjectDataV1 qualifiedName state0Name state1Name state2Name viewName
+        literalInvariantName eqInvariantName neInvariantName) =
+      anonymousTypeUsageBitmapV1 usageClosureFixtureV1 := by
+  simp [anonymousTypeUsageBitmapV1, subjectDataV1, usageClosureFixtureV1, typesV1,
+    callablesV1, literalReturnCallableV1, twoStateCompareInvariantCallableV1,
+    collectCoreTypeSlotRootsV1]
+
+private theorem usageClosureV1
+    (qualifiedName : QualifiedName)
+    (state0Name state1Name state2Name : String)
+    (viewName literalInvariantName eqInvariantName neInvariantName : String) :
+    validateAnonymousTypeUsageClosureV1
+      (subjectDataV1 qualifiedName state0Name state1Name state2Name viewName
+        literalInvariantName eqInvariantName neInvariantName) = .ok () := by
+  apply validateAnonymousTypeUsageClosureV1_bool_uint64_coreMarked_eq_ok
+  · simp [subjectDataV1, typesV1]
+  · rw [anonymousTypeUsageBitmapV1_fieldComparison_names_irrel qualifiedName state0Name
+      state1Name state2Name viewName literalInvariantName eqInvariantName neInvariantName,
+    anonymousTypeUsageBitmapV1_fieldComparison_fixture]
+
 /-! ### Full production structure composition -/
 
 /-- Every production structure phase accepts the parameterized
@@ -727,6 +778,8 @@ theorem structureV1
       legal.hnameShape
   · simpa [data, subjectDataV1] using typesStructureV1
   · simpa [data, subjectDataV1] using typeKeyPhasesV1
+  · exact usageClosureV1 qualifiedName state0Name state1Name state2Name viewName
+      literalInvariantName eqInvariantName neInvariantName
   · simpa [data, subjectDataV1] using namedTypeNamesV1
   · exact constantsValueBytesV1 qualifiedName state0Name state1Name state2Name
       viewName literalInvariantName eqInvariantName neInvariantName

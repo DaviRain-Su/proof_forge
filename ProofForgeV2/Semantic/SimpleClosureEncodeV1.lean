@@ -188,7 +188,7 @@ theorem encodeEmptyErrors_materialize (p : SimpleClosureParamsV1) :
 /-! ### Pre-gates -/
 
 theorem materialize_types_size (p : SimpleClosureParamsV1) :
-    (materializeSimpleClosureDataV1 p).types.size = 2 := by
+    (materializeSimpleClosureDataV1 p).types.size = 1 := by
   simp [materializeSimpleClosureDataV1]
 
 theorem materialize_constants_size (p : SimpleClosureParamsV1) :
@@ -222,7 +222,7 @@ theorem checkTableSize_ok_of_le (n : Nat) (h : n ≤ maxTableElements) :
 
 theorem checkTableSize_materialize_types (p : SimpleClosureParamsV1) :
     checkTableSize (materializeSimpleClosureDataV1 p).types.size = .ok () := by
-  rw [materialize_types_size]; exact checkTableSize_ok_of_le 2 (by decide)
+  rw [materialize_types_size]; exact checkTableSize_ok_of_le 1 (by decide)
 
 theorem checkTableSize_materialize_constants (p : SimpleClosureParamsV1) :
     checkTableSize (materializeSimpleClosureDataV1 p).constants.size = .ok () := by
