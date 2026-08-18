@@ -370,7 +370,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     | .uint64, none, false | .int64, none, false | .bool, none, false =>
         planError s!"OpenVM entry '{ent.name}' non-Unit result is missing without terminal revert"
     | .aggregate n, some e, false => do
-        unless n == 24 || (1 ≤ n && n ≤ 8) do
+        unless n == 24 || n == 9 || (1 ≤ n && n ≤ 8) do
           planError s!"OpenVM entry '{ent.name}' aggregate return must have 1..8 leaves (or 24 for Map)"
         unless ent.leaves.size == n && ent.leafIsInt.size == n do
           planError
@@ -421,7 +421,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
           validateExpr v.value .bool "view value" v.params.size plan.states.size
             exprBudget signed
     | .aggregate n =>
-        unless n == 24 || (1 ≤ n && n ≤ 8) do
+        unless n == 24 || n == 9 || (1 ≤ n && n ≤ 8) do
           planError s!"OpenVM view '{v.name}' aggregate return must have 1..8 leaves (or 24 for Map)"
         unless v.leaves.size == n && v.leafIsInt.size == n do
           planError

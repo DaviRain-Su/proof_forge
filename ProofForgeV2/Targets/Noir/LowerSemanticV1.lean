@@ -532,6 +532,7 @@ private def validateNoirTypeClosureV1
     (intPolicy := pilotIntWidthPolicyNarrow)
     (fieldPolicy := pilotFieldPolicyBn254)
     (principalPolicy := pilotPrincipalPolicyAdmit)
+    (stringPolicy := pilotStringPolicyAdmit)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
     (containerPolicy := pilotContainerStatePolicyArrayMapBytes)
 
@@ -833,7 +834,7 @@ private partial def flattenTypeLeafSpecsV1
     pure #[(namePrefix, false)]
   else if types.int64TypeId == some typeId then
     pure #[(namePrefix, true)]
-  else if types.isPrincipal typeId then
+  else if types.isPrincipal typeId || types.isString typeId then
     flattenWireBytesLeafSpecsV1 namePrefix noirPrincipalDataWordCountV1
   else if types.isNamedAggregate typeId then
     match typeDecls[typeId.toNat]? with
@@ -886,7 +887,7 @@ private partial def flattenTypeLeafSpecsV1
               "unsupported Noir semantic shape: named type must be Struct or Enum"
   else
     throw <| .planInvariant .noir
-      "unsupported Noir semantic shape: aggregate leaf must be UInt64, Int64, Principal, or named Struct/Enum"
+      "unsupported Noir semantic shape: aggregate leaf must be UInt64, Int64, Principal, String, or named Struct/Enum"
 
 /-- N-ANON-RESULT (Noir ABI): anonymous result leaf layout for admitted
 container returns. `Array UInt64 N` → N×u64 leaves; `Option UInt64` →
@@ -940,7 +941,7 @@ precise fail-closed diagnostics instead of a scalar fallthrough). -/
 private def isAggregateResultCandidateV1
     (typeDecls : Array TypeDeclV1) (types : NoirTypeClosureV1)
     (typeId : TypeIdV1) : Bool :=
-  if types.isNamedAggregate typeId then true
+  if types.isNamedAggregate typeId || types.isPrincipal typeId || types.isString typeId then true
   else
     match typeDecls[typeId.toNat]? with
     | some { shape := .array .., name := none, .. }
@@ -956,7 +957,9 @@ private def aggregateResultLeafTypesV1
     (typeDecls : Array TypeDeclV1) (types : NoirTypeClosureV1)
     (owner : String) (typeId : TypeIdV1) : CompileResult (Array InputType) := do
   let leafTypes ←
-    if types.isNamedAggregate typeId then
+    if types.isPrincipal typeId || types.isString typeId then
+      pure (Array.replicate (noirPrincipalDataWordCountV1 + 1) InputType.u64)
+    else if types.isNamedAggregate typeId then
       let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "ret"
       pure (specs.map fun (_, isInt) => if isInt then InputType.i64 else .u64)
     else
@@ -964,15 +967,17 @@ private def aggregateResultLeafTypesV1
       | some ls => pure ls
       | none =>
           throw <| .planInvariant .noir
-            s!"{owner} does not return a named Struct/Enum or admitted anonymous Array/Option aggregate"
+            s!"{owner} does not return a named Struct/Enum or admitted anonymous Array/Option/Principal/String aggregate"
   let n := leafTypes.size
   unless n > 0 do
     throw <| .planInvariant .noir
       s!"{owner} aggregate return must have at least one leaf"
   let maxLeaves :=
-    match typeDecls[typeId.toNat]? with
-    | some { shape := .map _ _, name := none, .. } => noirMapPilotLeafCountV1
-    | _ => 8
+    if types.isPrincipal typeId || types.isString typeId then noirPrincipalDataWordCountV1 + 1
+    else
+      match typeDecls[typeId.toNat]? with
+      | some { shape := .map _ _, name := none, .. } => noirMapPilotLeafCountV1
+      | _ => 8
   unless n ≤ maxLeaves do
     throw <| .planInvariant .noir
       s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of {maxLeaves}"
@@ -1137,7 +1142,8 @@ private def makeStateLayoutV1
         leaves := leaves.push sourceId
         leafOrd := leafOrd + 1
       stateLeaves := stateLeaves.push leaves
-    else if types.isNamedAggregate state.typeId || types.isPrincipal state.typeId then
+    else if types.isNamedAggregate state.typeId || types.isPrincipal state.typeId ||
+        types.isString state.typeId then
       -- Named Struct/Enum (NoirAggregate) or T12 Principal: flatten to u64 leaves.
       requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedState noirPlanErr types state
         (allowNonPublic := true)
@@ -1230,7 +1236,8 @@ private def makeParamsV1 (owner : String) (inputOffset : Nat)
       | _ =>
           throw <| .planInvariant .noir
             s!"unsupported Noir semantic shape: Option parameter '{param.name}' must be anonymous Option UInt64/Int64"
-    else if types.isNamedAggregate param.typeId || types.isPrincipal param.typeId then
+    else if types.isNamedAggregate param.typeId || types.isPrincipal param.typeId ||
+        types.isString param.typeId then
       -- Named Struct/Enum or T12 Principal: expand to u64 leaf params.
       requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedParam
         noirPlanErr types owner param (allowNonPublic := true)
@@ -2181,14 +2188,14 @@ private def lowerBlockInstructionsV1
                   dependencies := #[]
                 }
           | none =>
-              if types.isPrincipal typeId then
+              if types.isPrincipal typeId || types.isString typeId then
                 let leafExprs ← decodePrincipalLiteralLeavesV1 bytes
                 let leafIsInt := leafExprs.map (fun _ => false)
                 let value := mkAggregateValueV1 leafExprs leafIsInt #[] 1 leafExprs.size
                 values := ← appendResultValueV1 typeId values result value
               else
                 throw <| .planInvariant .noir
-                  "unsupported Noir semantic shape: literal is not UInt{8,16,32,64,128,256}, Int64, Bool, or Principal"
+                  "unsupported Noir semantic shape: literal is not UInt{8,16,32,64,128,256}, Int64, Bool, Principal, or String"
     | .stateLoad stateId, some result =>
         let leaves ← findStateLeavesV1 layout stateId
         if let some (expectedN, leafByteWidth, leafIsInt) :=
@@ -2234,7 +2241,8 @@ private def lowerBlockInstructionsV1
             leafIsIntFlags := leafIsIntFlags.push (i == 1 && payloadIsInt)
           let value := mkAggregateValueV1 leafExprs leafIsIntFlags #[] 1 leaves.size
           values := ← appendResultValueV1 result.typeId values result value
-        else if types.isNamedAggregate result.typeId || types.isPrincipal result.typeId then
+        else if types.isNamedAggregate result.typeId || types.isPrincipal result.typeId ||
+            types.isString result.typeId then
           let specs ← flattenTypeLeafSpecsV1 layout.typeDecls types result.typeId "state"
           unless specs.size == leaves.size do
             throw <| .planInvariant .noir

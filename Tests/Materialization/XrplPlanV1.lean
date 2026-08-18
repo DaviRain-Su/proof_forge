@@ -709,8 +709,9 @@ unsafe def testPointEntryRet : IO Unit := do
   expect (rsFile.contents.contains "p_y_cur")
     "PointEntryRet tuple must read p_y"
 
-unsafe def testPrincipalReturnFailClosed : IO Unit := do
-  expectPlanFc "PrincipalRet" <|
+unsafe def testPrincipalReturn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
     "program PrincipalReturn where\n" ++
@@ -721,6 +722,38 @@ unsafe def testPrincipalReturnFailClosed : IO Unit := do
     "    return 0\n" ++
     "  view getOwner() : Principal do\n" ++
     "    return owner\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-principal-ret>" "Tests.XrplPrincipalReturn" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  let some v := plan.views[0]? |
+    throw <| IO.userError "PrincipalReturn must emit a view"
+  expect (v.resultKind == .aggregate 9)
+    s!"PrincipalReturn view must be aggregate 9, got {repr v.resultKind}"
+  expect (v.leaves.size == 9) "PrincipalReturn must carry nine identity leaves"
+
+unsafe def testStringReturn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program StringReturn where\n" ++
+    "  state label : String\n" ++
+    "  init(initial : String) do\n" ++
+    "    label := initial\n" ++
+    "  entry ping() : UInt64 do\n" ++
+    "    return 0\n" ++
+    "  view getLabel() : String do\n" ++
+    "    return label\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-string-ret>" "Tests.XrplStringReturn" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  let some v := plan.views[0]? |
+    throw <| IO.userError "StringReturn must emit a view"
+  expect (v.resultKind == .aggregate 9)
+    s!"StringReturn view must be aggregate 9, got {repr v.resultKind}"
+  expect (v.leaves.size == 9) "StringReturn must carry nine identity leaves"
 
 /-- T8b: Bytes N view flattens to `(u64, …)`; entry Bytes stays FC. -/
 unsafe def testBytesViewRet : IO Unit := do
@@ -1224,7 +1257,8 @@ unsafe def run : IO Unit := do
   testArrInt64Ret
   testOptInt64Ret
   testPrincipalIdentityLeaves
-  testPrincipalReturnFailClosed
+  testPrincipalReturn
+  testStringReturn
   testPointBoxFlatten
   testPointParam
   testBytesParam

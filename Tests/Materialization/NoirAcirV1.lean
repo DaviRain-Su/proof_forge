@@ -33,7 +33,7 @@
   IR-5 / G5 honesty matrix:
   * §3.2 status column (Y/P/F) pinned in CaptureV1.honestyMatrixRowsV1
   * call/schedule = P (witness-binding only; never ACIR Y)
-  * String state / Option non-UInt64 = F (product plan-FC)
+  * Option non-UInt64 = F (product plan-FC；String 为 9 叶 Plan identity)
   * prove/VK = F (Finalize deployable=false; no product prove; IR-7 PARTIAL)
   * No false Y
 
@@ -87,7 +87,7 @@ open ProofForgeV2.Targets.Noir.Acir.CaptureV1
    honestyProveNoteV1 finalizeEvidenceNoteV1 finalizeAcirEvidenceNotePrefixV1
    productAcirProfileV1 acirExtraRelPathV1
    callSchedulePackageStemsV1 callScheduleHonestySourceTextV1
-   stringStateFcSourceTextV1 optionStringStateFcSourceTextV1
+   optionStringStateFcSourceTextV1
    optionBoolStateFcSourceTextV1
    honestyAcirYFamiliesV1 honestyAcirFFamiliesV1 honestyAcirPFamiliesV1
    isHonestyYV1 HonestyStatusV1)
@@ -683,7 +683,7 @@ def testHonestyMatrixStatusColumn : IO Unit := do
     s!"IR-5 matrix must pin 9 rows, got {honestyMatrixRowsV1.size}"
   let families := honestyMatrixRowsV1.map (·.family)
   expect (families.contains "call/schedule slots") "matrix call/schedule row"
-  expect (families.contains "String state / Option non-UInt64") "matrix String/Option row"
+  expect (families.contains "Option non-UInt64") "matrix Option non-UInt64 row"
   expect (families.contains "prove/VK") "matrix prove/VK row"
   expect (families.contains "Option UInt64 state") "matrix Option UInt64 Y row"
   -- No false Y: call/schedule, String/Option non-UInt64, prove/VK must not be Y.
@@ -697,12 +697,12 @@ def testHonestyMatrixStatusColumn : IO Unit := do
         "call/schedule evidence must cite witness-binding"
       expect (!isHonestyYV1 row.acirStatus)
         "call/schedule must never be ACIR Y"
-    if row.family == "String state / Option non-UInt64" then
+    if row.family == "Option non-UInt64" then
       expect (row.acirStatus == .F)
-        s!"String/Option non-UInt64 ACIR must be F, got {row.acirStatus.toString}"
-      expect (row.noirPathStatus == .F) "String/Option non-UInt64 Noir path F"
+        s!"Option non-UInt64 ACIR must be F, got {row.acirStatus.toString}"
+      expect (row.noirPathStatus == .F) "Option non-UInt64 Noir path F"
       expect (row.evidence.contains "plan-FC")
-        "String/Option non-UInt64 evidence must cite plan-FC"
+        "Option non-UInt64 evidence must cite plan-FC"
     if row.family == "prove/VK" then
       expect (row.acirStatus == .F)
         s!"prove/VK ACIR must be F, got {row.acirStatus.toString}"
@@ -720,13 +720,13 @@ def testHonestyMatrixStatusColumn : IO Unit := do
   expect (honestyAcirPFamiliesV1.size == 2)
     s!"ACIR P families (Array/Map/Bytes + call/schedule), got {honestyAcirPFamiliesV1.size}"
   expect (honestyAcirFFamiliesV1.size == 2)
-    s!"ACIR F families (String/Option + prove), got {honestyAcirFFamiliesV1.size}"
+    s!"ACIR F families (Option non-UInt64 + prove), got {honestyAcirFFamiliesV1.size}"
   expect (!honestyAcirYFamiliesV1.contains "call/schedule slots")
     "false Y guard: call/schedule not in Y bucket"
   expect (!honestyAcirYFamiliesV1.contains "prove/VK")
     "false Y guard: prove/VK not in Y bucket"
-  expect (!honestyAcirYFamiliesV1.contains "String state / Option non-UInt64")
-    "false Y guard: String/Option non-UInt64 not in Y bucket"
+  expect (!honestyAcirYFamiliesV1.contains "Option non-UInt64")
+    "false Y guard: Option non-UInt64 not in Y bucket"
   -- Honesty notes non-empty and content-bound.
   expect (honestyCallScheduleNoteV1.contains "witness-binding")
     "call/schedule honesty note"
@@ -779,11 +779,8 @@ private unsafe def expectProductPlanFailClosed
               throw <| IO.userError
                 s!"{label}: Noir ACIR honesty requires plan-FC (must not materialize)"
 
-/-- IR-5: String state + Option String + Option Bool product plan-FC pins. -/
+/-- IR-5: Option String + Option Bool product plan-FC pins. String is 9-leaf identity. -/
 unsafe def testHonestyOptionStringProductFailClosed : IO Unit := do
-  expectProductPlanFailClosed "string-state"
-    stringStateFcSourceTextV1 "Examples.StringStateFc"
-    #["String", "unsupported", "state", "UInt", "scalar", "aggregate"]
   expectProductPlanFailClosed "option-string-state"
     optionStringStateFcSourceTextV1 "Examples.OptionStringStateFc"
     #["Option", "UInt64", "payload", "unsupported", "state", "String"]

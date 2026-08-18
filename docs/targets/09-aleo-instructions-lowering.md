@@ -94,7 +94,8 @@ deterministic and source-order stable.
 | multi-leaf / aggregate state view | query descriptor only (`kind=computed`; `result` is a `u64`/`i64` array; not Final / not on-chain output) |
 | event、external call、schedule、ContextRead | fail closed |
 | payload error、nonempty invariant | fail closed |
-| Principal、String、UInt256、Int128/256、nested Option/Map | fail closed |
+| String/Principal 9-leaf identity（state/param/return；非 Aleo address remap） | admitted（`n==9` 例外；不是 UTF-8 ABI） |
+| UInt256、Int128/256、nested Option/Map | fail closed |
 | records、proof、deploy、network query | absent |
 
 A Plan-admitted shape that cannot be encoded fails with `ALEO-IR-G5-HARD`. The residual fallback

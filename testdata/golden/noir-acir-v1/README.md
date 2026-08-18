@@ -29,7 +29,7 @@ path-normalized multi-fixture admit inventory under `fixtures/`.
 - **IR-5 / G5 honesty matrix:** §3.2 status column in
   `CaptureV1.honestyMatrixRowsV1` + `NoirAcirV1` FC pins —
   call/schedule **P** (witness-binding only, never ACIR Y),
-  String state / Option non-UInt64 **F** (plan-FC),
+  Option non-UInt64 **F** (plan-FC；String 为 9 叶 Plan identity，非 ACIR Y),
   prove/VK **F** (Finalize `deployable=false`; no product prove). No false Y.
 - **IR-6 / G4 product dual-write:** default profile
   `noir-source-u64-relations-v1` remains **zero-tool** Finalize (`.nr`

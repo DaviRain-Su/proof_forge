@@ -1495,9 +1495,26 @@ private unsafe def testPrincipalIdentityLeaves
     "    return owner\n"
   let compiledRet ← compileSource session retSrc
     "Examples.PrincipalReturn" "<icp-principal-ret>"
-  expectPlanErrorContaining "PrincipalReturn" "Principal"
-    (planFromCompiledSemanticV1 compiledRet)
-  IO.println "  ✓ Principal 9-leaf state + Candid principal params (CAP-1b)"
+  let planRet ← liftResult <| planFromCompiledSemanticV1 compiledRet
+  let some v := planRet.views[0]? |
+    throw <| IO.userError "PrincipalReturn must emit a view"
+  expect (v.resultKind == .aggregate 9)
+    s!"PrincipalReturn view must be aggregate 9, got {repr v.resultKind}"
+  IO.println "  ✓ Principal 9-leaf state + Candid principal params + 9-leaf view return"
+  let strRetSrc := wrapProgram "StringReturn" <|
+    "  state label : String\n\n" ++
+    "  init(initial : String) do\n" ++
+    "    label := initial\n\n" ++
+    "  view getLabel() : String do\n" ++
+    "    return label\n"
+  let compiledStr ← compileSource session strRetSrc
+    "Examples.StringReturn" "<icp-string-ret>"
+  let planStr ← liftResult <| planFromCompiledSemanticV1 compiledStr
+  let some sv := planStr.views[0]? |
+    throw <| IO.userError "StringReturn must emit a view"
+  expect (sv.resultKind == .aggregate 9)
+    s!"StringReturn view must be aggregate 9, got {repr sv.resultKind}"
+  IO.println "  ✓ String 9-leaf view return (not Candid text/principal)"
 
 /-- Dense Map UInt64 UInt64 flattens to 24 i64 globals (cap-8 × occ/key/val).
     No Candid `vec`/`record`/`map`. Cap-8 overflow is a Plan assert. -/

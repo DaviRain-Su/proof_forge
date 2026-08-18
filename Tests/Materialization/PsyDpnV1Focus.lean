@@ -8,3 +8,5 @@ unsafe def main : IO Unit := do
   Tests.Materialization.PsyDpnV1.testMapReturn
   Tests.Materialization.PsyDpnV1.testMapInt64Return
   Tests.Materialization.PsyDpnV1.testMapParam
+  Tests.Materialization.PsyDpnV1.testPrincipalReturn
+  Tests.Materialization.PsyDpnV1.testStringReturn

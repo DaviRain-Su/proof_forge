@@ -206,7 +206,7 @@ private def xrplTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt64/Int64/UInt32/UInt8 widths are supported"
   unsupportedShapeDetail :=
-    "only anonymous UInt64, Int64, UInt32 (index), UInt8 (Bytes element), Bool, Unit, Array UInt64/Int64 N, Bytes N (N UInt64 low-8 leaves, N in 1..8), Option UInt64/Int64 2-leaf, Map UInt64/Int64 cap-8, Principal 9-leaf identity (len+w0..w7, not an XRPL AccountID), and named Struct/Enum UInt64/Int64 leaf flatten are supported (narrow Int/Field/String stay fail closed; numeric domain is homogeneous)"
+    "only anonymous UInt64, Int64, UInt32 (index), UInt8 (Bytes element), Bool, Unit, Array UInt64/Int64 N, Bytes N (N UInt64 low-8 leaves, N in 1..8), Option UInt64/Int64 2-leaf, Map UInt64/Int64 cap-8, Principal/String 9-leaf identity (len+w0..w7, not an XRPL AccountID / not UTF-8 ABI), and named Struct/Enum UInt64/Int64 leaf flatten are supported (narrow Int/Field stay fail closed; numeric domain is homogeneous)"
 
 private def pilotUintWidthPolicyU64U32U8 : PilotUintWidthPolicy where
   admittedWidths := #[64, 32, 8]
@@ -220,6 +220,7 @@ private def validateXrplTypeClosureV1
     (intPolicy := pilotIntWidthPolicyI64)
     (fieldPolicy := pilotFieldPolicyNone)
     (principalPolicy := pilotPrincipalPolicyAdmit)
+    (stringPolicy := pilotStringPolicyAdmit)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
     (containerPolicy := pilotContainerStatePolicyArrayMapBytes)
 
@@ -300,6 +301,12 @@ private def isUnitType (types : XrplTypeClosureV1) (typeId : TypeIdV1) : Bool :=
 
 private def isPrincipalType (types : XrplTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   types.principalTypeId == some typeId
+
+private def isStringType (types : XrplTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  types.stringTypeId == some typeId
+
+private def isWireIdentityType (types : XrplTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  types.principalTypeId == some typeId || types.stringTypeId == some typeId
 
 /-- T4: 9 UInt64 identity leaves (`len` + 8×UInt64 body). Not an AccountID. -/
 private def principalDataWordCountV1 : Nat := 8
@@ -696,8 +703,8 @@ private def makeStateLayoutV1
         leaves := leaves.push states.size
         states := states.push { name := leafName }
       leavesOf := leavesOf.push leaves
-    else if isPrincipalType types st.typeId then
-      requirePublicUInt64OrInt64OrFieldOrPrincipalState xrplPlanErr types st
+    else if isWireIdentityType types st.typeId then
+      requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedState xrplPlanErr types st
       if states.size + principalLeafCountV1 > maxStateFields then
         planError "unsupported XRPL semantic shape: state field count exceeds limit"
       let leafSpecs ← flattenPrincipalLeafNamesV1 st.name
@@ -859,7 +866,7 @@ private def lowerLiteral
   else if isBoolType types typeId then
     let b ← decodeBoolLiteralBit xrplPlanErr "XRPL" valueBytes
     pure { ty := .bool, expr := .litBool b, expandedNodes := 1 }
-  else if isPrincipalType types typeId then
+  else if isWireIdentityType types typeId then
     let leaves ← decodePrincipalLiteralLeavesV1 valueBytes
     pure (mkPrincipalLeaves leaves)
   else
@@ -1069,7 +1076,7 @@ private partial def lowerBlockInstructions
                     mkOptionLeaves (phys.map (fun fi => .stateLoad fi))
                   else if isAnonymousMapTypeIdV1 data.types vd.typeId then
                     mkMapLeaves (phys.map (fun fi => .stateLoad fi))
-                  else if isPrincipalType types vd.typeId then
+                  else if isWireIdentityType types vd.typeId then
                     mkPrincipalLeaves (phys.map (fun fi => .stateLoad fi))
                   else if types.isNamedAggregate vd.typeId then
                     mkNamedLeaves (phys.map (fun fi => .stateLoad fi))
@@ -1565,7 +1572,7 @@ private def seedParamEnv
       }
       names := names.push p.name
       i := i + 1
-    else if isPrincipalType types p.typeId then
+    else if isWireIdentityType types p.typeId then
       let leafSpecs ← flattenPrincipalLeafNamesV1 p.name
       unless names.size + leafSpecs.size ≤ maxParams do
         planError "unsupported XRPL semantic shape: parameter count exceeds limit"
@@ -1663,6 +1670,11 @@ private def resultKindOf
       planError s!"{owner} Int64 result mixes with UInt64 (numeric domain is homogeneous)"
     pure .int64
   else if isBoolType types typeId then pure .bool
+  else if isWireIdentityType types typeId then
+    if allowNamed then
+      pure (.aggregate principalLeafCountV1)
+    else
+      planError s!"{owner} Principal return is outside this XRPL slice"
   else if isAnonymousOptionTypeIdV1 data.types typeId then
     requireOptionUInt64StateV1 data.types types typeId owner signedNumeric
     if allowNamed then
@@ -2073,7 +2085,7 @@ private def lowerCallableBody
       else if isAnonymousMapTypeIdV1 data.types st.typeId then
         overlay0 := overlayInsert overlay0 st.id
           (mkMapLeaves (phys.map (fun _ => .litU64 0)))
-      else if isPrincipalType types st.typeId then
+      else if isWireIdentityType types st.typeId then
         overlay0 := overlayInsert overlay0 st.id
           (mkPrincipalLeaves (phys.map (fun _ => .litU64 0)))
       else if types.isNamedAggregate st.typeId then

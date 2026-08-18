@@ -9,3 +9,5 @@ unsafe def main : IO Unit := do
   Tests.Materialization.NoirRelationModel.testMapReturn
   Tests.Materialization.NoirRelationModel.testMapInt64Return
   Tests.Materialization.NoirRelationModel.testMapParam
+  Tests.Materialization.NoirRelationModel.testPrincipalReturn
+  Tests.Materialization.NoirRelationModel.testStringReturn

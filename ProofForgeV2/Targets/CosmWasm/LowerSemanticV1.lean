@@ -805,8 +805,8 @@ private def cosmwasmPlanErr (message : String) : CompileError :=
     only for Int64, not a UInt64 alias; none default = zero fields;
     storeAtomic on assign; match via VariantTag/VariantPayload). Option of
     Int8/16/32, Option UInt128, nested Option, Option params, and anonymous
-    Option Int64 return stay fail closed. Field and String fail closed at
-    type closure.
+    Option Int64 return stay fail closed. Field fail closed at type closure.
+    String is 9-leaf wire identity (not UTF-8 ABI).
     **Int{8,16,32}** are admitted ABI (one 8-byte Region, low-byte two's
     complement, sign-extended i64 temps, checked overflow at the declared
     width). Int128/256 stay fail closed. **Bytes N** admitted for state + entry/view return (1..8)
@@ -850,6 +850,7 @@ private def validateCosmWasmTypeClosureV1
     cosmwasmUintWidthPolicyV1
     (intPolicy := pilotIntWidthPolicyNarrow)
     (principalPolicy := pilotPrincipalPolicyAdmit)
+    (stringPolicy := pilotStringPolicyAdmit)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
     (containerPolicy := pilotContainerStatePolicyArrayMapBytes)
 
@@ -1201,7 +1202,7 @@ precise fail-closed diagnostics instead of a scalar fallthrough). -/
 private def isAggregateResultCandidateV1
     (typeDecls : Array TypeDeclV1) (types : CosmWasmTypeClosureV1)
     (typeId : TypeIdV1) : Bool :=
-  if types.isNamedAggregate typeId then true
+  if types.isNamedAggregate typeId || types.isPrincipal typeId || types.isString typeId then true
   else
     match typeDecls[typeId.toNat]? with
     | some { shape := .array .., name := none, .. }
@@ -1221,7 +1222,10 @@ private def aggregateResultKindOfV1
     (typeDecls : Array TypeDeclV1) (types : CosmWasmTypeClosureV1)
     (owner : String) (typeId : TypeIdV1) : CompileResult MethodResultKind := do
   let leaves ←
-    if types.isNamedAggregate typeId then
+    if types.isPrincipal typeId || types.isString typeId then
+      pure (Array.replicate (nearPrincipalDataWordCountV1 + 1)
+        { isInt := false, byteWidth := 8 })
+    else if types.isNamedAggregate typeId then
       let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "ret"
       let mut out : Array LeafAbiType := #[]
       for (_, isInt) in specs do
@@ -1232,15 +1236,17 @@ private def aggregateResultKindOfV1
       | some ls => pure ls
       | none =>
           throw <| .planInvariant .cosmwasm
-            s!"{owner} does not return a named Struct/Enum or admitted anonymous Array/Option/Bytes/Map aggregate"
+            s!"{owner} does not return a named Struct/Enum or admitted anonymous Array/Option/Bytes/Map/Principal/String aggregate"
   let n := leaves.size
   unless n > 0 do
     throw <| .planInvariant .cosmwasm
       s!"{owner} aggregate return must have at least one leaf"
   let leafCap :=
-    match typeDecls[typeId.toNat]? with
-    | some { shape := .map .., name := none, .. } => nearMapPilotLeafCountV1
-    | _ => maxAggregateReturnLeavesV1
+    if types.isPrincipal typeId || types.isString typeId then nearPrincipalDataWordCountV1 + 1
+    else
+      match typeDecls[typeId.toNat]? with
+      | some { shape := .map .., name := none, .. } => nearMapPilotLeafCountV1
+      | _ => maxAggregateReturnLeavesV1
   unless n ≤ leafCap do
     throw <| .planInvariant .cosmwasm
       s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of {leafCap}"
@@ -1437,11 +1443,11 @@ private def makeStorageLayoutV1
               endianness := .little
             }
           stateLeaves := stateLeaves.push leaves
-        else if types.isPrincipal state.typeId then
-          -- T12 Principal: 9 KV fields (`name_len` + `name_w0`..`name_w7`).
+        else if types.isPrincipal state.typeId || types.isString state.typeId then
+          -- T12 Principal / B-RET-STR String: 9 KV fields (`name_len` + `name_w0`..`name_w7`).
           -- ValidatePlan requires sourceId == physical field index (dense).
           -- Logical state → leaf indices live only in `stateLeaves`.
-          requirePublicUInt64OrInt64OrFieldOrPrincipalState cosmwasmPlanErr types state
+          requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedState cosmwasmPlanErr types state
             (allowNonPublic := true)
           let leafSpecs ← flattenPrincipalLeafSpecsV1 state.name
           if fields.size + leafSpecs.size > maxStateFields then
@@ -1614,9 +1620,9 @@ private def makeParamsV1 (owner : String) (types : CosmWasmTypeClosureV1)
     unless isIdentifier param.name do
       throw <| .planInvariant .cosmwasm
         s!"parameter name '{param.name}' in {owner} is not a safe identifier"
-    if types.isPrincipal param.typeId then
-      -- T12: Principal expands to 9×UInt64 input words (leaf tuple).
-      requirePublicUInt64OrInt64OrFieldOrPrincipalParam
+    if types.isPrincipal param.typeId || types.isString param.typeId then
+      -- T12 / B-RET-STR: Principal/String expands to 9×UInt64 input words.
+      requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedParam
         cosmwasmPlanErr types owner param (allowNonPublic := true)
       let leafSpecs ← flattenPrincipalLeafSpecsV1 param.name
       if planned.size + leafSpecs.size > maxParams then
@@ -2521,7 +2527,7 @@ private def lowerBlockInstructionsV1
               expandedNodes := 1
               dependencies := #[]
             }
-        else if types.isPrincipal typeId then
+        else if types.isPrincipal typeId || types.isString typeId then
           let leafExprs ← decodePrincipalLiteralLeavesV1 bytes
           let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
           values := ← appendResultValueV1 typeId values result value
@@ -2530,7 +2536,7 @@ private def lowerBlockInstructionsV1
             | some tid =>
                 unless typeId == tid do
                   throw <| .planInvariant .cosmwasm
-                    "unsupported CosmWasm semantic shape: literal is not admitted UInt width, Int64, Bool, or Principal"
+                    "unsupported CosmWasm semantic shape: literal is not admitted UInt width, Int64, Bool, Principal, or String"
                 pure tid
             | none =>
                 throw <| .planInvariant .cosmwasm
@@ -2570,10 +2576,10 @@ private def lowerBlockInstructionsV1
           let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
             (leafByteWidth := leafByteWidth)
           values := ← appendResultValueV1 result.typeId values result value
-        else if types.isPrincipal result.typeId then
+        else if types.isPrincipal result.typeId || types.isString result.typeId then
           unless leafIdxs.size == nearPrincipalDataWordCountV1 + 1 do
             throw <| .planInvariant .cosmwasm
-              "unsupported CosmWasm semantic shape: Principal state load leaf count mismatch"
+              "unsupported CosmWasm semantic shape: Principal/String state load leaf count mismatch"
           let mut leafExprs : Array Expr := #[]
           for fi in leafIdxs do
             leafExprs := leafExprs.push (.stateLoad fi)

@@ -73,8 +73,8 @@ engineering leaf**：Quint/Aleo 式 **zero-tool source-only**，把 retained
    - ops：literal、state load/store、checked `UInt64` 算术、比较、Bool
      `and`/`or`/`not`、`pureCall`、bare assert、zero-payload declared revert；
    - **nonempty invariants / constants / events / call / schedule /
-     ContextRead / Commit / multi-width / aggregates / Field / Principal /
-     String**：Plan 边界 fail closed；
+     ContextRead / Commit / multi-width / aggregates / Field**：Plan 边界 fail closed；
+     Principal/String 后开为 9 叶 identity（**B-RET-PRIN / B-RET-STR**；≠ Address / 非 UTF-8 ABI）；
    - 存储：S0 **仅**映射到单一 **instance** storage 约定；不得静默选择
      persistent/temporary TTL；
    - 失败：checked overflow / assert / revert 映射为 Rust `panic!`（host 回滚），

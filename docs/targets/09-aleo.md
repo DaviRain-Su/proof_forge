@@ -64,6 +64,7 @@ program call、proof、deploy 或 network query。
   别名）；Option tag 保持 `u64`、payload 为 `i64`；named/Option/Array/Bytes/Map
   **param** 已 flatten（Map 为 cap-2 / 6 叶 occ/key/val，仍 ≤ B-RET 8）；
   Map `UInt64 {UInt64,Int64}` entry/view return 同 6 叶；
+  **B-RET-PRIN** Principal entry/view 为 9 叶 identity（≠address；不是把 8 叶 cap 改成 9）；
 - checked arithmetic、比较、bitwise/logical/shift；
 - immutable let、assign、assert、if/match、bounded-for、bare revert；
 - pure function inline 与 literal-backed constants；
@@ -79,7 +80,7 @@ lowering；任一未声明形状 fail closed。
 - event emission、external call、schedule、ContextRead；
 - 带 payload 的 error；
 - nonempty invariant Plan；
-- Principal、String、UInt256、Int128/256；
+- UInt256、Int128/256；Principal→address remap；String const / Option-of-String；
 - nested/Int8 Option、Int64-key Map、Map-of-Option、aggregate
   pure-function return；
 - record custody、proof execution、deployment 与 network query。
@@ -99,7 +100,7 @@ materialize 有序输出两个 `materialized-base`：
 query descriptor 描述 public mapping、bare view、**computed query view**（`kind=computed`，
 off-chain recipe；不是 Final、不是链上返回值——Aleo Final 会丢掉 output）与
 dropped-result observation。**computed aggregate view**（named Struct/Enum、
-`Array UInt64 N`、`Option UInt64`；`Array Int64` / `Option Int64` view
+`Array UInt64 N`、`Option UInt64`、**B-RET-PRIN** Principal 9 叶；`Array Int64` / `Option Int64` view
 return 仍 fail closed）同样只是 query descriptor：`result` 是
 `u64`/`i64` 叶数组，不是标量字符串；Instructions 不发射 `function <view>`，
 Final 也不带业务 output。它不执行查询，也不是编译器输入。

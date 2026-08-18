@@ -1735,7 +1735,7 @@ private unsafe def testPrincipalStateStorage : IO Unit := do
   expect (abiFile.contents.contains "who_len" ||
       abiFile.contents.contains "initial_len")
     "PrincipalOwner ABI must name Principal length leaf (*_len)"
-  -- Multi-word Principal return remains fail closed.
+  -- B-RET-PRIN: Principal view return is exactly 9 unsigned identity leaves.
   let retText :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
@@ -1749,15 +1749,46 @@ private unsafe def testPrincipalStateStorage : IO Unit := do
     retText "<evm-principal-ret>" "Tests.EvmPrincipalRet" none)
   let retCompiled ← liftResult "compile PrincipalRet" <|
     Compiler.compileValidatedSourceV1 retSource
-  match planEvm retCompiled with
-  | .ok _ =>
+  let retPlan ← liftResult "plan PrincipalRet" <| planEvm retCompiled
+  let some getOwner := retPlan.entries.find? (·.name == "getOwner") |
+    throw <| IO.userError "PrincipalRet missing getOwner"
+  match getOwner.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 9)
+        s!"PrincipalRet aggregate return must have 9 leaves, got {leaves.size}"
+      expect (leaves.all (fun l => !l.isInt && l.byteWidth == 8))
+        "PrincipalRet leaves must be unsigned 8-byte identity words"
+  | other =>
       throw <| IO.userError
-        "Principal multi-word entry/view result must fail closed"
-  | .error e =>
-      expect ((e.render).contains "return" || (e.render).contains "Principal" ||
-          (e.render).contains "UInt" || (e.render).contains "public" ||
-          (e.render).contains "unsupported")
-        s!"Principal return fail-closed message, got {e.render}"
+        s!"PrincipalRet getOwner resultKind must be .aggregate, got {repr other}"
+  let retOut ← liftResult "materialize PrincipalRet" <|
+    materializeSelected TargetId.evm retCompiled
+  expect (!(MaterializedArtifactsV1.filesOf retOut).isEmpty)
+    "PrincipalRet must materialize nonempty files"
+  -- Wave 1b: String shares the same 9-leaf identity exception.
+  let strText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program StringRet where\n" ++
+    "  state label : String\n" ++
+    "  init(initial : String) do\n" ++
+    "    label := initial\n" ++
+    "  view getLabel() : String do\n" ++
+    "    return label\n"
+  let strSource ← liftResult "load StringRet" (← session.selectProgramV1
+    strText "<evm-string-ret>" "Tests.EvmStringRet" none)
+  let strCompiled ← liftResult "compile StringRet" <|
+    Compiler.compileValidatedSourceV1 strSource
+  let strPlan ← liftResult "plan StringRet" <| planEvm strCompiled
+  let some getLabel := strPlan.entries.find? (·.name == "getLabel") |
+    throw <| IO.userError "StringRet missing getLabel"
+  match getLabel.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 9)
+        s!"StringRet aggregate return must have 9 leaves, got {leaves.size}"
+  | other =>
+      throw <| IO.userError
+        s!"StringRet getLabel resultKind must be .aggregate, got {repr other}"
   pure ()
 
 /-- AddressBearing product path: EVM admits static QualifiedName call/schedule
@@ -3436,6 +3467,62 @@ unsafe def testBytesReturn : IO Unit := do
       throw <| IO.userError
         s!"BytesRet getBytes resultKind must be .aggregate, got {repr other}"
   IO.println "  ✓ Bytes 2 view return 2×UInt8 leaves"
+
+unsafe def testPrincipalReturn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PrinRetFocus where\n" ++
+    "  state owner : Principal\n" ++
+    "  init(initial : Principal) do\n" ++
+    "    owner := initial\n" ++
+    "  view getOwner() : Principal do\n" ++
+    "    return owner\n"
+  let src ← liftResult "load PrinRetFocus" (← session.selectProgramV1
+    source "<evm-prin-ret-focus>" "Tests.EvmPrinRetFocus" none)
+  let compiled ← liftResult "compile PrinRetFocus" <|
+    Compiler.compileValidatedSourceV1 src
+  let plan ← liftResult "plan PrinRetFocus" <| planEvm compiled
+  let some getOwner := plan.entries.find? (·.name == "getOwner") |
+    throw <| IO.userError "PrinRetFocus missing getOwner"
+  match getOwner.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 9)
+        s!"PrinRetFocus must have 9 leaves, got {leaves.size}"
+      expect (leaves.all (fun l => !l.isInt && l.byteWidth == 8))
+        "PrinRetFocus leaves must be unsigned 8-byte identity words"
+  | other =>
+      throw <| IO.userError
+        s!"PrinRetFocus getOwner resultKind must be .aggregate, got {repr other}"
+  IO.println "  ✓ Principal view return 9-leaf identity"
+
+unsafe def testStringReturn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program StringRetFocus where\n" ++
+    "  state label : String\n" ++
+    "  init(initial : String) do\n" ++
+    "    label := initial\n" ++
+    "  view getLabel() : String do\n" ++
+    "    return label\n"
+  let src ← liftResult "load StringRetFocus" (← session.selectProgramV1
+    source "<evm-string-ret-focus>" "Tests.EvmStringRetFocus" none)
+  let compiled ← liftResult "compile StringRetFocus" <|
+    Compiler.compileValidatedSourceV1 src
+  let plan ← liftResult "plan StringRetFocus" <| planEvm compiled
+  let some getLabel := plan.entries.find? (·.name == "getLabel") |
+    throw <| IO.userError "StringRetFocus missing getLabel"
+  match getLabel.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 9)
+        s!"StringRetFocus must have 9 leaves, got {leaves.size}"
+  | other =>
+      throw <| IO.userError
+        s!"StringRetFocus getLabel resultKind must be .aggregate, got {repr other}"
+  IO.println "  ✓ String view return 9-leaf identity"
 
 /-- EVM ContextRead pin (B-CTX-OPEN / ADR-0031 S1+S2): `context.unixTimeSeconds`
     lowers to `timestamp()` (UInt64); `context.blockHeight` → `number()`;
@@ -5264,9 +5351,9 @@ private unsafe def testKeccak256CheckFixtureEvm : IO Unit := do
 
 /-- B-CTX-OPEN / ADR-0031 S1+S2: `context.unixTimeSeconds` → `timestamp()`;
     `context.blockHeight` → `number()`; `context.caller` → Principal from
-    `caller()` (ADR-0025). Direct Principal return stays fail closed
-    (multi-word return ABI); compare-to-param Bool/UInt64 shape is the
-    admitted surface. -/
+    `caller()` (ADR-0025). B-RET-PRIN admits 9-leaf Principal return of
+    `context.caller`; remap / address stay fail closed. Compare-to-param
+    Bool/UInt64 remains the non-return surface. -/
 private unsafe def testContextReadTimestampEvm : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let src :=
@@ -5346,8 +5433,8 @@ private unsafe def testContextReadTimestampEvm : IO Unit := do
     throw <| IO.userError "CtxHeight: missing HeightBox.yul"
   expect (hYul.contents.contains "number()")
     "CtxHeight: Yul must contain the number() opcode"
-  -- context.caller admitted: compare against Principal param → Bool
-  -- (multi-word Principal return stays FC; this is the honest fixture shape).
+  -- context.caller admitted: compare against Principal param → Bool.
+  -- B-RET-PRIN also admits returning context.caller as 9 identity leaves.
   let callerSrc :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
@@ -5380,7 +5467,7 @@ private unsafe def testContextReadTimestampEvm : IO Unit := do
     throw <| IO.userError "CallerBox: missing CallerBox.yul"
   expect (clYul.contents.contains "caller()")
     "CallerBox Yul must contain the caller() opcode"
-  -- Multi-word Principal *return* remains fail closed (ABI shape decision).
+  -- B-RET-PRIN: returning context.caller is the same 9-leaf identity ABI.
   let retSrc :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
@@ -5394,17 +5481,22 @@ private unsafe def testContextReadTimestampEvm : IO Unit := do
       retSrc "<evm-ctx-caller-ret>" "Tests.EvmCtxCallerRet" none with
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"CallerRet select: {e.render}"
-  match Compiler.compileValidatedSourceV1 rSrc with
-  | .error _ => pure ()
-  | .ok compiled =>
-      match planEvm compiled with
-      | .error e =>
-          expect (e.render.contains "return" || e.render.contains "Principal" ||
-              e.render.contains "unsupported" || e.render.contains "UInt")
-            s!"Principal return FC must cite return/Principal boundary, got: {e.render}"
-      | .ok _ =>
-          throw <| IO.userError
-            "EVM multi-word Principal return of context.caller must fail closed"
+  let rCompiled ← match Compiler.compileValidatedSourceV1 rSrc with
+    | .error e => throw <| IO.userError s!"CallerRet must compile: {e.render}"
+    | .ok c => pure c
+  let rPlan ← match planEvm rCompiled with
+    | .error e =>
+        throw <| IO.userError s!"CallerRet must plan 9-leaf Principal return: {e.render}"
+    | .ok p => pure p
+  let some who := rPlan.entries.find? (·.name == "who") |
+    throw <| IO.userError "CallerRet missing who"
+  match who.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 9)
+        s!"CallerRet who must return 9 identity leaves, got {leaves.size}"
+  | other =>
+      throw <| IO.userError
+        s!"CallerRet who resultKind must be .aggregate, got {repr other}"
   -- ADR-0031 S4: attachedValue → callvalue() + payable collect + view peek.
   let vSrcText :=
     "import ProofForgeV2\n" ++

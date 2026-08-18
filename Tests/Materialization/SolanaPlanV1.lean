@@ -3911,6 +3911,54 @@ unsafe def testMapReturn : IO Unit := do
   liftResult <| validatePlan plan
   IO.println "  ✓ Map UInt64 UInt64 view return 24-leaf B-RET-MAP"
 
+unsafe def testPrincipalReturn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source := wrapProgram "PrinRetSol" <|
+    "  state owner : Principal\n\n" ++
+    "  init(initial : Principal) do\n" ++
+    "    owner := initial\n\n" ++
+    "  view getOwner() : Principal do\n" ++
+    "    return owner\n"
+  let compiled ← compileSource session source "Examples.PrinRetSol"
+    "<solana-prin-ret>"
+  let plan ← liftResult <| planSolana compiled
+  let getOwner ← findHandler plan "getOwner"
+  match getOwner.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 9)
+        s!"PrinRet getOwner must have 9 leaves, got {leaves.size}"
+      expect (leaves.all (fun l => !l.isInt && l.byteWidth == 8))
+        "PrinRet leaves must be unsigned 8-byte identity words"
+  | other =>
+      throw <| IO.userError
+        s!"PrinRet getOwner resultKind must be .aggregate, got {repr other}"
+  liftResult <| validatePlan plan
+  IO.println "  ✓ Principal view return 9-leaf identity"
+
+unsafe def testStringReturn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source := wrapProgram "StrRetSol" <|
+    "  state label : String\n\n" ++
+    "  init(initial : String) do\n" ++
+    "    label := initial\n\n" ++
+    "  view getLabel() : String do\n" ++
+    "    return label\n"
+  let compiled ← compileSource session source "Examples.StrRetSol"
+    "<solana-str-ret>"
+  let plan ← liftResult <| planSolana compiled
+  let getLabel ← findHandler plan "getLabel"
+  match getLabel.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 9)
+        s!"StrRet getLabel must have 9 leaves, got {leaves.size}"
+      expect (leaves.all (fun l => !l.isInt && l.byteWidth == 8))
+        "StrRet leaves must be unsigned 8-byte identity words"
+  | other =>
+      throw <| IO.userError
+        s!"StrRet getLabel resultKind must be .aggregate, got {repr other}"
+  liftResult <| validatePlan plan
+  IO.println "  ✓ String view return 9-leaf identity"
+
 unsafe def testMapInt64Return : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source := wrapProgram "MapInt64RetSol" <|

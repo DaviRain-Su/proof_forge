@@ -4249,10 +4249,8 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     s!"T4 ICP Principal leaf 8 must be owner_w7, got {icpPlan.states[8]!.name}"
   -- B-3 honesty pin survives T12: storage is wire identity leaves, not a
   -- 32-byte pubkey reinterpretation. Positive Solana materialize proves the
-  -- leaf layout; wording still documents the non-match in Envelope diagnostics
-  -- for unsupported Principal shapes (e.g. multi-word Principal return).
-  -- T10: Principal multi-word entry *result* still fail closed (same gap as
-  -- String return; storage/param/eq are open). Pins ResultKind surface.
+  -- leaf layout. B-RET-PRIN opens Principal *view* return as exactly 9
+  -- identity leaves; remap / AccountID / pubkey stay fail closed.
   let prinRetSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -4269,34 +4267,65 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"T10 principal return select: {e.render}"
   let prinRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 prinRetV1
-  match materializeSelected TargetId.evm prinRetCompiled with
-  | .ok _ =>
-      throw <| IO.userError
-        "T10: EVM Principal entry/view result must remain fail closed (no multi-word ResultKind)"
-  | .error e =>
-      expect ((e.render).contains "Principal" ||
-          (e.render).contains "return" ||
-          (e.render).contains "UInt" ||
-          (e.render).contains "unsupported" ||
-          (e.render).contains "public")
-        s!"T10 Principal return decline must cite result surface, got {e.render}"
-  -- Extra eleven from probe; not opening Principal ResultKind / remap.
-  for target in [TargetId.solana, TargetId.near, TargetId.noir, TargetId.aleo,
-      TargetId.psy, TargetId.quint, TargetId.cosmwasm, TargetId.ton,
-      TargetId.soroban, TargetId.icp, TargetId.openvm] do
-    match materializeSelected target prinRetCompiled with
-    | .ok _ =>
-        throw <| IO.userError
-          s!"T10: {target} Principal view result must remain fail closed"
-    | .error e =>
-        expect ((e.render).contains "Principal" ||
-            (e.render).contains "return" ||
-            (e.render).contains "UInt" ||
-            (e.render).contains "unsupported" ||
-            (e.render).contains "public" ||
-            (e.render).contains "result" ||
-            (e.render).contains "query")
-          s!"T10 Principal return {target} must cite result surface, got {e.render}"
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.aleo, TargetId.psy, TargetId.quint, TargetId.cosmwasm,
+      TargetId.ton, TargetId.soroban, TargetId.icp, TargetId.openvm,
+      TargetId.xrpl] do
+    let out ← liftResult <| materializeSelected target prinRetCompiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"T10: {target} Principal view return must materialize 9-leaf identity"
+
+  -- B-RET-STR: String is the same 9-leaf wire identity as Principal
+  -- (`u32le(len)||body` → `len+w0..w7`). Not UTF-8 ABI / not address.
+  let strBoxSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program StringBox where\n" ++
+    "  state label : String\n\n" ++
+    "  init(initial : String) do\n" ++
+    "    label := initial\n\n" ++
+    "  entry set(next : String) : Bool do\n" ++
+    "    label := next\n" ++
+    "    return true\n\n" ++
+    "  entry eq(a : String, b : String) : Bool do\n" ++
+    "    return a == b\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let strBoxV1 ← match ← session.selectProgramV1 strBoxSource
+      "<targets-b-ret-str-box>" "Examples.StringBox" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"StringBox select: {e.render}"
+  let strBoxCompiled ← liftResult <| Compiler.compileValidatedSourceV1 strBoxV1
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.aleo, TargetId.psy, TargetId.quint, TargetId.cosmwasm,
+      TargetId.ton, TargetId.soroban, TargetId.icp, TargetId.openvm,
+      TargetId.xrpl] do
+    let out ← liftResult <| materializeSelected target strBoxCompiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"B-RET-STR: {target} StringBox state/param/eq must materialize 9-leaf identity"
+  let strRetSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program StringReturn where\n" ++
+    "  state label : String\n\n" ++
+    "  init(initial : String) do\n" ++
+    "    label := initial\n\n" ++
+    "  view getLabel() : String do\n" ++
+    "    return label\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let strRetV1 ← match ← session.selectProgramV1 strRetSource
+      "<targets-b-ret-str-return>" "Examples.StringReturn" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"StringReturn select: {e.render}"
+  let strRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 strRetV1
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.aleo, TargetId.psy, TargetId.quint, TargetId.cosmwasm,
+      TargetId.ton, TargetId.soroban, TargetId.icp, TargetId.openvm,
+      TargetId.xrpl] do
+    let out ← liftResult <| materializeSelected target strRetCompiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"B-RET-STR: {target} String view return must materialize 9-leaf identity"
 
   -- N3 / NoirAggregate / H3 PsyAleoAggregate / L1 NearNamedAggregate / L2
   -- SolanaNamedAggregate: named Struct state + field assign product pin —
@@ -4368,7 +4397,7 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
   -- Extra six from probe; CosmWasm/TON admit named Struct (files nonempty).
   -- T5: Quint/Soroban/OpenVM/ICP admit named Struct leaf flatten (return FC).
   for target in [TargetId.cosmwasm, TargetId.ton, TargetId.quint,
-      TargetId.soroban, TargetId.openvm, TargetId.icp] do
+      TargetId.soroban, TargetId.openvm, TargetId.icp, TargetId.xrpl] do
     let out ← liftResult <| materializeSelected target structCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"N3 struct-state: {target} must materialize named Struct"
@@ -4397,7 +4426,8 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
   let enumCompiled ← liftResult <| Compiler.compileValidatedSourceV1 enumV1
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
       TargetId.psy, TargetId.aleo, TargetId.cosmwasm, TargetId.ton,
-      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp] do
+      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp,
+      TargetId.xrpl] do
     let out ← liftResult <| materializeSelected target enumCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"MaybeMark: {target} must materialize named Enum"
@@ -4427,7 +4457,8 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
   let enumRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 enumRetV1
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
       TargetId.aleo, TargetId.psy, TargetId.cosmwasm,
-      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp] do
+      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp,
+      TargetId.xrpl] do
     let out ← liftResult <| materializeSelected target enumRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"MaybeRetBox: {target} must materialize named Enum entry return"
@@ -4459,7 +4490,8 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
   let enumViewRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 enumViewRetV1
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
       TargetId.aleo, TargetId.psy, TargetId.cosmwasm, TargetId.ton,
-      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp] do
+      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp,
+      TargetId.xrpl] do
     let out ← liftResult <| materializeSelected target enumViewRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"MaybeViewRet: {target} must materialize named Enum view return"
@@ -4534,7 +4566,7 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
   -- Array UInt64 2 (flatten to N scalar vars / instance keys / guest
   -- fields / i64 globals).
   for target in [TargetId.cosmwasm, TargetId.ton, TargetId.quint, TargetId.icp,
-      TargetId.soroban, TargetId.openvm] do
+      TargetId.soroban, TargetId.openvm, TargetId.xrpl] do
     let out ← liftResult <| materializeSelected target arrayCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"ArrayState: {target} must materialize Array UInt64 2"
@@ -4562,7 +4594,8 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
   let arrRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 arrRetV1
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
       TargetId.aleo, TargetId.psy, TargetId.cosmwasm,
-      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp] do
+      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp,
+      TargetId.xrpl] do
     let out ← liftResult <| materializeSelected target arrRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"ArrRetBox: {target} must materialize Array UInt64 2 entry return"
@@ -4592,7 +4625,8 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
   let arrViewRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 arrViewRetV1
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
       TargetId.aleo, TargetId.psy, TargetId.cosmwasm, TargetId.ton,
-      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp] do
+      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp,
+      TargetId.xrpl] do
     let out ← liftResult <| materializeSelected target arrViewRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"ArrViewRet: {target} must materialize Array UInt64 2 view return"
@@ -4889,7 +4923,7 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "ArrStr" TargetId.noir TargetKind.noir
     arrStrCompiled "not a Field element"
   expectMaterializePlanInvariantV1 "ArrStr" TargetId.aleo TargetKind.aleo
-    arrStrCompiled "String stay fail-closed"
+    arrStrCompiled "Array state element must be UInt64"
   expectMaterializePlanInvariantV1 "ArrStr" TargetId.psy TargetKind.psy
     arrStrCompiled "Array state element must be UInt64"
   expectMaterializePlanInvariantV1 "ArrStr" TargetId.quint TargetKind.quint
@@ -4904,7 +4938,7 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "ArrStr" target kind arrStrCompiled
       "narrow Int/Field/aggregates"
   expectMaterializePlanInvariantV1 "ArrStr" TargetId.icp TargetKind.icp
-    arrStrCompiled "String fail closed"
+    arrStrCompiled "Array element must be UInt64"
 
   -- ArrBool: Array Bool 2 state. All twelve stay named element/pilot FC.
   -- Not opening Array-of-Bool. ArrStr / ArrayBox / BoolPredicate stay.
@@ -5370,8 +5404,8 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "ArrI8" target kind arrI8Compiled
       "only anonymous UInt64/Int64 widths are supported"
 
-  -- MapMini: Map UInt64 UInt64 state. All twelve materializers admit
-  -- (envelope Quint/Soroban/OpenVM/ICP flatten is 24 occ/key/val leaves;
+  -- MapMini: Map UInt64 UInt64 state. All thirteen materializers admit
+  -- (envelope Quint/Soroban/OpenVM/ICP/XRPL flatten is 24 occ/key/val leaves;
   -- ICP = 24 i64 globals, no Candid map/vec). No Plan-shape pins.
   let mapMiniSource :=
     "import ProofForgeV2\n\n" ++
@@ -5392,7 +5426,8 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   let mapCompiled ← liftResult <| Compiler.compileValidatedSourceV1 mapV1
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
       TargetId.psy, TargetId.aleo, TargetId.cosmwasm, TargetId.ton,
-      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp] do
+      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp,
+      TargetId.xrpl] do
     let out ← liftResult <| materializeSelected target mapCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"MapMini: {target} must materialize Map UInt64 UInt64"
@@ -5421,7 +5456,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   let mapRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 mapRetV1
   for target in [TargetId.near, TargetId.cosmwasm, TargetId.quint,
       TargetId.soroban, TargetId.openvm, TargetId.icp, TargetId.aleo,
-      TargetId.solana, TargetId.noir, TargetId.psy] do
+      TargetId.solana, TargetId.noir, TargetId.psy, TargetId.xrpl] do
     let out ← liftResult <| materializeSelected target mapRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"MapRetBox: {target} must materialize Map UInt64 return"
@@ -5429,6 +5464,35 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     mapRetCompiled "cannot return Map"
   expectMaterializePlanInvariantV1 "MapRetBox" TargetId.ton TargetKind.ton
     mapRetCompiled "entry 'peek' cannot return multi-leaf aggregate"
+
+  -- MapViewRet: leftover honesty pin. TON view Map is already admitted
+  -- (TonPlanV1.testMapReturn); the ring had no view box. EVM hashed Map
+  -- return stays FC. TON entry Map stays on MapRetBox.
+  let mapViewRetSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program MapViewRet where\n" ++
+    "  state m : Map UInt64 UInt64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  view dump() : Map UInt64 UInt64 do\n" ++
+    "    return m\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let mapViewV1 ← match ← session.selectProgramV1 mapViewRetSource
+      "<targets-map-view-ret>" "Examples.MapViewRet" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"MapViewRet select: {e.render}"
+  let mapViewCompiled ← liftResult <| Compiler.compileValidatedSourceV1 mapViewV1
+  for target in [TargetId.near, TargetId.cosmwasm, TargetId.quint,
+      TargetId.soroban, TargetId.openvm, TargetId.icp, TargetId.aleo,
+      TargetId.solana, TargetId.noir, TargetId.psy, TargetId.xrpl,
+      TargetId.ton] do
+    let out ← liftResult <| materializeSelected target mapViewCompiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"MapViewRet: {target} must materialize Map UInt64 view return"
+  expectMaterializePlanInvariantV1 "MapViewRet" TargetId.evm TargetKind.evm
+    mapViewCompiled "cannot return Map"
 
   -- MapOpt: Map UInt64 Option UInt64 state. All twelve targets stay named
   -- Map-value/pilot FC. Not opening Map-of-Option. MapMini / MapRetBox stay.
@@ -5771,7 +5835,11 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "MapStr" TargetId.noir TargetKind.noir
     mapStrCompiled "not a Field element"
   expectMaterializePlanInvariantV1 "MapStr" TargetId.aleo TargetKind.aleo
+<<<<<<< HEAD
     mapStrCompiled "String stay fail-closed"
+=======
+    mapStrCompiled "Map state admits only Map UInt64 UInt64"
+>>>>>>> 08d606cfe (Admit leftover String 9-leaf identity and XRPL Map/Bytes pins.)
   expectMaterializePlanInvariantV1 "MapStr" TargetId.psy TargetKind.psy
     mapStrCompiled "Map state pilot requires UInt64 keys and values"
   expectMaterializePlanInvariantV1 "MapStr" TargetId.quint TargetKind.quint
@@ -6484,8 +6552,8 @@ unsafe def runSignedContainerNeedles : IO Unit := do
 set_option maxRecDepth 10000 in
 unsafe def runRemainingNeedles : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
-  -- BytesBox: Bytes 4 state. All twelve materializers admit (T3 opened
-  -- Quint/Soroban/ICP/OpenVM as N UInt64 low-8 leaves). State only —
+  -- BytesBox: Bytes 4 state. All thirteen materializers admit (T3 opened
+  -- Quint/Soroban/ICP/OpenVM/XRPL as N UInt64 low-8 leaves). State only —
   -- no Bytes return ABI. Files-nonempty.
   let bytesBoxSource :=
     "import ProofForgeV2\n\n" ++
@@ -6506,7 +6574,8 @@ unsafe def runRemainingNeedles : IO Unit := do
   let bytesCompiled ← liftResult <| Compiler.compileValidatedSourceV1 bytesV1
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
       TargetId.psy, TargetId.aleo, TargetId.cosmwasm, TargetId.ton,
-      TargetId.quint, TargetId.soroban, TargetId.icp, TargetId.openvm] do
+      TargetId.quint, TargetId.soroban, TargetId.icp, TargetId.openvm,
+      TargetId.xrpl] do
     let out ← liftResult <| materializeSelected target bytesCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"BytesBox: {target} must materialize Bytes 4"
@@ -6533,7 +6602,7 @@ unsafe def runRemainingNeedles : IO Unit := do
   for target in [TargetId.evm, TargetId.solana, TargetId.near,
       TargetId.noir, TargetId.aleo, TargetId.psy, TargetId.cosmwasm,
       TargetId.ton, TargetId.quint, TargetId.soroban, TargetId.openvm,
-      TargetId.icp] do
+      TargetId.icp, TargetId.xrpl] do
     let out ← liftResult <| materializeSelected target bytesRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"BytesRetBox: {target} must materialize Bytes 4 return"
@@ -6575,7 +6644,8 @@ unsafe def runRemainingNeedles : IO Unit := do
   let _ ← liftResult <| materializeSelected TargetId.ton optCompiled
   -- Envelope-4 Option wave: Quint/Soroban/OpenVM/ICP flatten to tag+payload.
   -- ICP uses two extra i64 globals (no Candid opt).
-  for target in [TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp] do
+  for target in [TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp,
+      TargetId.xrpl] do
     let out ← liftResult <| materializeSelected target optCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"N-A4 Option: {target} must materialize Option UInt64 state"
@@ -6602,7 +6672,8 @@ unsafe def runRemainingNeedles : IO Unit := do
   let optRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 optRetV1
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
       TargetId.aleo, TargetId.psy, TargetId.cosmwasm,
-      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp] do
+      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp,
+      TargetId.xrpl] do
     let out ← liftResult <| materializeSelected target optRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"OptRetBox: {target} must materialize Option UInt64 entry return"
@@ -6631,7 +6702,8 @@ unsafe def runRemainingNeedles : IO Unit := do
   let optViewRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 optViewRetV1
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
       TargetId.aleo, TargetId.psy, TargetId.cosmwasm, TargetId.ton,
-      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp] do
+      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp,
+      TargetId.xrpl] do
     let out ← liftResult <| materializeSelected target optViewRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"OptViewRet: {target} must materialize Option UInt64 view return"
@@ -6833,7 +6905,11 @@ unsafe def runRemainingNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "OptPrin" target kind optPrinCompiled
       "Option state 'o' requires UInt64 payload"
   expectMaterializePlanInvariantV1 "OptPrin" TargetId.aleo TargetKind.aleo
+<<<<<<< HEAD
     optPrinCompiled "Option of non-UInt64"
+=======
+    optPrinCompiled "Option state 'o' requires UInt64 payload"
+>>>>>>> 08d606cfe (Admit leftover String 9-leaf identity and XRPL Map/Bytes pins.)
   expectMaterializePlanInvariantV1 "OptPrin" TargetId.quint TargetKind.quint
     optPrinCompiled "Option element must be UInt64"
   expectMaterializePlanInvariantV1 "OptPrin" TargetId.ton TargetKind.ton
@@ -6920,7 +6996,11 @@ unsafe def runRemainingNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "OptStr" TargetId.noir TargetKind.noir
     optStrCompiled "not a Field element"
   expectMaterializePlanInvariantV1 "OptStr" TargetId.aleo TargetKind.aleo
+<<<<<<< HEAD
     optStrCompiled "String stay fail-closed"
+=======
+    optStrCompiled "Option state 'o' requires UInt64 payload"
+>>>>>>> 08d606cfe (Admit leftover String 9-leaf identity and XRPL Map/Bytes pins.)
   expectMaterializePlanInvariantV1 "OptStr" TargetId.psy TargetKind.psy
     optStrCompiled "Option state 'o' requires UInt64 payload"
   expectMaterializePlanInvariantV1 "OptStr" TargetId.quint TargetKind.quint

@@ -94,7 +94,7 @@ IR-1 **必须** 用 locked nargo 对产品 Counter package 实测：
 | G2 | Plan→ACIR MVP | **done（IR-2）** Counter product Plan → nargo-assisted capture ≡ 金样 circuit core；路径决策 = nargo-assisted |
 | G3 | 控制流 / 聚合 admit 面 | **done（IR-3）** BranchCounter/LoopSum/OptionState/ArrayRet circuit-hash pins；MapMini init pin + put/get nargo-fail honesty |
 | G4 | 产品 primary ACIR | **done（IR-6）** opt-in nargo ACIR profile dual-write；default zero-tool；`.nr` transitional/debug |
-| G5 | admit 矩阵 | **done（IR-5 轻量）** §3.2 状态列 + call/schedule P + String/Option F + prove F；无假 Y |
+| G5 | admit 矩阵 | **done（IR-5 轻量）** §3.2 状态列 + call/schedule P + Option non-UInt64 F + prove F；String 为 9 叶 Plan identity（非 ACIR Y）；无假 Y |
 | G6 | prove lane | **done PARTIAL/MISSING（IR-7 2026-08-08）**：无 locked bb/barretenberg；`just noir-runtime` → `PF-TOOLCHAIN-MISSING`；prove/VK 仍 F；不发明 CLI/CRS |
 
 ---
@@ -108,7 +108,7 @@ IR-1 **必须** 用 locked nargo 对产品 Counter package 实测：
 ### 3.2 矩阵（IR-5 / G5 轻量，2026-08-08）
 
 图例：`Y` = 有 ACIR capture / 等价钉测；`P` = PARTIAL（Plan/slot 可 admit 但不写满平台/证明 Y）；`F` = plan-FC 或无产品路径。
-**禁止假 Y**：call/schedule / String·Option non-UInt64 / prove 不得写成 ACIR Y。
+**禁止假 Y**：call/schedule / Option non-UInt64 / prove 不得写成 ACIR Y。String 为 9 叶 Plan identity，不是 UTF-8 ABI，也不是 ACIR Y。
 
 | 族 | 现 Noir 路径 | ACIR 现状 | 证据（测试 / 路径） |
 |---|---|---|---|
@@ -119,7 +119,7 @@ IR-1 **必须** 用 locked nargo 对产品 Counter package 实测：
 | pureFn | Y | **Y** | Counter 回归（未另钉 G3 fixture） |
 | call/schedule slots | P | **P** | 仅 witness-binding status/arg slots（B-CALL-SEM）；电路不执行外部调用、证明不 attest 链上调用；`testHonestyCallSchedulePartialNotY`；result-bearing 仍 FC |
 | Option UInt64 state | Y | **Y** | OptionState G3 full capture pins |
-| String state / Option non-UInt64 | F | **F** | product plan-FC：`testHonestyOptionStringProductFailClosed`（String / Option String / Option Bool） |
+| Option non-UInt64 | F | **F** | product plan-FC：`testHonestyOptionStringProductFailClosed`（Option String / Option Bool）；String 为 9 叶 Plan identity |
 | prove/VK | F | **F** | G6 PARTIAL+MISSING（`barretenberg=null`；`just noir-runtime` → `PF-TOOLCHAIN-MISSING`）；Finalize `deployable=false`；`testHonestyProveFailClosedNotes` + `testIr7ProveHonestyNotes` |
 
 Lean 权威表：`CaptureV1.honestyMatrixRowsV1`（与上表同序）；suite `Tests.Materialization.NoirAcirV1` IR-5 段恒跑（不依赖 nargo）。
@@ -130,8 +130,8 @@ Lean 权威表：`CaptureV1.honestyMatrixRowsV1`（与上表同序）；suite `T
 |---|---|---|
 | **Y** | UInt*/Field、Bool/compare、if/match/for、pureFn、Option UInt64 | IR-1/IR-2/IR-3 capture 证据 |
 | **P** | Array/Map/Bytes、call/schedule | Map put/get residual；call/schedule 仅 witness slots |
-| **F** | String/Option non-UInt64、prove/VK | plan-FC 或无产品 prove |
-| **假 Y 守卫** | call/schedule、String/Option、prove ∉ Y bucket | suite 钉 `honestyAcirYFamiliesV1` |
+| **F** | Option non-UInt64、prove/VK | plan-FC 或无产品 prove |
+| **假 Y 守卫** | call/schedule、Option non-UInt64、prove ∉ Y bucket | suite 钉 `honestyAcirYFamiliesV1` |
 
 ---
 
@@ -192,7 +192,7 @@ Lean 权威表：`CaptureV1.honestyMatrixRowsV1`（与上表同序）；suite `T
 
 - [x] §3.2 状态列：Y/P/F + 证据列；`CaptureV1.honestyMatrixRowsV1` 与文档同序
 - [x] call/schedule = **P**（witness-binding only；`testHonestyCallSchedulePartialNotY`；禁止 ACIR Y）
-- [x] String state / Option non-UInt64 = **F**（product plan-FC 钉）
+- [x] Option non-UInt64 = **F**（product plan-FC 钉）；String 为 9 叶 Plan identity（非 ACIR Y）
 - [x] prove/VK = **F**（Finalize evidence + deployable=false；无产品 prove）
 - [x] Counter 金样回归保持绿；nargo 缺席时 IR-5 恒跑
 - [x] **无假 Y**

@@ -40,8 +40,8 @@
     * Array UInt64 N → N Felt leaves; Bytes 1..8 → N×UInt8 leaves;
       Principal/String wire identity → len + 8×UInt32 body (9 leaves);
       named Struct preorder flatten already Plan-admitted
-    * Principal/String return stays Plan FC (9 > B-RET cap 8); Nested Map /
-      Map return stay Plan FC (not DPN-invented)
+    * Principal/String return is the 9-leaf identity exception (B-RET-PRIN);
+      Nested Map stays Plan FC (not DPN-invented)
     * Structural + product Plan→DPN tests in PsyDpnV1
 
   DPN-5: dense Map UInt64 UInt64 cap-8 (24 occ/key/val Felt leaves)

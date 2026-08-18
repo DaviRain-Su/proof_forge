@@ -70,7 +70,7 @@
 
   * call/schedule slots = **P** (witness-binding relation only; circuit does
     **not** execute external call; proof does **not** attest on-chain call)
-  * String state / Option non-UInt64 = **F** (plan-FC)
+  * Option non-UInt64 = **F** (plan-FC；String 为 9 叶 Plan identity，非 ACIR Y)
   * prove/VK = **F** (Finalize `deployable=false`; no product prove; IR-7/G6
     prove lane is host-heavy PARTIAL+MISSING — see below)
 
@@ -695,10 +695,10 @@ def honestyMatrixRowsV1 : Array HonestyMatrixRowV1 :=
       noirPathStatus := .Y
       acirStatus := .Y
       evidence := "OptionState G3 full capture pins" },
-    { family := "String state / Option non-UInt64"
+    { family := "Option non-UInt64"
       noirPathStatus := .F
       acirStatus := .F
-      evidence := "plan-FC (String state / Option String / Option Bool / nested Option)" },
+      evidence := "plan-FC (Option String / Option Bool / nested Option); String is 9-leaf Plan identity, not ACIR Y" },
     { family := "prove/VK"
       noirPathStatus := .F
       acirStatus := .F
@@ -735,19 +735,6 @@ def callScheduleHonestySourceTextV1 : String :=
   "    return count\n\n" ++
   "end ProofForgeV2.Examples\n"
 
-/-- Product-path plan-FC: String state. -/
-def stringStateFcSourceTextV1 : String :=
-  "import ProofForgeV2\n\n" ++
-  "namespace ProofForgeV2.Examples\n\n" ++
-  "open ProofForgeV2.Language\n\n" ++
-  "program StringStateFc where\n" ++
-  "  state label : String\n\n" ++
-  "  init() do\n" ++
-  "    label := \"x\"\n\n" ++
-  "  view peek() : UInt64 do\n" ++
-  "    return 0\n\n" ++
-  "end ProofForgeV2.Examples\n"
-
 /-- Product-path plan-FC: Option String state (non-UInt64 Option payload). -/
 def optionStringStateFcSourceTextV1 : String :=
   "import ProofForgeV2\n\n" ++
@@ -781,10 +768,11 @@ def honestyCallScheduleNoteV1 : String :=
   "on-chain call happened; ACIR status is P not Y (B-CALL-SEM); " ++
   "result-bearing call stays fail closed pending response-witness contract"
 
-/-- String / Option non-UInt64 honesty note (plan-FC). -/
+/-- Option non-UInt64 honesty note (plan-FC). String is 9-leaf Plan identity. -/
 def honestyOptionStringNoteV1 : String :=
-  "String state and Option non-UInt64 (including Option String) stay plan-FC on " ++
-  "Noir; ACIR status F; only Option UInt64 state is G3-capture Y"
+  "Option non-UInt64 (including Option String / Option Bool) stay plan-FC on " ++
+  "Noir; ACIR status F; String is 9-leaf Plan identity (not ACIR Y); " ++
+  "only Option UInt64 state is G3-capture Y"
 
 /-- prove/VK honesty note (no product prove; IR-7/G6 PARTIAL+MISSING). -/
 def honestyProveNoteV1 : String :=

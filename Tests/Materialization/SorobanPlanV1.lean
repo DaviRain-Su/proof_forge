@@ -1270,11 +1270,30 @@ unsafe def testPrincipalIdentityLeaves : IO Unit := do
   let parsedRet ← liftResult (← session.selectProgramV1
     retSource "<soroban-principal-ret>" "Tests.SorobanPrincipalReturn" none)
   let compiledRet ← liftResult <| Compiler.compileValidatedSourceV1 parsedRet
-  match planSoroban compiledRet with
-  | .ok _ => throw <| IO.userError "Principal return must fail closed"
-  | .error e =>
-      expect (e.render.contains "Principal")
-        s!"Principal return must cite Principal, got {e.render}"
+  let planRet ← liftResult <| planSoroban compiledRet
+  let some v := planRet.views[0]? |
+    throw <| IO.userError "PrincipalReturn must emit a view"
+  expect (v.resultKind == .aggregate 9)
+    s!"PrincipalReturn view must be aggregate 9, got {repr v.resultKind}"
+  liftResult <| Targets.Soroban.validatePlan planRet
+  let strRetSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program StringReturn where\n" ++
+    "  state label : String\n" ++
+    "  init(initial : String) do\n" ++
+    "    label := initial\n" ++
+    "  view getLabel() : String do\n" ++
+    "    return label\n"
+  let parsedStr ← liftResult (← session.selectProgramV1
+    strRetSource "<soroban-string-ret>" "Tests.SorobanStringReturn" none)
+  let compiledStr ← liftResult <| Compiler.compileValidatedSourceV1 parsedStr
+  let planStr ← liftResult <| planSoroban compiledStr
+  let some sv := planStr.views[0]? |
+    throw <| IO.userError "StringReturn must emit a view"
+  expect (sv.resultKind == .aggregate 9)
+    s!"StringReturn view must be aggregate 9, got {repr sv.resultKind}"
+  liftResult <| Targets.Soroban.validatePlan planStr
 
 unsafe def testPointBoxFlatten : IO Unit := do
   let session ← Tests.Language.ParserSession.shared

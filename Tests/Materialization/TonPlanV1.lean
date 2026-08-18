@@ -3199,9 +3199,76 @@ private unsafe def testPrincipalIdentityLeaves
     "  view getOwner() : Principal do\n" ++
     "    return owner\n"
   let compiledRet ← compileSource session retSource "Examples.PrincipalReturn" "<ton-principal-ret>"
-  expectPlanErrorContaining "PrincipalReturn" "Principal"
-    (planTon compiledRet)
-  IO.println "  ✓ Ton Principal 9-leaf identity + return FC"
+  let planRet ← liftResult (planTon compiledRet)
+  let getOwner ← findMethod planRet "getOwner"
+  expect (getOwner.mode == .view) "PrincipalReturn getOwner must be view"
+  match getOwner.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 9)
+        s!"PrincipalReturn aggregate return must have 9 leaves, got {leaves.size}"
+      expect (leaves.all (fun l => !l.isInt && l.byteWidth == 8))
+        "PrincipalReturn leaves must be unsigned 8-byte identity words"
+  | other =>
+      throw <| IO.userError
+        s!"PrincipalReturn getOwner resultKind must be .aggregate, got {repr other}"
+  IO.println "  ✓ Ton Principal 9-leaf identity + view return"
+
+unsafe def testPrincipalReturn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source := wrapProgram "PrinRetTon" <|
+    "  state owner : Principal\n\n" ++
+    "  init(initial : Principal) do\n" ++
+    "    owner := initial\n\n" ++
+    "  view getOwner() : Principal do\n" ++
+    "    return owner\n"
+  let compiled ← compileSource session source "Examples.PrinRetTon" "<ton-prin-ret-focus>"
+  let plan ← liftResult (planTon compiled)
+  let getOwner ← findMethod plan "getOwner"
+  expect (getOwner.mode == .view) "PrinRetTon getOwner must be view"
+  match getOwner.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 9)
+        s!"PrinRetTon must have 9 leaves, got {leaves.size}"
+      expect (leaves.all (fun l => !l.isInt && l.byteWidth == 8))
+        "PrinRetTon leaves must be unsigned 8-byte identity words"
+  | other =>
+      throw <| IO.userError
+        s!"PrinRetTon getOwner resultKind must be .aggregate, got {repr other}"
+  IO.println "  ✓ Principal view return 9-leaf identity"
+
+unsafe def testStringReturn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source := wrapProgram "StrRetTon" <|
+    "  state label : String\n\n" ++
+    "  init(initial : String) do\n" ++
+    "    label := initial\n\n" ++
+    "  view getLabel() : String do\n" ++
+    "    return label\n"
+  let compiled ← compileSource session source "Examples.StrRetTon" "<ton-str-ret-focus>"
+  let plan ← liftResult (planTon compiled)
+  let getLabel ← findMethod plan "getLabel"
+  expect (getLabel.mode == .view) "StrRetTon getLabel must be view"
+  match getLabel.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 9)
+        s!"StrRetTon must have 9 leaves, got {leaves.size}"
+      expect (leaves.all (fun l => !l.isInt && l.byteWidth == 8))
+        "StrRetTon leaves must be unsigned 8-byte identity words"
+  | other =>
+      throw <| IO.userError
+        s!"StrRetTon getLabel resultKind must be .aggregate, got {repr other}"
+  let entrySrc := wrapProgram "StrEntryTon" <|
+    "  state label : String\n\n" ++
+    "  init(initial : String) do\n" ++
+    "    label := initial\n\n" ++
+    "  entry setLabel(next : String) : String do\n" ++
+    "    label := next\n" ++
+    "    return label\n"
+  let entryCompiled ← compileSource session entrySrc "Examples.StrEntryTon"
+    "<ton-str-entry-focus>"
+  expectPlanErrorContaining "StrEntryTon" "cannot return multi-leaf aggregate"
+    (planTon entryCompiled)
+  IO.println "  ✓ String view return 9-leaf identity; TON entry String stays FC"
 
 unsafe def run : IO Unit := do
   IO.println "TonPlanV1"

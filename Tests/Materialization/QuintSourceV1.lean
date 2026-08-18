@@ -584,11 +584,32 @@ unsafe def testPrincipalIdentityLeaves : IO Unit := do
   let parsedRet ← liftResult (← session.selectProgramV1
     retSource "<quint-principal-ret>" "Tests.QuintPrincipalReturn" none)
   let compiledRet ← liftResult <| Compiler.compileValidatedSourceV1 parsedRet
-  match planQuint compiledRet with
-  | .ok _ => throw <| IO.userError "Principal return must fail closed"
-  | .error e =>
-      expect (!(e.render.isEmpty))
-        s!"Principal return must fail closed, got {e.render}"
+  let planRet ← liftResult <| planQuint compiledRet
+  let some v := planRet.views[0]? |
+    throw <| IO.userError "PrincipalReturn must emit a view"
+  expect (v.resultKind == .aggregate 9)
+    s!"PrincipalReturn view must be aggregate 9, got {repr v.resultKind}"
+  expect (v.leaves.size == 9) "PrincipalReturn must carry nine identity leaves"
+  liftResult <| Targets.Quint.validatePlan planRet
+  let strRetSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program StringReturn where\n" ++
+    "  state label : String\n" ++
+    "  init(initial : String) do\n" ++
+    "    label := initial\n" ++
+    "  view getLabel() : String do\n" ++
+    "    return label\n"
+  let parsedStr ← liftResult (← session.selectProgramV1
+    strRetSource "<quint-string-ret>" "Tests.QuintStringReturn" none)
+  let compiledStr ← liftResult <| Compiler.compileValidatedSourceV1 parsedStr
+  let planStr ← liftResult <| planQuint compiledStr
+  let some sv := planStr.views[0]? |
+    throw <| IO.userError "StringReturn must emit a view"
+  expect (sv.resultKind == .aggregate 9)
+    s!"StringReturn view must be aggregate 9, got {repr sv.resultKind}"
+  expect (sv.leaves.size == 9) "StringReturn must carry nine identity leaves"
+  liftResult <| Targets.Quint.validatePlan planStr
 
 /-- N=9 exceeds the 1..8 flatten cap. -/
 unsafe def testArrayN9FailClosed : IO Unit := do

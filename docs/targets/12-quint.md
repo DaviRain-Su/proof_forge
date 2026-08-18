@@ -163,7 +163,8 @@ Wasm host / TVM Stack-Account / ZK circuit / zkVM / ZK application chain，也�
 
 ### 必须 fail closed / 非 Q0
 
-- multi-width `UInt`/`Int`、`Field`、`Principal` result、`String`、Bytes N=0/N>8、nested Option/Map、Option-of-non-scalar、Map-of-non-domain key/value
+- multi-width `UInt`/`Int`、`Field`、Bytes N=0/N>8、nested Option/Map、Option-of-non-scalar、Map-of-non-domain key/value
+- `Principal`/`String` result 已为 9 叶 identity 例外（**B-RET-PRIN / B-RET-STR**；不是把 8 叶 cap 改成 9；非 UTF-8 ABI；`self`/`caller` 仍 FC）
 - nonempty constants 中的 String/aggregate/Principal、非 zero-param public-Bool/read-only Q0 invariants
 - checked/fallible view（Q0 不发明 view outcome ABI）
 - 不可约 CFG、非 loop block-param/phi、缺 default 的 switch、臂内 call·emit·typed revert

@@ -726,6 +726,7 @@ private def validateTonTypeClosureV1
     tonUintWidthPolicyV1
     (intPolicy := pilotIntWidthPolicyNarrow)
     (principalPolicy := pilotPrincipalPolicyAdmit)
+    (stringPolicy := pilotStringPolicyAdmit)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
     (containerPolicy := pilotContainerStatePolicyArrayMapBytes)
 
@@ -1102,7 +1103,7 @@ precise fail-closed diagnostics instead of a scalar fallthrough). -/
 private def isAggregateResultCandidateV1
     (typeDecls : Array TypeDeclV1) (types : TonTypeClosureV1)
     (typeId : TypeIdV1) : Bool :=
-  if types.isNamedAggregate typeId then true
+  if types.isNamedAggregate typeId || types.isPrincipal typeId || types.isString typeId then true
   else
     match typeDecls[typeId.toNat]? with
     | some { shape := .array .., name := none, .. }
@@ -1119,22 +1120,27 @@ private def aggregateResultKindOfV1
     (typeDecls : Array TypeDeclV1) (types : TonTypeClosureV1)
     (owner : String) (typeId : TypeIdV1) : CompileResult MethodResultKind := do
   let leaves ←
-    if types.isNamedAggregate typeId then
+    if types.isPrincipal typeId || types.isString typeId then
+      pure (Array.replicate (nearPrincipalDataWordCountV1 + 1)
+        { isInt := false, byteWidth := 8 })
+    else if types.isNamedAggregate typeId then
       flattenTypeLeafAbiV1 typeDecls types typeId
     else
       match ← anonymousReturnLeafAbiV1 typeDecls types typeId with
       | some ls => pure ls
       | none =>
           throw <| .planInvariant .ton
-            s!"{owner} does not return a named Struct/Enum or admitted anonymous Array/Option aggregate"
+            s!"{owner} does not return a named Struct/Enum or admitted anonymous Array/Option/Principal/String aggregate"
   let n := leaves.size
   unless n > 0 do
     throw <| .planInvariant .ton
       s!"{owner} aggregate return must have at least one leaf"
   let maxLeaves :=
-    match typeDecls[typeId.toNat]? with
-    | some { shape := .map _ _, name := none, .. } => nearMapPilotLeafCountV1
-    | _ => 8
+    if types.isPrincipal typeId || types.isString typeId then nearPrincipalDataWordCountV1 + 1
+    else
+      match typeDecls[typeId.toNat]? with
+      | some { shape := .map _ _, name := none, .. } => nearMapPilotLeafCountV1
+      | _ => 8
   unless n ≤ maxLeaves do
     throw <| .planInvariant .ton
       s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of {maxLeaves}"
@@ -1410,11 +1416,11 @@ private def makeStorageLayoutV1
               isInt := leafIsInt
             }
           stateLeaves := stateLeaves.push leaves
-        else if types.isPrincipal state.typeId then
-          -- T12 Principal: 9 KV fields (`name_len` + `name_w0`..`name_w7`).
+        else if types.isPrincipal state.typeId || types.isString state.typeId then
+          -- T12 Principal / B-RET-STR String: 9 KV fields (`name_len` + `name_w0`..`name_w7`).
           -- ValidatePlan requires sourceId == physical field index (dense).
           -- Logical state → leaf indices live only in `stateLeaves`.
-          requirePublicUInt64OrInt64OrFieldOrPrincipalState tonPlanErr types state
+          requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedState tonPlanErr types state
             (allowNonPublic := true)
           let leafSpecs ← flattenPrincipalLeafSpecsV1 state.name
           if fields.size + leafSpecs.size > maxStateFields then
@@ -1550,9 +1556,9 @@ private def makeParamsV1 (owner : String) (types : TonTypeClosureV1)
     unless isIdentifier param.name do
       throw <| .planInvariant .ton
         s!"parameter name '{param.name}' in {owner} is not a safe identifier"
-    if types.isPrincipal param.typeId then
-      -- T12: Principal expands to 9×UInt64 input words (leaf tuple).
-      requirePublicUInt64OrInt64OrFieldOrPrincipalParam
+    if types.isPrincipal param.typeId || types.isString param.typeId then
+      -- T12 / B-RET-STR: Principal/String expands to 9×UInt64 input words.
+      requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedParam
         tonPlanErr types owner param (allowNonPublic := true)
       let leafSpecs ← flattenPrincipalLeafSpecsV1 param.name
       if planned.size + leafSpecs.size > maxParams then
@@ -2383,7 +2389,7 @@ private def lowerBlockInstructionsV1
               expandedNodes := 1
               dependencies := #[]
             }
-        else if types.isPrincipal typeId then
+        else if types.isPrincipal typeId || types.isString typeId then
           let leafExprs ← decodePrincipalLiteralLeavesV1 bytes
           let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
           values := ← appendResultValueV1 typeId values result value
@@ -2392,7 +2398,7 @@ private def lowerBlockInstructionsV1
             | some tid =>
                 unless typeId == tid do
                   throw <| .planInvariant .ton
-                    "unsupported Ton semantic shape: literal is not admitted UInt width, Int{8,16,32,64}, Bool, or Principal"
+                    "unsupported Ton semantic shape: literal is not admitted UInt width, Int{8,16,32,64}, Bool, Principal, or String"
                 pure tid
             | none =>
                 throw <| .planInvariant .ton
@@ -2436,10 +2442,10 @@ private def lowerBlockInstructionsV1
           let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
             (leafByteWidth := leafByteWidth)
           values := ← appendResultValueV1 result.typeId values result value
-        else if types.isPrincipal result.typeId then
+        else if types.isPrincipal result.typeId || types.isString result.typeId then
           unless leafIdxs.size == nearPrincipalDataWordCountV1 + 1 do
             throw <| .planInvariant .ton
-              "unsupported Ton semantic shape: Principal state load leaf count mismatch"
+              "unsupported Ton semantic shape: Principal/String state load leaf count mismatch"
           let mut leafExprs : Array Expr := #[]
           for fi in leafIdxs do
             leafExprs := leafExprs.push (.stateLoad fi)
@@ -4247,9 +4253,6 @@ private def makeEntryV1
       | _ =>
           throw <| .planInvariant .ton
             s!"unsupported Ton semantic shape: entry '{name}' cannot return multi-leaf aggregate"
-    else if types.isPrincipal callable.result.typeId then
-      throw <| .planInvariant .ton
-        s!"entry '{name}' cannot return multi-leaf Principal aggregate (Ton B-RET-ABI admits only named Struct/Enum and anonymous Array/Option view returns, cap-8 leaves)"
     else
       -- BL-14: scalar ABI is UInt{8,16,32,64,128,256} / Bool / Int{8,16,32,64}
       -- (Int128/256 FC).

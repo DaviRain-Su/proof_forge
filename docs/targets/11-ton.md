@@ -77,8 +77,9 @@ Map UInt128 / Int64-key、
 Option Int8/16/32、Option UInt256、Option UInt128 return 仍 fail closed；
 Array Int64 / Option Int64 / Bytes N / **B-RET-MAP** `Map UInt64 UInt64` 或
 `Map UInt64 Int64` **view** return 已开（entry 聚合仍 FC；24 叶例外，不是把 8 叶 cap 改成 24）；
+**B-RET-PRIN / B-RET-STR** Principal/String **view** 9 叶 identity 已开（entry 聚合仍 FC；≠ TON address / 非 UTF-8 ABI）；
 nested/非 admitted 元素与 target pureFn aggregate仍 fail closed；Option/Array/Map **param** 已 flatten（Map = 24 occ/key/val 叶）；
-Field/Principal/String、ContextRead/Commit、nonempty invariants/constants、masterchain/library/
+Field、ContextRead/Commit、nonempty invariants/constants、masterchain/library/
 extra currencies仍 FC。
 
 **maturity**：`source-only`（registry 标签不变）；BoC 已产且 `runtime-tests/ton`
@@ -307,7 +308,7 @@ Tolk compile (结构/ABI)                    ✅ 工程
 - schedule 的真实 destination/address binding、非零 value 经济与 callback/`query_id` 往返；当前仅
   fixed hash destination stub + value=0 + fixed send-mode。
 - Int128/256、Array/Map/Option of UInt128/256、UInt128/256 shifts/bitwise、entry aggregate return、
-  Map Int8 / Map UInt128 / Int64-key、Option Int8/16/32、Option UInt128 return、Field/Principal/String interface、ContextRead/Commit、
+  Map Int8 / Map UInt128 / Int64-key、Option Int8/16/32、Option UInt128 return、Field interface、Principal→address remap、String const / Option-of-String、ContextRead/Commit、
   nonempty invariants/constants、masterchain/library/extra currencies。
 - FunC/Tact 默认发射、手写 TVM 汇编产品路径。
 - formal Reference 差分、主网 deploy 证据。

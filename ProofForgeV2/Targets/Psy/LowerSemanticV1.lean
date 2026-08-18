@@ -938,7 +938,8 @@ precise fail-closed diagnostics instead of a scalar fallthrough). -/
 private def isAggregateResultCandidateV1
     (typeDecls : Array TypeDeclV1) (types : PsyTypeClosureV1)
     (typeId : TypeIdV1) : Bool :=
-  if types.isNamedAggregate typeId then true
+  if types.isNamedAggregate typeId || types.isPrincipal typeId ||
+      types.isString typeId then true
   else
     match typeDecls[typeId.toNat]? with
     | some { shape := .array .., name := none, .. }
@@ -954,21 +955,27 @@ private def aggregateResultKindOfV1
     (typeDecls : Array TypeDeclV1) (types : PsyTypeClosureV1)
     (owner : String) (typeId : TypeIdV1) : CompileResult ResultKind := do
   let leaves ←
-    if types.isNamedAggregate typeId then
+    if types.isPrincipal typeId || types.isString typeId then
+      pure (Array.replicate (1 + psyWireIdentityBodyLimbCountV1)
+        { isInt := false, byteWidth := 8 })
+    else if types.isNamedAggregate typeId then
       flattenReturnLeafAbiV1 typeDecls types typeId
     else
       match ← anonymousReturnLeafAbiV1 typeDecls types typeId with
       | some ls => pure ls
       | none =>
           planError
-            s!"{owner} does not return a named Struct/Enum or admitted anonymous Array/Option aggregate"
+            s!"{owner} does not return a named Struct/Enum or admitted anonymous Array/Option/Principal/String aggregate"
   let n := leaves.size
   unless n > 0 do
     planError s!"{owner} aggregate return must have at least one leaf"
   let maxLeaves :=
-    match typeDecls[typeId.toNat]? with
-    | some { shape := .map _ _, name := none, .. } => psyMapPilotLeafCountV1
-    | _ => 8
+    if types.isPrincipal typeId || types.isString typeId then
+      1 + psyWireIdentityBodyLimbCountV1
+    else
+      match typeDecls[typeId.toNat]? with
+      | some { shape := .map _ _, name := none, .. } => psyMapPilotLeafCountV1
+      | _ => 8
   unless n ≤ maxLeaves do
     planError s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of {maxLeaves}"
   pure (.aggregate leaves)
@@ -3173,7 +3180,7 @@ end
     Named Struct/Enum and admitted anonymous Array UInt64 N / Option UInt64 /
     Bytes N (1..8) entry/view results become `.aggregate` (cap-8). pureFn
     aggregate is rejected by the pureFn gate below; Map/nested stay FC.
-    Principal/String results FC (9 leaves > cap 8). -/
+    Principal/String results are the 9-leaf identity exception (B-RET-PRIN). -/
 private def resultShape (data : SemanticProgramDataV1)
     (types : PsyTypeClosureV1)
     (typeDecls : Array TypeDeclV1) (callable : CallableV1) (owner : String) :
@@ -3195,8 +3202,6 @@ private def resultShape (data : SemanticProgramDataV1)
     else pure (false, false, 64, .felt)
   else if isGoldilocksFieldType types callable.result.typeId then pure (false, false, 0, .felt)
   else if isUnitType data callable.result.typeId then pure (false, true, 0, .unit)
-  else if types.isPrincipal callable.result.typeId || types.isString callable.result.typeId then
-    planError s!"{owner} Principal/String result is outside Psy B-RET-ABI (wire identity is 9 leaves > cap 8; state/param only)"
   else if isAggregateResultCandidateV1 typeDecls types callable.result.typeId then
     let kind ← aggregateResultKindOfV1 typeDecls types owner callable.result.typeId
     pure (false, false, 0, kind)

@@ -599,11 +599,30 @@ unsafe def testPrincipalIdentityLeaves : IO Unit := do
   let parsedRet ← liftResult (← session.selectProgramV1
     retSource "<openvm-principal-ret>" "Tests.OpenVmPrincipalReturn" none)
   let compiledRet ← liftResult <| Compiler.compileValidatedSourceV1 parsedRet
-  match planOpenVm compiledRet with
-  | .ok _ => throw <| IO.userError "Principal return must fail closed"
-  | .error e =>
-      expect (e.render.contains "Principal")
-        s!"Principal return must cite Principal, got {e.render}"
+  let planRet ← liftResult <| planOpenVm compiledRet
+  let some v := planRet.views[0]? |
+    throw <| IO.userError "PrincipalReturn must emit a view"
+  expect (v.resultKind == .aggregate 9)
+    s!"PrincipalReturn view must be aggregate 9, got {repr v.resultKind}"
+  liftResult <| Targets.OpenVM.validatePlan planRet
+  let strRetSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program StringReturn where\n" ++
+    "  state label : String\n" ++
+    "  init(initial : String) do\n" ++
+    "    label := initial\n" ++
+    "  view getLabel() : String do\n" ++
+    "    return label\n"
+  let parsedStr ← liftResult (← session.selectProgramV1
+    strRetSource "<openvm-string-ret>" "Tests.OpenVmStringReturn" none)
+  let compiledStr ← liftResult <| Compiler.compileValidatedSourceV1 parsedStr
+  let planStr ← liftResult <| planOpenVm compiledStr
+  let some sv := planStr.views[0]? |
+    throw <| IO.userError "StringReturn must emit a view"
+  expect (sv.resultKind == .aggregate 9)
+    s!"StringReturn view must be aggregate 9, got {repr sv.resultKind}"
+  liftResult <| Targets.OpenVM.validatePlan planStr
 
 /-- Homogeneous UInt64 mul/div/mod emit checked Rust ops. -/
 unsafe def testMulDivModAdmit : IO Unit := do

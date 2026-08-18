@@ -63,6 +63,7 @@ Tool Lock 成员。
   `Option Int64` 与 dense Map cap-8（UInt64 key + UInt64/Int64 val）的受限 leaf
   lowering（state 为 names-only Felt 叶；`isInt` 从 TypeId 在 IndexGet/construct 线程，
   不是 storage ABI suffix；HashOut `Array UInt64 4` 保持 unsigned）；
+  **B-RET-PRIN** Principal/String entry/view 为 9 Felt 叶 identity（不是把 8 叶 cap 改成 9）；
 - checked arithmetic、比较、logical/bitwise/shift；
 - immutable let、assign、assert、if/match、bounded-for static unroll、bare revert；
 - literal-backed constants与 pure-function inline；

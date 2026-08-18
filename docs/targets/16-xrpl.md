@@ -68,20 +68,20 @@ Rust → `wasm32-unknown-unknown` → `ContractCreate` / `ContractCall`，合约
 （`xrpl_wasm` / Bedrock 注解风格）；齐次 `signedNumeric` Int64（全程序
 UInt64 **或** Int64，混用 FC；Option/Map/Array 元跟域）；UInt64/Bool/Int64
 const inline；T3 Bytes N / Array UInt64/Int64 N state flatten（N∈1..8 叶，
-字面量下标）；T4 Principal 9 叶 identity（`len+w0..w7`，不是 AccountID）；
+字面量下标）；T4 Principal 9 叶 identity（`len+w0..w7`，不是 AccountID；**B-RET-PRIN** 9 叶 result）；
 T5 named Struct/Enum 叶 flatten（state **and param** ≤8 叶）；T5-Option 2 叶（`name_tag`/`name_p0`）；
 T8a-Map cap-8（24 叶；IndexGet→Option；第 9 次 insert overflow；**B-RET-MAP**
 entry/view 24 叶返回）；T6/T7
 named **and Array N** view/entry 叶返回 Rust `(u64,…)` / `(i64,…)` 元组；T8b Bytes N
 view **and entry** 叶返回；T9a/T9b if-diamond + `switchOn`；T9c counted
-`forLoop` trap。named/Option/Array/Map/Bytes **param** 已 flatten。窄 Int/Field/String 仍 FC。
+`forLoop` trap。named/Option/Array/Map/Bytes **param** 已 flatten。String 为 9 叶 identity（非 UTF-8 ABI / 非 AccountID）。窄 Int/Field 仍 FC。
 
 ContextRead / `pf.crypto.sha256` 见 [ADR-0052](../adr/0052-xrpl-host-capability-keys.md)：
 TIME/CALLER 符号已冻、SHA keep-FC；**叶仍 FC**，直到 owner 对
 `CAP-D-XRPL-TIME` / `CAP-D-XRPL-CALLER` 说 yes（另批 leaf，不要叫 CAP-7/8/9）。
 
 Q0 **一律 fail closed**：`call`/`schedule`、ContextRead、`pf.crypto.*`、
-`pf.assets`、invariants、Principal result/self/caller、Bytes N=0/N>8、
+`pf.assets`、invariants、Principal `self`/caller、Bytes N=0/N>8、
 不可约 CFG / 臂内
 call·emit·revert、Escrow/Vault、Hooks、EVM sidechain、主网 deployable、
 bedrock CLI 作为 product Finalize。

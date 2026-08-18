@@ -113,8 +113,8 @@ private partial def validateStatements
     | .returnValue value => do
         budget ← chargeExpr budget value
     | .returnAggregate leaves leafIsInt => do
-        unless leaves.size > 0 && leaves.size ≤ 8 do
-          planError "Aleo returnAggregate leaf count must be in 1..8 (B-RET-ABI)"
+        unless leaves.size > 0 && (leaves.size ≤ 8 || leaves.size == 9) do
+          planError "Aleo returnAggregate leaf count must be in 1..8 (B-RET-ABI) or 9 (B-RET-PRIN)"
         unless leafIsInt.size == leaves.size do
           planError "Aleo returnAggregate leafIsInt length must match leaves"
         for leaf in leaves do
@@ -236,9 +236,9 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     -- scalar flags; form must match leaf shape.
     match fn.resultAggregateLeaves with
     | some leaves =>
-        unless leaves.size > 0 && leaves.size ≤ 8 do
+        unless leaves.size > 0 && (leaves.size ≤ 8 || leaves.size == 9) do
           planError
-            s!"function '{fn.name}' aggregate result leaf count must be in 1..8"
+            s!"function '{fn.name}' aggregate result leaf count must be in 1..8 or 9 (B-RET-PRIN)"
         unless leaves.all (fun l => l.byteWidth == 8) ||
             leaves.all (fun l => l.byteWidth == 1) do
           planError
@@ -266,9 +266,9 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
           "unsupported Aleo semantic shape: views cannot store, emit, revert, or loop"
       match view.resultAggregateLeaves with
       | some leaves =>
-          unless leaves.size > 0 && leaves.size ≤ 8 do
+          unless leaves.size > 0 && (leaves.size ≤ 8 || leaves.size == 9) do
             planError
-              s!"view '{view.name}' aggregate result leaf count must be in 1..8"
+              s!"view '{view.name}' aggregate result leaf count must be in 1..8 or 9 (B-RET-PRIN)"
           unless leaves.all (fun l => l.byteWidth == 8) ||
               leaves.all (fun l => l.byteWidth == 1) do
             planError

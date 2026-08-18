@@ -3976,6 +3976,52 @@ unsafe def testMapReturn : IO Unit := do
     "MapRet result leaves must be u64"
   IO.println "  ✓ Map UInt64 UInt64 view return 24-leaf B-RET-MAP"
 
+unsafe def testPrincipalReturn : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program PrinRetNoir where\n" ++
+    "  state owner : Principal\n\n" ++
+    "  init(initial : Principal) do\n" ++
+    "    owner := initial\n\n" ++
+    "  view getOwner() : Principal do\n" ++
+    "    return owner\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let ir ← compileIrFromProgramV1 sourceText
+    "Examples.PrinRetNoir" "<noir-prin-ret>"
+  let getOwner ← findRelation ir "getOwner"
+  let resultLeaves := getOwner.sourceRelation.inputs.filter fun b =>
+    match b.role with | .resultLeaf _ => true | _ => false
+  expect (resultLeaves.size == 9)
+    s!"PrinRet getOwner must have 9 resultLeaf inputs, got {resultLeaves.size}"
+  expect (resultLeaves.all (·.type == .u64))
+    "PrinRet result leaves must be u64"
+  IO.println "  ✓ Principal view return 9-leaf identity"
+
+unsafe def testStringReturn : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program StrRetNoir where\n" ++
+    "  state label : String\n\n" ++
+    "  init(initial : String) do\n" ++
+    "    label := initial\n\n" ++
+    "  view getLabel() : String do\n" ++
+    "    return label\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let ir ← compileIrFromProgramV1 sourceText
+    "Examples.StrRetNoir" "<noir-str-ret>"
+  let getLabel ← findRelation ir "getLabel"
+  let resultLeaves := getLabel.sourceRelation.inputs.filter fun b =>
+    match b.role with | .resultLeaf _ => true | _ => false
+  expect (resultLeaves.size == 9)
+    s!"StrRet getLabel must have 9 resultLeaf inputs, got {resultLeaves.size}"
+  expect (resultLeaves.all (·.type == .u64))
+    "StrRet result leaves must be u64"
+  IO.println "  ✓ String view return 9-leaf identity"
+
 unsafe def testMapInt64Return : IO Unit := do
   let sourceText :=
     "import ProofForgeV2\n\n" ++

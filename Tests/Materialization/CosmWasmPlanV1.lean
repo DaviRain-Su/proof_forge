@@ -2437,6 +2437,29 @@ private unsafe def testMapParam
   IO.println "  ✓ MapParam 24-leaf occ/key/val flatten"
 
 /-- Entry point for manual / future shard registration. -/
+unsafe def testStringReturn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source := wrapProgram "StrRetCw" <|
+    "  state label : String\n\n" ++
+    "  init(initial : String) do\n" ++
+    "    label := initial\n\n" ++
+    "  view getLabel() : String do\n" ++
+    "    return label\n"
+  let compiled ← compileSource session source "Examples.StrRetCw" "<cw-str-ret>"
+  let plan ← liftResult <| planCw compiled
+  let some getLabel := plan.entries.find? (·.name == "getLabel") |
+    throw <| IO.userError "StrRet missing getLabel"
+  match getLabel.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 9)
+        s!"StrRet must have 9 leaves, got {leaves.size}"
+      expect (leaves.all (fun l => !l.isInt && l.byteWidth == 8))
+        "StrRet leaves must be unsigned 8-byte identity words"
+  | other =>
+      throw <| IO.userError
+        s!"StrRet getLabel resultKind must be .aggregate, got {repr other}"
+  IO.println "  ✓ String view return 9-leaf identity"
+
 unsafe def run : IO Unit := do
   IO.println "CosmWasmPlanV1"
   let session ← Tests.Language.ParserSession.shared
@@ -2486,6 +2509,7 @@ unsafe def run : IO Unit := do
   testContextReadBlockHeight session
   testContextReadCaller session
   testContextReadAttachedValue session
+  testStringReturn
   IO.println "CosmWasmPlanV1: all checks passed"
 
 end Tests.Materialization.CosmWasmPlanV1

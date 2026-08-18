@@ -6620,6 +6620,60 @@ unsafe def testMapInt64Return : IO Unit := do
         s!"MapInt64Ret dump must be .aggregate, got {repr other}"
   IO.println "  ✓ Map UInt64 Int64 return 24-leaf val-only isInt"
 
+unsafe def testPrincipalReturn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program PrinRetNear where\n" ++
+    "  state owner : Principal\n\n" ++
+    "  init(initial : Principal) do\n" ++
+    "    owner := initial\n\n" ++
+    "  view getOwner() : Principal do\n" ++
+    "    return owner\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let (_, plan) ← compileNearPlan session sourceText "Examples.PrinRetNear" "prin-ret"
+  let some getOwner := plan.entries.find? (·.name == "getOwner") |
+    throw <| IO.userError "PrinRet missing getOwner"
+  match getOwner.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 9)
+        s!"PrinRet must have 9 leaves, got {leaves.size}"
+      expect (leaves.all (fun l => !l.isInt && l.byteWidth == 8))
+        "PrinRet leaves must be unsigned 8-byte identity words"
+  | other =>
+      throw <| IO.userError
+        s!"PrinRet getOwner resultKind must be .aggregate, got {repr other}"
+  IO.println "  ✓ Principal view return 9-leaf identity"
+
+unsafe def testStringReturn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program StrRetNear where\n" ++
+    "  state label : String\n\n" ++
+    "  init(initial : String) do\n" ++
+    "    label := initial\n\n" ++
+    "  view getLabel() : String do\n" ++
+    "    return label\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let (_, plan) ← compileNearPlan session sourceText "Examples.StrRetNear" "str-ret"
+  let some getLabel := plan.entries.find? (·.name == "getLabel") |
+    throw <| IO.userError "StrRet missing getLabel"
+  match getLabel.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 9)
+        s!"StrRet must have 9 leaves, got {leaves.size}"
+      expect (leaves.all (fun l => !l.isInt && l.byteWidth == 8))
+        "StrRet leaves must be unsigned 8-byte identity words"
+  | other =>
+      throw <| IO.userError
+        s!"StrRet getLabel resultKind must be .aggregate, got {repr other}"
+  IO.println "  ✓ String view return 9-leaf identity"
+
 unsafe def testMapParam : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let sourceText :=

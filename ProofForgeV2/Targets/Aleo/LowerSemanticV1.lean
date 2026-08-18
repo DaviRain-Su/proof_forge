@@ -51,9 +51,10 @@ FAIL-CLOSED (explicit pins, not catch-all GAP):
     nested Option, and Option params stay fail-closed. **Principal** state
     and params flatten to T10/T12 9 UInt64 identity leaves
     (`name_len` + `name_w0`..`name_w7`, wire `u32le(len)‖body`, ≤64B body) —
-    not Aleo `address` / Field. Principal return, `Option`/`Array`/`Map` of
-    Principal, Principal const, and `context.caller`/`self` → address stay
-    fail-closed. String state, UInt256 and Int128/256 stay fail-closed.
+    not Aleo `address` / Field. Principal and String return are the same
+    9-leaf identity exception (B-RET-PRIN / B-RET-STR). `Option`/`Array`/`Map`
+    of Principal/String, Principal/String const, and `context.caller`/`self`
+    → address stay fail-closed. UInt256 and Int128/256 stay fail-closed.
     Native `u128` Instructions admit UInt128 state/params/results (literals
     that do not fit a UInt64 Plan leaf stay fail closed). Native
     `i8`/`i16`/`i32` admit Int8/16/32.
@@ -397,7 +398,7 @@ private def aleoTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64/Int32/Int16/Int8 widths are supported"
   unsupportedShapeDetail :=
-    "only UInt64, UInt32, UInt16, UInt8, UInt128, Int64, Int32, Int16, Int8, Unit, Bool, Field(bls12-377-fr), Principal (9-leaf wire identity, not address), named Struct/Enum, Array UInt64, Map UInt64 UInt64, Bytes N, and Option UInt64 (state/return; not params) are supported (Aleo native field is BLS12-377 Fr / Edwards BLS scalar, exact modulus match; bn254 Fr and Goldilocks fail closed as wrong modulus; Option of non-UInt64/nested/params + String stay fail-closed; UInt256 and Int128/256 stay fail-closed)"
+    "only UInt64, UInt32, UInt16, UInt8, UInt128, Int64, Int32, Int16, Int8, Unit, Bool, Field(bls12-377-fr), Principal/String (9-leaf wire identity, not address), named Struct/Enum, Array UInt64, Map UInt64 UInt64, Bytes N, and Option UInt64 (state/return; not params) are supported (Aleo native field is BLS12-377 Fr / Edwards BLS scalar, exact modulus match; bn254 Fr and Goldilocks fail closed as wrong modulus; Option of non-UInt64/nested/params stay fail-closed; UInt256 and Int128/256 stay fail-closed)"
 
 /-- Aleo T8 + UInt128 policy: UInt{8,16,32,64,128} body + ABI
     (`u8`/`u16`/`u32`/`u64`/`u128` Instructions). UInt256 stays fail-closed. -/
@@ -409,8 +410,8 @@ private def pilotUintWidthPolicyAleoBody : PilotUintWidthPolicy where
     occ/key/val leaves, NS-1 pattern) + fixed **Bytes N** (N UInt8 leaves)
     + Option body intermediate (Map IndexGet) + B-OPT-STATE Option UInt64
     state (never in `containerTypeIds`). Field is BLS12-377 Fr only.
-    Principal is T10/T12 9-leaf wire identity (not address).
-    String/Option-of-non-UInt64/UInt256 stay FC. -/
+    Principal/String are T10/T12 9-leaf wire identity (not address).
+    Option-of-non-UInt64/UInt256 stay FC. -/
 private def validateAleoTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult PilotTypeClosureV1 :=
   validatePilotTypeClosure aleoPlanErr aleoTypeClosureWording types
@@ -418,6 +419,7 @@ private def validateAleoTypeClosureV1
     (intPolicy := pilotIntWidthPolicyNarrow)
     (fieldPolicy := pilotFieldPolicyBls12377)
     (principalPolicy := pilotPrincipalPolicyAdmit)
+    (stringPolicy := pilotStringPolicyAdmit)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
     (containerPolicy := pilotContainerStatePolicyArrayMapBytes)
 
@@ -817,12 +819,12 @@ private partial def flattenTypeLeafSpecsV1
         pure out
     | _ =>
         planError "unsupported Aleo semantic shape: container TypeId is not Array/Map/Bytes"
-  else if types.isPrincipal typeId then
+  else if types.isPrincipal typeId || types.isString typeId then
     -- T10/T12 wire identity: `{prefix}_len` + `{prefix}_w0`..`_w7` as UInt64.
     -- Not Aleo address / Field. Body ≤64B; leaf values are unsigned.
     flattenPrincipalLeafSpecsV1 namePrefix
   else
-        planError "unsupported Aleo semantic shape: aggregate leaf must be UInt{8,16,32,64,128}, Int64, named Struct/Enum, Array UInt64/Int64, Map UInt64 UInt64/Int64, Bytes N, or Principal"
+        planError "unsupported Aleo semantic shape: aggregate leaf must be UInt{8,16,32,64,128}, Int64, named Struct/Enum, Array UInt64/Int64, Map UInt64 UInt64/Int64, Bytes N, Principal, or String"
 
 private def leafCountOfTypeV1
     (typeDecls : Array TypeDeclV1) (types : AleoTypeClosureV1)
@@ -1025,7 +1027,7 @@ private def makeStateLayoutV1
     unless isIdentifier state.name do
       planError s!"state name '{state.name}' is not a safe identifier"
     if types.isNamedAggregate state.typeId || types.isContainer state.typeId ||
-        types.isPrincipal state.typeId then
+        types.isPrincipal state.typeId || types.isString state.typeId then
       let leafSpecs ← flattenTypeLeafSpecsV1 typeDecls types state.typeId state.name
       if fieldNames.size + leafSpecs.size > maxStateLeafFields then
         planError "unsupported Aleo semantic shape: state leaf count exceeds Aleo profile limit"
@@ -1376,7 +1378,7 @@ private partial def lowerRegion
         match instr.result with
         | none => planError "Aleo literal instruction must produce a value"
         | some valueDef =>
-            if layout.types.isPrincipal typeId then
+            if layout.types.isPrincipal typeId || layout.types.isString typeId then
               let leaves ← decodePrincipalLiteralLeavesV1 valueBytes
               env := envInsertVal env valueDef.valueId (mkAggregateVal leaves)
             else
@@ -2308,10 +2310,13 @@ private partial def lowerRegion
             | some v =>
                 -- B-RET-ABI named Struct/Enum + N-ANON-RESULT Array/Option,
                 -- including a 1-leaf named struct (`!v.isAggregate` because
-                -- stateLoad of one mapping leaf stays scalar). Map/Bytes
+                -- stateLoad of one mapping leaf stays scalar). Principal is
+                -- the 9-leaf identity exception (B-RET-PRIN). Map/Bytes
                 -- still fail closed at `anonymousReturnLeafAbiV1`.
                 let admitted :=
                   layout.types.isNamedAggregate callable.result.typeId ||
+                  layout.types.isPrincipal callable.result.typeId ||
+                  layout.types.isString callable.result.typeId ||
                   (match layout.typeDecls[callable.result.typeId.toNat]? with
                     | some { shape := .array .., name := none, .. }
                     | some { shape := .option .., name := none, .. }
@@ -2321,13 +2326,18 @@ private partial def lowerRegion
                 if v.isAggregate || admitted then
                   unless admitted do
                     planError
-                      "Aleo return of multi-leaf value requires named Struct/Enum or admitted anonymous Array/Option result"
+                      "Aleo return of multi-leaf value requires named Struct/Enum, Principal, or admitted anonymous Array/Option result"
                   let leaves := v.leafExprs
                   unless leaves.size > 0 do
                     planError "Aleo aggregate return must have at least one leaf"
-                  unless leaves.size ≤ 8 do
+                  let maxLeaves :=
+                    if layout.types.isPrincipal callable.result.typeId ||
+                        layout.types.isString callable.result.typeId then
+                      aleoPrincipalLeafCountV1
+                    else 8
+                  unless leaves.size ≤ maxLeaves do
                     planError
-                      s!"Aleo aggregate return has {leaves.size} leaves, exceeding the B-RET-ABI cap of 8"
+                      s!"Aleo aggregate return has {leaves.size} leaves, exceeding the B-RET-ABI cap of {maxLeaves}"
                   -- UInt64/Int64 leaves are width 0. Admitted Bytes N returns
                   -- carry UInt8 leaf widths; reject other narrow UInt/Field.
                   let uintWidths := match v.leafUintWidth? with
@@ -2512,7 +2522,7 @@ precise fail-closed diagnostics instead of a scalar fallthrough). -/
 private def isAggregateResultCandidateV1
     (typeDecls : Array TypeDeclV1) (types : AleoTypeClosureV1)
     (typeId : TypeIdV1) : Bool :=
-  if types.isNamedAggregate typeId then true
+  if types.isNamedAggregate typeId || types.isPrincipal typeId || types.isString typeId then true
   else
     match typeDecls[typeId.toNat]? with
     | some { shape := .array .., name := none, .. }
@@ -2530,20 +2540,25 @@ private def aggregateResultOfV1
     (owner : String) (typeId : TypeIdV1) :
     CompileResult (Array LeafAbiType) := do
   let leaves ←
-    if types.isNamedAggregate typeId then
+    if types.isPrincipal typeId || types.isString typeId then
+      pure (Array.replicate aleoPrincipalLeafCountV1
+        { isInt := false, byteWidth := 8 })
+    else if types.isNamedAggregate typeId then
       flattenNamedReturnLeafAbiV1 typeDecls types typeId
     else
       match ← anonymousReturnLeafAbiV1 typeDecls types typeId with
       | some leaves => pure leaves
       | none =>
           planError
-            s!"{owner} does not return a named Struct/Enum or admitted anonymous Array/Option aggregate"
+            s!"{owner} does not return a named Struct/Enum or admitted anonymous Array/Option/Principal/String aggregate"
   let n := leaves.size
   unless n > 0 do
     planError s!"{owner} aggregate return must have at least one leaf"
-  unless n ≤ 8 do
+  let maxLeaves :=
+    if types.isPrincipal typeId || types.isString typeId then aleoPrincipalLeafCountV1 else 8
+  unless n ≤ maxLeaves do
     planError
-      s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of 8"
+      s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of {maxLeaves}"
   pure leaves
 
 /-- Resolve a callable result to scalar flags plus optional aggregate leaves.
@@ -2579,9 +2594,6 @@ private def resultShape (data : SemanticProgramDataV1) (types : AleoTypeClosureV
   else if (match data.types[callable.result.typeId.toNat]? with
       | some { shape := .unit, .. } => true | _ => false) then
     pure (false, true, false, 0, false, none)
-  else if types.isPrincipal callable.result.typeId then
-    planError
-      s!"{owner} Principal return is outside the Aleo B-RET ABI (9 identity leaves exceed the cap of 8; not address)"
   else if isAggregateResultCandidateV1 typeDecls types callable.result.typeId then
     let leaves ← aggregateResultOfV1 typeDecls types owner callable.result.typeId
     pure (false, false, false, 0, false, some leaves)
@@ -2692,11 +2704,11 @@ private partial def lowerCallable
       | _ =>
           planError
             s!"unsupported Aleo semantic shape: Option parameter '{p.name}' must be anonymous Option UInt64/Int64"
-    else if layout.types.isPrincipal p.typeId then
+    else if layout.types.isPrincipal p.typeId || layout.types.isString p.typeId then
       let specs ← flattenTypeLeafSpecsV1 layout.typeDecls layout.types p.typeId p.name
       unless specs.size == aleoPrincipalLeafCountV1 do
         planError
-          s!"unsupported Aleo semantic shape: Principal parameter '{p.name}' must flatten to {aleoPrincipalLeafCountV1} UInt64 leaves"
+          s!"unsupported Aleo semantic shape: Principal/String parameter '{p.name}' must flatten to {aleoPrincipalLeafCountV1} UInt64 leaves"
       for (leafName, isInt, uintWidth) in specs do
         unless !isInt && uintWidth == 0 do
           planError
@@ -2790,7 +2802,7 @@ private partial def lowerCallable
         leaves := leaves.push (.param paramOrdinal)
         paramOrdinal := paramOrdinal + 1
       env0 := envInsertVal env0 p.valueId (mkAggregateVal leaves)
-    else if layout.types.isPrincipal p.typeId then
+    else if layout.types.isPrincipal p.typeId || layout.types.isString p.typeId then
       let mut leaves : Array Expr := #[]
       for _ in [0:aleoPrincipalLeafCountV1] do
         leaves := leaves.push (.param paramOrdinal)

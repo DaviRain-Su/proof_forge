@@ -842,6 +842,7 @@ private def validateNearTypeClosureV1
     pilotUintWidthPolicyNearBody
     (intPolicy := pilotIntWidthPolicyNarrow)
     (principalPolicy := pilotPrincipalPolicyAdmit)
+    (stringPolicy := pilotStringPolicyAdmit)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
     (containerPolicy := pilotContainerStatePolicyArrayMapBytes)
 
@@ -1212,7 +1213,7 @@ precise fail-closed diagnostics instead of a scalar fallthrough). -/
 private def isAggregateResultCandidateV1
     (typeDecls : Array TypeDeclV1) (types : NearTypeClosureV1)
     (typeId : TypeIdV1) : Bool :=
-  if types.isNamedAggregate typeId then true
+  if types.isNamedAggregate typeId || types.isPrincipal typeId || types.isString typeId then true
   else
     match typeDecls[typeId.toNat]? with
     | some { shape := .array .., name := none, .. }
@@ -1229,22 +1230,27 @@ private def aggregateResultKindOfV1
     (typeDecls : Array TypeDeclV1) (types : NearTypeClosureV1)
     (owner : String) (typeId : TypeIdV1) : CompileResult MethodResultKind := do
   let leaves ←
-    if types.isNamedAggregate typeId then
+    if types.isPrincipal typeId || types.isString typeId then
+      pure (Array.replicate (nearPrincipalDataWordCountV1 + 1)
+        { isInt := false, byteWidth := 8 })
+    else if types.isNamedAggregate typeId then
       flattenTypeLeafAbiV1 typeDecls types typeId
     else
       match ← anonymousReturnLeafAbiV1 typeDecls types typeId with
       | some ls => pure ls
       | none =>
           throw <| .planInvariant .near
-            s!"{owner} does not return a named Struct/Enum or admitted anonymous Array/Option/Bytes/Map aggregate"
+            s!"{owner} does not return a named Struct/Enum or admitted anonymous Array/Option/Bytes/Map/Principal/String aggregate"
   let n := leaves.size
   unless n > 0 do
     throw <| .planInvariant .near
       s!"{owner} aggregate return must have at least one leaf"
   let maxLeaves :=
-    match typeDecls[typeId.toNat]? with
-    | some { shape := .map _ _, name := none, .. } => nearMapPilotLeafCountV1
-    | _ => 8
+    if types.isPrincipal typeId || types.isString typeId then nearPrincipalDataWordCountV1 + 1
+    else
+      match typeDecls[typeId.toNat]? with
+      | some { shape := .map _ _, name := none, .. } => nearMapPilotLeafCountV1
+      | _ => 8
   unless n ≤ maxLeaves do
     throw <| .planInvariant .near
       s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of {maxLeaves}"
@@ -1480,11 +1486,11 @@ private def makeStorageLayoutV1
               endianness := .little
             }
           stateLeaves := stateLeaves.push leaves
-        else if types.isPrincipal state.typeId then
-          -- T12 Principal: 9 KV fields (`name_len` + `name_w0`..`name_w7`).
+        else if types.isPrincipal state.typeId || types.isString state.typeId then
+          -- T12 Principal / B-RET-STR String: 9 KV fields (`name_len` + `name_w0`..`name_w7`).
           -- ValidatePlan requires sourceId == physical field index (dense).
           -- Logical state → leaf indices live only in `stateLeaves`.
-          requirePublicUInt64OrInt64OrFieldOrPrincipalState nearPlanErr types state
+          requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedState nearPlanErr types state
             (allowNonPublic := true)
           let leafSpecs ← flattenPrincipalLeafSpecsV1 state.name
           if fields.size + leafSpecs.size > maxStateFields then
@@ -1654,9 +1660,9 @@ private def makeParamsV1 (owner : String) (types : NearTypeClosureV1)
     unless isIdentifier param.name do
       throw <| .planInvariant .near
         s!"parameter name '{param.name}' in {owner} is not a safe identifier"
-    if types.isPrincipal param.typeId then
-      -- T12: Principal expands to 9×UInt64 input words (leaf tuple).
-      requirePublicUInt64OrInt64OrFieldOrPrincipalParam
+    if types.isPrincipal param.typeId || types.isString param.typeId then
+      -- T12 / B-RET-STR: Principal/String expands to 9×UInt64 input words.
+      requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedParam
         nearPlanErr types owner param (allowNonPublic := true)
       let leafSpecs ← flattenPrincipalLeafSpecsV1 param.name
       if planned.size + leafSpecs.size > maxParams then
@@ -2475,7 +2481,7 @@ private def lowerBlockInstructionsV1
               expandedNodes := 1
               dependencies := #[]
             }
-        else if types.isPrincipal typeId then
+        else if types.isPrincipal typeId || types.isString typeId then
           let leafExprs ← decodePrincipalLiteralLeavesV1 bytes
           let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
           values := ← appendResultValueV1 typeId values result value
@@ -2484,7 +2490,7 @@ private def lowerBlockInstructionsV1
             | some tid =>
                 unless typeId == tid do
                   throw <| .planInvariant .near
-                    "unsupported NEAR semantic shape: literal is not admitted UInt width, Int64, Bool, or Principal"
+                    "unsupported NEAR semantic shape: literal is not admitted UInt width, Int64, Bool, Principal, or String"
                 pure tid
             | none =>
                 throw <| .planInvariant .near
@@ -2523,7 +2529,7 @@ private def lowerBlockInstructionsV1
           let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
             (leafByteWidth := leafByteWidth)
           values := ← appendResultValueV1 result.typeId values result value
-        else if types.isPrincipal result.typeId then
+        else if types.isPrincipal result.typeId || types.isString result.typeId then
           unless leafIdxs.size == nearPrincipalDataWordCountV1 + 1 do
             throw <| .planInvariant .near
               "unsupported NEAR semantic shape: Principal state load leaf count mismatch"

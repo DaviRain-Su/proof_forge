@@ -267,7 +267,7 @@ private partial def checkMethodStatementsV1
           throw <| .planInvariant .ton "pureFn cannot return an aggregate"
         -- Entry aggregate is rejected at makeEntry; ValidatePlan also requires
         -- view-mode for resultKind.aggregate (checked in validateMethod).
-        unless leaves.size > 0 && (leaves.size ≤ 8 || leaves.size == 24) do
+        unless leaves.size > 0 && (leaves.size ≤ 8 || leaves.size == 9 || leaves.size == 24) do
           throw <| .planInvariant .ton
             "returnAggregate leaf count must be in 1..8 (B-RET-ABI) or 24 (B-RET-MAP)"
         unless leafIsInt.size == leaves.size do
@@ -452,6 +452,7 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
             ((leaves.size ≤ 8 &&
                 (leaves.all (fun l => l.byteWidth == 8) ||
                   leaves.all (fun l => l.byteWidth == 1))) ||
+              (leaves.size == 9 && leaves.all (fun l => l.byteWidth == 8)) ||
               (leaves.size == 24 && leaves.all (fun l => l.byteWidth == 8)))
       | .unit => false
     unless resultKindOk do

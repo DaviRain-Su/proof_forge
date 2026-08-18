@@ -140,7 +140,7 @@ instantiate/execute/query 均从 Env Region 的 bare-u64 JSON 字段 `"height"` 
 `Examples/BlockHeightCheck.lean` 固定 query `height()` 跟踪 Env height、`stamp()` 写入 pad。
 
 **仍 fail closed / 未闭合**：iterator、IBC、migrate、reply entry、
-Field/Principal/String interface、除 execute/init `context.caller` 与 Env-backed
+Field interface、Principal→address remap、String const / Option-of-String、除 execute/init `context.caller` 与 Env-backed
 `context.blockHeight`（含 cw-vm runtime 门）外的 ContextRead、Commit、nonempty
 **invariants**（scalar constants 已开）、Arr/Map/Opt-U256（bare UInt256 ABI 已开：
 4×8-byte Region + 4 JSON decimals，不是 32-byte KV / TON uint256 cell）、

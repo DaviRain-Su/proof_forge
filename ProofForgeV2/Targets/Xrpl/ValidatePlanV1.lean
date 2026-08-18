@@ -341,7 +341,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     | .uint64, some _, true | .int64, some _, true | .bool, some _, true =>
         planError s!"XRPL entry '{ent.name}' revert path cannot carry a return value"
     | .aggregate n, some _, false => do
-        unless (n == 24 || (1 ≤ n && n ≤ 8)) && ent.resultLeaves.size == n do
+        unless (n == 24 || n == 9 || (1 ≤ n && n ≤ 8)) && ent.resultLeaves.size == n do
           planError
             s!"XRPL entry '{ent.name}' aggregate leaf count must be 1..8 (or Map 24) and match resultKind"
         unless ent.checks.isEmpty do
@@ -380,7 +380,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
           validateExpr v.value .bool "view result" v.params.size plan.states.size
             exprBudget signed
     | .aggregate n => do
-        unless (n == 24 || (1 ≤ n && n ≤ 8)) && v.leaves.size == n do
+        unless (n == 24 || n == 9 || (1 ≤ n && n ≤ 8)) && v.leaves.size == n do
           planError
             s!"XRPL view '{v.name}' aggregate leaf count must be 1..8 (or Map 24) and match resultKind"
         for e in v.leaves do

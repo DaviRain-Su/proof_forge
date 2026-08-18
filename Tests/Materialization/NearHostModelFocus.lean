@@ -6,3 +6,5 @@ import Tests.Materialization.NearHostModel
 unsafe def main : IO Unit := do
   Tests.Materialization.NearHostModel.testOptionInt64Return
   Tests.Materialization.NearHostModel.testMapInt64Return
+  Tests.Materialization.NearHostModel.testPrincipalReturn
+  Tests.Materialization.NearHostModel.testStringReturn

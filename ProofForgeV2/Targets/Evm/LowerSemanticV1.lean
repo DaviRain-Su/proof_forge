@@ -849,6 +849,17 @@ private def aggregateResultKindOfV1
     for (_, isInt) in specs do
       leaves := leaves.push { isInt, byteWidth := 8 }
     pure (.aggregate leaves)
+  else if types.isPrincipal typeId || types.isString typeId then
+    -- B-RET-PRIN / String: exact 9-leaf wire identity (len + 8 body words).
+    -- Cap-8 stays 8; this is the same exception class as B-RET-MAP (n==24).
+    let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "ret"
+    unless specs.size == 1 + evmPrincipalDataWordCountV1 do
+      throw <| .planInvariant .evm
+        s!"{owner} Principal/String return must flatten to exactly {1 + evmPrincipalDataWordCountV1} identity leaves"
+    let mut leaves : Array LeafAbiType := #[]
+    for _ in specs do
+      leaves := leaves.push { isInt := false, byteWidth := 8 }
+    pure (.aggregate leaves)
   else
     match typeDecls[typeId.toNat]? with
     | some { shape := .array elTid len, .. } => do
@@ -5296,14 +5307,17 @@ private def makeEntryV1
             pure .field
           else if types.isNamedAggregate callable.result.typeId ||
               types.isContainer callable.result.typeId ||
-              isOptionTypeIdV1 layout.typeDecls callable.result.typeId then
-            -- B-RET-ABI named Struct/Enum + BL-18 Array UInt64 N / Option UInt64.
-            -- Bytes/Map/non-UInt64 Array still fail closed inside the resolver.
+              isOptionTypeIdV1 layout.typeDecls callable.result.typeId ||
+              types.isPrincipal callable.result.typeId ||
+              types.isString callable.result.typeId then
+            -- B-RET-ABI named Struct/Enum + BL-18 Array UInt64 N / Option UInt64
+            -- + B-RET-PRIN Principal/String 9-leaf identity. Bytes/Map/non-UInt64
+            -- Array still fail closed inside the resolver.
             aggregateResultKindOfV1 layout.typeDecls types
               s!"entry '{name}'" callable.result.typeId
           else
             throw <| .planInvariant .evm
-              s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int8/16/32/64, Bool, Field, named Struct/Enum, Array UInt64 N (N≤8), or Option UInt64"
+              s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int8/16/32/64, Bool, Field, named Struct/Enum, Array UInt64 N (N≤8), Option UInt64, or Principal/String identity"
   let mode : SemanticCallableModeV1 ← match callable.kind with
     | .entry => pure .entry
     | .view => pure .view

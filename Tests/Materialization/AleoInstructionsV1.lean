@@ -1692,7 +1692,7 @@ unsafe def testPrincipalIdentityLeaves : IO Unit := do
   let prog ← liftResult <| programFromCapabilityV1 cap
   expect (countMappings prog == 10)
     s!"Principal must emit 9 state + guard mappings, got {countMappings prog}"
-  -- Principal return stays FC (9 leaves > B-RET-ABI cap of 8).
+  -- B-RET-PRIN: Principal view return is exactly 9 identity leaves (not address).
   let retSource :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
@@ -1703,14 +1703,44 @@ unsafe def testPrincipalIdentityLeaves : IO Unit := do
     "  view getOwner() : Principal do\n" ++
     "    return owner\n"
   let parsedRet ← liftResult (← session.selectProgramV1
-    retSource "<aleo-principal-ret>" "Tests.AleoPrincipalReturn" none)
+    retSource "<aleo-principal-ret>" "Tests.PrinIdentityReturn" none)
   let compiledRet ← liftResult <| Compiler.compileValidatedSourceV1 parsedRet
-  match Targets.Aleo.engineeringPlanFromCompiled compiledRet with
-  | .ok _ =>
-      throw <| IO.userError "Principal return must Plan fail closed"
-  | .error e =>
-      expect (!(e.render.isEmpty))
-        s!"Principal return must fail closed, got {e.render}"
+  let planRet ← liftResult <| Targets.Aleo.engineeringPlanFromCompiled compiledRet
+  let some getOwner := planRet.views.find? (·.name == "getOwner") |
+    throw <| IO.userError "PrincipalReturn must emit getOwner view"
+  match getOwner.resultAggregateLeaves with
+  | none =>
+      throw <| IO.userError "PrincipalReturn getOwner must bind resultAggregateLeaves"
+  | some leaves =>
+      expect (leaves.size == 9)
+        s!"PrincipalReturn must flatten to 9 identity leaves, got {leaves.size}"
+      expect (leaves.all (fun l => l.byteWidth == 8 && !l.isInt))
+        "PrincipalReturn leaves must be unsigned 8-byte identity words"
+  -- B-RET-STR: String view return is the same 9-leaf identity. Program id
+  -- must not contain the substring "aleo".
+  let strSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program StringReturn where\n" ++
+    "  state label : String\n" ++
+    "  init(initial : String) do\n" ++
+    "    label := initial\n" ++
+    "  view getLabel() : String do\n" ++
+    "    return label\n"
+  let parsedStr ← liftResult (← session.selectProgramV1
+    strSource "<str-identity-ret>" "Tests.StrIdentityReturn" none)
+  let compiledStr ← liftResult <| Compiler.compileValidatedSourceV1 parsedStr
+  let planStr ← liftResult <| Targets.Aleo.engineeringPlanFromCompiled compiledStr
+  let some getLabel := planStr.views.find? (·.name == "getLabel") |
+    throw <| IO.userError "StringReturn must emit getLabel view"
+  match getLabel.resultAggregateLeaves with
+  | none =>
+      throw <| IO.userError "StringReturn getLabel must bind resultAggregateLeaves"
+  | some leaves =>
+      expect (leaves.size == 9)
+        s!"StringReturn must flatten to 9 identity leaves, got {leaves.size}"
+      expect (leaves.all (fun l => l.byteWidth == 8 && !l.isInt))
+        "StringReturn leaves must be unsigned 8-byte identity words"
 
 /-- G5-HARD: former residual bucket true lower (Int64 / Field / pureFn). -/
 private def testG5HardResidualTrueLower : IO Unit := do

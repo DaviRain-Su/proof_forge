@@ -224,6 +224,7 @@ private def validateIcpTypeClosureV1
     (intPolicy := pilotIntWidthPolicyI64)
     (fieldPolicy := pilotFieldPolicyNone)
     (principalPolicy := pilotPrincipalPolicyAdmit)
+    (stringPolicy := pilotStringPolicyAdmit)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
     (containerPolicy := pilotContainerStatePolicyArrayMapBytes)
 
@@ -262,6 +263,12 @@ private def isUInt8Type (types : IcpTypeClosureV1) (typeId : TypeIdV1) : Bool :=
 
 private def isPrincipalType (types : IcpTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   types.principalTypeId == some typeId
+
+private def isStringType (types : IcpTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  types.stringTypeId == some typeId
+
+private def isWireIdentityType (types : IcpTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  types.principalTypeId == some typeId || types.stringTypeId == some typeId
 
 /-- Dense Map UInt64 UInt64 pilot: cap-8 × (occ, key, val) = 24 i64 globals. -/
 private def mapPilotCapacityV1 : Nat := 8
@@ -574,6 +581,8 @@ private def viewAggregateLeafIsIntV1
     | _ =>
         planError
           "unsupported ICP semantic shape: Option view return payload must be UInt64 (or Int64 when signedNumeric)"
+  if isWireIdentityType types typeId then
+    return some (Array.replicate principalLeafCountV1 false)
   if types.isNamedAggregate typeId then
     let marks ← flattenNamedLeafIsIntV1 typeDecls types typeId
     return some marks
@@ -689,7 +698,7 @@ private def makeStateLayoutV1
       isOptionOf := isOptionOf.push true
       isNamedOf := isNamedOf.push false
       isMapOf := isMapOf.push false
-    else if isPrincipalType types st.typeId then
+    else if isWireIdentityType types st.typeId then
       if states.size + principalLeafCountV1 > maxStateFields then
         planError "unsupported ICP semantic shape: state field count exceeds limit"
       let leafSpecs ← flattenPrincipalLeafNamesV1 st.name
@@ -772,6 +781,12 @@ private def isArrayValue (v : LoweredValue) : Bool :=
 
 private def isPrincipalValue (v : LoweredValue) : Bool :=
   v.isPrincipal && v.leaves.size == principalLeafCountV1
+
+/-- String reuses the same 9-leaf wire carrier as Principal. Matching must
+    name this predicate explicitly so identity returns do not fall through
+    `isArrayValue` (which excludes Principal/String). -/
+private def isStringValue (v : LoweredValue) : Bool :=
+  isPrincipalValue v
 
 private def isOptionValue (v : LoweredValue) : Bool :=
   v.isOption && v.leaves.size == 2
@@ -985,7 +1000,7 @@ private def lowerLiteral
   else if isBoolType types typeId then
     let b ← decodeBoolLiteralBit icpPlanErr "ICP" valueBytes
     pure (mkScalar (.literal (if b then 1 else 0)))
-  else if isPrincipalType types typeId then
+  else if isWireIdentityType types typeId then
     let leaves ← decodePrincipalLiteralLeavesV1 valueBytes
     pure (mkPrincipalLeaves leaves)
   else
@@ -1079,7 +1094,7 @@ private partial def lowerBlockInstructions
                     mkNamedLeaves (phys.map (fun fi => .stateLoad fi))
                   else if isMp then
                     mkMapLeaves (phys.map (fun fi => .stateLoad fi))
-                  else if isPrincipalType types vd.typeId then
+                  else if isWireIdentityType types vd.typeId then
                     mkPrincipalLeaves (phys.map (fun fi => .stateLoad fi))
                   else
                     mkArrayLeaves (phys.map (fun fi => .stateLoad fi))
@@ -1865,6 +1880,18 @@ private def seedParamEnv (typeDecls : Array TypeDeclV1) (types : IcpTypeClosureV
       names := names.push p.name
       kinds := kinds.push .principal
       i := i + 1
+    else if isStringType types p.typeId then
+      -- B-RET-STR: nine i64 identity leaves. Not Candid `text` / `principal`.
+      unless p.visibility == .public_ do
+        planError s!"parameter '{p.name}' in {owner} must be public"
+      let leafSpecs ← flattenPrincipalLeafNamesV1 p.name
+      let mut leafExprs : Array Expr := #[]
+      for leafName in leafSpecs do
+        names := names.push leafName
+        kinds := kinds.push .integer
+        leafExprs := leafExprs.push (.param i)
+        i := i + 1
+      env := envInsert env p.valueId (mkPrincipalLeaves leafExprs)
     else if types.isContainer p.typeId then
       match typeDecls[p.typeId.toNat]? with
       | some { shape := .bytes len, .. } =>
@@ -1972,7 +1999,7 @@ private def lowerCallableBody
       else if isMp then
         overlay0 := overlayInsert overlay0 st.id
           (mkMapLeaves (phys.map (fun _ => .literal 0)))
-      else if isPrincipalType types st.typeId then
+      else if isWireIdentityType types st.typeId then
         overlay0 := overlayInsert overlay0 st.id
           (mkPrincipalLeaves (phys.map (fun _ => .literal 0)))
       else
@@ -2012,8 +2039,9 @@ private def resultKindOf
   else if isBoolType types typeId then pure .bool
   else if isInt64Type types typeId then pure .int64
   else if isUInt64Type types typeId then pure .uint64
-  else if isPrincipalType types typeId then
-    planError s!"{owner} Principal result stays fail closed on ICP-2 (CAP-1b admits caller/param/state identity + ==/!= only; no Candid principal reply)"
+  else if isWireIdentityType types typeId then
+    -- B-RET-PRIN / B-RET-STR: 9 i64 identity leaves. Not a Candid `principal` reply.
+    pure (.aggregate principalLeafCountV1)
   else if allowViewAggregate then
     match data.types[typeId.toNat]? with
     | some { shape := .bytes len, name := none, .. } => do
@@ -2142,7 +2170,8 @@ private def makePlanFromSemanticDataV1
               planError s!"entry '{name}' non-Unit result is missing"
           | .aggregate n, some tv, false => do
               unless (isArrayValue tv || isOptionValue tv || isNamedValue tv ||
-                  isMapValue tv) && tv.leaves.size == n do
+                  isMapValue tv || isPrincipalValue tv || isStringValue tv) &&
+                  tv.leaves.size == n do
                 planError
                   s!"entry '{name}' aggregate return must flatten to exactly {n} leaves"
               pure (stores.push (.returnAggregate tv.leaves))
@@ -2183,7 +2212,8 @@ private def makePlanFromSemanticDataV1
               pure #[.returnValue e]
           | .aggregate n => do
               unless (isArrayValue tv || isOptionValue tv || isNamedValue tv ||
-                  isMapValue tv) && tv.leaves.size == n do
+                  isMapValue tv || isPrincipalValue tv || isStringValue tv) &&
+                  tv.leaves.size == n do
                 planError
                   s!"view '{name}' aggregate return must flatten to exactly {n} leaves"
               pure #[.returnAggregate tv.leaves]

@@ -610,6 +610,7 @@ private def validateSolanaTypeClosureV1
     pilotUintWidthPolicySolanaBody
     (intPolicy := pilotIntWidthPolicyNarrow)
     (principalPolicy := pilotPrincipalPolicyAdmit)
+    (stringPolicy := pilotStringPolicyAdmit)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
     (containerPolicy := pilotContainerStatePolicyArrayMapBytes)
 
@@ -783,7 +784,7 @@ private partial def flattenTypeLeafSpecsV1
     pure #[(namePrefix, false)]
   else if types.int64TypeId == some typeId then
     pure #[(namePrefix, true)]
-  else if types.isPrincipal typeId then
+  else if types.isPrincipal typeId || types.isString typeId then
     let names ← flattenPrincipalLeafSpecsV1 namePrefix
     pure (names.map fun n => (n, false))
   else if types.isNamedAggregate typeId then
@@ -837,7 +838,7 @@ private partial def flattenTypeLeafSpecsV1
               "unsupported Solana semantic shape: named type must be Struct or Enum"
   else
     throw <| .planInvariant .solana
-      "unsupported Solana semantic shape: storage/param leaf must be UInt64, Int64, Principal, or named Struct/Enum"
+      "unsupported Solana semantic shape: storage/param leaf must be UInt64, Int64, Principal, String, or named Struct/Enum"
 
 private def leafCountOfTypeV1
     (typeDecls : Array TypeDeclV1) (types : SolanaTypeClosureV1)
@@ -971,9 +972,16 @@ private def aggregateResultKindOfV1
     | _ =>
         throw <| .planInvariant .solana
           s!"{owner} Option return TypeDecl missing"
+  else if types.isPrincipal typeId || types.isString typeId then
+    -- B-RET-PRIN / B-RET-STR: exact 9-leaf wire identity. Cap-8 stays 8.
+    let n := 1 + solanaPrincipalDataWordCountV1
+    let mut leaves : Array LeafAbiType := #[]
+    for _ in [0:n] do
+      leaves := leaves.push { isInt := false, byteWidth := 8 }
+    pure (.aggregate leaves)
   else
     throw <| .planInvariant .solana
-      s!"{owner} does not return a named Struct/Enum, Array UInt64 N≤8, or Option UInt64 aggregate"
+      s!"{owner} does not return a named Struct/Enum, Array UInt64 N≤8, Option UInt64, or Principal/String identity aggregate"
 
 /-- Struct field leaf range (start, length) within the flattened leaf vector. -/
 private def structFieldLeafRangeV1
@@ -1203,9 +1211,9 @@ private def makeStateAccountV1
           nextOffset := nextOffset + slotPitchOfByteWidth leafByteWidth
         stateLeaves := stateLeaves.push leaves
     | none =>
-        if types.isPrincipal state.typeId then
-          -- T12 Principal: 9×UInt64 leaves (`name_len` + `name_w0`..`name_w7`).
-          requirePublicUInt64OrInt64OrFieldOrPrincipalState solanaPlanErr types state
+        if types.isPrincipal state.typeId || types.isString state.typeId then
+          -- T12 Principal / B-RET-STR String: 9×UInt64 leaves (`name_len` + `name_w0`..`name_w7`).
+          requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedState solanaPlanErr types state
             (allowNonPublic := true)
           let leafSpecs ← flattenPrincipalLeafSpecsV1 state.name
           if fields.size + leafSpecs.size > maxStateFields then
@@ -1424,9 +1432,9 @@ private def makeParamsV1 (owner : String) (types : SolanaTypeClosureV1)
     unless isIdentifier param.name do
       throw <| .planInvariant .solana
         s!"parameter name '{param.name}' in {owner} is not a safe identifier"
-    if types.isPrincipal param.typeId then
-      -- T12: Principal expands to 9×UInt64 instruction-data words (leaf tuple).
-      requirePublicUInt64OrInt64OrFieldOrPrincipalParam
+    if types.isPrincipal param.typeId || types.isString param.typeId then
+      -- T12 / B-RET-STR: Principal/String expands to 9×UInt64 instruction-data words.
+      requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedParam
         solanaPlanErr types owner param (allowNonPublic := true)
       let leafSpecs ← flattenPrincipalLeafSpecsV1 param.name
       if planned.size + leafSpecs.size > maxParams then
@@ -2533,13 +2541,13 @@ private def lowerBlockInstructionsV1
               isInt := false
               bitWidth
             }
-        else if types.isPrincipal typeId then
+        else if types.isPrincipal typeId || types.isString typeId then
           let leafExprs ← decodePrincipalLiteralLeavesV1 bytes
           let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
           values := ← appendResultValueV1 typeId values result value
         else
           throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: literal is not admitted UInt width, Int64, Bool, or Principal"
+            "unsupported Solana semantic shape: literal is not admitted UInt width, Int64, Bool, Principal, or String"
     | .stateLoad stateId, some result =>
         let leafFields ← findStateLeafFieldsV1 account stateId
         if types.isContainer result.typeId then
@@ -2559,8 +2567,8 @@ private def lowerBlockInstructionsV1
           let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
             (leafByteWidth := leafByteWidth)
           values := ← appendResultValueV1 result.typeId values result value
-        else if types.isPrincipal result.typeId then
-          -- T12 Principal multi-leaf load (len + 8 payload words).
+        else if types.isPrincipal result.typeId || types.isString result.typeId then
+          -- T12 Principal / B-RET-STR String multi-leaf load (len + 8 payload words).
           unless leafFields.size == solanaPrincipalDataWordCountV1 + 1 do
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: Principal state load leaf count mismatch"
@@ -2648,7 +2656,7 @@ private def lowerBlockInstructionsV1
                 }
             | none =>
                 throw <| .planInvariant .solana
-                  "unsupported Solana semantic shape: state load must be UInt8/16/32/64, Int64, or Principal"
+                  "unsupported Solana semantic shape: state load must be UInt8/16/32/64, Int64, Principal, or String"
     | .binary op lhsId rhsId, some result =>
         let lhs ← currentValueWithArmsV1 values blockEntry segmentStart armReadables lhsId
         let rhs ← currentValueWithArmsV1 values blockEntry segmentStart armReadables rhsId
@@ -4341,17 +4349,16 @@ private def makeEntryV1
             pure .bool
           else if types.isNamedAggregate callable.result.typeId ||
               types.isContainer callable.result.typeId ||
-              isAnonymousOptionTypeIdV1 typeDecls callable.result.typeId then
+              isAnonymousOptionTypeIdV1 typeDecls callable.result.typeId ||
+              types.isPrincipal callable.result.typeId ||
+              types.isString callable.result.typeId then
             -- B-RET-ABI: named Struct/Enum + anonymous Array/Option/Bytes +
-            -- B-RET-MAP 24-leaf Map UInt64 UInt64/Int64. Principal FC.
+            -- B-RET-MAP 24-leaf Map + B-RET-PRIN/STR 9-leaf identity.
             aggregateResultKindOfV1 typeDecls types s!"entry '{name}'"
               callable.result.typeId
-          else if types.isPrincipal callable.result.typeId then
-            throw <| .planInvariant .solana
-              s!"entry '{name}' cannot return Principal; Solana B-RET-ABI admits only named Struct/Enum, Array UInt64 N≤8, or Option UInt64 (cap-8 leaves)"
           else
             throw <| .planInvariant .solana
-              s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int8/16/32/64, Bool, named Struct/Enum, Array UInt64 N≤8, or Option UInt64"
+              s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int8/16/32/64, Bool, named Struct/Enum, Array UInt64 N≤8, Option UInt64, or Principal/String identity"
   let semanticMode : SemanticCallableModeV1 ← match callable.kind with
     | .entry => pure .mutate
     | .view => pure .view

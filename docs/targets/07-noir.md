@@ -27,7 +27,7 @@ OptionState、ArrayRet 全捕获；MapMini init pin + put/get nargo-fail honesty
 nargo 缺席 live capture honest skip）。
 **NOIR-IR-5 / G5 轻量**：§3.2 诚实矩阵状态列（Y/P/F）+ call/schedule **P**
 （witness-binding only，禁止 ACIR Y）+ String/Option non-UInt64 **F**（plan-FC）
-+ prove/VK **F**（Finalize `deployable=false`）；无假 Y。
++ prove/VK **F**（Finalize `deployable=false`）；无假 Y。String 为 9 叶 identity（state/param/return；非 UTF-8 ABI），不再是 plan-FC。
 当前产品仍 emit relation **Noir source packages**（过渡）+ 可选 locked nargo
 compile-only；**无** ACIR 产品 OutputFile（IR-6）；不得把 `.nr` 写成最终权威。
 
@@ -49,6 +49,7 @@ Digest 在 Plan 边界派生（engineering identity，非 formal BuildIdentity�
   layout pins；Bytes literal IndexGet/Set 已开；named/Option/Array/Bytes **param** 已 flatten；
   Bytes construct/动态索引、Int8 容器、Int64-key Map 与 nested 仍 FAIL-CLOSED；
   **B-RET-MAP** `Map UInt64 UInt64` / `Map UInt64 Int64` 为 24 个 public-output 叶（relation，不声称电路执行了 Map）；Map **param** 同布局 24 只读叶；
+  **B-RET-PRIN** Principal view/entry 为 9 个 `u64` resultLeaf（≠ Field）；
 - call/schedule 持 capability（status/arg slot）；私有 state/params 走 private-witness 输入；
 - 产物：typed relation IR + Noir source packages；locked nargo 1.0.0-beta.26 对产品 Counter
   relation packages 执行 compile-only 工程验收。

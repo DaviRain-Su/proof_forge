@@ -288,6 +288,7 @@ private def validateSorobanTypeClosureV1
     (intPolicy := pilotIntWidthPolicyI64)
     (fieldPolicy := pilotFieldPolicyNone)
     (principalPolicy := pilotPrincipalPolicyAdmit)
+    (stringPolicy := pilotStringPolicyAdmit)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
     (containerPolicy := pilotContainerStatePolicyArrayMapBytes)
 
@@ -342,6 +343,12 @@ private def isUInt8Type (types : SorobanTypeClosureV1) (typeId : TypeIdV1) : Boo
 
 private def isPrincipalType (types : SorobanTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   types.principalTypeId == some typeId
+
+private def isStringType (types : SorobanTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  types.stringTypeId == some typeId
+
+private def isWireIdentityType (types : SorobanTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  types.principalTypeId == some typeId || types.stringTypeId == some typeId
 
 private def isUInt256Type (types : SorobanTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   types.uintTypeIdAt 256 == some typeId
@@ -753,6 +760,8 @@ private def viewAggregateLeafIsIntV1
   if isAnonymousOptionTypeIdV1 typeDecls typeId then
     requireOptionUInt64StateV1 typeDecls types typeId "view-return" signedNumeric
     return some #[false, signedNumeric]
+  if isWireIdentityType types typeId then
+    return some (Array.replicate principalLeafCountV1 false)
   if types.isNamedAggregate typeId then
     let marks ← flattenNamedLeafIsIntV1 typeDecls types typeId
     return some marks
@@ -873,7 +882,7 @@ private def makeStateLayoutV1
       isOptionOf := isOptionOf.push false
       isMapOf := isMapOf.push true
       isNamedOf := isNamedOf.push false
-    else if isPrincipalType types st.typeId then
+    else if isWireIdentityType types st.typeId then
       if states.size + principalLeafCountV1 > maxStateFields then
         planError "unsupported Soroban semantic shape: state field count exceeds limit"
       let leafSpecs ← flattenPrincipalLeafNamesV1 st.name
@@ -1066,7 +1075,7 @@ private def lowerLiteral
   else if isBoolType types typeId then
     let b ← decodeBoolLiteralBit sorobanPlanErr "Soroban" valueBytes
     pure { ty := .bool, expr := .litBool b, expandedNodes := 1 }
-  else if isPrincipalType types typeId then
+  else if isWireIdentityType types typeId then
     let leaves ← decodePrincipalLiteralLeavesV1 valueBytes
     pure (mkPrincipalLeaves leaves leaves.size)
   else if isUInt256Type types typeId then
@@ -1240,8 +1249,8 @@ private def resultKindOf
   else if isInt64Type types typeId then pure .int64
   else if isUInt64Type types typeId then pure .uint64
   else if isBoolType types typeId then pure .bool
-  else if isPrincipalType types typeId then
-    planError s!"{owner} Principal return is outside S0"
+  else if isWireIdentityType types typeId then
+    pure (.aggregate principalLeafCountV1)
   else if allowViewAggregate then
     match typeDecls[typeId.toNat]? with
     | some { shape := .bytes len, name := none, .. } => do
@@ -1347,7 +1356,7 @@ private partial def lowerBlockInstructions
                     mkMapLeaves (phys.map (fun fi => .stateLoad fi)) phys.size
                   else if isNm then
                     mkNamedLeaves (phys.map (fun fi => .stateLoad fi)) phys.size
-                  else if isPrincipalType types vd.typeId then
+                  else if isWireIdentityType types vd.typeId then
                     mkPrincipalLeaves (phys.map (fun fi => .stateLoad fi)) phys.size
                   else
                     mkArrayLeaves (phys.map (fun fi => .stateLoad fi)) phys.size
@@ -2352,7 +2361,7 @@ private def seedParamEnv
       | _ =>
           planError
             "unsupported Soroban semantic shape: nested/unknown container params stay fail closed"
-    else if isPrincipalType types p.typeId then
+    else if isWireIdentityType types p.typeId then
       let leafSpecs ← flattenPrincipalLeafNamesV1 p.name
       let mut leafExprs : Array Expr := #[]
       for leafName in leafSpecs do
@@ -2413,7 +2422,7 @@ private def lowerCallableBody
           overlay0 := overlayInsert overlay0 st.id (mkMapLeaves zeros phys.size)
         else if isNm then
           overlay0 := overlayInsert overlay0 st.id (mkNamedLeaves zeros phys.size)
-        else if isPrincipalType types st.typeId then
+        else if isWireIdentityType types st.typeId then
           overlay0 := overlayInsert overlay0 st.id (mkPrincipalLeaves zeros phys.size)
         else
           overlay0 := overlayInsert overlay0 st.id (mkArrayLeaves zeros phys.size)
