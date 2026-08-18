@@ -240,28 +240,35 @@ structure RegistryTargetInspectionV1 where
   engineeringSemanticsDigest : Digest
   deriving Repr
 
+private def containsString : List String → String → Bool
+  | [], _ => false
+  | value :: rest, wanted => value == wanted || containsString rest wanted
+
+private def findDuplicateStringLoop : List String → List String → Option String
+  | [], _ => none
+  | value :: rest, seen =>
+      if containsString seen value then
+        some value
+      else
+        findDuplicateStringLoop rest (value :: seen)
+
 private def findDuplicateString (values : Array String) : Option String :=
-  Id.run do
-    let mut seen : Array String := #[]
-    for v in values do
-      if seen.contains v then
-        return some v
-      seen := seen.push v
-    return none
+  findDuplicateStringLoop values.toList []
+
+private def isStrictlyAscendingAsciiList : List String → Bool
+  | [] | [_] => true
+  | left :: right :: rest =>
+      left < right && isStrictlyAscendingAsciiList (right :: rest)
 
 private def isStrictlyAscendingAscii (values : Array String) : Bool :=
-  Id.run do
-    let mut i : Nat := 0
-    while i + 1 < values.size do
-      let a := values[i]!
-      let b := values[i + 1]!
-      unless a < b do
-        return false
-      i := i + 1
-    return true
+  isStrictlyAscendingAsciiList values.toList
+
+private def containsProfileList : List CodegenProfileId → CodegenProfileId → Bool
+  | [], _ => false
+  | profile :: rest, wanted => profile == wanted || containsProfileList rest wanted
 
 private def containsProfile (profiles : Array CodegenProfileId) (p : CodegenProfileId) : Bool :=
-  profiles.any (· == p)
+  containsProfileList profiles.toList p
 
 /-- Closed kind → exact product implemented flag (sole membership policy). -/
 def expectedImplementedOfKindV1 : TargetKind → Bool
@@ -329,103 +336,265 @@ private def validateAcceptanceProfileIdStr (id : String) : CompileResult Unit :=
   | .ok () => pure ()
   | .error e => throw <| .registryInvalid s!"acceptanceProfileId: {e}"
 
-/-- Validate and construct a TargetRegistryV1.
-    Canonical storage: TargetId ASCII ascending. Profiles must already be
-    strictly ascending (fail closed — no silent reorder of profile lists). -/
-def createTargetRegistryV1 (regs : Array TargetRegistrationDataV1) :
-    CompileResult TargetRegistryV1 := do
+/-- Validate the closed target identity joins for one registration. This is the
+    first phase of the sole production registration validator. -/
+def validateRegistrationIdentityV1
+    (reg : TargetRegistrationDataV1) : CompileResult Unit := do
+  match TargetId.parse? reg.targetId.toString with
+  | none =>
+      throw <| .registryInvalid
+        s!"target id '{reg.targetId}' fails TargetId grammar"
+  | some parsed =>
+      unless parsed == reg.targetId do
+        throw <| .registryInvalid
+          s!"target id '{reg.targetId}' is not a canonical TargetId parse"
+  unless reg.kind.toString == reg.targetId.toString do
+    throw <| .registryInvalid
+      s!"target id '{reg.targetId}' does not match kind '{reg.kind}'"
+  unless reg.targetId == TargetId.ofKind reg.kind do
+    throw <| .registryInvalid
+      s!"target id '{reg.targetId}' does not match TargetId.ofKind for '{reg.kind}'"
+
+/-- Validate the exact kind-indexed policy fields for one registration. -/
+def validateRegistrationClosedPolicyV1
+    (reg : TargetRegistrationDataV1) : CompileResult Unit := do
+  unless reg.implemented == expectedImplementedOfKindV1 reg.kind do
+    throw <| .registryInvalid
+      s!"implemented flag for '{reg.targetId}' must match closed kind policy"
+  unless reg.maturityLabel == expectedMaturityLabelOfKindV1 reg.kind do
+    throw <| .registryInvalid
+      s!"maturityLabel for '{reg.targetId}' must match closed kind policy"
+  unless reg.displayName == expectedDisplayNameOfKindV1 reg.kind do
+    throw <| .registryInvalid
+      s!"displayName for '{reg.targetId}' must match closed kind policy"
+  unless reg.acceptanceProfileId == expectedAcceptanceProfileIdOfKindV1 reg.kind do
+    throw <| .registryInvalid
+      s!"acceptanceProfileId for '{reg.targetId}' must match closed kind policy"
+
+/-- Validate display and acceptance metadata using the existing production
+    Unicode/profile-id validators. -/
+def validateRegistrationMetadataV1
+    (reg : TargetRegistrationDataV1) : CompileResult Unit := do
+  validateDisplayNameV1 reg.displayName
+  validateAcceptanceProfileIdStr reg.acceptanceProfileId
+
+/-- Validate the registration-to-semantics target join. -/
+def validateRegistrationSemanticsV1
+    (reg : TargetRegistrationDataV1) : CompileResult Unit := do
+  unless reg.semantics.targetId == reg.targetId do
+    throw <| .registryInvalid
+      s!"semantics.targetId must equal registration target '{reg.targetId}'"
+
+/-- Validate within-registration profile uniqueness before global profile
+    membership is accumulated. -/
+def validateRegistrationProfileUniquenessV1
+    (reg : TargetRegistrationDataV1) : CompileResult Unit := do
+  let profileIds := reg.profiles.map (·.toString)
+  if let some dup := findDuplicateString profileIds then
+    throw <| .registryDuplicate
+      s!"duplicate codegen profile '{dup}' within target '{reg.targetId}'"
+
+/-- Validate canonical ASCII ordering of one registration's profile list. -/
+def validateRegistrationProfileOrderV1
+    (reg : TargetRegistrationDataV1) : CompileResult Unit := do
+  let profileIds := reg.profiles.map (·.toString)
+  unless isStrictlyAscendingAscii profileIds do
+    throw <| .registryInvalid
+      s!"codegen profiles for target '{reg.targetId}' must be strictly ASCII-ascending"
+
+/-- Validate the complete within-registration profile-list shape. -/
+def validateRegistrationProfileShapeV1
+    (reg : TargetRegistrationDataV1) : CompileResult Unit := do
+  validateRegistrationProfileUniquenessV1 reg
+  validateRegistrationProfileOrderV1 reg
+
+/-- Compose the two ordered profile-list shape checks. -/
+theorem validateRegistrationProfileShapeV1_eq_ok_of_stages
+    (reg : TargetRegistrationDataV1)
+    (hunique : validateRegistrationProfileUniquenessV1 reg = .ok ())
+    (horder : validateRegistrationProfileOrderV1 reg = .ok ()) :
+    validateRegistrationProfileShapeV1 reg = .ok () := by
+  simp only [validateRegistrationProfileShapeV1, hunique, horder, Bind.bind,
+    Except.bind]
+
+/-- A singleton profile list is unique and canonically ordered by construction. -/
+theorem validateRegistrationProfileShapeV1_eq_ok_of_singleton
+    (reg : TargetRegistrationDataV1)
+    (profile : CodegenProfileId)
+    (hprofiles : reg.profiles = #[profile]) :
+    validateRegistrationProfileShapeV1 reg = .ok () := by
+  simp [validateRegistrationProfileShapeV1,
+    validateRegistrationProfileUniquenessV1, validateRegistrationProfileOrderV1,
+    hprofiles, findDuplicateString, findDuplicateStringLoop, containsString,
+    isStrictlyAscendingAscii, isStrictlyAscendingAsciiList, Bind.bind,
+    Except.bind, Pure.pure, Except.pure]
+
+/-- Validate one profile in the source order used by the production registry
+    constructor and retain the global profile-name accumulator. -/
+def validateRegistrationProfileV1
+    (allProfiles : List String)
+    (p : CodegenProfileId) : CompileResult (List String) := do
+  match CodegenProfileId.parse? p.toString with
+  | none =>
+      throw <| .registryInvalid
+        s!"codegen profile '{p}' fails CodegenProfileId grammar"
+  | some parsed =>
+      unless parsed == p do
+        throw <| .registryInvalid
+          s!"codegen profile '{p}' is not a canonical CodegenProfileId parse"
+  if containsString reservedFutureProfiles.toList p.toString then
+    throw <| .registryInvalid
+      s!"reserved future profile '{p}' cannot be registered"
+  if containsString allProfiles p.toString then
+    throw <| .registryDuplicate
+      s!"duplicate codegen profile '{p}' across targets"
+  pure (p.toString :: allProfiles)
+
+/-- Total structural driver for the production per-profile validation loop. -/
+def validateRegistrationProfilesV1 :
+    List CodegenProfileId → List String → CompileResult (List String)
+  | [], allProfiles => .ok allProfiles
+  | p :: rest, allProfiles => do
+      let next ← validateRegistrationProfileV1 allProfiles p
+      validateRegistrationProfilesV1 rest next
+
+/-- Validate default-profile canonicality and implemented/design-only policy
+    after all profile rows have entered the global accumulator. -/
+def validateRegistrationDefaultV1
+    (reg : TargetRegistrationDataV1) : CompileResult Unit := do
+  if let some defP := reg.defaultProfile then
+    match CodegenProfileId.parse? defP.toString with
+    | none =>
+        throw <| .registryInvalid
+          s!"default profile '{defP}' fails CodegenProfileId grammar"
+    | some parsed =>
+        unless parsed == defP do
+          throw <| .registryInvalid
+            s!"default profile '{defP}' is not a canonical CodegenProfileId parse"
+  match reg.implemented, reg.defaultProfile with
+  | true, some defP =>
+      if reg.profiles.isEmpty then
+        throw <| .registryInvalid
+          s!"implemented target '{reg.targetId}' must declare at least one profile"
+      unless containsProfile reg.profiles defP do
+        throw <| .registryInvalid
+          s!"default profile '{defP}' is not a member of target '{reg.targetId}'"
+  | true, none =>
+      throw <| .registryInvalid
+        s!"implemented target '{reg.targetId}' must declare an explicit default profile"
+  | false, none =>
+      unless reg.profiles.isEmpty do
+        throw <| .registryInvalid
+          s!"design-only target '{reg.targetId}' must have empty profiles"
+  | false, some defP =>
+      throw <| .registryInvalid
+        s!"design-only target '{reg.targetId}' must not declare default '{defP}'"
+
+/-- Validate one registration in exactly the phase order used by the production
+    registry constructor. The returned accumulator is consumed by the next
+    source-order registration. -/
+def validateRegistrationV1
+    (allProfiles : List String)
+    (reg : TargetRegistrationDataV1) : CompileResult (List String) := do
+  validateRegistrationIdentityV1 reg
+  validateRegistrationClosedPolicyV1 reg
+  validateRegistrationMetadataV1 reg
+  validateRegistrationSemanticsV1 reg
+  validateRegistrationProfileShapeV1 reg
+  let allProfiles ←
+    validateRegistrationProfilesV1 reg.profiles.toList allProfiles
+  validateRegistrationDefaultV1 reg
+  pure allProfiles
+
+/-- Replay all phases of the sole production registration validator. -/
+theorem validateRegistrationV1_eq_ok_of_stages
+    (allProfiles nextProfiles : List String)
+    (reg : TargetRegistrationDataV1)
+    (hidentity : validateRegistrationIdentityV1 reg = .ok ())
+    (hpolicy : validateRegistrationClosedPolicyV1 reg = .ok ())
+    (hmetadata : validateRegistrationMetadataV1 reg = .ok ())
+    (hsemantics : validateRegistrationSemanticsV1 reg = .ok ())
+    (hshape : validateRegistrationProfileShapeV1 reg = .ok ())
+    (hprofiles : validateRegistrationProfilesV1 reg.profiles.toList allProfiles =
+      .ok nextProfiles)
+    (hdefault : validateRegistrationDefaultV1 reg = .ok ()) :
+    validateRegistrationV1 allProfiles reg = .ok nextProfiles := by
+  simp only [validateRegistrationV1, hidentity, hpolicy, hmetadata, hsemantics,
+    hshape, hprofiles, hdefault, Bind.bind, Pure.pure, Except.bind, Except.pure]
+
+/-- Total structural driver for the production registration validation loop. -/
+def validateRegistrationsV1 :
+    List TargetRegistrationDataV1 → List String → CompileResult (List String)
+  | [], allProfiles => .ok allProfiles
+  | reg :: rest, allProfiles => do
+      let next ← validateRegistrationV1 allProfiles reg
+      validateRegistrationsV1 rest next
+
+/-- Production root checks that precede per-registration validation. -/
+def validateRegistrationSetV1
+    (regs : Array TargetRegistrationDataV1) : CompileResult Unit := do
   if regs.isEmpty then
     throw <| .registryInvalid "target registry must be non-empty"
   let targetIds := regs.map (·.targetId.toString)
   if let some dup := findDuplicateString targetIds then
     throw <| .registryDuplicate s!"duplicate target id '{dup}'"
-  let mut allProfiles : Array String := #[]
-  for reg in regs do
-    match TargetId.parse? reg.targetId.toString with
-    | none =>
-        throw <| .registryInvalid
-          s!"target id '{reg.targetId}' fails TargetId grammar"
-    | some parsed =>
-        unless parsed == reg.targetId do
-          throw <| .registryInvalid
-            s!"target id '{reg.targetId}' is not a canonical TargetId parse"
-    unless reg.kind.toString == reg.targetId.toString do
-      throw <| .registryInvalid
-        s!"target id '{reg.targetId}' does not match kind '{reg.kind}'"
-    unless reg.targetId == TargetId.ofKind reg.kind do
-      throw <| .registryInvalid
-        s!"target id '{reg.targetId}' does not match TargetId.ofKind for '{reg.kind}'"
-    -- Closed policy: implemented / maturity / display / acceptance must match kind.
-    unless reg.implemented == expectedImplementedOfKindV1 reg.kind do
-      throw <| .registryInvalid
-        s!"implemented flag for '{reg.targetId}' must match closed kind policy"
-    unless reg.maturityLabel == expectedMaturityLabelOfKindV1 reg.kind do
-      throw <| .registryInvalid
-        s!"maturityLabel for '{reg.targetId}' must match closed kind policy"
-    unless reg.displayName == expectedDisplayNameOfKindV1 reg.kind do
-      throw <| .registryInvalid
-        s!"displayName for '{reg.targetId}' must match closed kind policy"
-    unless reg.acceptanceProfileId == expectedAcceptanceProfileIdOfKindV1 reg.kind do
-      throw <| .registryInvalid
-        s!"acceptanceProfileId for '{reg.targetId}' must match closed kind policy"
-    validateDisplayNameV1 reg.displayName
-    validateAcceptanceProfileIdStr reg.acceptanceProfileId
-    unless reg.semantics.targetId == reg.targetId do
-      throw <| .registryInvalid
-        s!"semantics.targetId must equal registration target '{reg.targetId}'"
-    let profileIds := reg.profiles.map (·.toString)
-    if let some dup := findDuplicateString profileIds then
-      throw <| .registryDuplicate
-        s!"duplicate codegen profile '{dup}' within target '{reg.targetId}'"
-    unless isStrictlyAscendingAscii profileIds do
-      throw <| .registryInvalid
-        s!"codegen profiles for target '{reg.targetId}' must be strictly ASCII-ascending"
-    for p in reg.profiles do
-      match CodegenProfileId.parse? p.toString with
-      | none =>
-          throw <| .registryInvalid
-            s!"codegen profile '{p}' fails CodegenProfileId grammar"
-      | some parsed =>
-          unless parsed == p do
-            throw <| .registryInvalid
-              s!"codegen profile '{p}' is not a canonical CodegenProfileId parse"
-      if reservedFutureProfiles.contains p.toString then
-        throw <| .registryInvalid
-          s!"reserved future profile '{p}' cannot be registered"
-      if allProfiles.contains p.toString then
-        throw <| .registryDuplicate
-          s!"duplicate codegen profile '{p}' across targets"
-      allProfiles := allProfiles.push p.toString
-    if let some defP := reg.defaultProfile then
-      match CodegenProfileId.parse? defP.toString with
-      | none =>
-          throw <| .registryInvalid
-            s!"default profile '{defP}' fails CodegenProfileId grammar"
-      | some parsed =>
-          unless parsed == defP do
-            throw <| .registryInvalid
-              s!"default profile '{defP}' is not a canonical CodegenProfileId parse"
-    match reg.implemented, reg.defaultProfile with
-    | true, some defP =>
-        if reg.profiles.isEmpty then
-          throw <| .registryInvalid
-            s!"implemented target '{reg.targetId}' must declare at least one profile"
-        unless containsProfile reg.profiles defP do
-          throw <| .registryInvalid
-            s!"default profile '{defP}' is not a member of target '{reg.targetId}'"
-    | true, none =>
-        throw <| .registryInvalid
-          s!"implemented target '{reg.targetId}' must declare an explicit default profile"
-    | false, none =>
-        unless reg.profiles.isEmpty do
-          throw <| .registryInvalid
-            s!"design-only target '{reg.targetId}' must have empty profiles"
-    | false, some defP =>
-        throw <| .registryInvalid
-          s!"design-only target '{reg.targetId}' must not declare default '{defP}'"
-  let sorted :=
-    regs.qsort (fun a b => a.targetId.toString < b.targetId.toString)
+
+private def asciiStringLtListV1 : List Char → List Char → Bool
+  | [], [] => false
+  | [], _ :: _ => true
+  | _ :: _, [] => false
+  | a :: as, b :: bs =>
+      if a.val == b.val then asciiStringLtListV1 as bs
+      else decide (a.val < b.val)
+
+private def asciiStringLtV1 (a b : String) : Bool :=
+  asciiStringLtListV1 a.toList b.toList
+
+private def targetRegistrationLtV1
+    (a b : TargetRegistrationDataV1) : Bool :=
+  asciiStringLtV1 a.targetId.toString b.targetId.toString
+
+private def insertRegistrationV1
+    (reg : TargetRegistrationDataV1) :
+    List TargetRegistrationDataV1 → List TargetRegistrationDataV1
+  | [] => [reg]
+  | current :: rest =>
+      if targetRegistrationLtV1 reg current then
+        reg :: current :: rest
+      else
+        current :: insertRegistrationV1 reg rest
+
+private def sortRegistrationListV1 :
+    List TargetRegistrationDataV1 → List TargetRegistrationDataV1
+  | [] => []
+  | reg :: rest => insertRegistrationV1 reg (sortRegistrationListV1 rest)
+
+private def sortRegistrationsV1
+    (regs : Array TargetRegistrationDataV1) : Array TargetRegistrationDataV1 :=
+  (sortRegistrationListV1 regs.toList).toArray
+
+/-- Validate and construct a TargetRegistryV1.
+    Canonical storage: TargetId ASCII ascending. Profiles must already be
+    strictly ascending (fail closed — no silent reorder of profile lists). -/
+def createTargetRegistryV1 (regs : Array TargetRegistrationDataV1) :
+    CompileResult TargetRegistryV1 := do
+  validateRegistrationSetV1 regs
+  let _ ← validateRegistrationsV1 regs.toList []
+  let sorted := sortRegistrationsV1 regs
   return TargetRegistryV1.mk sorted
+
+/-- Compose the existing production registry phases into the private registry
+    mint. This theorem does not replace registration validation or sorting. -/
+theorem createTargetRegistryV1_eq_ok_of_stages
+    (regs : Array TargetRegistrationDataV1)
+    (allProfiles : List String)
+    (hset : validateRegistrationSetV1 regs = .ok ())
+    (hregistrations : validateRegistrationsV1 regs.toList [] =
+      .ok allProfiles) :
+    createTargetRegistryV1 regs =
+      .ok (TargetRegistryV1.mk (sortRegistrationsV1 regs)) := by
+  simp only [createTargetRegistryV1, hset, hregistrations, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
 
 def findRegistrationV1 (registry : TargetRegistryV1) (target : TargetId) :
     Option TargetRegistrationDataV1 :=
@@ -538,68 +707,321 @@ private def row
     defaultProfile
   }
 
+private def evmRegistrationRowV1 : TargetRegistrationDataV1 :=
+  row .evm (semanticsAxesOfKindV1 .evm)
+    -- Strictly ASCII-ascending: cancun-v1 < v1. Default = v1 (hashed Map).
+    #[CodegenProfileId.evmYulSolc0834CancunV1, CodegenProfileId.evmYulSolc0834V1]
+    (some CodegenProfileId.evmYulSolc0834V1)
+
+/-- Frozen Solana product row. This is registration data, not a selection or
+    materialization capability; the registry constructor remains the sole mint. -/
+def solanaRegistrationRowV1 : TargetRegistrationDataV1 :=
+  row .solana (semanticsAxesOfKindV1 .solana)
+    -- ADR-0032 U1: sole product rail only. plan-v1 / elf-v1 shims removed
+    -- (no longer registry members; resolve/build reject them).
+    #[CodegenProfileId.solanaSbpfCpiElfV1]
+    (some CodegenProfileId.solanaSbpfCpiElfV1)
+
+@[simp] theorem solanaRegistrationRowV1_implemented :
+    solanaRegistrationRowV1.implemented = true := by
+  rfl
+
+@[simp] theorem solanaRegistrationRowV1_kind :
+    solanaRegistrationRowV1.kind = .solana := by
+  rfl
+
+@[simp] theorem solanaRegistrationRowV1_profiles :
+    solanaRegistrationRowV1.profiles =
+      #[CodegenProfileId.solanaSbpfCpiElfV1] := by
+  rfl
+
+private def nearRegistrationRowV1 : TargetRegistrationDataV1 :=
+  row .near (semanticsAxesOfKindV1 .near)
+    #[CodegenProfileId.nearWasmRawU64V1]
+    (some CodegenProfileId.nearWasmRawU64V1)
+
+-- Noir dual profiles (ASCII ascending: nargo-acir < source-relations);
+-- default remains zero-tool source. Same Plan / `.nr` base surface; the
+-- explicit nargo ACIR profile dual-writes path-normalized ProgramArtifact
+-- extras during Finalize (NOIR-IR-6; deployable=false; no prove/VK).
+private def noirRegistrationRowV1 : TargetRegistrationDataV1 :=
+  row .noir (semanticsAxesOfKindV1 .noir)
+    #[CodegenProfileId.noirNargoAcirV1, CodegenProfileId.noirSourceU64RelationsV1]
+    (some CodegenProfileId.noirSourceU64RelationsV1)
+
+private def cosmwasmRegistrationRowV1 : TargetRegistrationDataV1 :=
+  row .cosmwasm (semanticsAxesOfKindV1 .cosmwasm)
+    #[CodegenProfileId.cosmwasmWasmU64V1]
+    (some CodegenProfileId.cosmwasmWasmU64V1)
+
+private def sorobanRegistrationRowV1 : TargetRegistrationDataV1 :=
+  row .soroban (semanticsAxesOfKindV1 .soroban)
+    #[CodegenProfileId.sorobanSourceU64V1]
+    (some CodegenProfileId.sorobanSourceU64V1)
+
+private def icpRegistrationRowV1 : TargetRegistrationDataV1 :=
+  row .icp (semanticsAxesOfKindV1 .icp)
+    #[CodegenProfileId.icpWasmCandidU64V1]
+    (some CodegenProfileId.icpWasmCandidU64V1)
+
+-- Explicit elf profile shares the Plan/guest emission; Finalize resolves
+-- locked cargo-openvm 2.0.1 to build+transpile ELF/VmExe extras
+-- (ADR-0046 O1; deployable=false; no keygen/execute/prove/verify).
+private def openvmRegistrationRowV1 : TargetRegistrationDataV1 :=
+  row .openvm (semanticsAxesOfKindV1 .openvm)
+    #[CodegenProfileId.openvmGuestElfV1, CodegenProfileId.openvmGuestSourceV1]
+    (some CodegenProfileId.openvmGuestSourceV1)
+
+private def aleoRegistrationRowV1 : TargetRegistrationDataV1 :=
+  row .aleo (semanticsAxesOfKindV1 .aleo)
+    #[CodegenProfileId.aleoInstructionsV1]
+    (some CodegenProfileId.aleoInstructionsV1)
+
+private def psyRegistrationRowV1 : TargetRegistrationDataV1 :=
+  row .psy (semanticsAxesOfKindV1 .psy)
+    #[CodegenProfileId.psyDpnV1]
+    (some CodegenProfileId.psyDpnV1)
+
+private def quintRegistrationRowV1 : TargetRegistrationDataV1 :=
+  row .quint (semanticsAxesOfKindV1 .quint)
+    #[CodegenProfileId.quintSourceU64ModelV1]
+    (some CodegenProfileId.quintSourceU64ModelV1)
+
+private def tonRegistrationRowV1 : TargetRegistrationDataV1 :=
+  row .ton (semanticsAxesOfKindV1 .ton)
+    #[CodegenProfileId.tonTolkBocV1]
+    (some CodegenProfileId.tonTolkBocV1)
+
+-- XRPL dual profiles (ASCII ascending: source-u64 < wasm-u64);
+-- default remains zero-tool source. Same Plan / `.rs` base surface; the
+-- explicit WASM profile builds a `wasm32-unknown-unknown` extra during
+-- Finalize (ADR-0050 Q1; deployable=false; no AlphaNet/mainnet).
+private def xrplRegistrationRowV1 : TargetRegistrationDataV1 :=
+  row .xrpl (semanticsAxesOfKindV1 .xrpl)
+    #[CodegenProfileId.xrplBedrockSourceU64V1,
+      CodegenProfileId.xrplBedrockWasmU64V1]
+    (some CodegenProfileId.xrplBedrockSourceU64V1)
+
 /-- Shipped initial registration rows (any order; create canonicalizes TargetId). -/
 def initialRegistrationRowsV1 : Array TargetRegistrationDataV1 :=
-  #[
-    row .evm (semanticsAxesOfKindV1 .evm)
-      -- Strictly ASCII-ascending: cancun-v1 < v1. Default = v1 (hashed Map).
-      #[CodegenProfileId.evmYulSolc0834CancunV1, CodegenProfileId.evmYulSolc0834V1]
-      (some CodegenProfileId.evmYulSolc0834V1),
-    row .solana (semanticsAxesOfKindV1 .solana)
-      -- ADR-0032 U1: sole product rail only. plan-v1 / elf-v1 shims removed
-      -- (no longer registry members; resolve/build reject them).
-      #[CodegenProfileId.solanaSbpfCpiElfV1]
-      (some CodegenProfileId.solanaSbpfCpiElfV1),
-    row .near (semanticsAxesOfKindV1 .near)
-      #[CodegenProfileId.nearWasmRawU64V1]
-      (some CodegenProfileId.nearWasmRawU64V1),
-    -- Noir dual profiles (ASCII ascending: nargo-acir < source-relations);
-    -- default remains zero-tool source. Same Plan / `.nr` base surface; the
-    -- explicit nargo ACIR profile dual-writes path-normalized ProgramArtifact
-    -- extras during Finalize (NOIR-IR-6; deployable=false; no prove/VK).
-    row .noir (semanticsAxesOfKindV1 .noir)
-      #[CodegenProfileId.noirNargoAcirV1, CodegenProfileId.noirSourceU64RelationsV1]
-      (some CodegenProfileId.noirSourceU64RelationsV1),
-    row .cosmwasm (semanticsAxesOfKindV1 .cosmwasm)
-      #[CodegenProfileId.cosmwasmWasmU64V1]
-      (some CodegenProfileId.cosmwasmWasmU64V1),
-    row .soroban (semanticsAxesOfKindV1 .soroban)
-      #[CodegenProfileId.sorobanSourceU64V1]
-      (some CodegenProfileId.sorobanSourceU64V1),
-    row .icp (semanticsAxesOfKindV1 .icp)
-      #[CodegenProfileId.icpWasmCandidU64V1]
-      (some CodegenProfileId.icpWasmCandidU64V1),
-    -- explicit elf profile shares the Plan/guest emission; Finalize resolves
-    -- locked cargo-openvm 2.0.1 to build+transpile ELF/VmExe extras
-    -- (ADR-0046 O1; deployable=false; no keygen/execute/prove/verify).
-    row .openvm (semanticsAxesOfKindV1 .openvm)
-      #[CodegenProfileId.openvmGuestElfV1, CodegenProfileId.openvmGuestSourceV1]
-      (some CodegenProfileId.openvmGuestSourceV1),
-    row .aleo (semanticsAxesOfKindV1 .aleo)
-      #[CodegenProfileId.aleoInstructionsV1]
-      (some CodegenProfileId.aleoInstructionsV1),
-    row .psy (semanticsAxesOfKindV1 .psy)
-      #[CodegenProfileId.psyDpnV1]
-      (some CodegenProfileId.psyDpnV1),
-    row .quint (semanticsAxesOfKindV1 .quint)
-      #[CodegenProfileId.quintSourceU64ModelV1]
-      (some CodegenProfileId.quintSourceU64ModelV1),
-    row .ton (semanticsAxesOfKindV1 .ton)
-      #[CodegenProfileId.tonTolkBocV1]
-      (some CodegenProfileId.tonTolkBocV1),
-    -- XRPL dual profiles (ASCII ascending: source-u64 < wasm-u64);
-    -- default remains zero-tool source. Same Plan / `.rs` base surface; the
-    -- explicit WASM profile builds a `wasm32-unknown-unknown` extra during
-    -- Finalize (ADR-0050 Q1; deployable=false; no AlphaNet/mainnet).
-    row .xrpl (semanticsAxesOfKindV1 .xrpl)
-      #[CodegenProfileId.xrplBedrockSourceU64V1,
-        CodegenProfileId.xrplBedrockWasmU64V1]
-      (some CodegenProfileId.xrplBedrockSourceU64V1)
-  ]
+  #[evmRegistrationRowV1, solanaRegistrationRowV1, nearRegistrationRowV1,
+    noirRegistrationRowV1, cosmwasmRegistrationRowV1, sorobanRegistrationRowV1,
+    icpRegistrationRowV1, openvmRegistrationRowV1, aleoRegistrationRowV1,
+    psyRegistrationRowV1, quintRegistrationRowV1, tonRegistrationRowV1,
+    xrplRegistrationRowV1]
 
 /-- Frozen product registry seed. Sole membership authority.
     Failure surfaces `PF-REGISTRY-INVALID` — never panic / empty success. -/
 def initialTargetRegistryV1Result : CompileResult TargetRegistryV1 :=
   createTargetRegistryV1 initialRegistrationRowsV1
+
+/-- The frozen registration set passes the production root checks. -/
+theorem initialRegistrationSetV1_eq_ok :
+    validateRegistrationSetV1 initialRegistrationRowsV1 = .ok () := by
+  simp [validateRegistrationSetV1, initialRegistrationRowsV1, row,
+    evmRegistrationRowV1, solanaRegistrationRowV1, nearRegistrationRowV1,
+    noirRegistrationRowV1, cosmwasmRegistrationRowV1, sorobanRegistrationRowV1,
+    icpRegistrationRowV1, openvmRegistrationRowV1, aleoRegistrationRowV1,
+    psyRegistrationRowV1, quintRegistrationRowV1, tonRegistrationRowV1,
+    xrplRegistrationRowV1, TargetId.ofKind, TargetId.toString, TargetId.evm,
+    TargetId.solana, TargetId.near, TargetId.noir, TargetId.cosmwasm,
+    TargetId.soroban, TargetId.icp, TargetId.openvm, TargetId.aleo, TargetId.psy,
+    TargetId.quint, TargetId.ton, TargetId.xrpl, findDuplicateString,
+    findDuplicateStringLoop, containsString, Bind.bind, Except.bind, Pure.pure,
+    Except.pure]
+
+/-- The frozen source-order registration rows pass the production validator. -/
+theorem initialRegistrationsV1_eq_ok :
+    ∃ allProfiles,
+      validateRegistrationsV1 initialRegistrationRowsV1.toList [] =
+        .ok allProfiles := by
+  have hevm :
+      "evm-yul-solc-0.8.34-cancun-v1" < "evm-yul-solc-0.8.34-v1" := by
+    decide
+  have hnoir :
+      "noir-nargo-1.0.0-beta.26-acir-v1" < "noir-source-u64-relations-v1" := by
+    decide
+  have hopenvm :
+      "openvm-guest-elf-v1" < "openvm-guest-source-v1" := by
+    decide
+  have hxrpl :
+      "xrpl-bedrock-source-u64-v1" < "xrpl-bedrock-wasm-u64-v1" := by
+    decide
+  let pEvm : List String :=
+    [CodegenProfileId.evmYulSolc0834V1.toString,
+      CodegenProfileId.evmYulSolc0834CancunV1.toString]
+  let pSolana := CodegenProfileId.solanaSbpfCpiElfV1.toString :: pEvm
+  let pNear := CodegenProfileId.nearWasmRawU64V1.toString :: pSolana
+  let pNoir := CodegenProfileId.noirSourceU64RelationsV1.toString ::
+    CodegenProfileId.noirNargoAcirV1.toString :: pNear
+  let pCosmwasm := CodegenProfileId.cosmwasmWasmU64V1.toString :: pNoir
+  let pSoroban := CodegenProfileId.sorobanSourceU64V1.toString :: pCosmwasm
+  let pIcp := CodegenProfileId.icpWasmCandidU64V1.toString :: pSoroban
+  let pOpenvm := CodegenProfileId.openvmGuestSourceV1.toString ::
+    CodegenProfileId.openvmGuestElfV1.toString :: pIcp
+  let pAleo := CodegenProfileId.aleoInstructionsV1.toString :: pOpenvm
+  let pPsy := CodegenProfileId.psyDpnV1.toString :: pAleo
+  let pQuint := CodegenProfileId.quintSourceU64ModelV1.toString :: pPsy
+  let pTon := CodegenProfileId.tonTolkBocV1.toString :: pQuint
+  let pXrpl := CodegenProfileId.xrplBedrockWasmU64V1.toString ::
+    CodegenProfileId.xrplBedrockSourceU64V1.toString :: pTon
+  have hEvmShape :
+      validateRegistrationProfileShapeV1 evmRegistrationRowV1 = .ok () := by
+    simp [validateRegistrationProfileShapeV1,
+      validateRegistrationProfileUniquenessV1, validateRegistrationProfileOrderV1,
+      evmRegistrationRowV1, row, findDuplicateString, findDuplicateStringLoop,
+      containsString, isStrictlyAscendingAscii, isStrictlyAscendingAsciiList,
+      CodegenProfileId.toString, CodegenProfileId.evmYulSolc0834CancunV1,
+      CodegenProfileId.evmYulSolc0834V1, hevm, Bind.bind, Except.bind,
+      Pure.pure, Except.pure]
+  have hNoirShape :
+      validateRegistrationProfileShapeV1 noirRegistrationRowV1 = .ok () := by
+    simp [validateRegistrationProfileShapeV1,
+      validateRegistrationProfileUniquenessV1, validateRegistrationProfileOrderV1,
+      noirRegistrationRowV1, row, findDuplicateString, findDuplicateStringLoop,
+      containsString, isStrictlyAscendingAscii, isStrictlyAscendingAsciiList,
+      CodegenProfileId.toString, CodegenProfileId.noirNargoAcirV1,
+      CodegenProfileId.noirSourceU64RelationsV1, hnoir, Bind.bind, Except.bind,
+      Pure.pure, Except.pure]
+  have hOpenvmShape :
+      validateRegistrationProfileShapeV1 openvmRegistrationRowV1 = .ok () := by
+    simp [validateRegistrationProfileShapeV1,
+      validateRegistrationProfileUniquenessV1, validateRegistrationProfileOrderV1,
+      openvmRegistrationRowV1, row, findDuplicateString, findDuplicateStringLoop,
+      containsString, isStrictlyAscendingAscii, isStrictlyAscendingAsciiList,
+      CodegenProfileId.toString, CodegenProfileId.openvmGuestElfV1,
+      CodegenProfileId.openvmGuestSourceV1, hopenvm, Bind.bind, Except.bind,
+      Pure.pure, Except.pure]
+  have hXrplShape :
+      validateRegistrationProfileShapeV1 xrplRegistrationRowV1 = .ok () := by
+    simp [validateRegistrationProfileShapeV1,
+      validateRegistrationProfileUniquenessV1, validateRegistrationProfileOrderV1,
+      xrplRegistrationRowV1, row, findDuplicateString, findDuplicateStringLoop,
+      containsString, isStrictlyAscendingAscii, isStrictlyAscendingAsciiList,
+      CodegenProfileId.toString, CodegenProfileId.xrplBedrockSourceU64V1,
+      CodegenProfileId.xrplBedrockWasmU64V1, hxrpl, Bind.bind, Except.bind,
+      Pure.pure, Except.pure]
+  have hSolanaShape :
+      validateRegistrationProfileShapeV1 solanaRegistrationRowV1 = .ok () := by
+    apply validateRegistrationProfileShapeV1_eq_ok_of_singleton _
+      CodegenProfileId.solanaSbpfCpiElfV1
+    rfl
+  have hNearShape :
+      validateRegistrationProfileShapeV1 nearRegistrationRowV1 = .ok () := by
+    apply validateRegistrationProfileShapeV1_eq_ok_of_singleton _
+      CodegenProfileId.nearWasmRawU64V1
+    rfl
+  have hCosmwasmShape :
+      validateRegistrationProfileShapeV1 cosmwasmRegistrationRowV1 = .ok () := by
+    apply validateRegistrationProfileShapeV1_eq_ok_of_singleton _
+      CodegenProfileId.cosmwasmWasmU64V1
+    rfl
+  have hSorobanShape :
+      validateRegistrationProfileShapeV1 sorobanRegistrationRowV1 = .ok () := by
+    apply validateRegistrationProfileShapeV1_eq_ok_of_singleton _
+      CodegenProfileId.sorobanSourceU64V1
+    rfl
+  have hIcpShape :
+      validateRegistrationProfileShapeV1 icpRegistrationRowV1 = .ok () := by
+    apply validateRegistrationProfileShapeV1_eq_ok_of_singleton _
+      CodegenProfileId.icpWasmCandidU64V1
+    rfl
+  have hAleoShape :
+      validateRegistrationProfileShapeV1 aleoRegistrationRowV1 = .ok () := by
+    apply validateRegistrationProfileShapeV1_eq_ok_of_singleton _
+      CodegenProfileId.aleoInstructionsV1
+    rfl
+  have hPsyShape :
+      validateRegistrationProfileShapeV1 psyRegistrationRowV1 = .ok () := by
+    apply validateRegistrationProfileShapeV1_eq_ok_of_singleton _
+      CodegenProfileId.psyDpnV1
+    rfl
+  have hQuintShape :
+      validateRegistrationProfileShapeV1 quintRegistrationRowV1 = .ok () := by
+    apply validateRegistrationProfileShapeV1_eq_ok_of_singleton _
+      CodegenProfileId.quintSourceU64ModelV1
+    rfl
+  have hTonShape :
+      validateRegistrationProfileShapeV1 tonRegistrationRowV1 = .ok () := by
+    apply validateRegistrationProfileShapeV1_eq_ok_of_singleton _
+      CodegenProfileId.tonTolkBocV1
+    rfl
+  have hEvm : validateRegistrationV1 [] evmRegistrationRowV1 = .ok pEvm := by
+    apply validateRegistrationV1_eq_ok_of_stages
+    all_goals first | exact hEvmShape | rfl
+  have hSolana :
+      validateRegistrationV1 pEvm solanaRegistrationRowV1 = .ok pSolana := by
+    apply validateRegistrationV1_eq_ok_of_stages
+    all_goals first | exact hSolanaShape | rfl
+  have hNear : validateRegistrationV1 pSolana nearRegistrationRowV1 = .ok pNear := by
+    apply validateRegistrationV1_eq_ok_of_stages
+    all_goals first | exact hNearShape | rfl
+  have hNoir : validateRegistrationV1 pNear noirRegistrationRowV1 = .ok pNoir := by
+    apply validateRegistrationV1_eq_ok_of_stages
+    all_goals first | exact hNoirShape | rfl
+  have hCosmwasm :
+      validateRegistrationV1 pNoir cosmwasmRegistrationRowV1 = .ok pCosmwasm := by
+    apply validateRegistrationV1_eq_ok_of_stages
+    all_goals first | exact hCosmwasmShape | rfl
+  have hSoroban :
+      validateRegistrationV1 pCosmwasm sorobanRegistrationRowV1 = .ok pSoroban := by
+    apply validateRegistrationV1_eq_ok_of_stages
+    all_goals first | exact hSorobanShape | rfl
+  have hIcp : validateRegistrationV1 pSoroban icpRegistrationRowV1 = .ok pIcp := by
+    apply validateRegistrationV1_eq_ok_of_stages
+    all_goals first | exact hIcpShape | rfl
+  have hOpenvm :
+      validateRegistrationV1 pIcp openvmRegistrationRowV1 = .ok pOpenvm := by
+    apply validateRegistrationV1_eq_ok_of_stages
+    all_goals first | exact hOpenvmShape | rfl
+  have hAleo : validateRegistrationV1 pOpenvm aleoRegistrationRowV1 = .ok pAleo := by
+    apply validateRegistrationV1_eq_ok_of_stages
+    all_goals first | exact hAleoShape | rfl
+  have hPsy : validateRegistrationV1 pAleo psyRegistrationRowV1 = .ok pPsy := by
+    apply validateRegistrationV1_eq_ok_of_stages
+    all_goals first | exact hPsyShape | rfl
+  have hQuint : validateRegistrationV1 pPsy quintRegistrationRowV1 = .ok pQuint := by
+    apply validateRegistrationV1_eq_ok_of_stages
+    all_goals first | exact hQuintShape | rfl
+  have hTon : validateRegistrationV1 pQuint tonRegistrationRowV1 = .ok pTon := by
+    apply validateRegistrationV1_eq_ok_of_stages
+    all_goals first | exact hTonShape | rfl
+  have hXrpl : validateRegistrationV1 pTon xrplRegistrationRowV1 = .ok pXrpl := by
+    apply validateRegistrationV1_eq_ok_of_stages
+    all_goals first | exact hXrplShape | rfl
+  refine ⟨pXrpl, ?_⟩
+  simp only [initialRegistrationRowsV1, validateRegistrationsV1, hEvm, hSolana,
+    hNear, hNoir, hCosmwasm, hSoroban, hIcp, hOpenvm, hAleo, hPsy, hQuint,
+    hTon, hXrpl, Bind.bind, Except.bind]
+
+/-- The frozen production seed succeeds through the sole registry constructor.
+    The resulting registration order is still minted by that constructor's
+    canonical TargetId sort rather than duplicated in this certificate. -/
+theorem initialTargetRegistryV1Result_eq_ok :
+    initialTargetRegistryV1Result =
+      .ok (TargetRegistryV1.mk (sortRegistrationsV1 initialRegistrationRowsV1)) := by
+  rcases initialRegistrationsV1_eq_ok with ⟨allProfiles, hregistrations⟩
+  exact createTargetRegistryV1_eq_ok_of_stages initialRegistrationRowsV1
+    allProfiles initialRegistrationSetV1_eq_ok hregistrations
+
+/-- Solana lookup in the certified frozen registry. The proof computes the
+    constructor-owned canonical sort; it does not introduce another index. -/
+theorem findRegistrationV1_initial_solana_eq_some :
+    findRegistrationV1
+        (TargetRegistryV1.mk
+          (sortRegistrationsV1 initialRegistrationRowsV1))
+        TargetId.solana =
+      some solanaRegistrationRowV1 := by
+  simp [findRegistrationV1, initialRegistrationRowsV1, sortRegistrationsV1,
+    sortRegistrationListV1, insertRegistrationV1, targetRegistrationLtV1,
+    asciiStringLtV1, asciiStringLtListV1,
+    evmRegistrationRowV1, solanaRegistrationRowV1, nearRegistrationRowV1,
+    noirRegistrationRowV1, cosmwasmRegistrationRowV1, sorobanRegistrationRowV1,
+    icpRegistrationRowV1, openvmRegistrationRowV1, aleoRegistrationRowV1,
+    psyRegistrationRowV1, quintRegistrationRowV1, tonRegistrationRowV1,
+    xrplRegistrationRowV1, row, TargetId.ofKind, TargetId.toString, TargetId.evm,
+    TargetId.solana, TargetId.near, TargetId.noir, TargetId.cosmwasm,
+    TargetId.soroban, TargetId.icp, TargetId.openvm, TargetId.aleo, TargetId.psy,
+    TargetId.quint, TargetId.ton, TargetId.xrpl, TargetId.beq_eq_toString]
 
 end ProofForgeV2.Targets.TargetRegistryV1

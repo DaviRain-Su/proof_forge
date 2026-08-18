@@ -88,6 +88,25 @@ def resolveBuildSelectionV1
     initialTargetRegistryV1Result target requestedProfile?
   return ResolvedBuildSelectionV1.mk insp.targetId insp.codegenProfile insp.kind
 
+/-- Frozen Solana production profile selection replays through the sole product
+    registry and the sole private selection mint. The witness is exposed only
+    propositionally; this theorem adds no static selection value or second mint. -/
+theorem resolveBuildSelectionV1_solana_sbpf_cpi_elf_exists :
+    ∃ selection,
+      resolveBuildSelectionV1 TargetId.solana
+          (some CodegenProfileId.solanaSbpfCpiElfV1) = .ok selection ∧
+      ResolvedBuildSelectionV1.targetIdOf selection = TargetId.solana ∧
+      ResolvedBuildSelectionV1.codegenProfileOf selection =
+        CodegenProfileId.solanaSbpfCpiElfV1 ∧
+      ResolvedBuildSelectionV1.kindOf selection = .solana := by
+  unfold resolveBuildSelectionV1
+  rw [initialTargetRegistryV1Result_eq_ok]
+  simp only [inspectBuildSelectionWithSeedV1, Bind.bind, Except.bind]
+  rw [findRegistrationV1_initial_solana_eq_some]
+  simp [containsProfile, CodegenProfileId.beq_eq_toString, Pure.pure,
+    Except.pure, ResolvedBuildSelectionV1.targetIdOf,
+    ResolvedBuildSelectionV1.codegenProfileOf, ResolvedBuildSelectionV1.kindOf]
+
 /-- Lookup in a caller-supplied validated registry (row inspection only). -/
 def registrationInRegistry?
     (registry : TargetRegistryV1) (target : TargetId) :

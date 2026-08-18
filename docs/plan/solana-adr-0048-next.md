@@ -3,7 +3,7 @@ id: PLAN-SOL-ADR-0048-NEXT
 title: Solana ADR-0048 D4 certificate and concrete D5 composition closure
 status: draft
 owner: engineering
-updated: 2026-08-15
+updated: 2026-08-18
 normative: false
 ---
 
@@ -380,6 +380,19 @@ second codegen.
     validation/selection path has no compositional kernel equation; a direct
     whole-registry `decide` remains unacceptable. Exact frozen-registry creation
     and `resolveBuildSelectionV1` replay must close before capability/Plan/IR.
+33. **SOL-0048-D5-TARGET-REGISTRY-SELECTION-CERTIFICATE** — **done
+    2026-08-18**: made the one production registry validator and constructor
+    kernel-replayable by factoring their existing validation phases into
+    compositional stages, replacing reduction-hostile mutable array helpers,
+    and using an ASCII canonical structural insertion sort. Validation order,
+    diagnostics, duplicate detection and the sole production entry path remain
+    unchanged. Frozen registration-set/registry/lookup equations now feed the
+    sole `resolveBuildSelectionV1`, proving an existing selection with exact
+    target `solana`, profile `solana-sbpf-cpi-elf-v1` and artifact kind
+    `solana-elf`. The proof matches the resolver result rather than minting a
+    second private selection; no registry/profile data or resolver was copied.
+    This closes frozen registry/profile selection. Capability, Plan, IR, exact
+    emitter equation, SHA trace and unconditional `get` remain open.
 
 D4's four pinned sparse certificates and all four concrete D5 compositions are
 complete, and the generic seam now has a second real contract/HandlerIR shape
@@ -407,11 +420,11 @@ Next formalization slices, in order:
    exact whole-program data normalization certificate are done; the complete
    production Typed gate, Semantic structure gate and compositional canonical
    carrier certificate and sole compiler identity mint are now also discharged.
-   Production semantic revalidation, Reference admission and the generic
-   all-stage preparation replay theorem are also discharged. Next make frozen
-   registry creation and the sole `resolveBuildSelectionV1` compositional and
-   kernel-replayable; then feed that exact selection and compiled identity
-   through capability resolution before totalizing/replaying
+   Production semantic revalidation, Reference admission, the generic
+   all-stage preparation replay theorem, frozen registry creation and the sole
+   `resolveBuildSelectionV1` are also discharged. Next feed that exact selection
+   and compiled identity through the sole capability resolver before
+   totalizing/replaying
    `LowerSemanticV1`, `EmitIRV1` and `validateIR`,
    and discharge the StateCell exact post-validation emission equation. Keep
    traversal contract-independent and do not add a proof-only compiler, emitter

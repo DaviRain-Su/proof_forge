@@ -76,6 +76,19 @@ private def isAsciiDigit (c : Char) : Bool :=
 private def isAsciiLowerOrDigit (c : Char) : Bool :=
   isAsciiLower c || isAsciiDigit c
 
+/-- Fold state for the profile grammar. The first component records that the
+    prefix is valid; the second records that the prefix ends in an alphanumeric
+    character rather than a separator. -/
+private def profileIdGrammarStep (state : Bool × Bool) (c : Char) : Bool × Bool :=
+  if !state.1 then
+    state
+  else if isAsciiLowerOrDigit c then
+    (true, true)
+  else if (c == '-' || c == '.') && state.2 then
+    (true, false)
+  else
+    (false, false)
+
 /-- Exact TargetId grammar: 1..32 ASCII bytes `[a-z][a-z0-9-]{0,31}`.
 Trailing and consecutive hyphens are accepted by this exact regex. -/
 private def validTargetIdGrammar (s : String) : Bool :=
@@ -102,19 +115,8 @@ private def validProfileIdGrammar (s : String) : Bool :=
         if !isAsciiLower first then
           false
         else
-          let rec go : List Char → Bool
-            | [] => true
-            | c :: cs =>
-                if isAsciiLowerOrDigit c then
-                  go cs
-                else if c == '-' || c == '.' then
-                  match cs with
-                  | [] => false
-                  | n :: ns =>
-                      if isAsciiLowerOrDigit n then go ns else false
-                else
-                  false
-          go rest
+          let result := rest.foldl profileIdGrammarStep (true, true)
+          result.1 && result.2
 
 /-- Opaque external target identity. Sole product TargetId authority. -/
 structure TargetId where
@@ -129,6 +131,13 @@ namespace TargetId
 def toString (id : TargetId) : String := id.value
 
 instance : ToString TargetId := ⟨toString⟩
+
+/-- Target identity equality is exactly equality of its opaque wire value. -/
+theorem beq_eq_toString (a b : TargetId) :
+    (a == b) = (a.toString == b.toString) := by
+  cases a
+  cases b
+  rfl
 
 def parse? (s : String) : Option TargetId :=
   if validTargetIdGrammar s then some ⟨s⟩ else none
@@ -182,6 +191,13 @@ namespace CodegenProfileId
 def toString (id : CodegenProfileId) : String := id.value
 
 instance : ToString CodegenProfileId := ⟨toString⟩
+
+/-- Codegen profile equality is exactly equality of its opaque wire value. -/
+theorem beq_eq_toString (a b : CodegenProfileId) :
+    (a == b) = (a.toString == b.toString) := by
+  cases a
+  cases b
+  rfl
 
 def parse? (s : String) : Option CodegenProfileId :=
   if validProfileIdGrammar s then some ⟨s⟩ else none

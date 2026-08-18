@@ -16910,3 +16910,19 @@ normative: false
   `ProofForgeV2.Targets.Solana.SbpfStateCellProductionV1`单文件kernel check exit 0（2:45.82，峰值
   27,615,756 KB）。尚未闭合static selection、capability、Plan/IR、emitter equation、assembly SHA、
   unconditional `get`、ELF或SVM runtime。
+
+## 2026-08-18 — certify frozen target registry and Solana profile selection
+
+- 唯一production registry validation path现拆成保持既有phase precedence、诊断与duplicate规则的
+  组合阶段；mutable array helpers与`qsort`替换为结构递归helper及kernel-replayable ASCII insertion
+  sort，但仍只由唯一`validateRegistrationV1`/`createTargetRegistryV1`入口调用。
+- Frozen registration set、canonical registry和exact Solana lookup现有kernel equations；唯一
+  `resolveBuildSelectionV1`据此闭合target=`solana`、profile=`solana-sbpf-cpi-elf-v1`、
+  artifact kind=`solana-elf`的existential certificate。证明通过匹配resolver结果取得witness，
+  没有第二个private selection mint、copied profile data或第二resolver/checker。
+- Profile grammar scanning改为fold state，使frozen profile parse可由kernel replay；target/profile
+  identifier同时增加通用`beq`/`toString`对应定理。
+- Verification：identity grammar与10个registry focused runtime shard均`ok`；
+  `ProofForgeV2.Core.TargetIdentityV1`、`ProofForgeV2.Targets.TargetRegistryV1`、
+  `ProofForgeV2.Targets.BuildSelectionV1`及相关materialization modules build成功。
+  尚未闭合capability、Plan/IR、emitter equation、assembly SHA、unconditional `get`、ELF或SVM runtime。
