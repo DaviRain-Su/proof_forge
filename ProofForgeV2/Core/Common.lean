@@ -1,4 +1,7 @@
 import Init.Meta
+import Init.Data.List.SplitOn.Lemmas
+import Init.Data.String.Lemmas.Pattern.Split.Char
+import Std.Data.String.ToNat
 import ProofForgeV2.Core.Canonical
 import ProofForgeV2.Core.Crypto
 import ProofForgeV2.Core.Unicode
@@ -108,7 +111,7 @@ private def parseUInt64NoLeadingZero (s : String) : Except String UInt64 := do
   if s ≠ "0" && s.startsWith "0" then throw "leading zero forbidden"
   unless s.all isAsciiDigit do
     throw "numeric component must contain ASCII digits only"
-  if s.length > 20 || (s.length = 20 && s > "18446744073709551615") then
+  if s.length > 20 then
     throw "numeric component exceeds UInt64"
   match s.toNat? with
   | some n =>
@@ -124,23 +127,29 @@ private def splitOnce (s : String) (separator : Char) : String × Option String 
   | _ :: suffix => (String.ofList before, some (String.ofList suffix))
 
 private def validateSemVerIdentifier
-    (kind identifier : String) (numericLeadingZerosAllowed : Bool) : Except String Unit := do
-  if identifier.isEmpty then
-    throw s!"semver {kind} identifier must not be empty"
-  unless identifier.all isSemVerIdentifierChar do
-    throw s!"semver {kind} identifier contains an invalid character"
-  if !numericLeadingZerosAllowed && identifier.all isAsciiDigit &&
-      identifier.length > 1 && identifier.startsWith "0" then
-    throw "numeric prerelease identifier must not contain a leading zero"
+    (kind identifier : String) (numericLeadingZerosAllowed : Bool) : Except String Unit :=
+  match identifier.isEmpty with
+  | true => .error s!"semver {kind} identifier must not be empty"
+  | false =>
+    match identifier.all isSemVerIdentifierChar with
+    | false => .error s!"semver {kind} identifier contains an invalid character"
+    | true =>
+      if !numericLeadingZerosAllowed && identifier.all isAsciiDigit &&
+          identifier.length > 1 && identifier.startsWith "0" then
+        .error "numeric prerelease identifier must not contain a leading zero"
+      else
+        .ok ()
 
 private def parseSemVerIdentifiers
-    (kind value : String) (numericLeadingZerosAllowed : Bool) : Except String (Array String) := do
-  if value.isEmpty then
-    throw s!"semver {kind} must not be empty"
-  let identifiers := value.splitOn "."
-  for identifier in identifiers do
-    validateSemVerIdentifier kind identifier numericLeadingZerosAllowed
-  pure identifiers.toArray
+    (kind value : String) (numericLeadingZerosAllowed : Bool) : Except String (Array String) :=
+  match value.isEmpty with
+  | true => .error s!"semver {kind} must not be empty"
+  | false =>
+    let identifiers := (value.split '.').toList.map (fun sl => sl.copy)
+    match identifiers.forM (fun identifier =>
+        validateSemVerIdentifier kind identifier numericLeadingZerosAllowed) with
+    | .error e => .error e
+    | .ok _ => .ok identifiers.toArray
 
 /-- Exact wire spelling of the sole S2 catalog SemVer core (`1.0.0`).
     Used as a kernel-reducible exact-match fast path in `parseSemVer`. -/
@@ -150,27 +159,48 @@ def s2CatalogSemVerCoreWireV1 : String := "1.0.0"
 def s2CatalogSemVerCoreV1 : SemVer :=
   { major := 1, minor := 0, patch := 0 }
 
+private def parseSemVerOptionalIdentifiers
+    (kind : String) (value : Option String) (numericLeadingZerosAllowed : Bool) :
+    Except String (Array String) :=
+  match value with
+  | none => .ok #[]
+  | some v => parseSemVerIdentifiers kind v numericLeadingZerosAllowed
+
+private def parseSemVerCoreComponents (core : List String) :
+    Except String (UInt64 × UInt64 × UInt64) :=
+  if hlen : core.length = 3 then
+    match parseUInt64NoLeadingZero core[0]! with
+    | .error e => .error e
+    | .ok major =>
+      match parseUInt64NoLeadingZero core[1]! with
+      | .error e => .error e
+      | .ok minor =>
+        match parseUInt64NoLeadingZero core[2]! with
+        | .error e => .error e
+        | .ok patch => .ok (major, minor, patch)
+  else
+    .error "semver core requires major.minor.patch"
+
 /-- General SemVer 2.0.0 wire grammar (non-fast-path). Kept private so the
     public entry can dispatch the exact S2 core spelling without String.splitOn
     reduction in certificates, while all other inputs still use this authority. -/
-private def parseSemVerGeneral (s : String) : Except String SemVer := do
+private def parseSemVerGeneral (s : String) : Except String SemVer :=
   if s.startsWith "v" then
-    throw "v prefix forbidden"
-  let (versionAndPrerelease, buildValue) := splitOnce s '+'
-  let build ← match buildValue with
-    | none => pure #[]
-    | some value => parseSemVerIdentifiers "build" value true
-  let (coreValue, prereleaseValue) := splitOnce versionAndPrerelease '-'
-  let prerelease ← match prereleaseValue with
-    | none => pure #[]
-    | some value => parseSemVerIdentifiers "prerelease" value false
-  let core := coreValue.splitOn "."
-  unless core.length = 3 do
-    throw "semver core requires major.minor.patch"
-  let major ← parseUInt64NoLeadingZero core[0]!
-  let minor ← parseUInt64NoLeadingZero core[1]!
-  let patch ← parseUInt64NoLeadingZero core[2]!
-  pure { major, minor, patch, prerelease, build }
+    .error "v prefix forbidden"
+  else
+    let (versionAndPrerelease, buildValue) := splitOnce s '+'
+    match parseSemVerOptionalIdentifiers "build" buildValue true with
+    | .error e => .error e
+    | .ok build =>
+      let (coreValue, prereleaseValue) := splitOnce versionAndPrerelease '-'
+      match parseSemVerOptionalIdentifiers "prerelease" prereleaseValue false with
+      | .error e => .error e
+      | .ok prerelease =>
+        let core := (coreValue.split '.').toList.map (fun sl => sl.copy)
+        match parseSemVerCoreComponents core with
+        | .error e => .error e
+        | .ok (major, minor, patch) =>
+          .ok { major, minor, patch, prerelease, build }
 
 /-- Parse the exact SemVer 2.0.0 wire grammar with UInt64 core components.
 
@@ -199,12 +229,12 @@ def parseSemVerCore (s : String) : Except String SemVer := do
 
 /-- Reject directly constructed `SemVer` values that do not satisfy the wire grammar. -/
 def validateSemVer (version : SemVer) : Except String Unit := do
-  for identifier in version.prerelease do
-    validateSemVerIdentifier "prerelease" identifier false
-  for identifier in version.build do
-    validateSemVerIdentifier "build" identifier true
+  version.prerelease.toList.forM (fun identifier =>
+    validateSemVerIdentifier "prerelease" identifier false)
+  version.build.toList.forM (fun identifier =>
+    validateSemVerIdentifier "build" identifier true)
 
-private def renderSemVerUnchecked (version : SemVer) : String :=
+def renderSemVerUnchecked (version : SemVer) : String :=
   let core := s!"{version.major}.{version.minor}.{version.patch}"
   let withPrerelease :=
     if version.prerelease.isEmpty then core
@@ -216,6 +246,962 @@ private def renderSemVerUnchecked (version : SemVer) : String :=
 def renderSemVer (version : SemVer) : Except String String := do
   validateSemVer version
   pure (renderSemVerUnchecked version)
+
+/-- Successful `renderSemVer` yields the unique canonical spelling of `version`. -/
+theorem renderSemVer_ok_eq (version : SemVer) (s : String)
+    (h : renderSemVer version = .ok s) :
+    validateSemVer version = .ok () ∧ s = renderSemVerUnchecked version := by
+  have hval : validateSemVer version = .ok () := by
+    cases hv : validateSemVer version with
+    | error e => simp [renderSemVer, hv, Bind.bind, Except.bind] at h
+    | ok u => cases u; rfl
+  refine ⟨hval, ?_⟩
+  simp [renderSemVer, hval, Bind.bind, Pure.pure, Except.bind, Except.pure] at h
+  exact h.symm
+
+private theorem toString_uint64 (n : UInt64) : toString n = Nat.repr n.toNat := rfl
+
+private theorem isAsciiDigit_eq_isDigit (c : Char) :
+    isAsciiDigit c = c.isDigit := by
+  simp only [isAsciiDigit, Char.isDigit, LE.le, GE.ge, Char.le]
+
+private theorem repr_zero : Nat.repr 0 = "0" := by
+  simp [Nat.repr_eq_ofList_toDigits, Nat.toDigits_zero]
+
+private theorem toNat?_zero : String.toNat? "0" = some 0 := by
+  simpa [repr_zero] using Nat.toNat?_repr 0
+
+private theorem repr_eq_zero {n : Nat} : n.repr = "0" ↔ n = 0 := by
+  constructor
+  · intro h
+    have h1 : n.repr.toNat? = some n := Nat.toNat?_repr n
+    rw [h, toNat?_zero] at h1
+    exact Option.some.inj h1.symm
+  · rintro rfl
+    exact repr_zero
+
+private theorem toDigits_head_ne_zero {n : Nat} (hn : n ≠ 0) :
+    (Nat.toDigits 10 n).head? ≠ some '0' := by
+  induction n using Nat.strongRecOn with
+  | ind n ih =>
+      cases Nat.lt_or_ge n 10 with
+      | inl hlt =>
+          have hdig : Nat.toDigits 10 n = [n.digitChar] := Nat.toDigits_of_lt_base hlt
+          intro hhead
+          have : n.digitChar = '0' := by
+            simpa [hdig] using hhead
+          exact hn (Nat.digitChar_eq_zero.mp this)
+      | inr hge =>
+          have hpos : 0 < n := Nat.lt_of_lt_of_le (by decide : (0 : Nat) < 10) hge
+          have hdiv : n / 10 < n := Nat.div_lt_self hpos (by decide)
+          have hdiv_ne : n / 10 ≠ 0 := by
+            have : 1 ≤ n / 10 := Nat.div_pos hge (by decide)
+            omega
+          have happ : Nat.toDigits 10 n =
+              Nat.toDigits 10 (n / 10) ++ [Nat.digitChar (n % 10)] :=
+            Nat.toDigits_of_base_le (by decide) hge
+          intro hhead
+          apply ih (n / 10) hdiv hdiv_ne
+          have hne : Nat.toDigits 10 (n / 10) ≠ [] := Nat.toDigits_ne_nil
+          match htl : Nat.toDigits 10 (n / 10) with
+          | [] => exact (hne htl).elim
+          | d :: ds =>
+              simpa [happ, htl] using hhead
+
+private theorem repr_startsWith_zero_eq {n : Nat} :
+    n.repr.startsWith "0" = true ↔ n = 0 := by
+  constructor
+  · intro h
+    have hpre : ['0'] <+: n.repr.toList := (String.startsWith_string_iff (pat := "0")).1 h
+    have hhead : n.repr.toList.head? = some '0' := by
+      match htl : n.repr.toList with
+      | [] =>
+          have : n.repr.toList ≠ [] := by
+            intro he
+            have : n.repr.length = 0 := by
+              simpa [← String.length_toList] using congrArg List.length he
+            exact Nat.ne_of_gt Nat.length_repr_pos this
+          exact (this htl).elim
+      | d :: ds =>
+          have hpre' : ['0'] <+: d :: ds := by simpa [htl] using hpre
+          have : d = '0' := by
+            obtain ⟨l', hl', _⟩ := (List.cons_prefix_iff (a := '0') (l₁ := [])).1 hpre'
+            exact (List.cons.inj hl').1
+          simp [htl, this]
+    cases (Nat.decEq n 0) with
+    | isTrue h => exact h
+    | isFalse hn =>
+        exact False.elim
+          ((toDigits_head_ne_zero hn) (by simpa [Nat.toList_repr] using hhead))
+  · rintro rfl
+    simp [repr_zero, String.startsWith_string_iff]
+
+private theorem repr_all_isAsciiDigit (n : Nat) :
+    n.repr.all isAsciiDigit = true := by
+  rw [String.all_bool_eq, List.all_eq_true]
+  intro c hc
+  have : c.isDigit :=
+    Nat.isDigit_of_mem_toDigits (by decide : 0 < 10) (by decide : 10 ≤ 10)
+      (by simpa [Nat.toList_repr] using hc)
+  simpa [isAsciiDigit_eq_isDigit] using this
+
+private theorem uint64_repr_length_le_20 (n : UInt64) :
+    n.toNat.repr.length ≤ 20 := by
+  rw [Nat.length_repr_le_iff (by decide : 0 < 20)]
+  have hlt : n.toNat < UInt64.size := UInt64.toNat_lt_size n
+  have hpow : UInt64.size < 10 ^ 20 := by decide
+  omega
+
+private theorem parseUInt64NoLeadingZero_toString (n : UInt64) :
+    parseUInt64NoLeadingZero (toString n) = .ok n := by
+  have hs : toString n = Nat.repr n.toNat := toString_uint64 n
+  have hempty : (toString n).isEmpty = false := by
+    rw [String.isEmpty_eq_false_iff, hs]
+    intro hempty
+    have : n.toNat.repr.length = 0 := by simp [hempty]
+    exact Nat.ne_of_gt Nat.length_repr_pos this
+  have hlead : (decide (toString n ≠ "0") && (toString n).startsWith "0") = false := by
+    by_cases hz : n.toNat = 0
+    · have : toString n = "0" := by simp [hs, hz, repr_zero]
+      simp [this]
+    · have : (toString n).startsWith "0" = false := by
+        rw [Bool.eq_false_iff]
+        intro htrue
+        exact hz ((repr_startsWith_zero_eq (n := n.toNat)).1 (by simpa [hs] using htrue))
+      simp [this]
+  have hdigits : (toString n).all isAsciiDigit = true := by
+    simpa [hs] using repr_all_isAsciiDigit n.toNat
+  have hlen : decide ((toString n).length > 20) = false := by
+    have : (toString n).length ≤ 20 := by simpa [hs] using uint64_repr_length_le_20 n
+    simp [Nat.not_lt.mpr this]
+  have hto : (toString n).toNat? = some n.toNat := by
+    simpa [hs] using Nat.toNat?_repr n.toNat
+  have hbound : decide (n.toNat < UInt64.size) = true := by
+    simp [UInt64.toNat_lt_size n]
+  unfold parseUInt64NoLeadingZero
+  simp [hempty, hdigits, hto, Bind.bind, Pure.pure, Except.bind, Except.pure]
+  split
+  · next htrue =>
+      have hne : decide (toString n ≠ "0") = true := by simp [htrue.1]
+      have hst : (toString n).startsWith "0" = true :=
+        (String.startsWith_string_iff (pat := "0")).2 htrue.2
+      have hbool : (decide (toString n ≠ "0") && (toString n).startsWith "0") = true := by
+        simp only [hne, hst]
+        rfl
+      rw [hlead] at hbool
+      exact nomatch hbool
+  · next hfalse =>
+      split
+      · next hbig =>
+          have : (toString n).length ≤ 20 := by
+            simpa [hs] using uint64_repr_length_le_20 n
+          exact absurd hbig (Nat.not_lt.mpr this)
+      · next _ =>
+          have hlt : n.toNat < UInt64.size := UInt64.toNat_lt_size n
+          simp [hlt, UInt64.ofNat_toNat]
+
+private theorem list_forM_except_ok {α} (l : List α) (f : α → Except String PUnit)
+    (h : l.forM f = .ok ⟨⟩) : ∀ a ∈ l, f a = .ok ⟨⟩ := by
+  induction l with
+  | nil =>
+      intro a ha
+      cases ha
+  | cons x xs ih =>
+      have hx : f x = .ok ⟨⟩ := by
+        cases hx : f x with
+        | error e =>
+            simp [List.forM, hx, Bind.bind, Except.bind] at h
+        | ok u =>
+            cases u
+            rfl
+      have hxs : xs.forM f = .ok ⟨⟩ := by
+        simp [List.forM, hx, Bind.bind, Except.bind, Pure.pure, Except.pure] at h
+        exact h
+      intro a ha
+      cases ha with
+      | head => exact hx
+      | tail _ hmem => exact ih hxs a hmem
+
+private theorem list_forM_except_ok_of {α} (l : List α) (f : α → Except String PUnit)
+    (h : ∀ a ∈ l, f a = .ok ⟨⟩) : l.forM f = .ok ⟨⟩ := by
+  induction l with
+  | nil =>
+      simp [List.forM, Pure.pure, Except.pure]
+  | cons x xs ih =>
+      have hx : f x = .ok ⟨⟩ := h x (.head _)
+      have hxs : xs.forM f = .ok ⟨⟩ :=
+        ih (fun a ha => h a (.tail _ ha))
+      simp [List.forM, hx, hxs, Bind.bind, Except.bind, Pure.pure, Except.pure]
+
+private theorem validateSemVer_ok_identifiers (version : SemVer)
+    (h : validateSemVer version = .ok ()) :
+    (∀ id ∈ version.prerelease.toList,
+      validateSemVerIdentifier "prerelease" id false = .ok ⟨⟩) ∧
+    (∀ id ∈ version.build.toList,
+      validateSemVerIdentifier "build" id true = .ok ⟨⟩) := by
+  have hpre : version.prerelease.toList.forM
+      (fun identifier => validateSemVerIdentifier "prerelease" identifier false) =
+      .ok ⟨⟩ := by
+    cases hp : version.prerelease.toList.forM
+        (fun identifier => validateSemVerIdentifier "prerelease" identifier false) with
+    | error e =>
+        simp [validateSemVer, hp, Bind.bind, Except.bind] at h
+    | ok u =>
+        cases u
+        rfl
+  have hbuild : version.build.toList.forM
+      (fun identifier => validateSemVerIdentifier "build" identifier true) =
+      .ok ⟨⟩ := by
+    simp [validateSemVer, hpre, Bind.bind, Except.bind] at h
+    exact h
+  exact ⟨list_forM_except_ok _ _ hpre, list_forM_except_ok _ _ hbuild⟩
+
+private theorem isSemVerIdentifierChar_dot :
+    isSemVerIdentifierChar '.' = false := by
+  simp only [isSemVerIdentifierChar, isAsciiDigit, isAsciiLetter, Bool.or_eq_false_iff]
+  decide
+
+private theorem isSemVerIdentifierChar_plus :
+    isSemVerIdentifierChar '+' = false := by
+  simp only [isSemVerIdentifierChar, isAsciiDigit, isAsciiLetter, Bool.or_eq_false_iff]
+  decide
+
+private theorem validateSemVerIdentifier_ok_chars
+    (kind identifier : String) (numericLeadingZerosAllowed : Bool)
+    (h : validateSemVerIdentifier kind identifier numericLeadingZerosAllowed = .ok ⟨⟩) :
+    identifier.all isSemVerIdentifierChar = true := by
+  match hempty : identifier.isEmpty with
+  | true =>
+      simp [validateSemVerIdentifier, hempty] at h
+  | false =>
+      match hall : identifier.all isSemVerIdentifierChar with
+      | true => rfl
+      | false => simp [validateSemVerIdentifier, hempty, hall] at h
+
+private theorem identifier_not_mem_dot
+    (kind identifier : String) (numericLeadingZerosAllowed : Bool)
+    (h : validateSemVerIdentifier kind identifier numericLeadingZerosAllowed = .ok ⟨⟩) :
+    '.' ∉ identifier.toList := by
+  have hall := validateSemVerIdentifier_ok_chars kind identifier
+    numericLeadingZerosAllowed h
+  intro hmem
+  have hall' : identifier.toList.all isSemVerIdentifierChar = true := by
+    simpa [String.all_bool_eq] using hall
+  have : isSemVerIdentifierChar '.' = true :=
+    (List.all_eq_true.mp hall') _ hmem
+  simp [isSemVerIdentifierChar_dot] at this
+
+private theorem identifier_not_mem_plus
+    (kind identifier : String) (numericLeadingZerosAllowed : Bool)
+    (h : validateSemVerIdentifier kind identifier numericLeadingZerosAllowed = .ok ⟨⟩) :
+    '+' ∉ identifier.toList := by
+  have hall := validateSemVerIdentifier_ok_chars kind identifier
+    numericLeadingZerosAllowed h
+  intro hmem
+  have hall' : identifier.toList.all isSemVerIdentifierChar = true := by
+    simpa [String.all_bool_eq] using hall
+  have : isSemVerIdentifierChar '+' = true :=
+    (List.all_eq_true.mp hall') _ hmem
+  simp [isSemVerIdentifierChar_plus] at this
+
+private theorem span_loop_all (p : Char → Bool) (l acc : List Char)
+    (h : ∀ a ∈ l, p a = true) :
+    List.span.loop p l acc = (acc.reverse ++ l, []) := by
+  induction l generalizing acc with
+  | nil =>
+      simp [List.span.loop]
+  | cons a as ih =>
+      have ha : p a = true := h a (.head _)
+      simp [List.span.loop, ha]
+      rw [ih (a :: acc) (fun x hx => h x (.tail _ hx))]
+      simp [List.reverse_cons, List.append_assoc]
+
+private theorem span_eq_self (p : Char → Bool) (l : List Char)
+    (h : ∀ a ∈ l, p a = true) :
+    l.span p = (l, []) := by
+  unfold List.span
+  simpa using span_loop_all p l [] h
+
+private theorem span_loop_break (p : Char → Bool) (before after : List Char)
+    (sep : Char) (acc : List Char)
+    (hbefore : ∀ a ∈ before, p a = true) (hsep : p sep = false) :
+    List.span.loop p (before ++ sep :: after) acc =
+      (acc.reverse ++ before, sep :: after) := by
+  induction before generalizing acc with
+  | nil =>
+      simp [List.span.loop, hsep]
+  | cons a as ih =>
+      have ha : p a = true := hbefore a (.head _)
+      simp [List.cons_append, List.span.loop, ha]
+      rw [ih (a :: acc) (fun x hx => hbefore x (.tail _ hx))]
+      simp [List.reverse_cons, List.append_assoc]
+
+private theorem span_break (p : Char → Bool) (before after : List Char) (sep : Char)
+    (hbefore : ∀ a ∈ before, p a = true) (hsep : p sep = false) :
+    (before ++ sep :: after).span p = (before, sep :: after) := by
+  unfold List.span
+  simpa using span_loop_break p before after sep [] hbefore hsep
+
+private theorem splitOnce_of_not_mem (s : String) (sep : Char)
+    (h : sep ∉ s.toList) :
+    splitOnce s sep = (s, none) := by
+  have hpred : ∀ c ∈ s.toList, (c != sep) = true := by
+    intro c hc
+    simp [bne_iff_ne]
+    intro heq
+    exact h (heq ▸ hc)
+  have hspan := span_eq_self (fun c => c != sep) s.toList hpred
+  simp [splitOnce, hspan, String.ofList_toList]
+
+private theorem splitOnce_append (before after : String) (sep : Char)
+    (h : sep ∉ before.toList) :
+    splitOnce (before ++ String.singleton sep ++ after) sep =
+      (before, some after) := by
+  have hpred : ∀ c ∈ before.toList, (c != sep) = true := by
+    intro c hc
+    simp [bne_iff_ne]
+    intro heq
+    exact h (heq ▸ hc)
+  have hsep : (sep != sep) = false := by simp
+  have hlist :
+      (before ++ String.singleton sep ++ after).toList =
+        before.toList ++ sep :: after.toList := by
+    simp [String.toList_append, String.toList_singleton]
+  simp [splitOnce, hlist]
+  have hspan :=
+    span_break (fun c => c != sep) before.toList after.toList sep hpred hsep
+  simp [hspan, String.ofList_toList]
+
+private theorem repr_not_mem_char {n : Nat} {c : Char} (hc : c.isDigit = false) :
+    c ∉ n.repr.toList := by
+  intro hmem
+  have : c.isDigit = true :=
+    Nat.isDigit_of_mem_toDigits (by decide : 0 < 10) (by decide : 10 ≤ 10)
+      (by simpa [Nat.toList_repr] using hmem)
+  simp [hc] at this
+
+private theorem uint64_repr_not_mem_dot (n : UInt64) :
+    '.' ∉ (toString n).toList := by
+  simpa [toString_uint64] using
+    (repr_not_mem_char (c := '.') (n := n.toNat) (by decide))
+
+private theorem uint64_repr_not_mem_plus (n : UInt64) :
+    '+' ∉ (toString n).toList := by
+  simpa [toString_uint64] using
+    (repr_not_mem_char (c := '+') (n := n.toNat) (by decide))
+
+private theorem uint64_repr_not_mem_dash (n : UInt64) :
+    '-' ∉ (toString n).toList := by
+  simpa [toString_uint64] using
+    (repr_not_mem_char (c := '-') (n := n.toNat) (by decide))
+
+private theorem uint64_repr_not_mem_v (n : UInt64) :
+    'v' ∉ (toString n).toList := by
+  simpa [toString_uint64] using
+    (repr_not_mem_char (c := 'v') (n := n.toNat) (by decide))
+
+private theorem renderSemVerCore_eq (maj min pat : UInt64) :
+    s!"{maj}.{min}.{pat}" =
+      toString maj ++ "." ++ toString min ++ "." ++ toString pat :=
+  rfl
+
+private theorem renderSemVerCore_intercalate (maj min pat : UInt64) :
+    s!"{maj}.{min}.{pat}" =
+      ".".intercalate [toString maj, toString min, toString pat] := by
+  rw [renderSemVerCore_eq]
+  simp only [String.intercalate_cons_cons, String.intercalate_singleton]
+  simp [String.append_assoc]
+
+private theorem core_not_mem_dot_list (maj min pat : UInt64) :
+    ∀ s ∈ [toString maj, toString min, toString pat], '.' ∉ s.toList := by
+  intro s hs
+  have : s = toString maj ∨ s = toString min ∨ s = toString pat := by
+    simpa using hs
+  rcases this with h | h | h
+  · rw [h]; exact uint64_repr_not_mem_dot maj
+  · rw [h]; exact uint64_repr_not_mem_dot min
+  · rw [h]; exact uint64_repr_not_mem_dot pat
+
+private theorem core_toList_not_mem (maj min pat : UInt64) (c : Char)
+    (hc : ∀ n : UInt64, c ∉ (toString n).toList) (hcDot : c ≠ '.') :
+    c ∉ (s!"{maj}.{min}.{pat}").toList := by
+  rw [renderSemVerCore_eq]
+  simp [String.toList_append]
+  exact ⟨hc maj, hcDot, hc min, hcDot, hc pat⟩
+
+private theorem identifiers_intercalate_not_mem (l : List String) (c : Char)
+    (hl : ∀ s ∈ l, c ∉ s.toList) (hcDot : c ≠ '.') :
+    c ∉ (".".intercalate l).toList := by
+  induction l with
+  | nil =>
+      simp [String.intercalate_nil]
+  | cons x xs ih =>
+      cases xs with
+      | nil =>
+          simpa [String.intercalate_singleton] using hl x (List.mem_cons.2 (Or.inl rfl))
+      | cons y ys =>
+          intro hmem
+          rw [String.intercalate_cons_cons, String.toList_append,
+            String.toList_append] at hmem
+          simp [List.mem_append] at hmem
+          rcases hmem with h | h | h
+          · exact hl x (List.mem_cons.2 (Or.inl rfl)) h
+          · exact hcDot (by simpa [String.toList_singleton] using h)
+          · exact ih (fun s hs => hl s (List.mem_cons.2 (Or.inr hs)))
+              (by
+                have htl :
+                    (".".intercalate (y :: ys)).toList =
+                      ".".toList.intercalate ((y :: ys).map String.toList) :=
+                  String.toList_intercalate
+                simpa [htl] using h)
+
+private theorem parseSemVerIdentifiers_intercalate
+    (kind : String) (numericLeadingZerosAllowed : Bool) (l : List String)
+    (hne : l ≠ [])
+    (hval : ∀ id ∈ l,
+      validateSemVerIdentifier kind id numericLeadingZerosAllowed = .ok ⟨⟩) :
+    parseSemVerIdentifiers kind (".".intercalate l)
+      numericLeadingZerosAllowed = .ok l.toArray := by
+  have hdot : ∀ s ∈ l, '.' ∉ s.toList := fun s hs =>
+    identifier_not_mem_dot kind s numericLeadingZerosAllowed (hval s hs)
+  have hsplit :
+      ((".".intercalate l).split '.').toList.map (fun sl => sl.copy) = l := by
+    have h := String.toList_split_intercalate (c := '.') (l := l) hdot
+    rw [if_neg hne] at h
+    exact h
+  have hempty : (".".intercalate l).isEmpty = false := by
+    cases l with
+    | nil => exact (hne rfl).elim
+    | cons x xs =>
+        have hx := hval x (List.mem_cons.2 (Or.inl rfl))
+        have hxne : x.isEmpty = false := by
+          match hxempty : x.isEmpty with
+          | true => simp [validateSemVerIdentifier, hxempty] at hx
+          | false => rfl
+        cases xs with
+        | nil =>
+            simpa [String.intercalate_singleton] using hxne
+        | cons y ys =>
+            simp [String.intercalate_cons_cons, String.isEmpty]
+  have hfor :
+      l.forM (fun identifier =>
+        validateSemVerIdentifier kind identifier numericLeadingZerosAllowed) =
+        .ok ⟨⟩ :=
+    list_forM_except_ok_of _ _ hval
+  simp [parseSemVerIdentifiers, hempty, hsplit, hfor]
+
+private theorem array_toList_ne_nil {α} (arr : Array α) (h : arr.isEmpty = false) :
+    arr.toList ≠ [] := by
+  intro he
+  have hlen : arr.toList.length = 0 := by simp [he]
+  have hsize : arr.size = 0 := by
+    simpa [Array.length_toList] using hlen
+  have hempty : arr.isEmpty = true := by
+    simpa [Array.isEmpty] using hsize
+  simp [h] at hempty
+
+private theorem toString_uint64_inj {a b : UInt64} (h : toString a = toString b) :
+    a = b := by
+  have ha := parseUInt64NoLeadingZero_toString a
+  have hb := parseUInt64NoLeadingZero_toString b
+  rw [h] at ha
+  exact Except.ok.inj (ha.symm.trans hb)
+
+private theorem toString_uint64_zero : toString (0 : UInt64) = "0" := by
+  simp [toString_uint64, repr_zero]
+
+private theorem toString_uint64_one : toString (1 : UInt64) = "1" := by
+  have hdig : Nat.toDigits 10 1 = ['1'] := Nat.toDigits_of_lt_base (by decide)
+  simp [toString_uint64, Nat.repr_eq_ofList_toDigits, hdig]
+
+private theorem startsWith_v_of_mem (s : String) (h : s.startsWith "v" = true) :
+    'v' ∈ s.toList := by
+  obtain ⟨rest, hrest⟩ := (String.startsWith_string_iff (pat := "v")).1 h
+  have : s.toList = 'v' :: rest := by
+    simpa [List.singleton_append] using hrest.symm
+  simp [this]
+
+private theorem core_not_startsWith_v (maj min pat : UInt64) :
+    (s!"{maj}.{min}.{pat}").startsWith "v" = false := by
+  have hv : 'v' ∉ (s!"{maj}.{min}.{pat}").toList :=
+    core_toList_not_mem maj min pat 'v' uint64_repr_not_mem_v (by decide)
+  cases h : (s!"{maj}.{min}.{pat}").startsWith "v" with
+  | false => rfl
+  | true => exact (hv (startsWith_v_of_mem _ h)).elim
+
+private theorem append_not_startsWith_v_of_nonempty (s t : String)
+    (hne : s.toList ≠ []) (hs : s.startsWith "v" = false) :
+    (s ++ t).startsWith "v" = false := by
+  cases h : (s ++ t).startsWith "v" with
+  | false => rfl
+  | true =>
+      obtain ⟨rest, hrest⟩ := (String.startsWith_string_iff (pat := "v")).1 h
+      have hst : (s ++ t).toList = 'v' :: rest := by
+        simpa [List.singleton_append] using hrest.symm
+      match hsl : s.toList with
+      | [] => exact (hne hsl).elim
+      | d :: ds =>
+          have hd : d = 'v' := by
+            have : d :: (ds ++ t.toList) = 'v' :: rest := by
+              simpa [hsl, String.toList_append] using hst
+            exact (List.cons.inj this).1
+          have : s.startsWith "v" = true :=
+            (String.startsWith_string_iff (pat := "v")).2 ⟨ds, by simp [hsl, hd]⟩
+          simp [hs] at this
+
+private theorem core_toList_ne_nil (maj min pat : UInt64) :
+    (s!"{maj}.{min}.{pat}").toList ≠ [] := by
+  intro he
+  have hpos : (toString maj).toList ≠ [] := by
+    intro hempty
+    have hlen0 : (toString maj).length = 0 := by
+      simpa [String.length_toList] using congrArg List.length hempty
+    have hpos : 0 < (toString maj).length := by
+      simpa [toString_uint64] using Nat.length_repr_pos (n := maj.toNat)
+    omega
+  have he' : (toString maj ++ "." ++ toString min ++ "." ++ toString pat).toList = [] := by
+    simpa [renderSemVerCore_eq] using he
+  simp [String.toList_append] at he'
+
+private theorem split_core_components (maj min pat : UInt64) :
+    (s!"{maj}.{min}.{pat}".split '.').toList.map (fun sl => sl.copy) =
+      [toString maj, toString min, toString pat] := by
+  have h := String.toList_split_intercalate (c := '.')
+    (l := [toString maj, toString min, toString pat])
+    (core_not_mem_dot_list maj min pat)
+  rw [renderSemVerCore_intercalate]
+  exact h
+
+private theorem split_1_0_0 :
+    ("1.0.0".split '.').toList.map (fun sl => sl.copy) = ["1", "0", "0"] := by
+  have heq : "1.0.0" = ".".intercalate ["1", "0", "0"] := by
+    simp [String.intercalate_cons_cons, String.intercalate_singleton]
+  have hdot : ∀ s ∈ ["1", "0", "0"], '.' ∉ s.toList := by
+    intro s hs
+    have : s = "1" ∨ s = "0" ∨ s = "0" := by simpa using hs
+    rcases this with h | h | h <;> simp [h]
+  have h := String.toList_split_intercalate (c := '.') (l := ["1", "0", "0"]) hdot
+  rw [heq]
+  exact h
+
+private theorem array_eq_empty_of_isEmpty {α} {arr : Array α}
+    (h : arr.isEmpty = true) : arr = #[] := by
+  have : arr.size = 0 := by simpa [Array.isEmpty] using h
+  exact Array.eq_empty_of_size_eq_zero this
+
+private theorem s2_wire_not_mem_dash : '-' ∉ s2CatalogSemVerCoreWireV1.toList := by
+  simp [s2CatalogSemVerCoreWireV1]
+
+private theorem s2_wire_not_mem_plus : '+' ∉ s2CatalogSemVerCoreWireV1.toList := by
+  simp [s2CatalogSemVerCoreWireV1]
+
+private theorem parseSemVerCoreComponents_uint64 (maj min pat : UInt64) :
+    parseSemVerCoreComponents [toString maj, toString min, toString pat] =
+      .ok (maj, min, pat) := by
+  have hlen : [toString maj, toString min, toString pat].length = 3 := rfl
+  simp [parseSemVerCoreComponents, hlen, ↓reduceDIte,
+    parseUInt64NoLeadingZero_toString]
+
+private theorem core_startsWith_v_of_eq {maj min pat : UInt64} {core : String}
+    (hcore : s!"{maj}.{min}.{pat}" = core) :
+    core.startsWith "v" = false := by
+  rw [← hcore]
+  exact core_not_startsWith_v maj min pat
+
+private theorem core_toList_ne_nil_of_eq {maj min pat : UInt64} {core : String}
+    (hcore : s!"{maj}.{min}.{pat}" = core) :
+    core.toList ≠ [] := by
+  rw [← hcore]
+  exact core_toList_ne_nil maj min pat
+
+private theorem core_toList_not_mem_of_eq {maj min pat : UInt64} {core : String}
+    {c : Char}
+    (hcore : s!"{maj}.{min}.{pat}" = core)
+    (hc : ∀ n : UInt64, c ∉ (toString n).toList) (hcDot : c ≠ '.') :
+    c ∉ core.toList := by
+  rw [← hcore]
+  exact core_toList_not_mem maj min pat c hc hcDot
+
+private theorem split_core_components_of_eq {maj min pat : UInt64} {core : String}
+    (hcore : s!"{maj}.{min}.{pat}" = core) :
+    (core.split '.').toList.map (fun sl => sl.copy) =
+      [toString maj, toString min, toString pat] := by
+  rw [← hcore]
+  exact split_core_components maj min pat
+
+private theorem plus_not_mem_dash_string : '+' ∉ "-".toList := by decide
+
+private theorem dash_eq_singleton : "-" = String.singleton '-' := rfl
+
+private theorem plus_eq_singleton : "+" = String.singleton '+' := rfl
+
+private theorem parseSemVerIdentifiers_of_array
+    (kind : String) (numericLeadingZerosAllowed : Bool) (arr : Array String)
+    (hne : arr.isEmpty = false)
+    (hval : ∀ id ∈ arr.toList,
+      validateSemVerIdentifier kind id numericLeadingZerosAllowed = .ok ⟨⟩) :
+    parseSemVerIdentifiers kind (String.intercalate "." arr.toList)
+      numericLeadingZerosAllowed = .ok arr := by
+  have h := parseSemVerIdentifiers_intercalate kind numericLeadingZerosAllowed
+    arr.toList (array_toList_ne_nil arr hne) hval
+  rw [Array.toArray_toList] at h
+  exact h
+
+private theorem parseSemVerGeneral_core (maj min pat : UInt64) :
+    parseSemVerGeneral (s!"{maj}.{min}.{pat}") =
+      .ok { major := maj, minor := min, patch := pat } := by
+  generalize hcore : s!"{maj}.{min}.{pat}" = core
+  have hnotv : core.startsWith "v" = false :=
+    core_startsWith_v_of_eq hcore
+  have hplus : splitOnce core '+' = (core, none) :=
+    splitOnce_of_not_mem core '+'
+      (core_toList_not_mem_of_eq hcore uint64_repr_not_mem_plus (by decide))
+  have hdash : splitOnce core '-' = (core, none) :=
+    splitOnce_of_not_mem core '-'
+      (core_toList_not_mem_of_eq hcore uint64_repr_not_mem_dash (by decide))
+  have hsplit : (core.split '.').toList.map (fun sl => sl.copy) =
+      [toString maj, toString min, toString pat] :=
+    split_core_components_of_eq hcore
+  unfold parseSemVerGeneral
+  cases hstarts : core.startsWith "v" with
+  | true =>
+      simp [hstarts] at hnotv
+  | false =>
+      simp [hstarts]
+      rw [hplus]
+      simp [parseSemVerOptionalIdentifiers]
+      rw [hdash]
+      simp [parseSemVerOptionalIdentifiers, hsplit, parseSemVerCoreComponents_uint64]
+
+private theorem parseSemVerGeneral_pre
+    (maj min pat : UInt64) (pre : Array String)
+    (hne : pre.isEmpty = false)
+    (hval : ∀ id ∈ pre.toList,
+      validateSemVerIdentifier "prerelease" id false = .ok ⟨⟩) :
+    parseSemVerGeneral
+        (s!"{maj}.{min}.{pat}" ++ "-" ++ String.intercalate "." pre.toList) =
+      .ok { major := maj, minor := min, patch := pat, prerelease := pre } := by
+  generalize hcore : s!"{maj}.{min}.{pat}" = core
+  let preS := String.intercalate "." pre.toList
+  let s := core ++ "-" ++ preS
+  have hcoreNe : core.toList ≠ [] := core_toList_ne_nil_of_eq hcore
+  have hcoreNotV : core.startsWith "v" = false :=
+    core_startsWith_v_of_eq hcore
+  have hnotv : s.startsWith "v" = false := by
+    have hs : s = core ++ ("-" ++ preS) := by
+      simp [s, String.append_assoc]
+    rw [hs]
+    exact append_not_startsWith_v_of_nonempty core ("-" ++ preS) hcoreNe hcoreNotV
+  have hplus : splitOnce s '+' = (s, none) := by
+    refine splitOnce_of_not_mem s '+' ?_
+    intro hmem
+    have hsList : s.toList = core.toList ++ "-".toList ++ preS.toList := by
+      simp [s, String.toList_append]
+    have hmem' : '+' ∈ core.toList ++ "-".toList ++ preS.toList := hsList ▸ hmem
+    simp only [List.mem_append] at hmem'
+    rcases hmem' with h | h
+    · rcases h with hc | hd
+      · exact core_toList_not_mem_of_eq hcore uint64_repr_not_mem_plus (by decide) hc
+      · exact plus_not_mem_dash_string hd
+    · exact identifiers_intercalate_not_mem pre.toList '+'
+        (fun id hid => identifier_not_mem_plus "prerelease" id false (hval id hid))
+        (by decide) h
+  have hdash : splitOnce s '-' = (core, some preS) := by
+    have hs' : s = core ++ String.singleton '-' ++ preS := by
+      simp only [s, dash_eq_singleton]
+    rw [hs']
+    exact splitOnce_append core preS '-'
+      (core_toList_not_mem_of_eq hcore uint64_repr_not_mem_dash (by decide))
+  have hpreParse : parseSemVerIdentifiers "prerelease" preS false = .ok pre :=
+    parseSemVerIdentifiers_of_array "prerelease" false pre hne hval
+  have hsplit : (core.split '.').toList.map (fun sl => sl.copy) =
+      [toString maj, toString min, toString pat] :=
+    split_core_components_of_eq hcore
+  change parseSemVerGeneral s =
+    .ok { major := maj, minor := min, patch := pat, prerelease := pre }
+  unfold parseSemVerGeneral
+  cases hstarts : s.startsWith "v" with
+  | true =>
+      simp [hstarts] at hnotv
+  | false =>
+      simp [hstarts]
+      rw [hplus]
+      simp [parseSemVerOptionalIdentifiers]
+      rw [hdash]
+      simp [parseSemVerOptionalIdentifiers, hpreParse, hsplit,
+        parseSemVerCoreComponents_uint64]
+
+private theorem parseSemVerGeneral_build
+    (maj min pat : UInt64) (build : Array String)
+    (hne : build.isEmpty = false)
+    (hval : ∀ id ∈ build.toList,
+      validateSemVerIdentifier "build" id true = .ok ⟨⟩) :
+    parseSemVerGeneral
+        (s!"{maj}.{min}.{pat}" ++ "+" ++ String.intercalate "." build.toList) =
+      .ok { major := maj, minor := min, patch := pat, build := build } := by
+  generalize hcore : s!"{maj}.{min}.{pat}" = core
+  let buildS := String.intercalate "." build.toList
+  let s := core ++ "+" ++ buildS
+  have hcoreNe : core.toList ≠ [] := core_toList_ne_nil_of_eq hcore
+  have hcoreNotV : core.startsWith "v" = false :=
+    core_startsWith_v_of_eq hcore
+  have hnotv : s.startsWith "v" = false := by
+    have hs : s = core ++ ("+" ++ buildS) := by
+      simp [s, String.append_assoc]
+    rw [hs]
+    exact append_not_startsWith_v_of_nonempty core ("+" ++ buildS) hcoreNe hcoreNotV
+  have hplus : splitOnce s '+' = (core, some buildS) := by
+    have hs' : s = core ++ String.singleton '+' ++ buildS := by
+      simp only [s, plus_eq_singleton]
+    rw [hs']
+    exact splitOnce_append core buildS '+'
+      (core_toList_not_mem_of_eq hcore uint64_repr_not_mem_plus (by decide))
+  have hdash : splitOnce core '-' = (core, none) :=
+    splitOnce_of_not_mem core '-'
+      (core_toList_not_mem_of_eq hcore uint64_repr_not_mem_dash (by decide))
+  have hbuildParse : parseSemVerIdentifiers "build" buildS true = .ok build :=
+    parseSemVerIdentifiers_of_array "build" true build hne hval
+  have hsplit : (core.split '.').toList.map (fun sl => sl.copy) =
+      [toString maj, toString min, toString pat] :=
+    split_core_components_of_eq hcore
+  change parseSemVerGeneral s =
+    .ok { major := maj, minor := min, patch := pat, build := build }
+  unfold parseSemVerGeneral
+  cases hstarts : s.startsWith "v" with
+  | true =>
+      simp [hstarts] at hnotv
+  | false =>
+      simp [hstarts]
+      rw [hplus]
+      simp [parseSemVerOptionalIdentifiers, hbuildParse]
+      rw [hdash]
+      simp [parseSemVerOptionalIdentifiers, hsplit, parseSemVerCoreComponents_uint64]
+
+private theorem parseSemVerGeneral_pre_build
+    (maj min pat : UInt64) (pre build : Array String)
+    (hpreNe : pre.isEmpty = false) (hbuildNe : build.isEmpty = false)
+    (hpreVal : ∀ id ∈ pre.toList,
+      validateSemVerIdentifier "prerelease" id false = .ok ⟨⟩)
+    (hbuildVal : ∀ id ∈ build.toList,
+      validateSemVerIdentifier "build" id true = .ok ⟨⟩) :
+    parseSemVerGeneral
+        (s!"{maj}.{min}.{pat}" ++ "-" ++ String.intercalate "." pre.toList ++
+          "+" ++ String.intercalate "." build.toList) =
+      .ok { major := maj, minor := min, patch := pat,
+            prerelease := pre, build := build } := by
+  generalize hcore : s!"{maj}.{min}.{pat}" = core
+  let preS := String.intercalate "." pre.toList
+  let buildS := String.intercalate "." build.toList
+  let withPre := core ++ "-" ++ preS
+  let s := withPre ++ "+" ++ buildS
+  have hcoreNe : core.toList ≠ [] := core_toList_ne_nil_of_eq hcore
+  have hcoreNotV : core.startsWith "v" = false :=
+    core_startsWith_v_of_eq hcore
+  have hwithEq : withPre = core ++ ("-" ++ preS) := by
+    simp [withPre, String.append_assoc]
+  have hwithNotV : withPre.startsWith "v" = false := by
+    rw [hwithEq]
+    exact append_not_startsWith_v_of_nonempty core ("-" ++ preS) hcoreNe hcoreNotV
+  have hwithNe : withPre.toList ≠ [] := by
+    rw [hwithEq, String.toList_append]
+    intro he
+    match hcl : core.toList with
+    | [] => exact hcoreNe hcl
+    | _ :: _ =>
+        simp [hcl] at he
+  have hnotv : s.startsWith "v" = false := by
+    have hs : s = withPre ++ ("+" ++ buildS) := by
+      simp [s, String.append_assoc]
+    rw [hs]
+    exact append_not_startsWith_v_of_nonempty withPre ("+" ++ buildS)
+      hwithNe hwithNotV
+  have hplus : splitOnce s '+' = (withPre, some buildS) := by
+    have hs' : s = withPre ++ String.singleton '+' ++ buildS := by
+      simp only [s, plus_eq_singleton]
+    rw [hs']
+    refine splitOnce_append withPre buildS '+' ?_
+    intro hmem
+    have hsList : withPre.toList = core.toList ++ "-".toList ++ preS.toList := by
+      simp [withPre, String.toList_append]
+    have hmem' : '+' ∈ core.toList ++ "-".toList ++ preS.toList := hsList ▸ hmem
+    simp only [List.mem_append] at hmem'
+    rcases hmem' with h | h
+    · rcases h with hc | hd
+      · exact core_toList_not_mem_of_eq hcore uint64_repr_not_mem_plus (by decide) hc
+      · exact plus_not_mem_dash_string hd
+    · exact identifiers_intercalate_not_mem pre.toList '+'
+        (fun id hid => identifier_not_mem_plus "prerelease" id false
+          (hpreVal id hid)) (by decide) h
+  have hdash : splitOnce withPre '-' = (core, some preS) := by
+    have hs' : withPre = core ++ String.singleton '-' ++ preS := by
+      simp only [withPre, dash_eq_singleton]
+    rw [hs']
+    exact splitOnce_append core preS '-'
+      (core_toList_not_mem_of_eq hcore uint64_repr_not_mem_dash (by decide))
+  have hpreParse : parseSemVerIdentifiers "prerelease" preS false = .ok pre :=
+    parseSemVerIdentifiers_of_array "prerelease" false pre hpreNe hpreVal
+  have hbuildParse : parseSemVerIdentifiers "build" buildS true = .ok build :=
+    parseSemVerIdentifiers_of_array "build" true build hbuildNe hbuildVal
+  have hsplit : (core.split '.').toList.map (fun sl => sl.copy) =
+      [toString maj, toString min, toString pat] :=
+    split_core_components_of_eq hcore
+  change parseSemVerGeneral s =
+    .ok { major := maj, minor := min, patch := pat,
+          prerelease := pre, build := build }
+  unfold parseSemVerGeneral
+  cases hstarts : s.startsWith "v" with
+  | true =>
+      simp [hstarts] at hnotv
+  | false =>
+      simp [hstarts]
+      rw [hplus]
+      simp [parseSemVerOptionalIdentifiers, hbuildParse]
+      rw [hdash]
+      simp [parseSemVerOptionalIdentifiers, hpreParse, hsplit,
+        parseSemVerCoreComponents_uint64]
+
+private theorem render_eq_s2_core (version : SemVer)
+    (hpre : version.prerelease.isEmpty = true)
+    (hbuild : version.build.isEmpty = true)
+    (hcore : s!"{version.major}.{version.minor}.{version.patch}" = "1.0.0") :
+    version = s2CatalogSemVerCoreV1 := by
+  have hsplit :
+      [toString version.major, toString version.minor, toString version.patch] =
+        ["1", "0", "0"] := by
+    have h := split_core_components version.major version.minor version.patch
+    rw [hcore] at h
+    exact h.symm.trans split_1_0_0
+  have hmaj : version.major = 1 :=
+    toString_uint64_inj (by
+      have := congrArg (fun l : List String => l.head?) hsplit
+      have : toString version.major = "1" := by
+        simpa using Option.some.inj this
+      simpa [toString_uint64_one] using this)
+  have hmin : version.minor = 0 :=
+    toString_uint64_inj (by
+      have := congrArg (fun l : List String => l[1]?) hsplit
+      have : toString version.minor = "0" := by
+        simpa using Option.some.inj this
+      simpa [toString_uint64_zero] using this)
+  have hpat : version.patch = 0 :=
+    toString_uint64_inj (by
+      have := congrArg (fun l : List String => l[2]?) hsplit
+      have : toString version.patch = "0" := by
+        simpa using Option.some.inj this
+      simpa [toString_uint64_zero] using this)
+  have hpre' := array_eq_empty_of_isEmpty hpre
+  have hbuild' := array_eq_empty_of_isEmpty hbuild
+  cases version
+  subst hmaj
+  subst hmin
+  subst hpat
+  subst hpre'
+  subst hbuild'
+  rfl
+
+private theorem render_ne_s2_of_mem_plus (s : String)
+    (hin : '+' ∈ s.toList) :
+    (s == s2CatalogSemVerCoreWireV1) = false := by
+  cases hbeq : (s == s2CatalogSemVerCoreWireV1) with
+  | false => rfl
+  | true =>
+      have heq : s = s2CatalogSemVerCoreWireV1 :=
+        (beq_iff_eq (a := s) (b := s2CatalogSemVerCoreWireV1)).1 hbeq
+      exact (s2_wire_not_mem_plus (heq ▸ hin)).elim
+
+private theorem render_ne_s2_of_mem_dash (s : String)
+    (hin : '-' ∈ s.toList) :
+    (s == s2CatalogSemVerCoreWireV1) = false := by
+  cases hbeq : (s == s2CatalogSemVerCoreWireV1) with
+  | false => rfl
+  | true =>
+      have heq : s = s2CatalogSemVerCoreWireV1 :=
+        (beq_iff_eq (a := s) (b := s2CatalogSemVerCoreWireV1)).1 hbeq
+      exact (s2_wire_not_mem_dash (heq ▸ hin)).elim
+
+theorem parseSemVer_renderSemVerUnchecked (version : SemVer)
+    (hval : validateSemVer version = .ok ()) :
+    parseSemVer (renderSemVerUnchecked version) = .ok version := by
+  obtain ⟨hpreVal, hbuildVal⟩ := validateSemVer_ok_identifiers version hval
+  match hpreE : version.prerelease.isEmpty, hbuildE : version.build.isEmpty with
+  | false, false =>
+      have hr : renderSemVerUnchecked version =
+          s!"{version.major}.{version.minor}.{version.patch}" ++ "-" ++
+            String.intercalate "." version.prerelease.toList ++ "+" ++
+            String.intercalate "." version.build.toList := by
+        simp [renderSemVerUnchecked, hpreE, hbuildE]
+      have hne :
+          (renderSemVerUnchecked version == s2CatalogSemVerCoreWireV1) = false :=
+        render_ne_s2_of_mem_dash _
+          (by simp [hr, String.toList_append])
+      simp [parseSemVer, hne]
+      rw [hr]
+      exact parseSemVerGeneral_pre_build version.major version.minor version.patch
+        version.prerelease version.build hpreE hbuildE hpreVal hbuildVal
+  | false, true =>
+      have hr : renderSemVerUnchecked version =
+          s!"{version.major}.{version.minor}.{version.patch}" ++ "-" ++
+            String.intercalate "." version.prerelease.toList := by
+        simp [renderSemVerUnchecked, hpreE, hbuildE]
+      have hne :
+          (renderSemVerUnchecked version == s2CatalogSemVerCoreWireV1) = false :=
+        render_ne_s2_of_mem_dash _
+          (by simp [hr, String.toList_append])
+      simp [parseSemVer, hne]
+      rw [hr]
+      cases version
+      have hbuild' := array_eq_empty_of_isEmpty hbuildE
+      subst hbuild'
+      exact parseSemVerGeneral_pre _ _ _ _ hpreE hpreVal
+  | true, false =>
+      have hr : renderSemVerUnchecked version =
+          s!"{version.major}.{version.minor}.{version.patch}" ++ "+" ++
+            String.intercalate "." version.build.toList := by
+        simp [renderSemVerUnchecked, hpreE, hbuildE]
+      have hne :
+          (renderSemVerUnchecked version == s2CatalogSemVerCoreWireV1) = false :=
+        render_ne_s2_of_mem_plus _
+          (by simp [hr, String.toList_append])
+      simp [parseSemVer, hne]
+      rw [hr]
+      cases version
+      have hpre' := array_eq_empty_of_isEmpty hpreE
+      subst hpre'
+      exact parseSemVerGeneral_build _ _ _ _ hbuildE hbuildVal
+  | true, true =>
+      have hr : renderSemVerUnchecked version =
+          s!"{version.major}.{version.minor}.{version.patch}" := by
+        simp [renderSemVerUnchecked, hpreE, hbuildE]
+      by_cases h1 : s!"{version.major}.{version.minor}.{version.patch}" = "1.0.0"
+      · have hv : version = s2CatalogSemVerCoreV1 :=
+          render_eq_s2_core version hpreE hbuildE h1
+        rw [hr, h1, hv]
+        exact parseSemVer_1_0_0
+      · have hne :
+            (renderSemVerUnchecked version == s2CatalogSemVerCoreWireV1) = false := by
+          cases hbeq : (renderSemVerUnchecked version == s2CatalogSemVerCoreWireV1) with
+          | false => rfl
+          | true =>
+              have heq : renderSemVerUnchecked version = s2CatalogSemVerCoreWireV1 :=
+                (beq_iff_eq (a := renderSemVerUnchecked version)
+                  (b := s2CatalogSemVerCoreWireV1)).1 hbeq
+              have : s!"{version.major}.{version.minor}.{version.patch}" = "1.0.0" := by
+                rw [← hr, heq]
+                rfl
+              exact (h1 this).elim
+        simp [parseSemVer, hne]
+        rw [hr]
+        cases version
+        have hpre' := array_eq_empty_of_isEmpty hpreE
+        have hbuild' := array_eq_empty_of_isEmpty hbuildE
+        subst hpre' hbuild'
+        exact parseSemVerGeneral_core _ _ _
+
+theorem parseSemVer_of_renderSemVer_ok (version : SemVer) (s : String)
+    (h : renderSemVer version = .ok s) :
+    parseSemVer s = .ok version := by
+  obtain ⟨hval, hs⟩ := renderSemVer_ok_eq version s h
+  simpa [hs] using parseSemVer_renderSemVerUnchecked version hval
 
 private def compareSemVerIdentifier (left right : String) : Ordering :=
   let leftNumeric := left.all isAsciiDigit

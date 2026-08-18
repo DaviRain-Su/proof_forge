@@ -111,13 +111,13 @@ theorem validate_of_subjectData_body_gates_invert
     (hinvariantsSize : checkTableSize data.invariants.size = .ok ())
     (hstructure : validateSemanticProgramStructureV1 data = .ok ())
     (hbody : encodeSemanticProgramDataBodyV1 data = .ok bytes)
-    (hinvert : RootFieldInvertV1 data) :
+    (_hinvert : RootFieldInvertV1 data) :
     validateSemanticProgramV1 ⟨bytes⟩ = .ok data := by
   have hencode := encode_of_subjectData_body_gates data bytes hnameShape
     htypesSize hconstantsSize hstateSize heventsSize herrorsSize hcallablesSize
     hinvariantsSize hstructure hbody
   exact validateSemanticProgramV1_eq_ok_of_encode_decode data bytes hencode
-    (decodeSemanticProgramDataV1_of_encode_ok data bytes hencode hinvert)
+    (decodeSemanticProgramDataV1_of_encode_ok data bytes hencode)
 
 /-- Validate from structured subject + encode + explicit transport decode. -/
 theorem validate_of_subjectData_decode

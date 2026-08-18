@@ -23,9 +23,12 @@ import Init.Data.Array.Lemmas
   CallableKind/ValueDef/LoopBound, pure-U32 Op + Literal, Term.Return, array lift.
   Root composition (mig-a1-root): see `Wire.CodecInvertRootV1` —
   `decodeSemanticProgramDataV1_of_encode_ok_of_rootFieldInvert` discharges
-  `DecodeEncodeRoundtripGoalV1`. Arbitrary-data invert of seven root fields
-  is in `Wire.CodecInvertRootFieldsV1` (via FieldRead / TypeTable / DeclTables);
-  residual is `callables` + `requirements`.
+  `DecodeEncodeRoundtripGoalV1`. Arbitrary-data invert of **all nine** root
+  fields is in `Wire.CodecInvertRootFieldsV1` (via FieldRead / TypeTable /
+  DeclTables / Op / Term / CallableBody / Requirements). The three-argument
+  `decodeSemanticProgramDataV1_of_encode_ok` has no remaining callables or
+  requirements invert hypotheses. This is transport invert only; it does not
+  close TASK-D2-06 / TST-SEM-001.
 
   Hard boundaries:
     * no axiom / sorry / native_decide / ofReduceBool
@@ -401,8 +404,10 @@ structure RootFieldInvertV1 (data : SemanticProgramDataV1) : Prop where
     decode recovers `data`. Composition is discharged in
     `Wire.CodecInvertRootV1` as
     `decodeSemanticProgramDataV1_of_encode_ok_of_rootFieldInvert` /
-    `decodeEncodeRoundtripGoal_discharged`. Field-family invertibility proofs
-    still discharge `RootFieldInvertV1` for concrete programs. -/
+    `decodeEncodeRoundtripGoal_discharged`. Nine-field invertibility for
+    arbitrary programs is in `Wire.CodecInvertRootFieldsV1`
+    (`decodeSemanticProgramDataV1_of_encode_ok`, no remaining hyps).
+    Transport invert only; not TASK-D2-06 / TST-SEM-001. -/
 def DecodeEncodeRoundtripGoalV1 (data : SemanticProgramDataV1) (bytes : ByteArray) :
     Prop :=
   encodeSemanticProgramDataV1 data = .ok bytes →

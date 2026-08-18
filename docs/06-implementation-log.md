@@ -3,7 +3,7 @@ id: PHASE-6
 title: 实现日志
 status: draft
 owner: engineering
-updated: 2026-08-14
+updated: 2026-08-18
 normative: false
 ---
 
@@ -11,6 +11,15 @@ normative: false
 
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
+
+## 2026-08-18 — CodecInvert 九字段工程闭合（transport invert）
+
+- `CodecInvertOpV1` / `TermV1` / `CallableBodyV1` / `RequirementsV1` 对任意
+  `SemanticOp` / `Terminator` / `Callable` 表 / `ProgramRequirements` 放电
+  FieldRead；`CodecInvertRootFieldsV1` 新增无 hyp 的
+  `decodeSemanticProgramDataV1_of_encode_ok`。
+- Common `parseSemVer` ↔ `renderSemVerUnchecked` invert 支撑任意 SemVer 需求行。
+- **不是** TASK-D2-06 / TST-SEM-001 / structure-gate 以外语义 / formal 0/27。
 
 ## 2026-08-09 — ZeroCounter wave-2 bf2-docs（第二实例文档收口）
 

@@ -5,9 +5,10 @@
   StateLoad/Commit/Literal, Term.Return, empty callables, array one/two lift,
   DecodeEncodeRoundtripGoal composition discharge.
 
-  Seven of nine root fields invert for arbitrary data via
-  `CodecInvertRootFieldsV1`. Residual is `callables` + `requirements`.
-  Does not claim full RootFieldInvert for arbitrary programs.
+  Nine root fields invert for arbitrary data via `CodecInvertRootFieldsV1`.
+  `decodeSemanticProgramDataV1_of_encode_ok` has no remaining callables or
+  requirements invert hypotheses. Transport invert only; not TASK-D2-06 /
+  TST-SEM-001.
 -/
 import ProofForgeV2.Semantic.Wire.CodecInvertV1
 import ProofForgeV2.Semantic.Wire.CodecInvertFieldsV1
@@ -314,7 +315,73 @@ theorem decode_of_encode_of_rootFieldInvert
     (hencode : encodeSemanticProgramDataV1 data = .ok bytes)
     (hinvert : RootFieldInvertV1 data) :
     decodeSemanticProgramDataV1 bytes = .ok data :=
-  decodeSemanticProgramDataV1_of_encode_ok data bytes hencode hinvert
+  decodeSemanticProgramDataV1_of_encode_ok_of_rootFieldInvert data bytes hencode
+    hinvert
+
+/-- Positive theorem: encode success ⇒ transport decode for arbitrary data.
+    No remaining callables/requirements invert hypotheses. -/
+theorem decode_of_encode_ok
+    (data : SemanticProgramDataV1) (bytes : ByteArray)
+    (hencode : encodeSemanticProgramDataV1 data = .ok bytes) :
+    decodeSemanticProgramDataV1 bytes = .ok data :=
+  decodeSemanticProgramDataV1_of_encode_ok data bytes hencode
+
+private def zeroDigestV1 : Digest :=
+  { algorithm := .sha256, bytes := ByteArray.mk (Array.replicate 32 (0 : UInt8)) }
+
+private def nonemptyPredicatesRequestV1 : RequirementRequestV1 :=
+  {
+    id := "proof-forge.test.req.v1"
+    version := { major := 1, minor := 0, patch := 0 }
+    digest := zeroDigestV1
+    predicates := #[.uintAtLeast "n" 1, .boolEquals "flag" true]
+  }
+
+/-- Nonempty predicates invert through the generic Requirements package. -/
+theorem nonempty_predicates_requirements_exactAt :
+    ExactMidOffsetInvertAtV1 encodeProgramRequirementsV1
+      decodeProgramRequirementsV1
+      ({ items := #[nonemptyPredicatesRequestV1] } : ProgramRequirementsV1) 1 :=
+  exactMidOffsetInvertAt_requirementsV1
+    ({ items := #[nonemptyPredicatesRequestV1] } : ProgramRequirementsV1)
+
+private def unaryJumpCallableV1 : CallableV1 :=
+  {
+    id := 0
+    kind := .entry
+    name := some "go"
+    params := #[]
+    result := { typeId := 0, visibility := .public_ }
+    entryBlock := 0
+    blocks := #[{
+      id := 0
+      params := #[]
+      instructions := #[{
+        result := some { valueId := 0, typeId := 0 }
+        op := .unary .not 0
+      }]
+      terminator := .jump { blockId := 0, args := #[] }
+    }]
+    loopBounds := #[]
+    invariantSteps := none
+  }
+
+/-- A one-block callable carrying `Op.Unary` and `Term.Jump` inverts as a
+    production callables table. -/
+theorem unary_jump_callable_table_exactAt :
+    ExactMidOffsetInvertAtV1 (encodeArray encodeCallableV1)
+      (decodeArray maxTableElements decodeCallableV1) #[unaryJumpCallableV1] 1 :=
+  exactMidOffsetInvertAt_callablesTableV1 #[unaryJumpCallableV1] (by decide)
+
+/-- Empty callables table + empty requirements invert at root-field depth. -/
+theorem empty_callables_and_requirements_exactAt :
+    ExactMidOffsetInvertAtV1 (encodeArray encodeCallableV1)
+      (decodeArray maxTableElements decodeCallableV1)
+      (#[] : Array CallableV1) 1 ∧
+    ExactMidOffsetInvertAtV1 encodeProgramRequirementsV1
+      decodeProgramRequirementsV1 ({ items := #[] } : ProgramRequirementsV1) 1 :=
+  ⟨exactMidOffsetInvertAt_callablesTableV1 #[] (by decide),
+    exactMidOffsetInvertAt_requirementsV1 { items := #[] }⟩
 
 /-- Positive theorem: empty constants table mid-offset invert. -/
 theorem empty_constants_table_mid :
@@ -476,6 +543,49 @@ def run : IO Unit := do
       | .ok (arr, c) =>
           expect (arr.size == 0) "expected empty callables"
           expect (c.offset == b.size) "callables cursor not at end"
+  -- nonempty predicates
+  match encodeProgramRequirementsV1 { items := #[nonemptyPredicatesRequestV1] } with
+  | .error e => throw <| IO.userError s!"nonempty requirements encode failed: {repr e}"
+  | .ok b =>
+      match decodeProgramRequirementsV1 ⟨b, 0, 0⟩ with
+      | .error e => throw <| IO.userError s!"nonempty requirements decode failed: {repr e}"
+      | .ok (r, c) =>
+          expect (r.items.size == 1) "expected one requirement row"
+          match r.items[0]? with
+          | none => throw <| IO.userError "missing requirement row"
+          | some row =>
+              expect (row.predicates.size == 2) "expected two predicates"
+          expect (c.offset == b.size) "nonempty requirements cursor not at end"
+  -- Op.Unary + Term.Jump
+  match encodeSemanticOpV1 (.unary .not 0) with
+  | .error e => throw <| IO.userError s!"op.unary encode failed: {repr e}"
+  | .ok b =>
+      match decodeSemanticOpV1 ⟨b, 0, 0⟩ with
+      | .error e => throw <| IO.userError s!"op.unary decode failed: {repr e}"
+      | .ok (op, c) =>
+          expect (op == .unary .not 0) "op.unary mismatch"
+          expect (c.offset == b.size) "op.unary cursor not at end"
+  match encodeTerminatorV1 (.jump { blockId := 0, args := #[] }) with
+  | .error e => throw <| IO.userError s!"term.jump encode failed: {repr e}"
+  | .ok b =>
+      match decodeTerminatorV1 ⟨b, 0, 0⟩ with
+      | .error e => throw <| IO.userError s!"term.jump decode failed: {repr e}"
+      | .ok (t, c) =>
+          expect (t == .jump { blockId := 0, args := #[] }) "term.jump mismatch"
+          expect (c.offset == b.size) "term.jump cursor not at end"
+  -- nonempty single-block callable
+  match encodeArray encodeCallableV1 #[unaryJumpCallableV1] with
+  | .error e => throw <| IO.userError s!"unary-jump callable encode failed: {repr e}"
+  | .ok b =>
+      match decodeArray maxTableElements decodeCallableV1 ⟨b, 0, 0⟩ with
+      | .error e => throw <| IO.userError s!"unary-jump callable decode failed: {repr e}"
+      | .ok (arr, c) =>
+          expect (arr.size == 1) "expected one callable"
+          match arr[0]? with
+          | none => throw <| IO.userError "missing unary-jump callable"
+          | some c0 =>
+              expect (c0 == unaryJumpCallableV1) "unary-jump callable mismatch"
+          expect (c.offset == b.size) "unary-jump callable cursor not at end"
   IO.println "Tests.Semantic.CodecInvertV1: OK"
 
 end Tests.Semantic.CodecInvertV1

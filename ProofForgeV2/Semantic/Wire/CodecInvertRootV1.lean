@@ -755,13 +755,4 @@ theorem decodeEncodeRoundtripGoal_discharged
     decodeSemanticProgramDataV1_of_encode_ok_of_rootFieldInvert data bytes
       hencode hinvert
 
-/-- Alias used by ProofBridge / author paths. -/
-theorem decodeSemanticProgramDataV1_of_encode_ok
-    (data : SemanticProgramDataV1) (bytes : ByteArray)
-    (hencode : encodeSemanticProgramDataV1 data = .ok bytes)
-    (hinvert : RootFieldInvertV1 data) :
-    decodeSemanticProgramDataV1 bytes = .ok data :=
-  decodeSemanticProgramDataV1_of_encode_ok_of_rootFieldInvert data bytes hencode
-    hinvert
-
 end ProofForgeV2.Semantic.WireV1

@@ -1,26 +1,30 @@
 import ProofForgeV2.Semantic.Wire.CodecInvertTypeTableV1
 import ProofForgeV2.Semantic.Wire.CodecInvertDeclTablesV1
 import ProofForgeV2.Semantic.Wire.CodecInvertRootV1
+import ProofForgeV2.Semantic.Wire.CodecInvertCallableBodyV1
+import ProofForgeV2.Semantic.Wire.CodecInvertRequirementsV1
 
 /-!
   ProofForgeV2.Semantic.Wire.CodecInvertRootFieldsV1 — assembling
   `RootFieldInvertV1` for **arbitrary** programs.
 
-  Seven of the nine root fields of `RootFieldInvertV1` are discharged here for
+  All nine root fields of `RootFieldInvertV1` are discharged here for
   arbitrary data, using only the production encoders/decoders:
 
     * `qualifiedName` (`Wire.CodecInvertFieldsV1`),
     * `types`         (`Wire.CodecInvertTypeTableV1`),
     * `constants`, `logicalState`, `events`, `errors`
                       (`Wire.CodecInvertDeclTablesV1`),
-    * `invariants`    (`Wire.CodecInvertFieldsV1`).
-
-  The remaining two fields — `callables` and `requirements` — stay explicit
-  hypotheses, so the residual of the generic encode→decode roundtrip is exactly
-  those two families.
+    * `invariants`    (`Wire.CodecInvertFieldsV1`),
+    * `callables`     (`Wire.CodecInvertCallableBodyV1`),
+    * `requirements`  (`Wire.CodecInvertRequirementsV1`).
 
   The table-size side conditions are *not* extra assumptions: they are extracted
   from the production `checkTableSize` gates of a successful root encode.
+
+  This is **transport invert** (encode bytes ↔ decode data). It does not
+  assert structure-gate legality beyond what `encode` already checked, TypeKey
+  usage-closure, target lowering, or formal TASK-D2-06 / TST-SEM-001.
 
   No axiom / sorry / native_decide / ofReduceBool / run_tac / unsafe / meta / IO.
 -/
@@ -95,7 +99,8 @@ theorem exactMidOffsetInvertAt_invariantsTableV1 (xs : Array InvariantDeclV1)
 /-! ### Root assembly -/
 
 /-- `RootFieldInvertV1` for an **arbitrary** program, modulo the two residual
-    field families `callables` and `requirements`. -/
+    field families `callables` and `requirements`. Kept as a named seam so
+    existing field-wise certificates can still supply those two packages. -/
 theorem rootFieldInvertV1_of_callables_requirementsV1 (data : SemanticProgramDataV1)
     (htypes : data.types.size ≤ maxTableElements)
     (hconstants : data.constants.size ≤ maxTableElements)
@@ -118,6 +123,23 @@ theorem rootFieldInvertV1_of_callables_requirementsV1 (data : SemanticProgramDat
   invariants := exactMidOffsetInvertAt_invariantsTableV1 data.invariants hinvariants
   requirements := hrequirements
 
+/-- `RootFieldInvertV1` for an **arbitrary** program whose tables sit inside
+    the production `checkTableSize` bound. Callables / requirements invert
+    are discharged by the generic Body / Requirements packages. -/
+theorem rootFieldInvertV1_of_table_sizesV1 (data : SemanticProgramDataV1)
+    (htypes : data.types.size ≤ maxTableElements)
+    (hconstants : data.constants.size ≤ maxTableElements)
+    (hstate : data.logicalState.size ≤ maxTableElements)
+    (hevents : data.events.size ≤ maxTableElements)
+    (herrors : data.errors.size ≤ maxTableElements)
+    (hcallables : data.callables.size ≤ maxTableElements)
+    (hinvariants : data.invariants.size ≤ maxTableElements) :
+    RootFieldInvertV1 data :=
+  rootFieldInvertV1_of_callables_requirementsV1 data htypes hconstants hstate
+    hevents herrors hinvariants
+    (exactMidOffsetInvertAt_callablesTableV1 data.callables hcallables)
+    (exactMidOffsetInvertAt_requirementsV1 data.requirements)
+
 /-- Generic encode→decode roundtrip of the production semantic-program codec,
     for an **arbitrary** program, modulo invertibility of the two residual field
     families `callables` and `requirements`.
@@ -137,5 +159,19 @@ theorem decodeSemanticProgramDataV1_of_encode_ok_of_callables_requirementsV1
   exact decodeSemanticProgramDataV1_of_encode_ok_of_rootFieldInvert data bytes hencode
     (rootFieldInvertV1_of_callables_requirementsV1 data htypes hconstants hstate
       hevents herrors hinvariants hcallables hrequirements)
+
+/-- Structure-gated encode success ⇒ transport decode recovers the same `data`,
+    for an **arbitrary** program. No remaining callables/requirements invert
+    hypotheses. Overloads the four-argument RootV1 alias that still takes
+    `RootFieldInvertV1`. -/
+theorem decodeSemanticProgramDataV1_of_encode_ok
+    (data : SemanticProgramDataV1) (bytes : ByteArray)
+    (hencode : encodeSemanticProgramDataV1 data = .ok bytes) :
+    decodeSemanticProgramDataV1 bytes = .ok data := by
+  obtain ⟨htypes, hconstants, hstate, hevents, herrors, hcallables, hinvariants⟩ :=
+    encodeSemanticProgramData_ok_table_sizesV1 data bytes hencode
+  exact decodeSemanticProgramDataV1_of_encode_ok_of_rootFieldInvert data bytes hencode
+    (rootFieldInvertV1_of_table_sizesV1 data htypes hconstants hstate hevents
+      herrors hcallables hinvariants)
 
 end ProofForgeV2.Semantic.WireV1
