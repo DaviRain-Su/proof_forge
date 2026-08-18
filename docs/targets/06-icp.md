@@ -3,7 +3,7 @@ id: TARGET-ICP
 title: Internet Computer target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-17
+updated: 2026-08-18
 normative: true
 ---
 
@@ -77,7 +77,7 @@ Candid/stable schema golden → Wasm/System API validation → local replica sin
 | Slice | 状态 | 内容 |
 |---|---|---|
 | **ICP-1** | **done / control plane** | registry implemented、descriptor、resolver（sync+event FC；async advertise）、list/inspect |
-| **ICP-2** | **done / leaf** | target-owned Plan/IR → `.wat` + `.did`；Counter/StateCell 齐次 UInt64 **或** Int64（Candid `nat64`/`int64`，混用 FC）；**Array UInt64 N 或 Array Int64 N∈1..8** flatten 为 N 个 `i64` Wasm global（元素跟随 signedNumeric；**无** Candid `vec`）；**Option UInt64** 2 叶（`o_tag`/`o_p0`，无 Candid `opt`）；**Map UInt64 UInt64 cap-8** 24 叶（occ/key/val i64 globals + ite mux + assert，无 Candid `map`/`vec`；**B-RET-MAP** entry/view 24 叶位置元组；Map **param** 24 只读叶；Int64 Map 仍 FC）；checked `+`/`-`/`*`/`/`/`%`（unsigned wrap / signed two's-complement overflow；div0 与 `MIN/-1` trap）；store-then-read overlay rewrite；**CAP-1a** `unixTimeSeconds`→`ic0.time` ns÷10⁹；**T9a/T9b** if-diamond + `Term.switch`（Wasm `if` / if-chain；臂内 store；无 Candid `variant` match ABI）；**T9c** `forLoop`（counted Wasm `loop`/`br` + bound `unreachable`；不可约 CFG / 臂内 call·emit 仍 FC） |
+| **ICP-2** | **done / leaf** | target-owned Plan/IR → `.wat` + `.did`；Counter/StateCell 齐次 UInt64 **或** Int64（Candid `nat64`/`int64`，混用 FC）；**Array UInt64 N 或 Array Int64 N∈1..8** flatten 为 N 个 `i64` Wasm global（元素跟随 signedNumeric；**无** Candid `vec`）；**Option UInt64 或齐次 Option Int64** 2 叶（`o_tag`/`o_p0`，无 Candid `opt`；混合 UInt64-param OptInt 仍 FC）；**Map UInt64 UInt64 或齐次 Map Int64 Int64 cap-8** 24 叶（occ/key/val i64 globals + ite mux + assert，无 Candid `map`/`vec`；**B-RET-MAP** entry/view 24 叶位置元组；Map **param** 24 只读叶；混合 Map UInt64 Int64 仍 FC）；checked `+`/`-`/`*`/`/`/`%`（unsigned wrap / signed two's-complement overflow；div0 与 `MIN/-1` trap）；store-then-read overlay rewrite；**CAP-1a** `unixTimeSeconds`→`ic0.time` ns÷10⁹；**T9a/T9b** if-diamond + `Term.switch`（Wasm `if` / if-chain；臂内 store；无 Candid `variant` match ABI）；**T9c** `forLoop`（counted Wasm `loop`/`br` + bound `unreachable`；不可约 CFG / 臂内 call·emit 仍 FC） |
 | **ICP-3** | **done / host-optional** | `wat2wasm` Finalize → `.wasm`（`deployable=true`）；PocketIC 15.0.0 StateCell gate；maturity 仍 `source-only`；非 formal/mainnet |
 
 Capability（honest）：`state.persistent`、`value.checked-arithmetic`、`value.bool`、

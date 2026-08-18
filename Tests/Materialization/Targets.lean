@@ -5478,7 +5478,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "MapOpt" target kind mapOptCompiled
       "Map state admits only Map UInt64 UInt64"
   expectMaterializePlanInvariantV1 "MapOpt" TargetId.icp TargetKind.icp
-    mapOptCompiled "anonymous Map is outside the current container-state pilot"
+    mapOptCompiled "Map state admits only Map UInt64 UInt64"
 
   -- MapArr: Map UInt64 Array UInt64 2 state. All twelve targets stay named
   -- Map-value/pilot FC. Not opening Map-of-Array. MapOpt / MapMini /
@@ -5521,7 +5521,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "MapArr" target kind mapArrCompiled
       "Map state admits only Map UInt64 UInt64"
   expectMaterializePlanInvariantV1 "MapArr" TargetId.icp TargetKind.icp
-    mapArrCompiled "anonymous Map is outside the current container-state pilot"
+    mapArrCompiled "Map state admits only Map UInt64 UInt64"
 
   -- MapBytes: Map UInt64 Bytes 4 state. All twelve targets stay named
   -- Map-value/pilot FC. Not opening Map-of-Bytes. MapArr / MapOpt /
@@ -5565,7 +5565,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
       "anonymous Bytes is outside the current container-state pilot"
   -- ICP declines Map before Bytes under anonymous TypeKey rank (map < bytes).
   expectMaterializePlanInvariantV1 "MapBytes" TargetId.icp TargetKind.icp
-    mapBytesCompiled "anonymous Map is outside the current container-state pilot"
+    mapBytesCompiled "Map state admits only Map UInt64 UInt64"
 
   -- MapMap: Map UInt64 Map UInt64 UInt64 state. All twelve targets stay
   -- named Map-value/pilot FC. Not opening Map-of-Map. MapBytes / MapArr /
@@ -5608,7 +5608,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "MapMap" target kind mapMapCompiled
       "Map state admits only Map UInt64 UInt64"
   expectMaterializePlanInvariantV1 "MapMap" TargetId.icp TargetKind.icp
-    mapMapCompiled "anonymous Map is outside the current container-state pilot"
+    mapMapCompiled "Map state admits only Map UInt64 UInt64"
 
   -- MapBytesKey: Map Bytes 4 UInt64 state. Bytes *key*, distinct from
   -- MapBytes (Bytes *value*). All twelve stay named key/pilot FC.
@@ -5652,7 +5652,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "MapBytesKey" target kind mapBytesKeyCompiled
       "anonymous Bytes is outside the current container-state pilot"
   expectMaterializePlanInvariantV1 "MapBytesKey" TargetId.icp TargetKind.icp
-    mapBytesKeyCompiled "anonymous Map is outside the current container-state pilot"
+    mapBytesKeyCompiled "Map state admits only Map UInt64 UInt64"
 
   -- MapPrin: Map Principal UInt64 state. EVM/Solana admit the Principal-key
   -- alternative named in MapBytesKey needles. Remaining ten stay named
@@ -5699,9 +5699,9 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "MapPrin" target kind mapPrinCompiled
       "Principal/aggregates"
   -- CAP-1b: Principal passes the ICP type closure now, so Map Principal
-  -- UInt64 fails on the container-state pilot gate instead of the closure.
+  -- UInt64 fails on the Map UInt64 UInt64 shape gate instead of the closure.
   expectMaterializePlanInvariantV1 "MapPrin" TargetId.icp TargetKind.icp
-    mapPrinCompiled "anonymous Map is outside the current container-state pilot"
+    mapPrinCompiled "Map state admits only Map UInt64 UInt64"
 
   -- MapField: Map UInt64 Field bn254_fr state. All twelve stay named
   -- Map-value/Field FC. Not opening Map-of-Field. MapPrin / MapMini /
@@ -5747,7 +5747,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "MapField" target kind mapFieldCompiled
       "narrow Int/Field/aggregates"
   expectMaterializePlanInvariantV1 "MapField" TargetId.icp TargetKind.icp
-    mapFieldCompiled "anonymous Map is outside the current container-state pilot"
+    mapFieldCompiled "Map state admits only Map UInt64 UInt64"
   -- MapStr: Map UInt64 String state. All twelve stay named Map-value/String
   -- FC. Not opening Map-of-String. MapField / MapMini /
   -- StringInterfaceBoundary / ArrStr / OptStr stay.
@@ -5791,7 +5791,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "MapStr" target kind mapStrCompiled
       "narrow Int/Field/aggregates"
   expectMaterializePlanInvariantV1 "MapStr" TargetId.icp TargetKind.icp
-    mapStrCompiled "anonymous Map is outside the current container-state pilot"
+    mapStrCompiled "Map state admits only Map UInt64 UInt64"
   -- MapBool: Map UInt64 Bool state. All twelve stay named Map-value/pilot
   -- FC. Not opening Map-of-Bool. MapStr / MapMini / ArrBool / OptBool stay.
   let mapBoolSource :=
@@ -5832,7 +5832,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "MapBool" target kind mapBoolCompiled
       "Map state admits only Map UInt64 UInt64"
   expectMaterializePlanInvariantV1 "MapBool" TargetId.icp TargetKind.icp
-    mapBoolCompiled "anonymous Map is outside the current container-state pilot"
+    mapBoolCompiled "Map state admits only Map UInt64 UInt64"
 
   -- MapInt: Map UInt64 Int64 state. EVM (hashed 1-slot) + Solana/NEAR/Noir/
   -- Aleo/Psy/CW/TON admit unsigned key + signed val. Envelope-4 stay named
@@ -5886,7 +5886,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "MapInt" target kind mapIntCompiled
       "Map state admits only Map UInt64 UInt64"
   expectMaterializePlanInvariantV1 "MapInt" TargetId.icp TargetKind.icp
-    mapIntCompiled "anonymous Map is outside the current container-state pilot"
+    mapIntCompiled "Map state admits only Map UInt64 UInt64"
 
   -- MapIntKey: Map Int64 UInt64 state (signed KEY). EVM/Solana stay on
   -- the key-shape needle, not MapInt's value needle. Six targets stay
@@ -5931,7 +5931,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "MapIntKey" target kind mapIntKeyCompiled
       "Map state admits only Map UInt64 UInt64"
   expectMaterializePlanInvariantV1 "MapIntKey" TargetId.icp TargetKind.icp
-    mapIntKeyCompiled "anonymous Map is outside the current container-state pilot"
+    mapIntKeyCompiled "Map state admits only Map UInt64 UInt64"
 
   -- MapU128: Map UInt64 UInt128 state. All twelve stay named FC. Aleo
   -- and TON share the Map-U64-U64 needle (UInt128 width is admitted).
@@ -5976,7 +5976,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "MapU128" target kind mapU128Compiled
       "only anonymous UInt64/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "MapU128" TargetId.icp TargetKind.icp
-    mapU128Compiled "anonymous Map is outside the current container-state pilot"
+    mapU128Compiled "only anonymous UInt64/Int64 widths are supported"
 
   -- MapU256: Map UInt64 UInt256 state. Same twelve named-FC needles as
   -- MapU128, but UInt256 ≠ UInt128 so it is its own pin. Aleo stays on
@@ -6026,7 +6026,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "MapU256" target kind mapU256Compiled
       "only anonymous UInt64/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "MapU256" TargetId.icp TargetKind.icp
-    mapU256Compiled "anonymous Map is outside the current container-state pilot"
+    mapU256Compiled "only anonymous UInt64/Int64 widths are supported"
 
   -- MapU128Key: Map UInt128 UInt64 state (unsigned 128-bit KEY).
   -- EVM/Solana stay on the key-shape needle, not MapU128's value
@@ -6072,7 +6072,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "MapU128Key" target kind mapU128KeyCompiled
       "only anonymous UInt64/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "MapU128Key" TargetId.icp TargetKind.icp
-    mapU128KeyCompiled "anonymous Map is outside the current container-state pilot"
+    mapU128KeyCompiled "only anonymous UInt64/Int64 widths are supported"
 
   -- MapU256Key: Map UInt256 UInt64 state. Same twelve named-FC needles
   -- as MapU128Key, but UInt256-key ≠ UInt128-key so it is its own pin.
@@ -6122,7 +6122,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "MapU256Key" target kind mapU256KeyCompiled
       "only anonymous UInt64/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "MapU256Key" TargetId.icp TargetKind.icp
-    mapU256KeyCompiled "anonymous Map is outside the current container-state pilot"
+    mapU256KeyCompiled "only anonymous UInt64/Int64 widths are supported"
 
   -- MapU32Key: Map UInt32 UInt64 state. UInt32 is a legal Aleo/TON
   -- width, so those two stay on Map-U64-U64, not MapU128Key's width
@@ -6166,7 +6166,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "MapU32Key" target kind mapU32KeyCompiled
       "Map state admits only Map UInt64 UInt64"
   expectMaterializePlanInvariantV1 "MapU32Key" TargetId.icp TargetKind.icp
-    mapU32KeyCompiled "anonymous Map is outside the current container-state pilot"
+    mapU32KeyCompiled "Map state admits only Map UInt64 UInt64"
 
   -- MapU32: Map UInt64 UInt32 state (unsigned 32-bit VALUE). EVM/Solana
   -- stay on the value needle, not MapU32Key's key-shape. UInt32 is a
@@ -6211,7 +6211,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "MapU32" target kind mapU32Compiled
       "Map state admits only Map UInt64 UInt64"
   expectMaterializePlanInvariantV1 "MapU32" TargetId.icp TargetKind.icp
-    mapU32Compiled "anonymous Map is outside the current container-state pilot"
+    mapU32Compiled "Map state admits only Map UInt64 UInt64"
 
   -- MapU16Key: Map UInt16 UInt64 state. Same legal-width needle set as
   -- MapU32Key (Aleo/TON stay Map-U64-U64, not MapU128Key width
@@ -6256,7 +6256,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "MapU16Key" target kind mapU16KeyCompiled
       "only anonymous UInt64/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "MapU16Key" TargetId.icp TargetKind.icp
-    mapU16KeyCompiled "anonymous Map is outside the current container-state pilot"
+    mapU16KeyCompiled "only anonymous UInt64/Int64 widths are supported"
 
   -- MapU8Key: Map UInt8 UInt64 state. Same legal-width needle set as
   -- MapU16Key, but UInt8-key ≠ UInt16-key so it is its own pin (last
@@ -6301,7 +6301,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "MapU8Key" target kind mapU8KeyCompiled
       "only anonymous UInt64/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "MapU8Key" TargetId.icp TargetKind.icp
-    mapU8KeyCompiled "anonymous Map is outside the current container-state pilot"
+    mapU8KeyCompiled "Map state admits only Map UInt64 UInt64"
 
   -- MapU16: Map UInt64 UInt16 state (unsigned 16-bit VALUE). Same
   -- legal-width value needle set as MapU32, but UInt16-value ≠
@@ -6347,7 +6347,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "MapU16" target kind mapU16Compiled
       "only anonymous UInt64/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "MapU16" TargetId.icp TargetKind.icp
-    mapU16Compiled "anonymous Map is outside the current container-state pilot"
+    mapU16Compiled "only anonymous UInt64/Int64 widths are supported"
 
   -- MapU8: Map UInt64 UInt8 state (unsigned 8-bit VALUE). Same
   -- legal-width value needle set as MapU16, but UInt8-value ≠
@@ -6393,7 +6393,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "MapU8" target kind mapU8Compiled
       "only anonymous UInt64/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "MapU8" TargetId.icp TargetKind.icp
-    mapU8Compiled "anonymous Map is outside the current container-state pilot"
+    mapU8Compiled "Map state admits only Map UInt64 UInt64"
 
   -- MapI32: Map UInt64 Int32 state. All twelve stay named FC. Aleo/CW/
   -- TON fail on width / narrow-Int first, not MapInt/MapU32's
@@ -6804,7 +6804,7 @@ unsafe def runRemainingNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "OptMap" TargetId.openvm TargetKind.openvm
     optMapCompiled "UInt64 payload"
   expectMaterializePlanInvariantV1 "OptMap" TargetId.icp TargetKind.icp
-    optMapCompiled "anonymous Map is outside the current container-state pilot"
+    optMapCompiled "Option state 'o' requires UInt64 payload"
 
   -- OptPrin: Option Principal state. All twelve targets stay named
   -- payload/Principal FC. Aleo/TON/Soroban/OpenVM/ICP use Principal-named

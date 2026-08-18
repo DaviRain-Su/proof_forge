@@ -15,13 +15,14 @@ Narrow ICP-2 Counter/StateCell target leaf (ADR-0047). Envelope:
   state/param/result; mixing is fail closed). Array UInt64 N∈1..8 state
   flattens to N mutable i64 Wasm globals (no Candid `vec`). `Bytes N`
   (N=1..8) state flattens to N extra i64 globals storing low-8 bits
-  (no Candid `vec nat8`). Anonymous `Option UInt64` state flattens to
-  two extra i64 globals `{name}_tag`/`{name}_p0` (tag 0=none / 1=some;
-  no Candid `opt`). Named Struct/Enum flatten to extra i64 globals
-  (no Candid `record`/`variant`). Anonymous `Map UInt64 UInt64` state
-  flattens to 24 extra i64 globals (cap-8 × occ/key/val; no Candid
-  `vec`/`record`). Bool results are admitted. No Field; Map return,
-  Option-of-*, Option params stay fail closed
+  (no Candid `vec nat8`). Anonymous `Option UInt64` **or** `Option Int64`
+  (homogeneous `signedNumeric`) state flattens to two extra i64 globals
+  `{name}_tag`/`{name}_p0` (tag 0=none / 1=some; no Candid `opt`).
+  Named Struct/Enum flatten to extra i64 globals (no Candid
+  `record`/`variant`). Anonymous `Map UInt64 UInt64` **or**
+  `Map Int64 Int64` (homogeneous) state flattens to 24 extra i64 globals
+  (cap-8 × occ/key/val; no Candid `vec`/`record`). Mixed UInt64/Int64
+  containers stay fail closed. Bool results are admitted. No Field.
 * `init` (initializer), `entry` (canister_update), `view` (canister_query)
 * straight-line or T9a if-diamond (`Term.branch` + join `jump`); `switch`
   and `loopBounds` stay fail closed; checked `+`/`-`/`*`/`/`/`%` and
@@ -209,7 +210,7 @@ private def icpTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt64/Int64 widths are supported"
   unsupportedShapeDetail :=
-    "only anonymous UInt64, Int64, UInt8 (Bytes element), Bool, Unit, named Struct/Enum UInt64/Int64 leaf flatten (extra i64 globals; no Candid record/variant), Array UInt64 N state flatten, Bytes N (N i64 globals, low-8, no Candid vec nat8), Option UInt64 2-leaf identity (o_tag/o_p0, no Candid opt), Map UInt64 UInt64 cap-8 flatten (24 i64 globals, no Candid map/vec), and Principal 9-leaf identity (9 i64 globals, not Candid principal) are supported (narrow Int/Field/aggregates/String fail closed on the ICP-2 Counter/StateCell envelope)"
+    "only anonymous UInt64, Int64, UInt8 (Bytes element), Bool, Unit, named Struct/Enum UInt64/Int64 leaf flatten (extra i64 globals; no Candid record/variant), Array UInt64/Int64 N state flatten, Bytes N (N i64 globals, low-8, no Candid vec nat8), Option UInt64 or Int64 2-leaf identity (o_tag/o_p0, no Candid opt; homogeneous signedNumeric), Map UInt64 UInt64 or Map Int64 Int64 cap-8 flatten (24 i64 globals, no Candid map/vec), and Principal 9-leaf identity (9 i64 globals, not Candid principal) are supported (narrow Int/Field/aggregates/String fail closed on the ICP-2 Counter/StateCell envelope)"
 
 private def pilotUintWidthPolicyU64U32Index : PilotUintWidthPolicy where
   admittedWidths := #[64, 32, 8]
@@ -307,14 +308,17 @@ private def isAnonymousMapTypeIdV1
   | some { shape := .map _ _, name := none, .. } => true
   | _ => false
 
-/-- Admit only anonymous `Map UInt64 UInt64` for the dense cap-8 pilot.
-    Int64-key/value Maps stay fail closed (no Candid map). -/
+/-- Admit anonymous `Map UInt64 UInt64` (unsigned) or `Map Int64 Int64`
+    when `signedNumeric`. Mixed key/value domains stay fail closed
+    (no Candid map). Diagnostic keeps the UInt64 cite so mixed OptInt /
+    MapInt needles still contain-match. -/
 private def requireMapUInt64V1
     (typeDecls : Array TypeDeclV1) (types : IcpTypeClosureV1)
-    (typeId : TypeIdV1) : CompileResult Unit := do
+    (typeId : TypeIdV1) (signedNumeric : Bool) : CompileResult Unit := do
   match typeDecls[typeId.toNat]? with
   | some { shape := .map keyTid valTid, name := none, .. } =>
-      unless isUInt64Type types keyTid && isUInt64Type types valTid do
+      unless matchesNumericDomain types signedNumeric keyTid &&
+          matchesNumericDomain types signedNumeric valTid do
         planError
           "unsupported ICP semantic shape: Map state admits only Map UInt64 UInt64"
   | _ =>
@@ -391,15 +395,16 @@ private def mapUpsertLeavesV1
     out := out.push occ' |>.push k' |>.push v'
   pure (out, okInsert)
 
-/-- Admit only anonymous `Option UInt64` (tag+payload). Non-UInt64 /
-    nested / named Option stay fail closed. Int64 payload stays FC
-    (T5 gold is Option UInt64; mixed OptInt needles keep a payload cite). -/
+/-- Admit anonymous `Option UInt64` (unsigned) or `Option Int64` when
+    `signedNumeric` (tag+payload). Nested / named Option stay fail closed.
+    Mixed UInt64-param + Int64-payload programs keep the UInt64 cite. -/
 private def requireOptionUInt64V1
     (typeDecls : Array TypeDeclV1) (types : IcpTypeClosureV1)
-    (typeId : TypeIdV1) (stateName : String) : CompileResult Unit := do
+    (typeId : TypeIdV1) (stateName : String) (signedNumeric : Bool) :
+    CompileResult Unit := do
   match typeDecls[typeId.toNat]? with
   | some { shape := .option elTid, name := none, .. } =>
-      unless isUInt64Type types elTid do
+      unless matchesNumericDomain types signedNumeric elTid do
         planError
           s!"unsupported ICP semantic shape: Option state '{stateName}' requires UInt64 payload"
   | _ =>
@@ -652,7 +657,7 @@ private def makeStateLayoutV1
       isNamedOf := isNamedOf.push true
       isMapOf := isMapOf.push false
     else if isAnonymousMapTypeIdV1 data.types st.typeId then
-      requireMapUInt64V1 data.types types st.typeId
+      requireMapUInt64V1 data.types types st.typeId signedNumeric
       if states.size + mapPilotLeafCountV1 > maxStateFields then
         planError "unsupported ICP semantic shape: state field count exceeds limit"
       let mut leaves : Array Nat := #[]
@@ -667,7 +672,7 @@ private def makeStateLayoutV1
       isNamedOf := isNamedOf.push false
       isMapOf := isMapOf.push true
     else if isAnonymousOptionTypeIdV1 data.types st.typeId then
-      requireOptionUInt64V1 data.types types st.typeId st.name
+      requireOptionUInt64V1 data.types types st.typeId st.name signedNumeric
       if states.size + 2 > maxStateFields then
         planError "unsupported ICP semantic shape: state field count exceeds limit"
       let tagName := st.name ++ "_tag"
@@ -1195,7 +1200,7 @@ private partial def lowerBlockInstructions
                     planError
                       "unsupported ICP semantic shape: Map construct admits only Map UInt64 UInt64 (or Int64 when signedNumeric)"
               | _ =>
-                  requireMapUInt64V1 data.types types typeId
+                  requireMapUInt64V1 data.types types typeId signedNumeric
               unless ctorIdx == 0 do
                 planError
                   "unsupported ICP semantic shape: Map construct ctorIdx must be 0"
@@ -1213,6 +1218,7 @@ private partial def lowerBlockInstructions
                       "unsupported ICP semantic shape: Option construct payload must be UInt64 (or Int64 when signedNumeric)"
               | _ =>
                   requireOptionUInt64V1 data.types types typeId "construct"
+                    signedNumeric
               match ctorIdx.toNat with
               | 0 =>
                   unless argIds.isEmpty do

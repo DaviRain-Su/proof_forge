@@ -7,8 +7,10 @@
   canister_init/canister_update/canister_query exports, Candid nat64 or
   int64 service), registry materialize dispatch, and explicit fail-closed
   boundaries (sync call, emit, schedule, nonempty invariant,
-  aggregates/mixed UInt64+Int64; Array UInt64 N∈1..8 flatten is admitted;
-  Map UInt64 UInt64 cap-8 flattens to 24 i64 globals, no Candid map).
+  aggregates/mixed UInt64+Int64; Array UInt64 **or** Int64 N∈1..8 flatten
+  is admitted; Option UInt64 **or** Int64 (homogeneous) is 2 i64 globals;
+  Map UInt64 UInt64 **or** Map Int64 Int64 cap-8 flattens to 24 i64
+  globals, no Candid map/opt).
   CAP-1a admits `context.unixTimeSeconds` as
   `ic0.time` ns÷10⁹ on init/update/query; other UInt64 ContextRead keys stay
   named fail-closed. CAP-1b admits `context.caller` as ADR-0025-class
@@ -1170,6 +1172,34 @@ private unsafe def testArrInt64Flatten
   expect (did.contains "set0 : (int64) -> (int64);") "did set0 is int64"
   IO.println "  ✓ Array Int64 2 flatten (two i64 globals; Candid int64; no vec)"
 
+private unsafe def testOptionInt64Flatten
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "OptInt64" <|
+    "  state o : Option Int64\n\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n\n" ++
+    "  entry setSome(v : Int64) : Int64 do\n" ++
+    "    o := Option.some(v)\n" ++
+    "    return v\n"
+  let compiled ← compileSource session src "Examples.OptInt64" "<icp-opt-int64>"
+  let plan ← liftResult <| planIcp compiled
+  expect plan.signedNumeric "OptInt64 Plan is signed"
+  expect (plan.states.size == 2) "Option Int64 flattens to two i64 globals"
+  expect (plan.states[0]!.name == "o_tag") "leaf o_tag"
+  expect (plan.states[1]!.name == "o_p0") "leaf o_p0"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"OptInt64 plan must validate: {e.render}"
+  let files ← liftResult <| filesIcp compiled
+  let wat ← findFile files "OptInt64.wat"
+  let did ← findFile files "OptInt64.did"
+  expect (wat.contains "(global $g_state_0 (mut i64)") "wat global 0"
+  expect (wat.contains "(global $g_state_1 (mut i64)") "wat global 1"
+  expect (!wat.contains "(opt") "no Candid opt type in wat"
+  expect (!did.contains "opt") "no Candid opt in did"
+  expect (did.contains "setSome : (int64) -> (int64);") "did setSome is int64"
+  IO.println "  ✓ Option Int64 flatten (two i64 globals; Candid int64; no opt)"
+
 private unsafe def testArrayInt64N9FailClosed
     (session : Language.Loader.ParserSession) : IO Unit := do
   let src := wrapProgram "ArrInt64N9" <|
@@ -1212,8 +1242,8 @@ private unsafe def testArrayInt64Return
 
 private unsafe def testOptionInt64Return
     (session : Language.Loader.ParserSession) : IO Unit := do
-  -- Option Int64 *state* stays FC (`testOptionInt64PayloadFailClosed`).
-  -- Return is construct-only: scalar Int64 state + Option.some.
+  -- Homogeneous Option Int64 *state* is admitted (`testOptionInt64Flatten`).
+  -- Mixed UInt64-param OptInt stays FC (`testOptionInt64PayloadFailClosed`).
   let src := wrapProgram "OptInt64Ret" <|
     "  state pad : Int64\n\n" ++
     "  init(v : Int64) do\n" ++
@@ -1232,7 +1262,9 @@ private unsafe def testOptionInt64Return
   | .error err => throw <| IO.userError s!"OptInt64Ret plan must validate: {err.render}"
   IO.println "  ✓ Option Int64 return 2-leaf tag+payload"
 
-/-- Map Int64 return is a 24-leaf exception. Map Int64 *state* stays FC. -/
+/-- Map Int64 return is a 24-leaf exception. Homogeneous Map Int64 Int64
+    *state* is admitted (`testMapInt64Flatten`); mixed Map UInt64 Int64
+    stays FC (`testMapInt64ElementFc`). -/
 private unsafe def testMapInt64Return
     (session : Language.Loader.ParserSession) : IO Unit := do
   let src := wrapProgram "MapInt64Ret" <|
@@ -1517,6 +1549,36 @@ private unsafe def testMapMiniFlatten
   expect (did.contains "put : (nat64, nat64) -> (nat64);") "did put stays scalar"
   IO.println "  ✓ Map UInt64 cap-8 flatten (24 i64 globals; no Candid map/vec)"
 
+private unsafe def testMapInt64Flatten
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "MapInt64" <|
+    "  state m : Map Int64 Int64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry put(k : Int64, v : Int64) : Int64 do\n" ++
+    "    m[k] := v\n" ++
+    "    return v\n"
+  let compiled ← compileSource session src "Examples.MapInt64" "<icp-map-int64>"
+  let plan ← liftResult <| planIcp compiled
+  expect plan.signedNumeric "MapInt64 Plan is signed"
+  expect (plan.states.size == 24)
+    s!"Map Int64 cap-8 must flatten to 24 leaves, got {plan.states.size}"
+  expect (plan.states[0]!.name == "m_0" && plan.states[23]!.name == "m_23")
+    "Map flatten leaf names must be m_0..m_23"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"MapInt64 plan must validate: {e.render}"
+  let files ← liftResult <| filesIcp compiled
+  let wat ← findFile files "MapInt64.wat"
+  let did ← findFile files "MapInt64.did"
+  expect (wat.contains "(global $g_state_0 (mut i64)") "wat global 0"
+  expect (wat.contains "(global $g_state_23 (mut i64)") "wat global 23"
+  expect (!wat.contains "vec") "no Candid vec in wat"
+  expect (!did.contains "vec") "no Candid vec in did"
+  expect (!did.contains "map") "no Candid map in did"
+  expect (did.contains "put : (int64, int64) -> (int64);") "did put is int64"
+  IO.println "  ✓ Map Int64 Int64 flatten (24 i64 globals; Candid int64; no map/vec)"
+
 /-- Map of Int64 stays fail closed. -/
 private unsafe def testMapInt64ElementFc
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -1529,6 +1591,7 @@ private unsafe def testMapInt64ElementFc
   let compiled ← compileSource session src "Examples.MapInt" "<icp-map-int>"
   expectPlanErrorContaining "MapInt" "Map state admits only Map UInt64 UInt64"
     (planIcp compiled)
+  IO.println "  ✓ Map UInt64 Int64 (mixed) fail closed"
 
 /-- B-RET-MAP: Map return is a Candid positional 24-tuple, not a cap raise. -/
 private unsafe def testMapReturnFc
@@ -1747,6 +1810,7 @@ unsafe def run : IO Unit := do
   testPairRetEntry session
   testOptionInt64PayloadFailClosed session
   testArrInt64Flatten session
+  testOptionInt64Flatten session
   testArrayN9FailClosed session
   testArrayInt64N9FailClosed session
   testArrayElementFailClosed session
@@ -1764,6 +1828,7 @@ unsafe def run : IO Unit := do
   testUnknownProfileFailClosed
   testPrincipalIdentityLeaves session
   testMapMiniFlatten session
+  testMapInt64Flatten session
   testMapInt64ElementFc session
   testMapReturnFc session
   testIfFlow session
