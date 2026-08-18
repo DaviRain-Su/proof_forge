@@ -5389,10 +5389,10 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"MapMini: {target} must materialize Map UInt64 UInt64"
 
-  -- MapRetBox: Map UInt64 UInt64 *entry* return. NEAR/CW admit. EVM/Solana/
-  -- Noir/Aleo/Psy/TON named B-RET FC; Quint names Q0 return; Soroban/
-  -- OpenVM/ICP stay Map-pilot. Entry peek, not Map index get (Option).
-  -- Not opening Map return ABI. MapMini state pin stays.
+  -- MapRetBox: Map UInt64 UInt64 *entry* return. NEAR/CW + envelope-4
+  -- (Quint/Soroban/OpenVM/ICP) admit 24-leaf return. EVM/Solana/Noir/
+  -- Aleo/Psy named B-RET FC; TON entry aggregate stays FC. Entry peek,
+  -- not Map index get (Option). MapMini state pin stays.
   let mapRetSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -5409,7 +5409,8 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"MapRetBox select: {e.render}"
   let mapRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 mapRetV1
-  for target in [TargetId.near, TargetId.cosmwasm] do
+  for target in [TargetId.near, TargetId.cosmwasm, TargetId.quint,
+      TargetId.soroban, TargetId.openvm, TargetId.icp] do
     let out ← liftResult <| materializeSelected target mapRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"MapRetBox: {target} must materialize Map UInt64 return"
@@ -5425,14 +5426,6 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     mapRetCompiled "anonymous Map return is outside the Psy B-RET ABI"
   expectMaterializePlanInvariantV1 "MapRetBox" TargetId.ton TargetKind.ton
     mapRetCompiled "entry 'peek' cannot return multi-leaf aggregate"
-  expectMaterializePlanInvariantV1 "MapRetBox" TargetId.quint TargetKind.quint
-    mapRetCompiled "Array/Map return is outside Q0"
-  expectMaterializePlanInvariantV1 "MapRetBox" TargetId.soroban TargetKind.soroban
-    mapRetCompiled "Array/Map return is outside S0"
-  expectMaterializePlanInvariantV1 "MapRetBox" TargetId.openvm TargetKind.openvm
-    mapRetCompiled "Array/Map return is outside O0"
-  expectMaterializePlanInvariantV1 "MapRetBox" TargetId.icp TargetKind.icp
-    mapRetCompiled "anonymous Map is outside the current container-state pilot"
 
   -- MapOpt: Map UInt64 Option UInt64 state. All twelve targets stay named
   -- Map-value/pilot FC. Not opening Map-of-Option. MapMini / MapRetBox stay.
@@ -5469,7 +5462,8 @@ unsafe def runSignedContainerNeedles : IO Unit := do
       "Map state admits only Map UInt64 UInt64"
   -- Quint admits Map type so Map-of-Option fails on the UInt64-value
   -- needle. Soroban/OpenVM stay Map-pilot; ICP rejects Map before Option
-  -- under anonymous TypeKey rank (map < option).  for (target, kind) in #[
+  -- under anonymous TypeKey rank (map < option).
+  for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
       (TargetId.openvm, TargetKind.openvm)] do
@@ -6513,9 +6507,9 @@ unsafe def runRemainingNeedles : IO Unit := do
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"BytesBox: {target} must materialize Bytes 4"
 
-  -- BytesRetBox: Bytes 4 view-return. NEAR/Psy/CW + envelope-4 admit
-  -- (N UInt64 low-8 leaves / Candid positional tuple). EVM/Solana/Noir/
-  -- Aleo/TON named B-RET FC. Entry Bytes stays FC.
+  -- BytesRetBox: Bytes 4 view-return. Twelve materializers admit
+  -- N≤8 (N UInt8 / UInt64 low-8 / Candid positional). Entry Bytes
+  -- stays FC where that target has no entry aggregate channel.
   let bytesRetBoxSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -6532,21 +6526,13 @@ unsafe def runRemainingNeedles : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"BytesRetBox select: {e.render}"
   let bytesRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 bytesRetV1
-  for target in [TargetId.near, TargetId.psy, TargetId.cosmwasm,
-      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp] do
+  for target in [TargetId.evm, TargetId.solana, TargetId.near,
+      TargetId.noir, TargetId.aleo, TargetId.psy, TargetId.cosmwasm,
+      TargetId.ton, TargetId.quint, TargetId.soroban, TargetId.openvm,
+      TargetId.icp] do
     let out ← liftResult <| materializeSelected target bytesRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"BytesRetBox: {target} must materialize Bytes 4 return"
-  expectMaterializePlanInvariantV1 "BytesRetBox" TargetId.evm TargetKind.evm
-    bytesRetCompiled "cannot return Bytes"
-  expectMaterializePlanInvariantV1 "BytesRetBox" TargetId.solana TargetKind.solana
-    bytesRetCompiled "cannot return anonymous Bytes"
-  expectMaterializePlanInvariantV1 "BytesRetBox" TargetId.noir TargetKind.noir
-    bytesRetCompiled "anonymous Bytes return is outside the Noir B-RET ABI"
-  expectMaterializePlanInvariantV1 "BytesRetBox" TargetId.aleo TargetKind.aleo
-    bytesRetCompiled "aggregate return leaves must be UInt64/Int64"
-  expectMaterializePlanInvariantV1 "BytesRetBox" TargetId.ton TargetKind.ton
-    bytesRetCompiled "anonymous Bytes return is outside the Ton B-RET ABI"
 
   -- N-A4: Option state Normalize-admitted. All twelve materializers
   -- admit Option UInt64 state (Enum-shaped 2-leaf / tag+payload layout):

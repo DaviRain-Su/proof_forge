@@ -134,13 +134,16 @@ def main() -> int:
     lake = shutil.which("lake")
     if lake is None:
         raise SystemExit("lake is required for the locked WasmCert product consumer")
+    # Darwin arm64 CI rebuilds theorem-heavy ProofForgeV2 from a cold or
+    # partially restored Lake tree; 30 min expired while `lean` was still
+    # compiling. Linux target-smoke is warm and returns early.
     build = subprocess.run(
         [lake, "build", CONSUMER_TARGET],
         cwd=repository,
         check=False,
         capture_output=True,
         text=True,
-        timeout=1800,
+        timeout=5400,
     )
     if build.returncode != 0:
         raise SystemExit(f"WasmCert product consumer build failed:\n{build.stdout}{build.stderr}")

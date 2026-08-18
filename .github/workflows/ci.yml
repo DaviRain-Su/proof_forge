@@ -155,6 +155,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.target_smoke == 'true'
     runs-on: macos-26
+    timeout-minutes: 150
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
@@ -193,6 +194,20 @@ jobs:
             --root "$PROOF_FORGE_TOOL_ROOT" \
             --tool wat2wasm \
             --tool wasmcert-coq-provider
+
+      - name: Cache Lake build products
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: |
+            .lake/build
+            .lake/packages
+          key: ${{ runner.os }}-lake-v2-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}-wasmcert
+          restore-keys: |
+            ${{ runner.os }}-lake-v2-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}-
+            ${{ runner.os }}-lake-v2-
+
+      - name: Prune stale olean artifacts
+        run: /usr/bin/python3 -I -S scripts/ci/prune_stale_oleans.py
 
       - name: Locked NEAR WasmCert product + Reference join
         run: just near-wasmcert-product

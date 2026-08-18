@@ -1681,7 +1681,8 @@ private def dualArgSolanaCertifiedPreparationAllowed : Array Name :=
     ``ProofForgeV2.Targets.Solana.CertifiedSolanaProductionPreparationV1.ir,
     ``ProofForgeV2.Targets.Solana.CertifiedSolanaProductionPreparationV1.assembly,
     ``ProofForgeV2.Targets.Solana.CertifiedSolanaProductionPreparationV1.artifactSuccess,
-    `ProofForgeV2.Targets.Solana.resolveCertifiedSolanaProductionPreparationV1._proof_1]
+    `ProofForgeV2.Targets.Solana.resolveCertifiedSolanaProductionPreparationV1._proof_1,
+    ``ProofForgeV2.Targets.Solana.resolveCertifiedSolanaProductionPreparationV1_exists_of_stages]
 /-- Umbrella library coverage witness (ReferenceV1; outside old selected imports). -/
 private def dualArgUmbrellaCoverageWitnessN : Name :=
   ``ProofForgeV2.Semantic.ReferenceV1.admitReferenceProgramSliceV1
