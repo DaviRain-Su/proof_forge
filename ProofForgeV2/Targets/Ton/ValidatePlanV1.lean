@@ -444,14 +444,17 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
       | .uint64 | .bool | .int64 | .uint8 | .uint16 | .uint32
       | .uint128 | .uint256 | .int8 | .int16 | .int32 => true
       | .aggregate leaves =>
-          -- B-RET-ABI: 1..8 × 8-byte leaves, view-only (entry has no return channel).
+          -- B-RET-ABI: view-only. Homogeneous pack: 1..8 × 8-byte
+          -- (named Struct/Enum, Array, Option) or 1..8 × 1-byte (Bytes N).
+          -- Entry has no aggregate return channel. Mixed widths stay FC.
           method.mode == MethodMode.view &&
             leaves.size > 0 && leaves.size ≤ 8 &&
-            leaves.all (fun l => l.byteWidth == 8)
+            (leaves.all (fun l => l.byteWidth == 8) ||
+              leaves.all (fun l => l.byteWidth == 1))
       | .unit => false
     unless resultKindOk do
       throw <| CompileError.planInvariant .ton
-        s!"method '{method.name}' result kind must be UInt8/16/32/64/128/256, Int8/16/32/64, Bool, or aggregate view (named Struct/Enum or anonymous Array/Option; 1..8 × 8-byte leaves)"
+        s!"method '{method.name}' result kind must be UInt8/16/32/64/128/256, Int8/16/32/64, Bool, or aggregate view (named Struct/Enum or anonymous Array/Option ×8-byte leaves, or Bytes N ×1-byte leaves; 1..8 leaves)"
   unless method.depositPolicy ==
       (if method.mode == .view then .queryOnly else .requireZero) do
     throw <| .planInvariant .ton s!"method '{method.name}' deposit policy is not canonical"
