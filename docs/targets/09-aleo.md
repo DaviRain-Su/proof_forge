@@ -61,7 +61,9 @@ program call、proof、deploy 或 network query。
 - named Struct/Enum、Array、Bytes、`Option UInt64` / `Option Int64` 与 dense
   Map cap-2（`Map UInt64 UInt64` 或 `Map UInt64 Int64`，6 叶；仅 val 可为
   `i64`）的受限 flatten；`Array Int64 N` 为 N×`i64` mapping 叶（不是 UInt64
-  别名）；Option tag 保持 `u64`、payload 为 `i64`；named/Option/Array/Bytes **param** 已 flatten；Map param（cap-2）仍 FC；
+  别名）；Option tag 保持 `u64`、payload 为 `i64`；named/Option/Array/Bytes/Map
+  **param** 已 flatten（Map 为 cap-2 / 6 叶 occ/key/val，仍 ≤ B-RET 8）；
+  Map `UInt64 {UInt64,Int64}` entry/view return 同 6 叶；
 - checked arithmetic、比较、bitwise/logical/shift；
 - immutable let、assign、assert、if/match、bounded-for、bare revert；
 - pure function inline 与 literal-backed constants；
@@ -78,7 +80,7 @@ lowering；任一未声明形状 fail closed。
 - 带 payload 的 error；
 - nonempty invariant Plan；
 - Principal、String、UInt256、Int128/256；
-- nested/Int8 Option、Int64-key Map、Int64 container return、aggregate
+- nested/Int8 Option、Int64-key Map、Map-of-Option、aggregate
   pure-function return；
 - record custody、proof execution、deployment 与 network query。
 

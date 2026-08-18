@@ -168,7 +168,8 @@ private partial def checkReturnFormsV1
                 planError "returnAggregate expected leaf missing"
               let some gotInt := leafIsInt[i]? |
                 planError "returnAggregate leafIsInt missing"
-              unless gotInt == exp.isInt && exp.byteWidth == 8 do
+              unless gotInt == exp.isInt &&
+                  (exp.byteWidth == 8 || exp.byteWidth == 1) do
                 planError
                   s!"function '{fnName}' returnAggregate leaf {i} ABI mismatch"
         | none =>
@@ -238,9 +239,10 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
         unless leaves.size > 0 && leaves.size ≤ 8 do
           planError
             s!"function '{fn.name}' aggregate result leaf count must be in 1..8"
-        unless leaves.all (fun l => l.byteWidth == 8) do
+        unless leaves.all (fun l => l.byteWidth == 8) ||
+            leaves.all (fun l => l.byteWidth == 1) do
           planError
-            s!"function '{fn.name}' aggregate result leaves must be 8-byte UInt64/Int64"
+            s!"function '{fn.name}' aggregate result leaves must be 8-byte UInt64/Int64 or 1-byte Bytes"
         if fn.resultIsBool || fn.resultIsInt || fn.resultIsField ||
             isNarrowUintWidth fn.resultUintWidth then
           planError
@@ -267,9 +269,10 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
           unless leaves.size > 0 && leaves.size ≤ 8 do
             planError
               s!"view '{view.name}' aggregate result leaf count must be in 1..8"
-          unless leaves.all (fun l => l.byteWidth == 8) do
+          unless leaves.all (fun l => l.byteWidth == 8) ||
+              leaves.all (fun l => l.byteWidth == 1) do
             planError
-              s!"view '{view.name}' aggregate result leaves must be 8-byte UInt64/Int64"
+              s!"view '{view.name}' aggregate result leaves must be 8-byte UInt64/Int64 or 1-byte Bytes"
           if view.resultIsBool || view.resultIsInt || view.resultIsField ||
               isNarrowUintWidth view.resultUintWidth then
             planError

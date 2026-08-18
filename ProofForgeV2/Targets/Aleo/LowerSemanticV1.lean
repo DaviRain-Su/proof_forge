@@ -63,21 +63,24 @@ FAIL-CLOSED (explicit pins, not catch-all GAP):
   * **Computed state-reading views** — query-only off-chain recipes in the
     network-state query descriptor (`kind=computed`). Not Final, not an
     on-chain return (Final drops outputs). Named Struct/Enum, `Array UInt64 N`
-    (1..8), and `Option UInt64` view returns are the same query-descriptor
-    surface: `result` is a `u64`/`i64` leaf array. Instructions still omit
-    `function <view>`. Map/Bytes view returns, >8 leaves, and view store/emit/
-    revert/for stay fail closed. Entries keep the existing tuple/drop path.
+    (1..8), `Option UInt64`, `Map UInt64 {UInt64,Int64}` (cap-2 / 6 leaves),
+    and `Bytes N` view returns are the same query-descriptor surface:
+    `result` is a `u64`/`i64`/`u8` leaf array. Instructions still omit
+    `function <view>`. >8 leaves and view store/emit/revert/for stay fail
+    closed. Entries keep the existing tuple/drop path.
   * **B-RET-ABI named Struct/Enum entry returns** — admitted: preorder flatten
     to 1..8 UInt64/Int64 leaves; non-Final Instructions expose the leaves as
     typed outputs. Final (state-touching) still drops the value after
     evaluating leaf exprs.
-  * **N-ANON-RESULT (Aleo ABI)** — anonymous `Array UInt64 N` (1..8) and
-    `Option UInt64` entry returns admitted on the same multi-leaf path:
-    Array → N preorder u64 leaves; Option → tag+payload
-    (none=(0,0)/false, some=(1,v)/true). Final still evaluates leaves and drops.
-    Map/Bytes/nested/non-UInt64-element/narrow-width anonymous returns,
-    >8 leaves, and pureFn aggregate returns stay FC. Named params flatten to ≤8 leaves.
-  * **Map shapes other than Map UInt64 UInt64** — declined at type closure.
+  * **N-ANON-RESULT (Aleo ABI)** — anonymous `Array UInt64 N` (1..8),
+    `Option UInt64`, `Map UInt64 {UInt64,Int64}` (cap-2 / 6 occ/key/val
+    leaves, still ≤ B-RET 8), and `Bytes N` entry/view returns admitted on
+    the same multi-leaf path. Final still evaluates leaves and drops.
+    Int64-key / nested / Map-of-Option / narrow-element anonymous returns,
+    >8 leaves, and pureFn aggregate returns stay FC. Named/Array/Bytes/Map
+    params flatten to ≤8 leaves (Map exactly 6).
+  * **Map shapes other than Map UInt64 UInt64 / Map UInt64 Int64** — declined
+    at type closure (Int64-key stays FC).
   * **ContextRead** — no target-owned context input binding in this subset.
   * **emit / externalCall / schedule / revert-with-args** — no admitted
     Instructions contract (resolver also declines event/sync/async keys).
@@ -2325,11 +2328,16 @@ private partial def lowerRegion
                   unless leaves.size ≤ 8 do
                     planError
                       s!"Aleo aggregate return has {leaves.size} leaves, exceeding the B-RET-ABI cap of 8"
-                  -- Leaves must be UInt64/Int64 (no narrow UInt / Bytes / Field).
+                  -- UInt64/Int64 leaves are width 0. Admitted Bytes N returns
+                  -- carry UInt8 leaf widths; reject other narrow UInt/Field.
                   let uintWidths := match v.leafUintWidth? with
                     | some f => f
                     | none => leaves.map (fun _ => (0 : Nat))
-                  if uintWidths.any isNarrowUintWidth then
+                  let resultIsBytes :=
+                    match layout.typeDecls[callable.result.typeId.toNat]? with
+                    | some { shape := .bytes .., name := none, .. } => true
+                    | _ => false
+                  if uintWidths.any isNarrowUintWidth && !resultIsBytes then
                     planError
                       "Aleo aggregate return leaves must be UInt64/Int64 (not UInt8/Bytes)"
                   let leafIsInt := match v.leafIsInt? with
@@ -2453,7 +2461,8 @@ private def flattenNamedReturnLeafAbiV1
 
 /-- N-ANON-RESULT (Aleo ABI): anonymous result leaf layout for admitted
 container returns. `Array UInt64 N` → N×u64 leaves; `Option UInt64` →
-tag+payload (none=(0,0), some v=(1,v)). Map/Bytes throw for precise FC. -/
+tag+payload (none=(0,0), some v=(1,v)). Map cap-2 → 6 occ/key/val
+leaves (`Map UInt64 UInt64` or `Map UInt64 Int64`). Bytes N → N×u8. -/
 private def anonymousReturnLeafAbiV1
     (typeDecls : Array TypeDeclV1) (types : AleoTypeClosureV1)
     (typeId : TypeIdV1) :
@@ -2477,9 +2486,16 @@ private def anonymousReturnLeafAbiV1
       pure (some #[
         { isInt := false, byteWidth := 8 },
         { isInt := payloadIsInt, byteWidth := 8 }])
-  | some { shape := .map .., name := none, .. } =>
-      planError
-        "unsupported Aleo semantic shape: anonymous Map return is outside the Aleo B-RET ABI"
+  | some { shape := .map keyTid valTid, name := none, .. } =>
+      unless keyTid == types.uint64TypeId &&
+          (valTid == types.uint64TypeId || types.int64TypeId == some valTid) do
+        planError
+          "unsupported Aleo semantic shape: anonymous Map return admits only Map UInt64 UInt64 or Map UInt64 Int64"
+      let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "ret"
+      unless specs.size == aleoMapPilotLeafCountV1 do
+        planError
+          s!"unsupported Aleo semantic shape: anonymous Map return must flatten to {aleoMapPilotLeafCountV1} leaves"
+      pure (some (specs.map fun (_, isInt, _) => { isInt, byteWidth := 8 }))
   | some { shape := .bytes len, name := none, .. } =>
       let n := len.toNat
       unless n ≥ 1 && n ≤ 8 do
@@ -2506,8 +2522,9 @@ private def isAggregateResultCandidateV1
     | _ => false
 
 /-- B-RET-ABI / N-ANON-RESULT: resolve a named Struct/Enum or admitted
-anonymous Array/Option result TypeId into 1..8 flattened ABI leaves.
-Map/Bytes/nested/narrow-element shapes fail closed. -/
+anonymous Array/Option/Map/Bytes result TypeId into 1..8 flattened ABI
+leaves. Map is the cap-2 6-leaf exception (still ≤ 8). Nested /
+Int64-key / narrow-element shapes fail closed. -/
 private def aggregateResultOfV1
     (typeDecls : Array TypeDeclV1) (types : AleoTypeClosureV1)
     (owner : String) (typeId : TypeIdV1) :
@@ -2723,9 +2740,19 @@ private partial def lowerCallable
               sourceIndex := paramIndex, name := leafName, isBool := false
               isInt, uintWidth }
             paramIndex := paramIndex + 1
+      | some { shape := .map .., .. } =>
+          let specs ← flattenTypeLeafSpecsV1 layout.typeDecls layout.types p.typeId p.name
+          unless specs.size == aleoMapPilotLeafCountV1 do
+            planError
+              s!"unsupported Aleo semantic shape: Map parameter '{p.name}' must flatten to {aleoMapPilotLeafCountV1} occ/key/val leaves"
+          for (leafName, isInt, uintWidth) in specs do
+            params := params.push {
+              sourceIndex := paramIndex, name := leafName, isBool := false
+              isInt, uintWidth }
+            paramIndex := paramIndex + 1
       | _ =>
           planError
-            s!"unsupported Aleo semantic shape: Map parameter '{p.name}' stays fail closed (Array/Bytes N params flatten)"
+            s!"unsupported Aleo semantic shape: container parameter '{p.name}' is outside Array/Bytes/Map flatten"
     else
       let isBool ← if isBoolType data p.typeId then pure true
         else if isUInt64Type data p.typeId then pure false
@@ -2792,9 +2819,19 @@ private partial def lowerCallable
             leaves := leaves.push (.param paramOrdinal)
             paramOrdinal := paramOrdinal + 1
           env0 := envInsertVal env0 p.valueId (mkAggregateVal leaves)
+      | some { shape := .map .., .. } =>
+          let specs ← flattenTypeLeafSpecsV1 layout.typeDecls layout.types p.typeId p.name
+          unless specs.size == aleoMapPilotLeafCountV1 do
+            planError
+              s!"unsupported Aleo semantic shape: Map parameter '{p.name}' must flatten to {aleoMapPilotLeafCountV1} occ/key/val leaves"
+          let mut leaves : Array Expr := #[]
+          for _ in specs do
+            leaves := leaves.push (.param paramOrdinal)
+            paramOrdinal := paramOrdinal + 1
+          env0 := envInsertVal env0 p.valueId (mkAggregateVal leaves)
       | _ =>
           planError
-            s!"unsupported Aleo semantic shape: Map parameter '{p.name}' stays fail closed"
+            s!"unsupported Aleo semantic shape: container parameter '{p.name}' is outside Array/Bytes/Map flatten"
     else if isInt64Type data p.typeId || isInt8Type data p.typeId ||
         isInt16Type data p.typeId || isInt32Type data p.typeId then
       let w := match intWidthOfType data p.typeId with

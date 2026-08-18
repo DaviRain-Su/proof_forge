@@ -973,7 +973,7 @@ unsafe def testProductMapInt64MiniMultiLeaf : IO Unit := do
   | none => throw <| IO.userError "MapInt64 encode→decode failed"
   | some p2 => expect (p2 == prog) "MapInt64 structural round-trip"
 
-/-- ALEO-INT64-CONTAINERS: Int8 containers / Int64-key / Int64 container return stay FC. -/
+/-- ALEO-INT64-CONTAINERS: Int8 containers / Int64-key Map stay FC. -/
 unsafe def testInt64ContainerFailClosed : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let expectPlanNeedle (label source moduleName needle : String) : IO Unit := do
@@ -2716,17 +2716,19 @@ unsafe def testAggregateViewQueryDescriptorFamilyAndFailClosed : IO Unit := do
      "    return count\n")
     "Tests.AleoAggViewEmit"
 
-  expectAleoProductPlanNeedle session "map-view-return"
-    ("import ProofForgeV2\n" ++
-     "open ProofForgeV2.Language\n" ++
+  expectComputedAggregateViewProduct session "MapViewDump"
+    ("import ProofForgeV2\n\n" ++
+     "namespace ProofForgeV2.Examples\n\n" ++
+     "open ProofForgeV2.Language\n\n" ++
      "program MapViewDump where\n" ++
-     "  state m : Map UInt64 UInt64\n" ++
+     "  state m : Map UInt64 UInt64\n\n" ++
      "  init() do\n" ++
-     "    m := Map.empty()\n" ++
+     "    m := Map.empty()\n\n" ++
      "  view dump() : Map UInt64 UInt64 do\n" ++
-     "    return m\n")
-    "Tests.AleoAggMapView"
-    "anonymous Map return is outside the Aleo B-RET ABI"
+     "    return m\n\n" ++
+     "end ProofForgeV2.Examples\n")
+    "Examples.MapViewDump" "dump"
+    "[\"u64\",\"u64\",\"u64\",\"u64\",\"u64\",\"u64\"]"
   expectAleoProductPlanNeedle session "array-9-view-return"
     ("import ProofForgeV2\n" ++
      "open ProofForgeV2.Language\n" ++
@@ -2855,6 +2857,104 @@ unsafe def testOptionParam : IO Unit := do
     | _ => pure ()
   expect (putInputs == 2)
     s!"OptParam put must take 2 flattened tag+payload inputs, got {putInputs}"
+
+unsafe def testMapParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapParam where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry put(m : Map UInt64 UInt64) : UInt64 do\n" ++
+    "    return pad\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-map-param>" "Tests.AleoMapParam" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  let cap ← liftResult <|
+    resolveEngineeringRequirementsV1 selection compiled
+  let prog ← liftResult <| programFromCapabilityV1 cap
+  let mut putInputs : Nat := 0
+  for item in prog.items do
+    match item with
+    | .function f =>
+        if f.name == "put" then
+          for i in f.body do
+            match i with
+            | .input .. => putInputs := putInputs + 1
+            | _ => pure ()
+    | _ => pure ()
+  expect (putInputs == 6)
+    s!"MapParam put must take 6 flattened occ/key/val inputs, got {putInputs}"
+
+unsafe def testMapReturn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapSixRet where\n" ++
+    "  state m : Map UInt64 UInt64\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n" ++
+    "  entry dumpMap() : Map UInt64 UInt64 do\n" ++
+    "    return m\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-map-six-ret>" "Tests.MapSixRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| Targets.Aleo.engineeringPlanFromCompiled compiled
+  let some dump := plan.functions.find? (·.name == "dumpMap") |
+    throw <| IO.userError "MapSixRet must emit PlanFunction dumpMap"
+  match dump.resultAggregateLeaves with
+  | none =>
+      throw <| IO.userError "MapSixRet dumpMap must bind resultAggregateLeaves"
+  | some leaves => do
+      expect (leaves.size == 6)
+        s!"MapSixRet dumpMap must flatten to 6 cap-2 leaves, got {leaves.size}"
+      expect (leaves.all (fun l => !l.isInt && l.byteWidth == 8))
+        "MapSixRet leaves must be u64 occ/key/val"
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  let files ← liftResult <| Targets.Aleo.buildFromCapability cap
+  expect (!files.isEmpty) "MapSixRet product files must be nonempty"
+
+unsafe def testMapInt64Return : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapInt64Ret where\n" ++
+    "  state m : Map UInt64 Int64\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n" ++
+    "  view dump() : Map UInt64 Int64 do\n" ++
+    "    return m\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-map-int64-ret>" "Tests.AleoMapInt64Ret" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| planFromCapability cap
+  let some dump := plan.views.find? (·.name == "dump") |
+    throw <| IO.userError "MapInt64Ret must emit PlanView dump"
+  match dump.resultAggregateLeaves with
+  | none =>
+      throw <| IO.userError "MapInt64Ret dump must bind resultAggregateLeaves"
+  | some leaves => do
+      expect (leaves.size == 6)
+        s!"MapInt64Ret dump must flatten to 6 leaves, got {leaves.size}"
+      expect (!leaves[0]!.isInt && !leaves[1]!.isInt && leaves[2]!.isInt &&
+          !leaves[3]!.isInt && !leaves[4]!.isInt && leaves[5]!.isInt)
+        "MapInt64Ret must be occ/key unsigned + val isInt per slot"
+  let files ← liftResult <| Targets.Aleo.buildFromCapability cap
+  let some q := files.find? (·.path.endsWith ".aleo-query-contract.json") |
+    throw <| IO.userError "MapInt64Ret missing query contract"
+  expect (q.contents.contains "\"result\":[\"u64\",\"u64\",\"i64\",\"u64\",\"u64\",\"i64\"]")
+    s!"MapInt64Ret query result must be occ/key/val × 2, got: {q.contents}"
 
 unsafe def testArrayParam : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -3016,6 +3116,9 @@ unsafe def run : IO Unit := do
   testBytesParam
   testOptionParam
   testArrayParam
+  testMapParam
+  testMapReturn
+  testMapInt64Return
   testArrayInt64Return
   testOptionInt64Return
   testBytesReturn

@@ -214,7 +214,9 @@ private def renderViewJson (view : PlanView) (plan : Plan) : String :=
       match view.resultAggregateLeaves with
       | some leaves =>
           let parts := leaves.map fun (l : LeafAbiType) =>
-            if l.isInt then "\"i64\"" else "\"u64\""
+            if l.isInt then "\"i64\""
+            else if l.byteWidth == 1 then "\"u8\""
+            else "\"u64\""
           s!"[{String.intercalate "," parts.toList}]"
       | none =>
           let rty := renderViewResultType view.resultIsBool view.resultIsInt
