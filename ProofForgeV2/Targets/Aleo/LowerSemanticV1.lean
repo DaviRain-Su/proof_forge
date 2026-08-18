@@ -2460,27 +2460,32 @@ private def anonymousReturnLeafAbiV1
     CompileResult (Option (Array LeafAbiType)) := do
   match typeDecls[typeId.toNat]? with
   | some { shape := .array elTid len, name := none, .. } =>
-      unless elTid == types.uint64TypeId do
+      let leafIsInt := types.int64TypeId == some elTid
+      unless elTid == types.uint64TypeId || leafIsInt do
         planError
-          "unsupported Aleo semantic shape: anonymous Array return requires UInt64 elements"
+          "unsupported Aleo semantic shape: anonymous Array return requires UInt64 or Int64 elements"
       let n := len.toNat
       unless n ≥ 1 do
         planError
           "unsupported Aleo semantic shape: anonymous Array return length must be ≥ 1"
-      pure (some (Array.replicate n { isInt := false, byteWidth := 8 }))
+      pure (some (Array.replicate n { isInt := leafIsInt, byteWidth := 8 }))
   | some { shape := .option elTid, name := none, .. } =>
-      unless elTid == types.uint64TypeId do
+      let payloadIsInt := types.int64TypeId == some elTid
+      unless elTid == types.uint64TypeId || payloadIsInt do
         planError
-          "unsupported Aleo semantic shape: anonymous Option return requires UInt64 payload"
+          "unsupported Aleo semantic shape: anonymous Option return requires UInt64 or Int64 payload"
       pure (some #[
         { isInt := false, byteWidth := 8 },
-        { isInt := false, byteWidth := 8 }])
+        { isInt := payloadIsInt, byteWidth := 8 }])
   | some { shape := .map .., name := none, .. } =>
       planError
         "unsupported Aleo semantic shape: anonymous Map return is outside the Aleo B-RET ABI"
-  | some { shape := .bytes .., name := none, .. } =>
-      planError
-        "unsupported Aleo semantic shape: anonymous Bytes return is outside the Aleo B-RET ABI"
+  | some { shape := .bytes len, name := none, .. } =>
+      let n := len.toNat
+      unless n ≥ 1 && n ≤ 8 do
+        planError
+          s!"unsupported Aleo semantic shape: anonymous Bytes return length must be in 1..8, got {n}"
+      pure (some (Array.replicate n { isInt := false, byteWidth := 1 }))
   | some { shape := .array .., .. } | some { shape := .option .., .. } =>
       pure none
   | _ => pure none

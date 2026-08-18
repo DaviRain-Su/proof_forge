@@ -558,32 +558,46 @@ private def flattenNamedLeafIsIntV1
 
 private def viewAggregateLeafIsIntV1
     (typeDecls : Array TypeDeclV1) (types : IcpTypeClosureV1)
-    (typeId : TypeIdV1) : CompileResult (Option (Array Bool)) := do
+    (typeId : TypeIdV1) (signedNumeric : Bool) : CompileResult (Option (Array Bool)) := do
   if isAnonymousOptionTypeIdV1 typeDecls typeId then
-    requireOptionUInt64V1 typeDecls types typeId "view-return"
-    return some #[false, false]
+    match typeDecls[typeId.toNat]? with
+    | some { shape := .option elTid, name := none, .. } =>
+        unless matchesNumericDomain types signedNumeric elTid do
+          planError
+            "unsupported ICP semantic shape: Option view return payload must be UInt64 (or Int64 when signedNumeric)"
+        return some #[false, signedNumeric]
+    | _ =>
+        planError
+          "unsupported ICP semantic shape: Option view return payload must be UInt64 (or Int64 when signedNumeric)"
   if types.isNamedAggregate typeId then
     let marks ← flattenNamedLeafIsIntV1 typeDecls types typeId
     return some marks
   match typeDecls[typeId.toNat]? with
   | some { shape := .array elTid len, name := none, .. } =>
-      unless isUInt64Type types elTid do
+      unless matchesNumericDomain types signedNumeric elTid do
         planError
-          "unsupported ICP semantic shape: Array view return element must be UInt64"
+          "unsupported ICP semantic shape: Array view return element must be UInt64 (or Int64 when signedNumeric)"
       let n := len.toNat
       unless 1 ≤ n && n ≤ 8 do
         planError
           s!"unsupported ICP semantic shape: Array UInt64 N view return must be 1..8 (got {n})"
-      return some (Array.replicate n false)
+      return some (Array.replicate n signedNumeric)
   | some { shape := .bytes len, name := none, .. } =>
       let n := len.toNat
       unless 1 ≤ n && n ≤ 8 do
         planError
           s!"unsupported ICP semantic shape: Bytes N view return must be 1..8 (got {n})"
       return some (Array.replicate n false)
-  | some { shape := .map .., name := none, .. } => do
-      requireMapUInt64V1 typeDecls types typeId
-      return some (Array.replicate mapPilotLeafCountV1 false)
+  | some { shape := .map keyTid valTid, name := none, .. } => do
+      unless matchesNumericDomain types signedNumeric keyTid &&
+          matchesNumericDomain types signedNumeric valTid do
+        planError
+          "unsupported ICP semantic shape: Map view return admits only Map UInt64 UInt64 (or Int64 when signedNumeric)"
+      return some (Id.run do
+        let mut marks : Array Bool := #[]
+        for i in [0:mapPilotLeafCountV1] do
+          marks := marks.push (signedNumeric && i % 3 == 2)
+        pure marks)
   | _ =>
       return none
 
@@ -1174,7 +1188,14 @@ private partial def lowerBlockInstructions
         | none => planError "unsupported ICP semantic shape: construct must produce a value"
         | some vd =>
             if isAnonymousMapTypeIdV1 data.types typeId then
-              requireMapUInt64V1 data.types types typeId
+              match data.types[typeId.toNat]? with
+              | some { shape := .map keyTid valTid, name := none, .. } =>
+                  unless matchesNumericDomain types signedNumeric keyTid &&
+                      matchesNumericDomain types signedNumeric valTid do
+                    planError
+                      "unsupported ICP semantic shape: Map construct admits only Map UInt64 UInt64 (or Int64 when signedNumeric)"
+              | _ =>
+                  requireMapUInt64V1 data.types types typeId
               unless ctorIdx == 0 do
                 planError
                   "unsupported ICP semantic shape: Map construct ctorIdx must be 0"
@@ -1185,7 +1206,13 @@ private partial def lowerBlockInstructions
               acc := { acc with
                 env := envInsert acc.env vd.valueId (mkMapLeaves zeros) }
             else if isAnonymousOptionTypeIdV1 data.types typeId then
-              requireOptionUInt64V1 data.types types typeId "construct"
+              match data.types[typeId.toNat]? with
+              | some { shape := .option elTid, name := none, .. } =>
+                  unless matchesNumericDomain types signedNumeric elTid do
+                    planError
+                      "unsupported ICP semantic shape: Option construct payload must be UInt64 (or Int64 when signedNumeric)"
+              | _ =>
+                  requireOptionUInt64V1 data.types types typeId "construct"
               match ctorIdx.toNat with
               | 0 =>
                   unless argIds.isEmpty do
@@ -1972,7 +1999,8 @@ private def lowerCallableBody
 
 private def resultKindOf
     (data : SemanticProgramDataV1) (types : IcpTypeClosureV1)
-    (typeId : TypeIdV1) (owner : String) (allowViewAggregate : Bool) :
+    (typeId : TypeIdV1) (owner : String) (allowViewAggregate : Bool)
+    (signedNumeric : Bool) :
     CompileResult ResultKind := do
   if isUnitType types typeId then pure .unit
   else if isBoolType types typeId then pure .bool
@@ -1987,11 +2015,14 @@ private def resultKindOf
         unless 1 ≤ n && n ≤ 8 do
           planError s!"{owner} Bytes N return must be 1..8 (got {n})"
         pure (.aggregate n)
-    | some { shape := .map .., name := none, .. } => do
-        requireMapUInt64V1 data.types types typeId
+    | some { shape := .map keyTid valTid, name := none, .. } => do
+        unless matchesNumericDomain types signedNumeric keyTid &&
+            matchesNumericDomain types signedNumeric valTid do
+          planError
+            s!"{owner} Map return admits only Map UInt64 UInt64 (or Int64 when signedNumeric)"
         pure (.aggregate mapPilotLeafCountV1)
     | _ =>
-    match ← viewAggregateLeafIsIntV1 data.types types typeId with
+    match ← viewAggregateLeafIsIntV1 data.types types typeId signedNumeric with
     | some marks => do
         let n := marks.size
         unless 1 ≤ n && n ≤ 8 do
@@ -2079,7 +2110,7 @@ private def makePlanFromSemanticDataV1
           | none => planError "unsupported ICP semantic shape: entry requires a name"
         unless isIdentifier name do
           planError s!"entry '{name}' is not a safe identifier"
-        let rk ← resultKindOf data types callable.result.typeId s!"entry '{name}'" true
+        let rk ← resultKindOf data types callable.result.typeId s!"entry '{name}'" true signedNumeric
         unless rk == .unit || rk == .bool ||
             (match rk with | .aggregate _ => true | _ => false) do
           signed? ←
@@ -2120,7 +2151,7 @@ private def makePlanFromSemanticDataV1
           | none => planError "unsupported ICP semantic shape: view requires a name"
         unless isIdentifier name do
           planError s!"view '{name}' is not a safe identifier"
-        let rk ← resultKindOf data types callable.result.typeId s!"view '{name}'" true
+        let rk ← resultKindOf data types callable.result.typeId s!"view '{name}'" true signedNumeric
         unless rk == .uint64 || rk == .int64 || rk == .bool ||
             (match rk with | .aggregate _ => true | _ => false) do
           planError s!"view '{name}' result must be UInt64, Int64, Bool, or a view-only aggregate"

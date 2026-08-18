@@ -49,10 +49,10 @@ auto-init 默认 0；CPI multi-role 仍走 `pf test`）；`pf verify -t solana` 
   Mollusk 负例 Custom(1)+完整 exact snapshot；manifest-bound ELF/Plan 字节；
 - **Option UInt64/Int64 state（BL-29）**：`slot_tag`/`slot_p0` 双 8-byte leaf（tag unsigned；
   Int64 payload `isInt`），`none` 清零 stale payload，assign 走多叶原子 store；Option/Array **param** 已 flatten；Map param 仍 FC（Map return 仍 FC）；
-  Int8/16/32 payload、Option Int64 return 与 nested Option 仍 fail-closed；
-- **Array Int64 N**：N×8-byte `isInt` 叶（不是 UInt64 别名）；Array Int8 与 Array Int64 return 仍 FC；
-- **≤8 叶聚合返回**：named Struct/Enum 与 anonymous Array/Option UInt64 经单次
-  `sol_set_return_data` 发 N×8-byte LE；Map/Bytes/nested/非 UInt64元素返回仍 fail-closed。
+  Int8/16/32 payload 与 nested Option 仍 fail-closed；Option Int64 return 为 2 叶 tag+payload；
+- **Array Int64 N**：N×8-byte `isInt` 叶（不是 UInt64 别名）；Array Int64 N return 已开；Array Int8 仍 FC；
+- **≤8 叶聚合返回**：named Struct/Enum 与 anonymous Array/Option UInt64/Int64 / Bytes N 经单次
+  `sol_set_return_data` 发 N×8-byte LE；Map/nested/非标量元素返回仍 fail-closed。
 - **`pf.assets` native binding（ADR-0029 Phase B1，2026-08-05）**：`solana-sbpf-cpi-elf-v1`
   advertise exact `extension.pf-assets`。产品 capability 的 closed admission 现为：
   sync+closed extension、pf.assets envRead-only，或 exact wire-owned `context.caller`

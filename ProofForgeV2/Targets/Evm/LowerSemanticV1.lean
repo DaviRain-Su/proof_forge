@@ -852,9 +852,10 @@ private def aggregateResultKindOfV1
   else
     match typeDecls[typeId.toNat]? with
     | some { shape := .array elTid len, .. } => do
-        unless elTid == types.uint64TypeId do
+        let leafIsInt := types.int64TypeId == some elTid
+        unless elTid == types.uint64TypeId || leafIsInt do
           throw <| .planInvariant .evm
-            s!"{owner} anonymous Array return admits only UInt64 elements (not other widths)"
+            s!"{owner} anonymous Array return admits only UInt64 or Int64 elements (not other widths)"
         let n := len.toNat
         unless n ≥ 1 do
           throw <| .planInvariant .evm
@@ -864,19 +865,29 @@ private def aggregateResultKindOfV1
             s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of 8"
         let mut leaves : Array LeafAbiType := #[]
         for _ in [0:n] do
-          leaves := leaves.push { isInt := false, byteWidth := 8 }
+          leaves := leaves.push { isInt := leafIsInt, byteWidth := 8 }
         pure (.aggregate leaves)
     | some { shape := .option elTid, .. } => do
-        unless elTid == types.uint64TypeId do
+        let payloadIsInt := types.int64TypeId == some elTid
+        unless elTid == types.uint64TypeId || payloadIsInt do
           throw <| .planInvariant .evm
-            s!"{owner} anonymous Option return admits only UInt64 payload"
+            s!"{owner} anonymous Option return admits only UInt64 or Int64 payload"
         -- Tag leaf + payload leaf (none = (0,0), some v = (1,v)).
         pure (.aggregate #[
           { isInt := false, byteWidth := 8 },
-          { isInt := false, byteWidth := 8 }])
-    | some { shape := .bytes _, .. } =>
-        throw <| .planInvariant .evm
-          s!"{owner} cannot return Bytes (UInt8 leaf width class stays fail closed for multi-leaf returns)"
+          { isInt := payloadIsInt, byteWidth := 8 }])
+    | some { shape := .bytes len, .. } => do
+        let n := len.toNat
+        unless n ≥ 1 do
+          throw <| .planInvariant .evm
+            s!"{owner} Bytes return length must be ≥ 1"
+        unless n ≤ 8 do
+          throw <| .planInvariant .evm
+            s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of 8"
+        let mut leaves : Array LeafAbiType := #[]
+        for _ in [0:n] do
+          leaves := leaves.push { isInt := false, byteWidth := 1 }
+        pure (.aggregate leaves)
     | some { shape := .map .., .. } =>
         throw <| .planInvariant .evm
           s!"{owner} cannot return Map (runtime key order; multi-leaf Map return stays fail closed)"

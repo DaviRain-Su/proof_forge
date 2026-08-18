@@ -1184,19 +1184,74 @@ private unsafe def testArrayInt64N9FailClosed
     (planFromCompiledSemanticV1 compiled)
   IO.println "  ✓ Array Int64 N=9 fail closed"
 
-private unsafe def testArrayInt64ReturnFailClosed
+private unsafe def testArrayInt64Return
     (session : Language.Loader.ParserSession) : IO Unit := do
   let src := wrapProgram "ArrInt64Ret" <|
     "  state slots : Array Int64 2\n\n" ++
-    "  init() do\n" ++
-    "    slots[0] := 0\n" ++
-    "    slots[1] := 0\n\n" ++
-    "  entry peek(v : Int64) : Array Int64 2 do\n" ++
+    "  init(a : Int64, b : Int64) do\n" ++
+    "    slots[0] := a\n" ++
+    "    slots[1] := b\n\n" ++
+    "  entry peek() : Array Int64 2 do\n" ++
     "    return slots\n"
   let compiled ← compileSource session src "Examples.ArrInt64Ret" "<icp-arr-int64-ret>"
-  expectPlanErrorContaining "Array Int64 return" "element must be UInt64"
-    (planFromCompiledSemanticV1 compiled)
-  IO.println "  ✓ Array Int64 return fail closed"
+  let plan ← liftResult <| planIcp compiled
+  expect plan.signedNumeric "ArrInt64Ret Plan is signed"
+  let some e := plan.entries[0]? |
+    throw <| IO.userError "ArrInt64Ret must emit an entry"
+  expect (e.resultKind == .aggregate 2)
+    s!"ArrInt64Ret entry must be aggregate 2, got {repr e.resultKind}"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error err => throw <| IO.userError s!"ArrInt64Ret plan must validate: {err.render}"
+  let files ← liftResult <| filesIcp compiled
+  let did ← findFile files "ArrInt64Ret.did"
+  expect (did.contains "-> (int64, int64);")
+    s!"ArrInt64Ret .did must be a positional int64 tuple, got:\n{did}"
+  expect (!did.contains "vec") "ArrInt64Ret .did must not emit Candid vec"
+  IO.println "  ✓ Array Int64 return 2-leaf Candid int64 tuple"
+
+private unsafe def testOptionInt64Return
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- Option Int64 *state* stays FC (`testOptionInt64PayloadFailClosed`).
+  -- Return is construct-only: scalar Int64 state + Option.some.
+  let src := wrapProgram "OptInt64Ret" <|
+    "  state pad : Int64\n\n" ++
+    "  init(v : Int64) do\n" ++
+    "    pad := v\n\n" ++
+    "  entry peek() : Option Int64 do\n" ++
+    "    return Option.some(pad)\n"
+  let compiled ← compileSource session src "Examples.OptInt64Ret" "<icp-opt-int64-ret>"
+  let plan ← liftResult <| planIcp compiled
+  expect plan.signedNumeric "OptInt64Ret Plan is signed"
+  let some e := plan.entries[0]? |
+    throw <| IO.userError "OptInt64Ret must emit an entry"
+  expect (e.resultKind == .aggregate 2)
+    s!"OptInt64Ret entry must be aggregate 2, got {repr e.resultKind}"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error err => throw <| IO.userError s!"OptInt64Ret plan must validate: {err.render}"
+  IO.println "  ✓ Option Int64 return 2-leaf tag+payload"
+
+/-- Map Int64 return is a 24-leaf exception. Map Int64 *state* stays FC. -/
+private unsafe def testMapInt64Return
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "MapInt64Ret" <|
+    "  state pad : Int64\n\n" ++
+    "  init(v : Int64) do\n" ++
+    "    pad := v\n\n" ++
+    "  entry dump() : Map Int64 Int64 do\n" ++
+    "    return Map.empty()\n"
+  let compiled ← compileSource session src "Examples.MapInt64Ret" "<icp-map-int64-ret>"
+  let plan ← liftResult <| planIcp compiled
+  expect plan.signedNumeric "MapInt64Ret Plan is signed"
+  let some e := plan.entries[0]? |
+    throw <| IO.userError "MapInt64Ret must emit an entry"
+  expect (e.resultKind == .aggregate 24)
+    s!"MapInt64Ret entry must be aggregate 24, got {repr e.resultKind}"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error err => throw <| IO.userError s!"MapInt64Ret plan must validate: {err.render}"
+  IO.println "  ✓ Map Int64 Int64 return 24-leaf construct"
 
 /-- T6: view-only Array UInt64 N return as Candid positional tuple. Entry stays FC. -/
 unsafe def testArrViewRet
@@ -1696,7 +1751,9 @@ unsafe def run : IO Unit := do
   testArrayInt64N9FailClosed session
   testArrayElementFailClosed session
   testArrRetBox session
-  testArrayInt64ReturnFailClosed session
+  testArrayInt64Return session
+  testOptionInt64Return session
+  testMapInt64Return session
   testArrViewRet session
   testBytesViewRet session
   testOptViewRet session

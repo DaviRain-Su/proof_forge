@@ -1023,18 +1023,6 @@ unsafe def testInt64ContainerFailClosed : IO Unit := do
      "    m[k] := v\n" ++
      "    return v\n")
     "Tests.AleoMapIntKey" "Map state admits only Map UInt64 UInt64"
-  expectPlanNeedle "ArrInt64Ret"
-    ("import ProofForgeV2\n" ++
-     "open ProofForgeV2.Language\n" ++
-     "program ArrInt64Ret where\n" ++
-     "  state slots : Array Int64 2\n" ++
-     "  init() do\n" ++
-     "    slots[0] := 0\n" ++
-     "    slots[1] := 0\n" ++
-     "  view peek() : Array Int64 2 do\n" ++
-     "    return slots\n")
-    "Tests.AleoArrInt64Ret" "anonymous Array return requires UInt64 elements"
-
 /-- ALEO-IR-4: product NarrowBox (state-touching only; Final path) →
     u8/u16/u32 mappings + narrow arith. -/
 unsafe def testProductNarrowUintWidths : IO Unit := do
@@ -2900,6 +2888,110 @@ unsafe def testArrayParam : IO Unit := do
   expect (putInputs == 2)
     s!"ArrParam put must take 2 flattened Array leaves, got {putInputs}"
 
+unsafe def testArrayInt64Return : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrInt64Ret where\n" ++
+    "  state slots : Array Int64 2\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
+    "  view peek() : Array Int64 2 do\n" ++
+    "    return slots\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-arr-int64-ret>" "Tests.AleoArrInt64Ret" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| planFromCapability cap
+  let some peek := plan.views.find? (·.name == "peek") |
+    throw <| IO.userError "ArrInt64Ret must emit PlanView peek"
+  match peek.resultAggregateLeaves with
+  | none =>
+      throw <| IO.userError "ArrInt64Ret peek must bind resultAggregateLeaves"
+  | some leaves => do
+      expect (leaves.size == 2)
+        s!"ArrInt64Ret peek must flatten to 2 leaves, got {leaves.size}"
+      expect (leaves.all (fun l => l.isInt && l.byteWidth == 8))
+        "ArrInt64Ret leaves must be i64"
+  let files ← liftResult <| Targets.Aleo.buildFromCapability cap
+  let some q := files.find? (·.path.endsWith ".aleo-query-contract.json") |
+    throw <| IO.userError "ArrInt64Ret missing query contract"
+  expect (q.contents.contains "\"result\":[\"i64\",\"i64\"]")
+    s!"ArrInt64Ret query result must be an i64 leaf array, got: {q.contents}"
+
+unsafe def testOptionInt64Return : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptInt64Ret where\n" ++
+    "  state slot : Option Int64\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n" ++
+    "  view peek() : Option Int64 do\n" ++
+    "    return slot\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-opt-int64-ret>" "Tests.AleoOptInt64Ret" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| planFromCapability cap
+  let some peek := plan.views.find? (·.name == "peek") |
+    throw <| IO.userError "OptInt64Ret must emit PlanView peek"
+  match peek.resultAggregateLeaves with
+  | none =>
+      throw <| IO.userError "OptInt64Ret peek must bind resultAggregateLeaves"
+  | some leaves => do
+      expect (leaves.size == 2)
+        s!"OptInt64Ret peek must flatten to 2 leaves, got {leaves.size}"
+      expect (!leaves[0]!.isInt && leaves[1]!.isInt)
+        "OptInt64Ret must be tag unsigned + payload isInt"
+  let files ← liftResult <| Targets.Aleo.buildFromCapability cap
+  let some q := files.find? (·.path.endsWith ".aleo-query-contract.json") |
+    throw <| IO.userError "OptInt64Ret missing query contract"
+  expect (q.contents.contains "\"result\":[\"u64\",\"i64\"]")
+    s!"OptInt64Ret query result must be [u64,i64], got: {q.contents}"
+
+unsafe def testBytesReturn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BytesRet where\n" ++
+    "  state b : Bytes 2\n" ++
+    "  init() do\n" ++
+    "    b[0] := 0\n" ++
+    "    b[1] := 0\n" ++
+    "  view peek() : Bytes 2 do\n" ++
+    "    return b\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-bytes-ret>" "Tests.AleoBytesRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| planFromCapability cap
+  let some peek := plan.views.find? (·.name == "peek") |
+    throw <| IO.userError "BytesRet must emit PlanView peek"
+  match peek.resultAggregateLeaves with
+  | none =>
+      throw <| IO.userError "BytesRet peek must bind resultAggregateLeaves"
+  | some leaves => do
+      expect (leaves.size == 2)
+        s!"BytesRet peek must flatten to 2 leaves, got {leaves.size}"
+      expect (leaves.all (fun l => !l.isInt && l.byteWidth == 1))
+        "BytesRet leaves must be u8"
+  let files ← liftResult <| Targets.Aleo.buildFromCapability cap
+  let some q := files.find? (·.path.endsWith ".aleo-query-contract.json") |
+    throw <| IO.userError "BytesRet missing query contract"
+  expect (q.contents.contains "\"result\":[\"u8\",\"u8\"]")
+    s!"BytesRet query result must be [u8,u8], got: {q.contents}"
+
 unsafe def run : IO Unit := do
   testPins
   testEncodeEqualsGolden
@@ -2924,6 +3016,9 @@ unsafe def run : IO Unit := do
   testBytesParam
   testOptionParam
   testArrayParam
+  testArrayInt64Return
+  testOptionInt64Return
+  testBytesReturn
   testProductArrayInt64MultiLeaf
   testProductOptionInt64StateMultiLeaf
   testProductMapInt64MiniMultiLeaf

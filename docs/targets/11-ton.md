@@ -72,10 +72,11 @@ UInt64-value 别名。**Option Int64 state** 是 Enum 形
 flatten 与 Option UInt64 相同；**不是** UInt64 别名，也**不是** CosmWasm
 Regions。named Struct/Enum 以及 anonymous
 `Array UInt64 N`（1..8）/`Option UInt64` **view** 返回已开多栈 get-method。entry
-aggregate、Array Int64 return、Array UInt128 return、Array Int8、Array UInt256、Map Int8 /
+aggregate、Array UInt128 return、Array Int8、Array UInt256、Map Int8 /
 Map UInt128 / Map Int64 return / Int64-key、
-Option Int8/16/32、Option UInt256、Option UInt128 return、Option Int64 return、
-Map/Bytes/nested/非 admitted 元素与 target pureFn aggregate仍 fail closed；Option/Array **param** 已 flatten；Map param 仍 FC（TON 不在 24 叶 Map-param 家族）；
+Option Int8/16/32、Option UInt256、Option UInt128 return 仍 fail closed；
+Array Int64 / Option Int64 / Bytes N **view** return 已开（entry 聚合仍 FC）；
+nested/非 admitted 元素与 target pureFn aggregate仍 fail closed；Option/Array **param** 已 flatten；Map param 仍 FC（TON 不在 24 叶 Map-param 家族）；
 Field/Principal/String、ContextRead/Commit、nonempty invariants/constants、masterchain/library/
 extra currencies仍 FC。
 
@@ -305,7 +306,7 @@ Tolk compile (结构/ABI)                    ✅ 工程
 - schedule 的真实 destination/address binding、非零 value 经济与 callback/`query_id` 往返；当前仅
   fixed hash destination stub + value=0 + fixed send-mode。
 - Int128/256、Array/Map/Option of UInt128/256、UInt128/256 shifts/bitwise、entry aggregate return、
-  Map/Bytes return、Map Int8 / Map UInt128 / Map Int64 return / Int64-key、Option Int8/16/32、Option Int64 return、Field/Principal/String interface、ContextRead/Commit、
+  Map return、Map Int8 / Map UInt128 / Map Int64 return / Int64-key、Option Int8/16/32、Option UInt128 return、Field/Principal/String interface、ContextRead/Commit、
   nonempty invariants/constants、masterchain/library/extra currencies。
 - FunC/Tact 默认发射、手写 TVM 汇编产品路径。
 - formal Reference 差分、主网 deploy 证据。

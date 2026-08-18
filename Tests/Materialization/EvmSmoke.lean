@@ -3341,6 +3341,102 @@ unsafe def testArrayParam : IO Unit := do
     s!"ArrParam must flatten to a_0/a_1, got {repr put.params}"
   IO.println "  ✓ ArrParam N×UInt64 ABI flatten"
 
+unsafe def testArrayInt64Return : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrInt64Ret where\n" ++
+    "  state slots : Array Int64 2\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
+    "  view getArr() : Array Int64 2 do\n" ++
+    "    return slots\n"
+  let src ← liftResult "load ArrInt64Ret" (← session.selectProgramV1
+    source "<evm-arr-int64-ret>" "Tests.EvmArrInt64Ret" none)
+  let compiled ← liftResult "compile ArrInt64Ret" <|
+    Compiler.compileValidatedSourceV1 src
+  let plan ← liftResult "plan ArrInt64Ret" <| planEvm compiled
+  let some getArr := plan.entries.find? (·.name == "getArr") |
+    throw <| IO.userError "ArrInt64Ret missing getArr"
+  match getArr.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"ArrInt64Ret aggregate return must have 2 leaves, got {leaves.size}"
+      expect (leaves[0]!.isInt && leaves[1]!.isInt)
+        "ArrInt64Ret leaves must be Int64"
+  | other =>
+      throw <| IO.userError
+        s!"ArrInt64Ret getArr resultKind must be .aggregate, got {repr other}"
+  let output ← liftResult "materialize ArrInt64Ret" <|
+    materializeSelected TargetId.evm compiled
+  let some abi := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path.endsWith ".abi.json") |
+    throw <| IO.userError "ArrInt64Ret: missing abi.json"
+  expect (abi.contents.contains "int64")
+    s!"ArrInt64Ret ABI must declare int64 tuple, got: {abi.contents}"
+  IO.println "  ✓ Array Int64 2 view return 2-leaf int64 tuple"
+
+unsafe def testOptionInt64Return : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptInt64Ret where\n" ++
+    "  state slot : Option Int64\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n" ++
+    "  view getOpt() : Option Int64 do\n" ++
+    "    return slot\n"
+  let src ← liftResult "load OptInt64Ret" (← session.selectProgramV1
+    source "<evm-opt-int64-ret>" "Tests.EvmOptInt64Ret" none)
+  let compiled ← liftResult "compile OptInt64Ret" <|
+    Compiler.compileValidatedSourceV1 src
+  let plan ← liftResult "plan OptInt64Ret" <| planEvm compiled
+  let some getOpt := plan.entries.find? (·.name == "getOpt") |
+    throw <| IO.userError "OptInt64Ret missing getOpt"
+  match getOpt.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"OptInt64Ret must have 2 leaves, got {leaves.size}"
+      expect (!leaves[0]!.isInt && leaves[1]!.isInt)
+        "OptInt64Ret must be tag unsigned + payload isInt"
+  | other =>
+      throw <| IO.userError
+        s!"OptInt64Ret getOpt resultKind must be .aggregate, got {repr other}"
+  IO.println "  ✓ Option Int64 view return tag+signed payload"
+
+unsafe def testBytesReturn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BytesRet where\n" ++
+    "  state blob : Bytes 2\n" ++
+    "  init() do\n" ++
+    "    blob[0] := 0\n" ++
+    "    blob[1] := 0\n" ++
+    "  view getBytes() : Bytes 2 do\n" ++
+    "    return blob\n"
+  let src ← liftResult "load BytesRet" (← session.selectProgramV1
+    source "<evm-bytes-ret>" "Tests.EvmBytesRet" none)
+  let compiled ← liftResult "compile BytesRet" <|
+    Compiler.compileValidatedSourceV1 src
+  let plan ← liftResult "plan BytesRet" <| planEvm compiled
+  let some getBytes := plan.entries.find? (·.name == "getBytes") |
+    throw <| IO.userError "BytesRet missing getBytes"
+  match getBytes.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"BytesRet must have 2 leaves, got {leaves.size}"
+      expect (leaves.all (fun l => !l.isInt && l.byteWidth == 1))
+        "BytesRet leaves must be UInt8"
+  | other =>
+      throw <| IO.userError
+        s!"BytesRet getBytes resultKind must be .aggregate, got {repr other}"
+  IO.println "  ✓ Bytes 2 view return 2×UInt8 leaves"
+
 /-- EVM ContextRead pin (B-CTX-OPEN / ADR-0031 S1+S2): `context.unixTimeSeconds`
     lowers to `timestamp()` (UInt64); `context.blockHeight` → `number()`;
     `context.caller` lowers to Principal aggregate `literal 20` +
@@ -3915,7 +4011,8 @@ private unsafe def testOptionUInt64State : IO Unit := do
 /-- T1 EVM Int64 containers: Array Int64 / Option Int64 / hashed Map UInt64 Int64.
     Signedness lives on LoweredValueV1.isInt + ABI/Yul value path, not a
     StorageBinding.isInt table. Product Map stays hashed 1-slot (not 24-leaf).
-    Array/Option/Map Int64 return and Int64-key Map stay fail closed. -/
+    Array/Option Int64 return are open (N-leaf / 2-leaf); Map Int64 return
+    and Int64-key Map stay fail closed. -/
 private unsafe def testInt64Containers : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   -- Array Int64: N×8-byte slots; IndexGet/Set keep isInt; ABI int64 + signextend.
@@ -4101,49 +4198,6 @@ private unsafe def testInt64Containers : IO Unit := do
     throw <| IO.userError "MapInt64: missing abi.json"
   expect (mapAbi.contents.contains "\"type\":\"int64\"")
     "MapInt64 ABI must expose int64 value"
-
-  -- FC: Array Int64 return (anonymousReturn still UInt64-only).
-  let arrRet :=
-    "import ProofForgeV2\n" ++
-    "open ProofForgeV2.Language\n" ++
-    "program ArrInt64Ret where\n" ++
-    "  state slots : Array Int64 2\n" ++
-    "  init() do\n" ++
-    "    slots[0] := 0\n" ++
-    "    slots[1] := 0\n" ++
-    "  view getArr() : Array Int64 2 do\n" ++
-    "    return slots\n"
-  let arrRetLoaded ← liftResult "load ArrInt64Ret" (← session.selectProgramV1
-    arrRet "<evm-arr-int64-ret>" "Tests.EvmArrInt64Ret" none)
-  let arrRetCompiled ← liftResult "compile ArrInt64Ret" <|
-    Compiler.compileValidatedSourceV1 arrRetLoaded
-  match planEvm arrRetCompiled with
-  | .ok _ => throw <| IO.userError "EVM Array Int64 return must fail closed"
-  | .error e =>
-      expect (e.render.contains "Array" || e.render.contains "UInt64" ||
-          e.render.contains "return" || e.render.contains "aggregate")
-        s!"Array Int64 return FC must cite Array/UInt64/return, got: {e.render}"
-
-  -- FC: Option Int64 return.
-  let optRet :=
-    "import ProofForgeV2\n" ++
-    "open ProofForgeV2.Language\n" ++
-    "program OptInt64Ret where\n" ++
-    "  state slot : Option Int64\n" ++
-    "  init() do\n" ++
-    "    slot := Option.none()\n" ++
-    "  view getOpt() : Option Int64 do\n" ++
-    "    return slot\n"
-  let optRetLoaded ← liftResult "load OptInt64Ret" (← session.selectProgramV1
-    optRet "<evm-opt-int64-ret>" "Tests.EvmOptInt64Ret" none)
-  let optRetCompiled ← liftResult "compile OptInt64Ret" <|
-    Compiler.compileValidatedSourceV1 optRetLoaded
-  match planEvm optRetCompiled with
-  | .ok _ => throw <| IO.userError "EVM Option Int64 return must fail closed"
-  | .error e =>
-      expect (e.render.contains "Option" || e.render.contains "UInt64" ||
-          e.render.contains "return" || e.render.contains "payload")
-        s!"Option Int64 return FC must cite Option/UInt64/return, got: {e.render}"
 
   -- FC: Int64-key Map.
   let mapKey :=
@@ -5411,32 +5465,6 @@ private unsafe def testContextReadTimestampEvm : IO Unit := do
 /-- BL-18: Bytes / Map / Array UInt64 9 / nested Array stay fail-closed. -/
 private unsafe def testAnonymousReturnFailClosedBoundaries : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
-  -- Bytes N return (UInt8 leaf width class).
-  let bytesSrc :=
-    "import ProofForgeV2\n" ++
-    "open ProofForgeV2.Language\n" ++
-    "program BytesRet where\n" ++
-    "  state blob : Bytes 2\n" ++
-    "  init() do\n" ++
-    "    blob[0] := 0\n" ++
-    "    blob[1] := 0\n" ++
-    "  view getBytes() : Bytes 2 do\n" ++
-    "    return blob\n"
-  let bSrc ← match ← session.selectProgramV1
-      bytesSrc "<evm-bytes-ret>" "Tests.EvmBytesRet" none with
-    | .ok v => pure v
-    | .error e => throw <| IO.userError s!"BytesRet select: {e.render}"
-  match Compiler.compileValidatedSourceV1 bSrc with
-  | .error _ => pure ()
-  | .ok compiled =>
-      match planEvm compiled with
-      | .error e =>
-          expect (e.render.contains "Bytes" || e.render.contains "fail" ||
-              e.render.contains "aggregate" || e.render.contains "UInt8")
-            s!"Bytes return FC must cite Bytes/UInt8/aggregate, got: {e.render}"
-      | .ok _ =>
-          throw <| IO.userError
-            "EVM Bytes return must fail closed, not produce a plan"
   -- Map return (runtime key order).
   let mapSrc :=
     "import ProofForgeV2\n" ++

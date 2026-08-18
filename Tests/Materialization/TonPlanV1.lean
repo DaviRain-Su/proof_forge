@@ -18,7 +18,8 @@
   state as tag+signed int64 cell (not a UInt64 alias and not CosmWasm
   Regions), Option UInt128 state as unsigned tag uint64 + one uint128
   payload cell (not CosmWasm 2-limb / not two UInt64 leaves; Option Int8 /
-  Option UInt256 / Option UInt128 return / Option Int64 return stay FC),
+  Option UInt256 / Option UInt128 return stay FC; Option Int64 view return
+  is 2-leaf tag+payload),
   B-CTX-OPEN context.unixTimeSeconds → Plan blockUnixTimeSeconds / Tolk
   blockchain.now() (entry+view; caller/unknown FC), Array Int64 N as N
   consecutive int64 c4 cells (isInt / loadInt; not a UInt64 alias and not
@@ -924,22 +925,7 @@ private unsafe def testArrayInt64ElementFc
   let arrI8Compiled ← compileSource session arrI8 "Examples.ArrI8Ton" "<ton-arr-i8-el>"
   expectPlanErrorContaining "ArrI8" "Array state element must be UInt64"
     (planTon arrI8Compiled)
-  -- State Array Int64 2 is admitted; anonymous Array Int64 return must still
-  -- fail on the existing UInt64-element return needle (not reuse
-  -- `containerLeafLayoutV1`, which now admits Int64 leaves).
-  let arrInt64Ret := wrapProgram "ArrInt64RetTon" <|
-    "  state slots : Array Int64 2\n\n" ++
-    "  init() do\n" ++
-    "    slots[0] := 0\n" ++
-    "    slots[1] := 0\n\n" ++
-    "  view get() : Array Int64 2 do\n" ++
-    "    return slots\n"
-  let arrInt64RetCompiled ← compileSource session arrInt64Ret
-    "Examples.ArrInt64RetTon" "<ton-arr-int64-ret>"
-  expectPlanErrorContaining "ArrInt64Ret"
-    "anonymous Array return requires UInt64 elements"
-    (planTon arrInt64RetCompiled)
-  IO.println "  ✓ Array Int8 / Array Int64 return stay fail closed"
+  IO.println "  ✓ Array Int8 stay fail closed"
 
 /-- Array UInt128 N = N consecutive 16-byte unsigned c4 cells (`uint128` /
     `loadUint(128)` / int257 `0≤t<2^128`). Same flatten as Array
@@ -1081,7 +1067,7 @@ private unsafe def testArrayUInt128ReturnFc
     "    return slots\n"
   let compiled ← compileSource session src "Examples.ArrU128Ret" "<ton-arr-u128-ret>"
   expectPlanErrorContaining "ArrU128Ret"
-    "anonymous Array return requires UInt64 elements"
+    "anonymous Array return requires UInt64 or Int64 elements"
     (planTon compiled)
   IO.println "  ✓ Array UInt128 return stays fail closed"
 
@@ -2163,27 +2149,6 @@ private unsafe def testAggregateFailClosed
             s!"MapRet FC message must cite Map/B-RET, got: {msg}"
       | .error e => throw <| IO.userError s!"MapRet: unexpected {e.render}"
       | .ok _ => throw <| IO.userError "MapRet: expected FC, got ok"
-  -- Bytes return stays fail closed with precise message.
-  let bytesSrc := wrapProgram "BytesRet" <|
-    "  state b : Bytes 4\n\n" ++
-    "  init() do\n" ++
-    "    b[0] := 0\n\n" ++
-    "  view getBytes() : Bytes 4 do\n" ++
-    "    return b\n"
-  match ← (do
-      try
-        let c ← compileSource session bytesSrc "Examples.BytesRet" "<ton-bytes-ret>"
-        pure (some c)
-      catch _ => pure none) with
-  | none => pure ()
-  | some c =>
-      match planTon c with
-      | .error (.planInvariant .ton msg) =>
-          expect (msg.contains "Bytes" || msg.contains "B-RET" ||
-              msg.contains "outside")
-            s!"BytesRet FC message must cite Bytes/B-RET, got: {msg}"
-      | .error e => throw <| IO.userError s!"BytesRet: unexpected {e.render}"
-      | .ok _ => throw <| IO.userError "BytesRet: expected FC, got ok"
   -- Nested anonymous Option (Array …) remains fail closed (non-UInt64 payload).
   let nestedSrc := wrapProgram "NestedOptRet" <|
     "  state pad : UInt64\n\n" ++
@@ -2310,6 +2275,81 @@ unsafe def testArrayParam : IO Unit := do
   expect (take.params.map (·.name) == #["a_0", "a_1"])
     s!"ArrParam must flatten to a_0/a_1, got {take.params.map (·.name)}"
   IO.println "  ✓ Array UInt64 2 param flattens to a_0/a_1"
+
+unsafe def testArrayInt64Return : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source := wrapProgram "ArrInt64RetTon" <|
+    "  state slots : Array Int64 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  view get() : Array Int64 2 do\n" ++
+    "    return slots\n"
+  let compiled ← compileSource session source "Examples.ArrInt64RetTon"
+    "<ton-arr-int64-ret>"
+  let plan ← liftResult <| planTon compiled
+  let get ← findMethod plan "get"
+  expect (get.mode == .view) "ArrInt64Ret get must be view"
+  match get.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"ArrInt64Ret aggregate return must have 2 leaves, got {leaves.size}"
+      expect (leaves[0]!.isInt && leaves[1]!.isInt)
+        "ArrInt64Ret leaves must be Int64"
+  | other =>
+      throw <| IO.userError
+        s!"ArrInt64Ret get resultKind must be .aggregate, got {repr other}"
+  liftResult <| validatePlan plan
+  IO.println "  ✓ Array Int64 2 view return 2-leaf int64"
+
+unsafe def testOptionInt64Return : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source := wrapProgram "OptInt64RetTon" <|
+    "  state slot : Option Int64\n\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n\n" ++
+    "  view get() : Option Int64 do\n" ++
+    "    return slot\n"
+  let compiled ← compileSource session source "Examples.OptInt64RetTon"
+    "<ton-opt-int64-ret>"
+  let plan ← liftResult <| planTon compiled
+  let get ← findMethod plan "get"
+  expect (get.mode == .view) "OptInt64Ret get must be view"
+  match get.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"OptInt64Ret must have 2 leaves, got {leaves.size}"
+      expect (!leaves[0]!.isInt && leaves[1]!.isInt)
+        "OptInt64Ret must be tag unsigned + payload isInt"
+  | other =>
+      throw <| IO.userError
+        s!"OptInt64Ret get resultKind must be .aggregate, got {repr other}"
+  IO.println "  ✓ Option Int64 view return tag+signed payload"
+
+unsafe def testBytesReturn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source := wrapProgram "BytesRetTon" <|
+    "  state b : Bytes 2\n\n" ++
+    "  init() do\n" ++
+    "    b[0] := 0\n" ++
+    "    b[1] := 0\n\n" ++
+    "  view get() : Bytes 2 do\n" ++
+    "    return b\n"
+  let compiled ← compileSource session source "Examples.BytesRetTon"
+    "<ton-bytes-ret>"
+  let plan ← liftResult <| planTon compiled
+  let get ← findMethod plan "get"
+  expect (get.mode == .view) "BytesRet get must be view"
+  match get.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"BytesRet must have 2 leaves, got {leaves.size}"
+      expect (leaves.all (fun l => !l.isInt && l.byteWidth == 1))
+        "BytesRet leaves must be uint8 cells"
+  | other =>
+      throw <| IO.userError
+        s!"BytesRet get resultKind must be .aggregate, got {repr other}"
+  IO.println "  ✓ Bytes 2 view return 2×uint8 cells"
 
 /-- BL-34 / B-OPT-STATE: Option UInt64 state = Enum-shaped 2-leaf c4 layout
     (`slot_tag` + `slot_p0`); construct none zeros payload; match read via
@@ -2632,18 +2672,7 @@ private unsafe def testOptionInt64ElementFc
   let optI8Compiled ← compileSource session optI8 "Examples.OptI8Ton" "<ton-opt-i8-el>"
   expectPlanErrorContaining "OptI8" "requires UInt64 payload"
     (planTon optI8Compiled)
-  let optInt64Ret := wrapProgram "OptInt64RetTon" <|
-    "  state slot : Option Int64\n\n" ++
-    "  init() do\n" ++
-    "    slot := Option.none()\n\n" ++
-    "  view get() : Option Int64 do\n" ++
-    "    return slot\n"
-  let optInt64RetCompiled ← compileSource session optInt64Ret
-    "Examples.OptInt64RetTon" "<ton-opt-int64-ret>"
-  expectPlanErrorContaining "OptInt64Ret"
-    "anonymous Option return requires UInt64 payload"
-    (planTon optInt64RetCompiled)
-  IO.println "  ✓ Option Int8 / Option Int64 return stay fail closed"
+  IO.println "  ✓ Option Int8 stay fail closed"
 
 /-- TON-OPT-U128: Option UInt128 state = unsigned tag uint64 + one
     unsigned uint128 payload cell (same 2-leaf flatten as Option
@@ -2756,7 +2785,7 @@ private unsafe def testOptionUInt128ReturnFc
   let compiled ← compileSource session src "Examples.OptU128Ret"
     "<ton-opt-u128-ret>"
   expectPlanErrorContaining "OptU128Ret"
-    "anonymous Option return requires UInt64 payload"
+    "anonymous Option return requires UInt64 or Int64 payload"
     (planTon compiled)
   IO.println "  ✓ Option UInt128 return stays fail closed"
 

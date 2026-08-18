@@ -1129,27 +1129,84 @@ unsafe def testMapInt64Flatten : IO Unit := do
   expect (rsFile.contents.contains "unwrap_or(0_i64)") "signed Map emits i64"
   expect (!rsFile.contents.contains "HashMap") "no HashMap"
 
-unsafe def testArrayInt64ReturnFailClosed : IO Unit := do
+unsafe def testArrayInt64Return : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
     "program ArrInt64Ret where\n" ++
     "  state slots : Array Int64 2\n" ++
-    "  init() do\n" ++
-    "    slots[0] := 0\n" ++
-    "  entry peek(v : Int64) : Array Int64 2 do\n" ++
+    "  init(a : Int64, b : Int64) do\n" ++
+    "    slots[0] := a\n" ++
+    "    slots[1] := b\n" ++
+    "  entry peek() : Array Int64 2 do\n" ++
     "    return slots\n"
   let parsed ← liftResult (← session.selectProgramV1
     source "<soroban-arr-int64-ret>" "Tests.SorobanArrInt64Ret" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
-  match planSoroban compiled with
-  | .error (.planInvariant .soroban msg) =>
-      expect (msg.contains "Array/Map return" || msg.contains "Array return" ||
-          msg.contains "element must be UInt64")
-        s!"Array Int64 return, got: {msg}"
-  | .error e => throw <| IO.userError s!"expected planInvariant .soroban, got {e.render}"
-  | .ok _ => throw <| IO.userError "Array Int64 return must fail closed"
+  let plan ← liftResult <| planSoroban compiled
+  expect plan.signedNumeric "ArrInt64Ret Plan is signed"
+  let some e := plan.entries[0]? |
+    throw <| IO.userError "ArrInt64Ret must emit an entry"
+  expect (e.resultKind == .aggregate 2)
+    s!"ArrInt64Ret entry must be aggregate 2, got {repr e.resultKind}"
+  expect (e.leafIsInt == #[true, true]) "ArrInt64Ret leaves must be signed"
+  liftResult <| Targets.Soroban.validatePlan plan
+  let files ← liftResult <| buildSoroban compiled
+  let some rs := files.find? (·.path == "ArrInt64Ret.rs") |
+    throw <| IO.userError "soroban: missing ArrInt64Ret.rs"
+  expect (rs.contents.contains "-> (i64, i64)")
+    "ArrInt64Ret must emit a Rust i64 tuple return"
+
+unsafe def testOptionInt64Return : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptInt64Ret where\n" ++
+    "  state slot : Option Int64\n" ++
+    "  init(v : Int64) do\n" ++
+    "    slot := Option.some(v)\n" ++
+    "  entry peek() : Option Int64 do\n" ++
+    "    return slot\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-opt-int64-ret>" "Tests.SorobanOptInt64Ret" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  expect plan.signedNumeric "OptInt64Ret Plan is signed"
+  let some e := plan.entries[0]? |
+    throw <| IO.userError "OptInt64Ret must emit an entry"
+  expect (e.resultKind == .aggregate 2)
+    s!"OptInt64Ret entry must be aggregate 2, got {repr e.resultKind}"
+  expect (e.leafIsInt == #[false, true])
+    s!"OptInt64Ret leaves must be tag unsigned + payload isInt, got {e.leafIsInt}"
+  liftResult <| Targets.Soroban.validatePlan plan
+
+unsafe def testMapInt64Return : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapInt64Ret where\n" ++
+    "  state m : Map Int64 Int64\n" ++
+    "  init(v : Int64) do\n" ++
+    "    m := Map.empty()\n" ++
+    "  entry peek() : Map Int64 Int64 do\n" ++
+    "    return m\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-map-int64-ret>" "Tests.SorobanMapInt64Ret" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  expect plan.signedNumeric "MapInt64Ret Plan is signed"
+  let some e := plan.entries[0]? |
+    throw <| IO.userError "MapInt64Ret must emit an entry"
+  expect (e.resultKind == .aggregate 24)
+    s!"MapInt64Ret entry must be aggregate 24, got {repr e.resultKind}"
+  expect (e.leaves.size == 24) "MapInt64Ret must carry 24 Map leaves"
+  expect ((List.range 24).all (fun i =>
+      e.leafIsInt[i]! == (i % 3 == 2)))
+    s!"MapInt64Ret val slots must be isInt, got {e.leafIsInt}"
+  liftResult <| Targets.Soroban.validatePlan plan
 
 unsafe def testArrayInt64N9FailClosed : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -1699,7 +1756,9 @@ unsafe def run : IO Unit := do
   testArrayInt64N9FailClosed
   testArrayNonUInt64ElementFailClosed
   testArrRetBox
-  testArrayInt64ReturnFailClosed
+  testArrayInt64Return
+  testOptionInt64Return
+  testMapInt64Return
   testSignedNumericArrayStateFailClosed
   testArrayLongNameSymbolShortFailClosed
   testOptBoxAdmit

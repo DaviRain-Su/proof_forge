@@ -780,6 +780,58 @@ unsafe def testArrRet : IO Unit := do
   expect (rsFile.contents.contains "-> (u64, u64)")
     "ArrRet must emit a Rust 2-leaf entry tuple"
 
+unsafe def testArrInt64Ret : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrInt64Ret where\n" ++
+    "  state slots : Array Int64 2\n" ++
+    "  init(a : Int64, b : Int64) do\n" ++
+    "    slots[0] := a\n" ++
+    "    slots[1] := b\n" ++
+    "  entry peek() : Array Int64 2 do\n" ++
+    "    return slots\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-arr-int64-ret>" "Tests.XrplArrInt64Ret" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  expect plan.signedNumeric "ArrInt64Ret Plan is signed"
+  let some ent := plan.entries[0]? |
+    throw <| IO.userError "ArrInt64Ret must emit an entry"
+  expect (ent.resultKind == .aggregate 2)
+    s!"ArrInt64Ret entry must be aggregate 2, got {repr ent.resultKind}"
+  expect (ent.resultLeaves.size == 2) "ArrInt64Ret must carry two array leaves"
+  liftResult <| Targets.Xrpl.validatePlan plan
+  let files ← liftResult <| buildXrpl compiled
+  let some rsFile := files.find? (·.path == "ArrInt64Ret.rs") |
+    throw <| IO.userError "xrpl: missing ArrInt64Ret.rs"
+  expect (rsFile.contents.contains "-> (i64, i64)")
+    "ArrInt64Ret must emit a Rust 2-leaf signed entry tuple"
+
+unsafe def testOptInt64Ret : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptInt64Ret where\n" ++
+    "  state slot : Option Int64\n" ++
+    "  init(v : Int64) do\n" ++
+    "    slot := Option.some(v)\n" ++
+    "  entry peek() : Option Int64 do\n" ++
+    "    return slot\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-opt-int64-ret>" "Tests.XrplOptInt64Ret" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  expect plan.signedNumeric "OptInt64Ret Plan is signed"
+  let some ent := plan.entries[0]? |
+    throw <| IO.userError "OptInt64Ret must emit an entry"
+  expect (ent.resultKind == .aggregate 2)
+    s!"OptInt64Ret entry must be aggregate 2, got {repr ent.resultKind}"
+  expect (ent.resultLeaves.size == 2) "OptInt64Ret must carry tag+payload leaves"
+  liftResult <| Targets.Xrpl.validatePlan plan
+
 unsafe def testBytesEntryRet : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -1104,6 +1156,29 @@ unsafe def testMapRet : IO Unit := do
   expect (rs.contains "const m_23_KEY: &str = \"m_23\";")
     "MapRet.rs must bind m_23_KEY"
 
+unsafe def testMapInt64Ret : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapInt64Ret where\n" ++
+    "  state m : Map Int64 Int64\n" ++
+    "  init(v : Int64) do\n" ++
+    "    m := Map.empty()\n" ++
+    "  entry peek() : Map Int64 Int64 do\n" ++
+    "    return m\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-map-int64-ret>" "Tests.XrplMapInt64Ret" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  expect plan.signedNumeric "MapInt64Ret Plan is signed"
+  let some ent := plan.entries[0]? |
+    throw <| IO.userError "MapInt64Ret must emit an entry"
+  expect (ent.resultKind == .aggregate 24)
+    s!"MapInt64Ret entry must be aggregate 24, got {repr ent.resultKind}"
+  expect (ent.resultLeaves.size == 24) "MapInt64Ret must carry 24 Map leaves"
+  liftResult <| Targets.Xrpl.validatePlan plan
+
 unsafe def testMapParam : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -1146,6 +1221,8 @@ unsafe def run : IO Unit := do
   testBytesViewRet
   testBytesEntryRet
   testArrRet
+  testArrInt64Ret
+  testOptInt64Ret
   testPrincipalIdentityLeaves
   testPrincipalReturnFailClosed
   testPointBoxFlatten
@@ -1163,6 +1240,7 @@ unsafe def run : IO Unit := do
   testOptionBoolPayloadFailClosed
   testMapMiniAdmit
   testMapRet
+  testMapInt64Ret
   testMapParam
 
 end Tests.Materialization.XrplPlanV1

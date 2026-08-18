@@ -73,7 +73,7 @@ normative: false
 | schedule（async） | LOWERED(static QN→同步 CALL+忽略结果；语义 stub) | LOWERED(static QN→`sol_invoke_signed_c`；空 AccountMeta/外层 callee account 未闭合，语义 PARTIAL) | LOWERED(promise；fire-and-forget) | LOWERED(relation slots；语义 PARTIAL) | FAIL-CLOSED | FAIL-CLOSED(resolver+plan) |
 | **match String scrutinee** | LOWERED(N-A1) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
 | **named aggregate entry/view return（B-RET-ABI）** | LOWERED(≤8 UInt64/Int64 叶 tuple ABI) | LOWERED(≤8 叶 N×8-byte LE) | LOWERED(≤8 叶 N×8-byte LE) | LOWERED(per-leaf verifier inputs) | LOWERED(ordered DPN `circuit_outputs`) | LOWERED(non-Final entry tuple；computed view-over-state FC) |
-| **anonymous Array/Map/Option/Bytes result（N-ANON-RESULT）** | LOWERED(Array UInt64 N≤8 / Option UInt64；Array/Option/Map Int64 return + Map/Bytes FC) | LOWERED(Array UInt64 N≤8 / Option UInt64；Map/Bytes FC) | LOWERED(Array UInt64 N≤8 / Option UInt64 / Map 24 叶 / Bytes N；nested FC) | LOWERED(Array UInt64 N≤8 / Option UInt64；Map/Bytes FC) | LOWERED(Array UInt64 N≤8 / Option UInt64；Map/Bytes FC) | LOWERED(Array UInt64 N≤8 / Option UInt64；Map/Bytes / Int64 container return 与 computed view-over-state FC) |
+| **anonymous Array/Map/Option/Bytes result（N-ANON-RESULT）** | LOWERED(Array UInt64/Int64 N≤8 / Option UInt64/Int64 / Bytes N；Map 仍 FC) | LOWERED(Array UInt64/Int64 N≤8 / Option UInt64/Int64 / Bytes N；Map 仍 FC) | LOWERED(Array UInt64/Int64 N≤8 / Option UInt64/Int64 / Map 24 叶含 Int64 val / Bytes N；nested FC) | LOWERED(Array UInt64/Int64 N≤8 / Option UInt64/Int64 / Bytes N；Map 仍 FC) | LOWERED(Array UInt64/Int64 N≤8 / Option UInt64/Int64 / Bytes N；Map 仍 FC) | LOWERED(Array UInt64/Int64 N≤8 / Option UInt64/Int64 / Bytes N；Map / computed view-over-state 仍 FC) |
 | **match 多臂同构造器** | LOWERED(N-A2) | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
 | **Principal state/params** | LOWERED(T10: leaf storage; ≠address) | LOWERED(T12: 9×u64 leaves; ≠32B pubkey) | LOWERED(T12: 9×KV leaves; ≠account-id) | LOWERED(T12: 9×u64 inputs; ≠Field) | LOWERED(9-leaf wire identity；≠network address) | **LOWERED(T3: 9×u64 identity leaves；≠address/Field；return FC)** |
 | **UInt128 state/param/body** | LOWERED(T9b 原生 word) | LOWERED(T9e 2×u64 multiword；mul schoolbook；div/mod restoring binary long division `910835aa4`，runtime differential 待补) | LOWERED(T9e 2×i64 multiword；**mul 真 schoolbook NEAR lane**；div/mod/shift FC) | LOWERED(T11 原生 u128 / multi-limb analogue；mul/div/mod FC；UInt256 FC) | LOWERED(DPN 4×UInt32 LE limbs；checked arithmetic/compare/bitwise/shift) | LOWERED(native `u128` Instructions；UInt256 仍 FC) |
@@ -96,7 +96,7 @@ normative: false
 | externalCall（sync） | **FAIL-CLOSED** | resolver + Plan 双拒；不得 alias 为 sync CALL |
 | named Struct/Enum state + entry/view return | **LOWERED** | ≤8 UInt64/Int64 leaves；execute/query JSON array；named/Option/Array/Map/Bytes **param** 已 flatten（L2–L6）；pureFn aggregate 仍 FC |
 | Array/Map state | **LOWERED** | Array UInt64；dense Map UInt64 cap-8；atomic KV store |
-| anonymous Array/Option result | **LOWERED** | `Array UInt64 N`(1..8) / `Option UInt64` entry+view；Map/Bytes/nested/非 UInt64 FC |
+| anonymous Array/Option result | **LOWERED** | `Array UInt64/Int64 N`(1..8) / `Option UInt64/Int64` / Bytes N / Map UInt64 Int64 24 叶；nested/Int8/Int64-key 仍 FC |
 | ContextRead | **PARTIAL** | `unixTimeSeconds` OPEN（Env JSON time）；`blockHeight`→Env JSON bare-u64 `height`；`caller`→`MessageInfo.sender` 仅 instantiate/execute，query/view FC；`self`→`Env.contract.address` view-safe；`attachedValue`→`MessageInfo.funds` 单 denom `stake` execute/init，query FC；`chainId` FC（host 为 String，不静默哈希成 UInt64） |
 | Commit | **LOWERED** | 身份透传；nonempty invariants / Field/String interface 仍 FAIL-CLOSED |
 | 制品 / 验收 | WAT + locked `wat2wasm` + `cosmwasm-check` 3.0.9 + cosmwasm-vm mock 48 tests + wasmd v0.70.3 Docker rung-1 | **非** 主网 / formal / hermetic |
@@ -113,7 +113,7 @@ normative: false
 | schedule（async） | **LOWERED（语义 PARTIAL）** | → `createMessage`；NoBounce、value=0、fixed send-mode、hash destination stub；init/mutate only；无 callback round-trip |
 | named Struct/Enum state + aggregate view return | **LOWERED** | view multi-stack tuple≤8 leaves；entry aggregate FC |
 | Array/Map/Bytes state | **LOWERED** | Array UInt64；dense Map UInt64 cap-8；fixed Bytes N；c4 flatten |
-| anonymous Array/Option view result | **LOWERED** | `Array UInt64 N`(1..8) / `Option UInt64`；entry、Map/Bytes/nested/非 UInt64 FC |
+| anonymous Array/Option view result | **LOWERED** | `Array UInt64/Int64 N`(1..8) / `Option UInt64/Int64` / Bytes N view；entry 聚合、Map return、nested/Int8 仍 FC |
 | ContextRead | **PARTIAL** | `unixTimeSeconds` OPEN（`blockchain.now()`）；`attachedValue`/`chainId`/`self`/`caller` named no-host FC（T4 已 Admit Principal 存储，不映射 TON address） |
 | Principal state/params | **LOWERED** | T4：9 叶 `owner_len`+`w0..w7` identity（≠ TON address）；return / caller→address 仍 FC |
 | `pf.crypto.sha256`（UInt256→UInt256） | **LOWERED**（CAP-5 2026-08-16） | Tolk `slice.bitsHash()`（TVM `SHA256U`）over Semantic UInt256 32B LE image；`string_hash`/HASHCU/HASHBU 永不发射；keccak256/siblings 名义 FC；freeze 其余不变 |

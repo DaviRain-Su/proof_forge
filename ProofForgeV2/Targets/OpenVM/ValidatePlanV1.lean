@@ -383,7 +383,8 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
             planError s!"OpenVM entry '{ent.name}' aggregate leaf {i} is missing"
           let some isInt := ent.leafIsInt[i]? |
             planError s!"OpenVM entry '{ent.name}' aggregate signedness {i} is missing"
-          let ty := if isInt then ExprType.int64 else ExprType.uint64
+          let _ := isInt
+          let ty := if signed then ExprType.int64 else ExprType.uint64
           exprBudget ←
             validateExpr leaf ty "entry aggregate leaf" ent.params.size plan.states.size
               exprBudget signed
@@ -433,7 +434,8 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
             planError s!"OpenVM view '{v.name}' aggregate leaf {i} is missing"
           let some isInt := v.leafIsInt[i]? |
             planError s!"OpenVM view '{v.name}' aggregate signedness {i} is missing"
-          let ty := if isInt then ExprType.int64 else ExprType.uint64
+          let _ := isInt
+          let ty := if signed then ExprType.int64 else ExprType.uint64
           exprBudget ←
             validateExpr e ty "view aggregate leaf" v.params.size plan.states.size
               exprBudget signed

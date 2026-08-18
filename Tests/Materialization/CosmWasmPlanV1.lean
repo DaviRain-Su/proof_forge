@@ -11,9 +11,11 @@
   OptionRet Plan/IR/WAT/ABI pins + Map/Bytes/N>8/nested FC), B-OPT-STATE
   Option UInt64 state (OptionState tag+payload / storeAtomic / none zeroing +
   non-UInt64/nested/param FC) and Option Int64 state (unsigned tag + signed
-  i64-le payload; Option Int8 / Option UInt128 / Option Int64 return FC),
+  i64-le payload; Option Int8 / Option UInt128 FC; Option Int64 view return
+  is 2-leaf tag+payload),
   dense Map UInt64 Int64 state (cap-8 24-leaf occ/key unsigned + val signed;
-  not a UInt64-value alias; Map Int8 / Map UInt128 / Map Int64 return FC),
+  not a UInt64-value alias; Map Int8 / Map UInt128 FC; Map UInt64 Int64
+  return is 24-leaf val-only isInt),
   sync call still fail closed, multi-width
   UInt8/16/32 pins (body guards / param range / 8-byte narrow state slots),
   UInt128 2-limb ABI and UInt256 4-limb ABI (state/param/result; 8-byte
@@ -940,22 +942,7 @@ private unsafe def testArrayInt64ElementFc
     "<cw-arr-u128>"
   expectPlanErrorContaining "ArrU128" "Array state element must be UInt64"
     (planCw arrU128Compiled)
-  -- State Array Int64 2 is admitted; anonymous Array Int64 return must still
-  -- fail on the existing UInt64-element return needle (not reuse
-  -- `containerLeafLayoutV1`, which now admits Int64 leaves).
-  let arrInt64Ret := wrapProgram "ArrInt64RetCw" <|
-    "  state slots : Array Int64 2\n\n" ++
-    "  init() do\n" ++
-    "    slots[0] := 0\n" ++
-    "    slots[1] := 0\n\n" ++
-    "  view get() : Array Int64 2 do\n" ++
-    "    return slots\n"
-  let arrInt64RetCompiled ← compileSource session arrInt64Ret
-    "Examples.ArrInt64RetCw" "<cw-arr-int64-ret>"
-  expectPlanErrorContaining "ArrInt64Ret"
-    "anonymous Array return requires UInt64 elements"
-    (planCw arrInt64RetCompiled)
-  IO.println "  ✓ Array Int8 / Array UInt128 / Array Int64 return stay fail closed"
+  IO.println "  ✓ Array Int8 / Array UInt128 stay fail closed"
 
 /-- Int8 ABI: one 8-byte Region, low-byte two's complement, sign-extended
     temps, checked add at width 8. Int16/32 share the same lowering. -/
@@ -1656,18 +1643,7 @@ private unsafe def testOptionInt64ElementFc
     "<cw-opt-u128>"
   expectPlanErrorContaining "OptU128" "requires UInt64 payload"
     (planCw optU128Compiled)
-  let optInt64Ret := wrapProgram "OptInt64RetCw" <|
-    "  state slot : Option Int64\n\n" ++
-    "  init() do\n" ++
-    "    slot := Option.none()\n\n" ++
-    "  view get() : Option Int64 do\n" ++
-    "    return slot\n"
-  let optInt64RetCompiled ← compileSource session optInt64Ret
-    "Examples.OptInt64RetCw" "<cw-opt-int64-ret>"
-  expectPlanErrorContaining "OptInt64Ret"
-    "anonymous Option return requires UInt64 payload"
-    (planCw optInt64RetCompiled)
-  IO.println "  ✓ Option Int8 / Option UInt128 / Option Int64 return stay fail closed"
+  IO.println "  ✓ Option Int8 / Option UInt128 stay fail closed"
 
 /-- CW-MAP-INT: Map UInt64 Int64 state = cap-8 24-leaf occ/key/val flatten
     (same loop IR as Map UInt64 UInt64). occ/key stay unsigned u64-le;
@@ -1781,18 +1757,32 @@ private unsafe def testMapInt64ElementFc
     "<cw-map-u128>"
   expectPlanErrorContaining "MapU128" "Map state admits only Map UInt64 UInt64"
     (planCw mapU128Compiled)
-  let mapInt64Ret := wrapProgram "MapInt64RetCw" <|
+  IO.println "  ✓ Map Int8 / Map UInt128 stay fail closed"
+
+private unsafe def testMapInt64Return
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "MapInt64RetCw" <|
     "  state m : Map UInt64 Int64\n\n" ++
     "  init() do\n" ++
     "    m := Map.empty()\n\n" ++
     "  view dump() : Map UInt64 Int64 do\n" ++
     "    return m\n"
-  let mapInt64RetCompiled ← compileSource session mapInt64Ret
-    "Examples.MapInt64RetCw" "<cw-map-int64-ret>"
-  expectPlanErrorContaining "MapInt64Ret"
-    "anonymous Map return requires Map UInt64 UInt64"
-    (planCw mapInt64RetCompiled)
-  IO.println "  ✓ Map Int8 / Map UInt128 / Map Int64 return stay fail closed"
+  let compiled ← compileSource session source "Examples.MapInt64RetCw"
+    "<cw-map-int64-ret>"
+  let plan ← liftResult <| planCw compiled
+  let some dump := plan.entries.find? (·.name == "dump") |
+    throw <| IO.userError "MapInt64Ret missing dump"
+  match dump.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 24)
+        s!"MapInt64Ret must have 24 leaves, got {leaves.size}"
+      expect ((List.range 24).all (fun i =>
+          leaves[i]!.isInt == (i % 3 == 2)))
+        "MapInt64Ret val slots must be isInt"
+  | other =>
+      throw <| IO.userError
+        s!"MapInt64Ret dump must be .aggregate, got {repr other}"
+  IO.println "  ✓ Map UInt64 Int64 return 24-leaf val-only isInt"
 
 /-- B-OPT-STATE FC: Option of non-UInt64, nested Option, Option params stay closed. -/
 private unsafe def expectOptionStateFailClosed
@@ -2374,6 +2364,60 @@ private unsafe def testArrayParam
   liftResult <| validatePlan plan
   IO.println "  ✓ ArrParam N×UInt64 flatten"
 
+private unsafe def testArrayInt64Return
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "ArrInt64RetCw" <|
+    "  state slots : Array Int64 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  view get() : Array Int64 2 do\n" ++
+    "    return slots\n"
+  let compiled ← compileSource session source "Examples.ArrInt64RetCw"
+    "<cw-arr-int64-ret>"
+  let plan ← liftResult <| planCw compiled
+  let some get := plan.entries.find? (·.name == "get") |
+    throw <| IO.userError "ArrInt64Ret missing get"
+  match get.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"ArrInt64Ret aggregate return must have 2 leaves, got {leaves.size}"
+      expect (leaves[0]!.isInt && leaves[1]!.isInt)
+        "ArrInt64Ret leaves must be Int64"
+  | other =>
+      throw <| IO.userError
+        s!"ArrInt64Ret get resultKind must be .aggregate, got {repr other}"
+  liftResult <| validatePlan plan
+  let files ← liftResult <| filesCw compiled
+  let abi ← findFile files "ArrInt64RetCw.cosmwasm-abi.json"
+  expect (abi.contains "\"returns\":[\"i64\",\"i64\"]")
+    s!"ArrInt64Ret ABI must declare leaf tuple [\"i64\",\"i64\"], got: {abi}"
+  IO.println "  ✓ Array Int64 2 view return 2-leaf i64 tuple"
+
+private unsafe def testOptionInt64Return
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "OptInt64RetCw" <|
+    "  state slot : Option Int64\n\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n\n" ++
+    "  view get() : Option Int64 do\n" ++
+    "    return slot\n"
+  let compiled ← compileSource session source "Examples.OptInt64RetCw"
+    "<cw-opt-int64-ret>"
+  let plan ← liftResult <| planCw compiled
+  let some get := plan.entries.find? (·.name == "get") |
+    throw <| IO.userError "OptInt64Ret missing get"
+  match get.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"OptInt64Ret must have 2 leaves, got {leaves.size}"
+      expect (!leaves[0]!.isInt && leaves[1]!.isInt)
+        "OptInt64Ret must be tag unsigned + payload isInt"
+  | other =>
+      throw <| IO.userError
+        s!"OptInt64Ret get resultKind must be .aggregate, got {repr other}"
+  IO.println "  ✓ Option Int64 view return tag+signed payload"
+
 private unsafe def testMapParam
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrapProgram "MapParam" <|
@@ -2418,6 +2462,9 @@ unsafe def run : IO Unit := do
   testPointParam session
   testOptionParam session
   testArrayParam session
+  testArrayInt64Return session
+  testOptionInt64Return session
+  testMapInt64Return session
   testMapParam session
   testNamedEnumReturn session
   testAggregateReturnFc session

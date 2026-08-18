@@ -4,4 +4,4 @@
 import Tests.Materialization.PsyDpnV1
 
 unsafe def main : IO Unit :=
-  Tests.Materialization.PsyDpnV1.testArrayParam
+  Tests.Materialization.PsyDpnV1.testOptionInt64Return

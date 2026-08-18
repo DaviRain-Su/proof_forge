@@ -1054,25 +1054,32 @@ private def anonymousReturnLeafAbiV1
     (typeId : TypeIdV1) : CompileResult (Option (Array LeafAbiType)) := do
   match typeDecls[typeId.toNat]? with
   | some { shape := .array elTid len, name := none, .. } =>
-      unless elTid == types.uint64TypeId do
+      let leafIsInt := types.int64TypeId == some elTid
+      unless elTid == types.uint64TypeId || leafIsInt do
         throw <| .planInvariant .ton
-          "unsupported Ton semantic shape: anonymous Array return requires UInt64 elements"
+          "unsupported Ton semantic shape: anonymous Array return requires UInt64 or Int64 elements"
       let n := len.toNat
       unless n ≥ 1 do
         throw <| .planInvariant .ton
           "unsupported Ton semantic shape: anonymous Array return length must be ≥ 1"
-      pure (some (Array.replicate n { isInt := false, byteWidth := 8 }))
+      pure (some (Array.replicate n { isInt := leafIsInt, byteWidth := 8 }))
   | some { shape := .option elTid, name := none, .. } =>
-      unless elTid == types.uint64TypeId do
+      let payloadIsInt := types.int64TypeId == some elTid
+      unless elTid == types.uint64TypeId || payloadIsInt do
         throw <| .planInvariant .ton
-          "unsupported Ton semantic shape: anonymous Option return requires UInt64 payload"
-      pure (some #[{ isInt := false, byteWidth := 8 }, { isInt := false, byteWidth := 8 }])
+          "unsupported Ton semantic shape: anonymous Option return requires UInt64 or Int64 payload"
+      pure (some #[
+        { isInt := false, byteWidth := 8 },
+        { isInt := payloadIsInt, byteWidth := 8 }])
   | some { shape := .map .., name := none, .. } =>
       throw <| .planInvariant .ton
         "unsupported Ton semantic shape: anonymous Map return is outside the Ton B-RET ABI"
-  | some { shape := .bytes .., name := none, .. } =>
-      throw <| .planInvariant .ton
-        "unsupported Ton semantic shape: anonymous Bytes return is outside the Ton B-RET ABI"
+  | some { shape := .bytes len, name := none, .. } =>
+      let n := len.toNat
+      unless n ≥ 1 && n ≤ 8 do
+        throw <| .planInvariant .ton
+          s!"unsupported Ton semantic shape: anonymous Bytes return length must be in 1..8, got {n}"
+      pure (some (Array.replicate n { isInt := false, byteWidth := 1 }))
   | some { shape := .array .., .. } | some { shape := .option .., .. } =>
       pure none
   | _ => pure none
@@ -3784,9 +3791,15 @@ private partial def emitRegionV1
               unless root.isAggregate do
                 throw <| .planInvariant .ton
                   "unsupported Ton semantic shape: aggregate return value must be a multi-leaf aggregate"
-              unless root.leafByteWidth == 8 do
+              let expectedWidth :=
+                expectedLeaves[0]?.map (·.byteWidth) |>.getD 8
+              unless expectedLeaves.all (fun l => l.byteWidth == expectedWidth) do
                 throw <| .planInvariant .ton
-                  "unsupported Ton semantic shape: aggregate return leaves must be 8-byte UInt64/Int64 words"
+                  "unsupported Ton semantic shape: aggregate return leaves must share one byteWidth"
+              unless root.leafByteWidth == expectedWidth &&
+                  (expectedWidth == 8 || expectedWidth == 1) do
+                throw <| .planInvariant .ton
+                  "unsupported Ton semantic shape: aggregate return leaves must be 8-byte UInt64/Int64 words or 1-byte Bytes cells"
               let returnedLeaves := root.leafExprs
               unless returnedLeaves.size == expectedLeaves.size do
                 throw <| .planInvariant .ton

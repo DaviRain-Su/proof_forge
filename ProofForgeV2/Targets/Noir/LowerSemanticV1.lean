@@ -896,25 +896,30 @@ private def anonymousReturnLeafAbiV1
     (typeId : TypeIdV1) : CompileResult (Option (Array InputType)) := do
   match typeDecls[typeId.toNat]? with
   | some { shape := .array elTid len, name := none, .. } =>
-      unless elTid == types.uint64TypeId do
+      let leafIsInt := types.int64TypeId == some elTid
+      unless elTid == types.uint64TypeId || leafIsInt do
         throw <| .planInvariant .noir
-          "unsupported Noir semantic shape: anonymous Array return requires UInt64 elements"
+          "unsupported Noir semantic shape: anonymous Array return requires UInt64 or Int64 elements"
       let n := len.toNat
       unless n ≥ 1 do
         throw <| .planInvariant .noir
           "unsupported Noir semantic shape: anonymous Array return length must be ≥ 1"
-      pure (some (Array.replicate n InputType.u64))
+      pure (some (Array.replicate n (if leafIsInt then InputType.i64 else InputType.u64)))
   | some { shape := .option elTid, name := none, .. } =>
-      unless elTid == types.uint64TypeId do
+      let payloadIsInt := types.int64TypeId == some elTid
+      unless elTid == types.uint64TypeId || payloadIsInt do
         throw <| .planInvariant .noir
-          "unsupported Noir semantic shape: anonymous Option return requires UInt64 payload"
-      pure (some #[.u64, .u64])
+          "unsupported Noir semantic shape: anonymous Option return requires UInt64 or Int64 payload"
+      pure (some #[.u64, if payloadIsInt then InputType.i64 else InputType.u64])
   | some { shape := .map .., name := none, .. } =>
       throw <| .planInvariant .noir
         "unsupported Noir semantic shape: anonymous Map return is outside the Noir B-RET ABI"
-  | some { shape := .bytes .., name := none, .. } =>
-      throw <| .planInvariant .noir
-        "unsupported Noir semantic shape: anonymous Bytes return is outside the Noir B-RET ABI"
+  | some { shape := .bytes len, name := none, .. } =>
+      let n := len.toNat
+      unless n ≥ 1 && n ≤ 8 do
+        throw <| .planInvariant .noir
+          s!"unsupported Noir semantic shape: anonymous Bytes return length must be in 1..8, got {n}"
+      pure (some (Array.replicate n InputType.u8))
   | some { shape := .array .., .. } | some { shape := .option .., .. } =>
       pure none
   | _ => pure none

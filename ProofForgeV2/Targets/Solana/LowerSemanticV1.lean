@@ -910,9 +910,10 @@ private def aggregateResultKindOfV1
   else if types.isContainer typeId then
     match typeDecls[typeId.toNat]? with
     | some { shape := .array elTid len, .. } =>
-        unless elTid == types.uint64TypeId do
+        let leafIsInt := types.int64TypeId == some elTid
+        unless elTid == types.uint64TypeId || leafIsInt do
           throw <| .planInvariant .solana
-            s!"{owner} anonymous Array return element must be UInt64"
+            s!"{owner} anonymous Array return element must be UInt64 or Int64"
         let n := len.toNat
         unless n > 0 do
           throw <| .planInvariant .solana
@@ -922,27 +923,37 @@ private def aggregateResultKindOfV1
             s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of 8"
         let mut leaves : Array LeafAbiType := #[]
         for _ in [0:n] do
-          leaves := leaves.push { isInt := false, byteWidth := 8 }
+          leaves := leaves.push { isInt := leafIsInt, byteWidth := 8 }
         pure (.aggregate leaves)
     | some { shape := .map _ _, .. } =>
         throw <| .planInvariant .solana
           s!"{owner} cannot return anonymous Map; Solana B-RET-ABI admits only named Struct/Enum, Array UInt64 N≤8, or Option UInt64"
-    | some { shape := .bytes _, .. } =>
-        throw <| .planInvariant .solana
-          s!"{owner} cannot return anonymous Bytes; Solana B-RET-ABI admits only named Struct/Enum, Array UInt64 N≤8, or Option UInt64"
+    | some { shape := .bytes len, .. } =>
+        let n := len.toNat
+        unless n > 0 do
+          throw <| .planInvariant .solana
+            s!"{owner} aggregate return must have at least one leaf"
+        unless n <= 8 do
+          throw <| .planInvariant .solana
+            s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of 8"
+        let mut leaves : Array LeafAbiType := #[]
+        for _ in [0:n] do
+          leaves := leaves.push { isInt := false, byteWidth := 1 }
+        pure (.aggregate leaves)
     | _ =>
         throw <| .planInvariant .solana
           s!"{owner} container return TypeId is not Array/Map/Bytes"
   else if isAnonymousOptionTypeIdV1 typeDecls typeId then
     match typeDecls[typeId.toNat]? with
     | some { shape := .option elTid, .. } =>
-        unless elTid == types.uint64TypeId do
+        let payloadIsInt := types.int64TypeId == some elTid
+        unless elTid == types.uint64TypeId || payloadIsInt do
           throw <| .planInvariant .solana
-            s!"{owner} anonymous Option return element must be UInt64"
-        -- none = (0, 0), some v = (1, v): always two UInt64 leaves.
+            s!"{owner} anonymous Option return element must be UInt64 or Int64"
+        -- none = (0, 0), some v = (1, v): tag unsigned, payload follows TypeId.
         pure (.aggregate #[
           { isInt := false, byteWidth := 8 },
-          { isInt := false, byteWidth := 8 }])
+          { isInt := payloadIsInt, byteWidth := 8 }])
     | _ =>
         throw <| .planInvariant .solana
           s!"{owner} Option return TypeDecl missing"
@@ -3844,10 +3855,15 @@ private partial def emitRegionV1
               unless gotLeaves.size == expectedLeaves.size do
                 throw <| .planInvariant .solana
                   s!"unsupported Solana semantic shape: aggregate return leaf count mismatch (expected {expectedLeaves.size}, got {gotLeaves.size})"
-              -- Bytes leaves have leafByteWidth=1; reject non-word returns here.
-              unless returned.leafByteWidth == 8 do
+              let expectedWidth :=
+                expectedLeaves[0]?.map (·.byteWidth) |>.getD 8
+              unless expectedLeaves.all (fun l => l.byteWidth == expectedWidth) do
                 throw <| .planInvariant .solana
-                  "unsupported Solana semantic shape: aggregate return leaves must be 8-byte words (Bytes return stays fail-closed)"
+                  "unsupported Solana semantic shape: aggregate return leaves must share one byteWidth"
+              unless returned.leafByteWidth == expectedWidth &&
+                  (expectedWidth == 8 || expectedWidth == 1) do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: aggregate return leaves must be 8-byte words or 1-byte Bytes leaves"
               let consumed ← consumeCurrentSegmentValueV1 values blockEntry segmentStart valueId
               let mut leafIsInt : Array Bool := #[]
               for leaf in expectedLeaves do

@@ -1162,19 +1162,23 @@ private def anonymousReturnLeafAbiV1
     (typeId : TypeIdV1) : CompileResult (Option (Array LeafAbiType)) := do
   match typeDecls[typeId.toNat]? with
   | some { shape := .array elTid len, name := none, .. } =>
-      unless elTid == types.uint64TypeId do
+      let leafIsInt := types.int64TypeId == some elTid
+      unless elTid == types.uint64TypeId || leafIsInt do
         throw <| .planInvariant .near
-          "unsupported NEAR semantic shape: anonymous Array return requires UInt64 elements"
+          "unsupported NEAR semantic shape: anonymous Array return requires UInt64 or Int64 elements"
       let n := len.toNat
       unless n ≥ 1 do
         throw <| .planInvariant .near
           "unsupported NEAR semantic shape: anonymous Array return length must be ≥ 1"
-      pure (some (Array.replicate n { isInt := false, byteWidth := 8 }))
+      pure (some (Array.replicate n { isInt := leafIsInt, byteWidth := 8 }))
   | some { shape := .option elTid, name := none, .. } =>
-      unless elTid == types.uint64TypeId do
+      let payloadIsInt := types.int64TypeId == some elTid
+      unless elTid == types.uint64TypeId || payloadIsInt do
         throw <| .planInvariant .near
-          "unsupported NEAR semantic shape: anonymous Option return requires UInt64 payload"
-      pure (some #[{ isInt := false, byteWidth := 8 }, { isInt := false, byteWidth := 8 }])
+          "unsupported NEAR semantic shape: anonymous Option return requires UInt64 or Int64 payload"
+      pure (some #[
+        { isInt := false, byteWidth := 8 },
+        { isInt := payloadIsInt, byteWidth := 8 }])
   | some { shape := .bytes len, name := none, .. } =>
       let n := len.toNat
       unless n ≥ 1 && n ≤ 8 do
@@ -1184,11 +1188,19 @@ private def anonymousReturnLeafAbiV1
   | some { shape := .map keyTid valTid, name := none, .. } =>
       -- Dense Map return: flat occ/key/val × capacity as LE u64 words
       -- (same packing class as Array UInt64 N). Cap-8 → 24 leaves (B-RET-MAP).
-      unless keyTid == types.uint64TypeId && valTid == types.uint64TypeId do
+      let valIsInt := types.int64TypeId == some valTid
+      unless keyTid == types.uint64TypeId &&
+          (valTid == types.uint64TypeId || valIsInt) do
         throw <| .planInvariant .near
-          "unsupported NEAR semantic shape: anonymous Map return requires Map UInt64 UInt64"
+          "unsupported NEAR semantic shape: anonymous Map return requires Map UInt64 UInt64 or Map UInt64 Int64"
       let n := nearMapPilotLeafCountV1
-      pure (some (Array.replicate n { isInt := false, byteWidth := 8 }))
+      let mut leaves : Array LeafAbiType := #[]
+      for i in [0:n] do
+        leaves := leaves.push {
+          isInt := valIsInt && i % 3 == 2
+          byteWidth := 8
+        }
+      pure (some leaves)
   | some { shape := .array .., .. } | some { shape := .option .., .. }
   | some { shape := .bytes .., .. } =>
       pure none

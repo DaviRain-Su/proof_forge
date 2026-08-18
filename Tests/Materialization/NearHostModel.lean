@@ -6537,6 +6537,89 @@ unsafe def testArrayParam : IO Unit := do
     s!"ArrParam must flatten to a_0/a_1, got {put.params.map (·.name)}"
   IO.println "  ✓ ArrParam N×UInt64 flatten"
 
+unsafe def testArrayInt64Return : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ArrInt64RetNear where\n" ++
+    "  state slots : Array Int64 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  view get() : Array Int64 2 do\n" ++
+    "    return slots\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let (_, plan) ← compileNearPlan session sourceText "Examples.ArrInt64RetNear" "arr-int64-ret"
+  let some get := plan.entries.find? (·.name == "get") |
+    throw <| IO.userError "ArrInt64Ret missing get"
+  match get.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"ArrInt64Ret aggregate return must have 2 leaves, got {leaves.size}"
+      expect (leaves[0]!.isInt && leaves[1]!.isInt)
+        "ArrInt64Ret leaves must be Int64"
+  | other =>
+      throw <| IO.userError
+        s!"ArrInt64Ret get resultKind must be .aggregate, got {repr other}"
+  IO.println "  ✓ Array Int64 2 view return 2-leaf int64"
+
+unsafe def testOptionInt64Return : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program OptInt64RetNear where\n" ++
+    "  state slot : Option Int64\n\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n\n" ++
+    "  view get() : Option Int64 do\n" ++
+    "    return slot\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let (_, plan) ← compileNearPlan session sourceText "Examples.OptInt64RetNear" "opt-int64-ret"
+  let some get := plan.entries.find? (·.name == "get") |
+    throw <| IO.userError "OptInt64Ret missing get"
+  match get.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"OptInt64Ret must have 2 leaves, got {leaves.size}"
+      expect (!leaves[0]!.isInt && leaves[1]!.isInt)
+        "OptInt64Ret must be tag unsigned + payload isInt"
+  | other =>
+      throw <| IO.userError
+        s!"OptInt64Ret get resultKind must be .aggregate, got {repr other}"
+  IO.println "  ✓ Option Int64 view return tag+signed payload"
+
+unsafe def testMapInt64Return : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program MapInt64RetNear where\n" ++
+    "  state m : Map UInt64 Int64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  view dump() : Map UInt64 Int64 do\n" ++
+    "    return m\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let (_, plan) ← compileNearPlan session sourceText "Examples.MapInt64RetNear" "map-int64-ret"
+  let some dump := plan.entries.find? (·.name == "dump") |
+    throw <| IO.userError "MapInt64Ret missing dump"
+  match dump.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 24)
+        s!"MapInt64Ret must have 24 leaves, got {leaves.size}"
+      expect ((List.range 24).all (fun i =>
+          leaves[i]!.isInt == (i % 3 == 2)))
+        "MapInt64Ret val slots must be isInt"
+  | other =>
+      throw <| IO.userError
+        s!"MapInt64Ret dump must be .aggregate, got {repr other}"
+  IO.println "  ✓ Map UInt64 Int64 return 24-leaf val-only isInt"
+
 unsafe def testMapParam : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let sourceText :=
@@ -6702,19 +6785,6 @@ private unsafe def testInt64ContainerFailClosed
       "    return v\n\n" ++
       "end ProofForgeV2.Examples\n")
     "Array state element must be UInt64"
-  expectNearPlanErrorContaining session "arr-int64-ret" "Examples.ArrInt64RetNear"
-    ("import ProofForgeV2\n\n" ++
-      "namespace ProofForgeV2.Examples\n\n" ++
-      "open ProofForgeV2.Language\n\n" ++
-      "program ArrInt64RetNear where\n" ++
-      "  state slots : Array Int64 2\n\n" ++
-      "  init() do\n" ++
-      "    slots[0] := 0\n" ++
-      "    slots[1] := 0\n\n" ++
-      "  view get() : Array Int64 2 do\n" ++
-      "    return slots\n\n" ++
-      "end ProofForgeV2.Examples\n")
-    "anonymous Array return requires UInt64 elements"
   expectNearPlanErrorContaining session "opt-i8" "Examples.OptI8Near"
     ("import ProofForgeV2\n\n" ++
       "namespace ProofForgeV2.Examples\n\n" ++
@@ -6739,7 +6809,7 @@ private unsafe def testInt64ContainerFailClosed
       "    return v\n\n" ++
       "end ProofForgeV2.Examples\n")
     "Map state admits only Map UInt64 UInt64"
-  IO.println "  ✓ NEAR Int8 containers / Int64 return / Int64-key Map stay fail closed"
+  IO.println "  ✓ NEAR Int8 containers / Int64-key Map stay fail closed"
 
 /-- N-ANON-RESULT (NEAR ABI): anonymous Option UInt64 none/some via construct
     + setReturnDataLeaves (tag,payload) = (0,0)/(1,v). -/

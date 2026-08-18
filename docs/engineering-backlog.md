@@ -3,7 +3,7 @@ id: ENG-BACKLOG
 title: 工程业务 Backlog（文档↔实现差异 + 构建加速）
 status: draft
 owner: engineering
-updated: 2026-08-17
+updated: 2026-08-18
 normative: false
 ---
 
@@ -684,7 +684,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-17 | **T5**：信封-4 存储拉齐。ICP Option UInt64 2 叶（无 Candid `opt`）；Quint/Soroban/OpenVM/ICP named Struct/Enum 叶 flatten（无 Candid `record`/`variant`）。named/Option return、ICP Map、caller、CAP-D 仍 FC |
 | 2026-08-17 | **T9c**：信封-4 `loopBounds` exact coverage → `forLoop`。Quint/Soroban/OpenVM/ICP 开 LoopSum 计数 trap（非无限 `while`、非 Noir 式展开）。不可约 CFG / 非 loop phi / 臂内 call·emit 仍 FC |
 | 2026-08-17 | **T9a/T9b**：信封-4 if-diamond + `Term.switch`。Quint/Soroban/OpenVM/ICP 开 BranchFlow if/match（臂内 store；Quint flatten `ite`）。`loopBounds` 已由 T9c 打开；irreducible / 臂内 call·emit 仍 FC |
-| 2026-08-17 | **L1–L6 语言面对账**：XRPL Array return 1..8；named param 四洞（XRPL/CW/Solana/Aleo）；Bytes param 八洞；Option param 2 叶十三家；Array param 1..8 十三家；Map param 24 叶只开 NEAR/CW/Quint/Soroban/OpenVM/ICP/XRPL。EVM hashed-slot / Aleo cap-2 / Solana·Noir·Psy Map param 跳过。Principal return / TON entry 聚合 / XRPL TIME/CALLER 仍 FC |
+| 2026-08-18 | **M1–M4 Int64 容器返回 + Bytes return**：十三家 Array Int64 N return（TON 仅 view）；Option Int64 return 2 叶 tag unsigned + payload `isInt`（ICP 不开放 Option Int64 state，construct-only）；Map Int64 return 24 叶只开 NEAR/CW/Quint/Soroban/OpenVM/ICP/XRPL；Bytes return 补 EVM/Solana/Noir/Aleo/TON-view 五洞。Principal return / TON entry 聚合 / Int64-key / UInt128 信封仍 FC |
 | 2026-08-17 | **leftover W4/W5/W6**：Quint/Soroban/OpenVM/ICP Bytes **entry** 叶返回 + **B-RET-MAP** 24 叶（不是把 8 叶 cap 改成 24）。XRPL CAP-D TIME/CALLER 仍 awaiting owner（不开叶）；SHA keep-FC。Map param / TON entry 聚合 / EVM·Solana·Noir·Psy·Aleo Map return 仍 FC |
 | 2026-08-17 | **T8b**：信封-4 Bytes N **view** 叶返回（N 个 UInt64 低 8 位 / Candid 位置元组）。entry Bytes、Principal/Map return、caller、CAP-D 仍 FC |
 | 2026-08-17 | **T8a + B-RET-MAP**：ICP Map UInt64 cap-8 为 24 i64 globals（occ/key/val；Plan `ite`/`bool*` mux + cap-8 assert；无 Candid `map`/`vec`）。Quint/Soroban/OpenVM/ICP **Map return** 现为 24 叶例外（不是把 8 叶 cap 改成 24）。Int64-key/value Map 与 Map param 仍 FC |

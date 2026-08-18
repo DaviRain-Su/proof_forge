@@ -37,7 +37,7 @@ Phase 1：实现
   聚合 `StateStore` 使用 `storeAtomic` 两阶段 IR（先求值全部叶、再写 KV），HostModel
   已固定 empty Map upsert、连续 Map StateStore、PointBox/EnumBox，以及 Option tag/payload 的
   none/some/reset（reset 清零 stale payload）；Option/Array/Map **param** 已 flatten（2 / 1..8 / 24 只读叶）；Int8/16/32 payload、Int64-key Map、
-  Array/Option/Map Int64 return 与 nested Option 仍 FC；
+  Array/Option Int64 return 与 Map UInt64 Int64 24 叶 return 已开；Int64-key / nested Option 仍 FC；
 - **聚合返回**：named Struct/Enum 与 anonymous Array/Option UInt64 保持 ≤8 叶，经单次
   `value_return` 发 N×8-byte LE；dense Map UInt64 UInt64 使用固定 24 叶特例，Bytes 见下；
   nested/非 UInt64 元素返回仍 fail-closed；

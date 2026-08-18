@@ -755,20 +755,20 @@ private def viewAggregateLeafIsIntV1
     CompileResult (Option (Array Bool)) := do
   if isAnonymousOptionTypeIdV1 typeDecls typeId then
     requireOptionUInt64V1 typeDecls types typeId signedNumeric
-    return some #[false, false]
+    return some #[false, signedNumeric]
   if types.isNamedAggregate typeId then
     let marks ← flattenNamedLeafIsIntV1 typeDecls types typeId
     return some marks
   match typeDecls[typeId.toNat]? with
   | some { shape := .array elTid len, name := none, .. } =>
-      unless isUInt64Type types elTid do
+      unless matchesNumericDomain types signedNumeric elTid do
         planError
-          "unsupported Quint semantic shape: Array view return element must be UInt64"
+          "unsupported Quint semantic shape: Array view return element must be UInt64 (or Int64 when signedNumeric)"
       let n := len.toNat
       unless 1 ≤ n && n ≤ 8 do
         planError
           s!"unsupported Quint semantic shape: Array UInt64 N view return must be 1..8 (got {n})"
-      return some (Array.replicate n false)
+      return some (Array.replicate n signedNumeric)
   | some { shape := .bytes len, name := none, .. } =>
       let n := len.toNat
       unless 1 ≤ n && n ≤ 8 do
@@ -777,7 +777,11 @@ private def viewAggregateLeafIsIntV1
       return some (Array.replicate n false)
   | some { shape := .map .., name := none, .. } => do
       requireMapUInt64V1 typeDecls types typeId signedNumeric
-      return some (Array.replicate mapPilotLeafCountV1 false)
+      return some (Id.run do
+        let mut marks : Array Bool := #[]
+        for i in [0:mapPilotLeafCountV1] do
+          marks := marks.push (signedNumeric && i % 3 == 2)
+        pure marks)
   | _ =>
       return none
 

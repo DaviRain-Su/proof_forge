@@ -892,19 +892,23 @@ private def anonymousReturnLeafAbiV1
     (typeId : TypeIdV1) : CompileResult (Option (Array LeafAbiType)) := do
   match typeDecls[typeId.toNat]? with
   | some { shape := .array elTid len, name := none, .. } =>
-      unless elTid == types.uint64TypeId do
+      let leafIsInt := types.int64TypeId == some elTid
+      unless elTid == types.uint64TypeId || leafIsInt do
         planError
-          "unsupported Psy semantic shape: anonymous Array return requires UInt64 elements"
+          "unsupported Psy semantic shape: anonymous Array return requires UInt64 or Int64 elements"
       let n := len.toNat
       unless n ≥ 1 do
         planError
           "unsupported Psy semantic shape: anonymous Array return length must be ≥ 1"
-      pure (some (Array.replicate n { isInt := false, byteWidth := 8 }))
+      pure (some (Array.replicate n { isInt := leafIsInt, byteWidth := 8 }))
   | some { shape := .option elTid, name := none, .. } =>
-      unless elTid == types.uint64TypeId do
+      let payloadIsInt := types.int64TypeId == some elTid
+      unless elTid == types.uint64TypeId || payloadIsInt do
         planError
-          "unsupported Psy semantic shape: anonymous Option return requires UInt64 payload"
-      pure (some #[{ isInt := false, byteWidth := 8 }, { isInt := false, byteWidth := 8 }])
+          "unsupported Psy semantic shape: anonymous Option return requires UInt64 or Int64 payload"
+      pure (some #[
+        { isInt := false, byteWidth := 8 },
+        { isInt := payloadIsInt, byteWidth := 8 }])
   | some { shape := .bytes n, name := none, .. } =>
       let len := n.toNat
       unless len ≥ 1 && len ≤ psyBytesMaxLenV1 do

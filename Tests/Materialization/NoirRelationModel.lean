@@ -3882,6 +3882,77 @@ unsafe def testArrayParam : IO Unit := do
     s!"ArrParam must flatten to a_0/a_1, got {repr put.sourceRelation.params}"
   IO.println "  ✓ ArrParam N×u64 public-input flatten"
 
+unsafe def testArrayInt64Return : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ArrInt64RetNoir where\n" ++
+    "  state slots : Array Int64 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  view get() : Array Int64 2 do\n" ++
+    "    return slots\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let ir ← compileIrFromProgramV1 sourceText
+    "Examples.ArrInt64RetNoir" "<noir-arr-int64-ret>"
+  let get ← findRelation ir "get"
+  let resultLeaves := get.sourceRelation.inputs.filter fun b =>
+    match b.role with | .resultLeaf _ => true | _ => false
+  expect (resultLeaves.size == 2)
+    s!"ArrInt64Ret get must have 2 resultLeaf inputs, got {resultLeaves.size}"
+  expect (resultLeaves.all (·.type == .i64))
+    "ArrInt64Ret result leaves must be i64"
+  IO.println "  ✓ Array Int64 2 view return 2-leaf i64"
+
+unsafe def testOptionInt64Return : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program OptInt64RetNoir where\n" ++
+    "  state slot : Option Int64\n\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n\n" ++
+    "  view get() : Option Int64 do\n" ++
+    "    return slot\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let ir ← compileIrFromProgramV1 sourceText
+    "Examples.OptInt64RetNoir" "<noir-opt-int64-ret>"
+  let get ← findRelation ir "get"
+  let resultLeaves := get.sourceRelation.inputs.filter fun b =>
+    match b.role with | .resultLeaf _ => true | _ => false
+  expect (resultLeaves.size == 2)
+    s!"OptInt64Ret get must have 2 resultLeaf inputs, got {resultLeaves.size}"
+  expect (resultLeaves[0]!.type == .u64 && resultLeaves[1]!.type == .i64)
+    "OptInt64Ret must be tag u64 + payload i64"
+  IO.println "  ✓ Option Int64 view return tag u64 + payload i64"
+
+unsafe def testBytesReturn : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program BytesRetNoir where\n" ++
+    "  state payload : Bytes 2\n\n" ++
+    "  init() do\n" ++
+    "    payload[0] := 1\n" ++
+    "    payload[1] := 2\n\n" ++
+    "  view getBytes() : Bytes 2 do\n" ++
+    "    return payload\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let ir ← compileIrFromProgramV1 sourceText
+    "Examples.BytesRetNoir" "<noir-bytes-ret>"
+  let get ← findRelation ir "getBytes"
+  let resultLeaves := get.sourceRelation.inputs.filter fun b =>
+    match b.role with | .resultLeaf _ => true | _ => false
+  expect (resultLeaves.size == 2)
+    s!"BytesRet getBytes must have 2 resultLeaf inputs, got {resultLeaves.size}"
+  expect (resultLeaves.all (·.type == .u8))
+    "BytesRet result leaves must be u8"
+  IO.println "  ✓ Bytes 2 view return 2×u8 leaves"
+
 /-- B-RET-ABI: named Struct view return lowers to `.returnAggregate` with
 two resultLeaf verifier inputs (preorder leaves). -/
 private unsafe def checkAggregateReturnProduct : IO Unit := do
@@ -4097,20 +4168,6 @@ private unsafe def expectAnonymousReturnFailClosed
                 s!"{label}: Noir must fail closed on this anonymous return shape"
 
 private unsafe def checkAnonymousReturnFailClosed : IO Unit := do
-  -- Bytes N return remains fail closed.
-  expectAnonymousReturnFailClosed "bytes-ret" "Examples.BytesRet"
-    ("import ProofForgeV2\n\n" ++
-      "namespace ProofForgeV2.Examples\n\n" ++
-      "open ProofForgeV2.Language\n\n" ++
-      "program BytesRet where\n" ++
-      "  state payload : Bytes 2\n\n" ++
-      "  init() do\n" ++
-      "    payload[0] := 1\n" ++
-      "    payload[1] := 2\n\n" ++
-      "  view getBytes() : Bytes 2 do\n" ++
-      "    return payload\n\n" ++
-      "end ProofForgeV2.Examples\n")
-    #["Bytes", "return", "B-RET", "unsupported", "anonymous"]
   -- Map return remains fail closed.
   expectAnonymousReturnFailClosed "map-ret" "Examples.MapRet"
     ("import ProofForgeV2\n\n" ++
@@ -4327,20 +4384,7 @@ private unsafe def testInt64ContainerFailClosed : IO Unit := do
       "    return v\n\n" ++
       "end ProofForgeV2.Examples\n")
     "Map state admits only Map UInt64 UInt64"
-  expectNoirPlanErrorContaining "arr-int64-ret" "Examples.ArrInt64RetNoir"
-    ("import ProofForgeV2\n\n" ++
-      "namespace ProofForgeV2.Examples\n\n" ++
-      "open ProofForgeV2.Language\n\n" ++
-      "program ArrInt64RetNoir where\n" ++
-      "  state slots : Array Int64 2\n\n" ++
-      "  init() do\n" ++
-      "    slots[0] := 0\n" ++
-      "    slots[1] := 0\n\n" ++
-      "  view get() : Array Int64 2 do\n" ++
-      "    return slots\n\n" ++
-      "end ProofForgeV2.Examples\n")
-    "anonymous Array return requires UInt64 elements"
-  IO.println "  ✓ Noir Int8 containers / Int64-key Map / Array Int64 return stay fail closed"
+  IO.println "  ✓ Noir Int8 containers / Int64-key Map stay fail closed"
 
 /-- T3: scalar Op.Constant inlines as the existing literal envelope. -/
 private unsafe def testScalarConstInline : IO Unit := do

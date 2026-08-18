@@ -490,7 +490,10 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
             planError s!"Quint entry '{ent.name}' aggregate signedness {i} is missing"
           if exprUsesVaultNativeV1 leaf then
             anyVaultUse := true
-          let ty := if isInt then ExprType.int64 else ExprType.uint64
+          -- Envelope-5 expressions are homogeneous. `leafIsInt` is ABI-only;
+          -- unsigned tag/occ marks still type as Int64 when signedNumeric.
+          let _ := isInt
+          let ty := if signed then ExprType.int64 else ExprType.uint64
           exprBudget ←
             validateExpr leaf ty "entry aggregate leaf" ent.params.size plan.states.size
               ent.assetOps.size exprBudget ent.paramIsPrincipal signed
@@ -545,7 +548,8 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
             planError s!"Quint view '{v.name}' aggregate leaf {i} is missing"
           let some isInt := v.leafIsInt[i]? |
             planError s!"Quint view '{v.name}' aggregate signedness {i} is missing"
-          let ty := if isInt then ExprType.int64 else ExprType.uint64
+          let _ := isInt
+          let ty := if signed then ExprType.int64 else ExprType.uint64
           exprBudget ←
             validateExpr e ty "view aggregate leaf" v.params.size plan.states.size 0
               exprBudget #[] signed

@@ -3307,21 +3307,6 @@ private unsafe def testAggregateFailClosed
       | .ok _ =>
           throw <| IO.userError
             "Solana Array UInt64 9 return must fail closed (cap-8)"
-  -- Bytes N result stays fail-closed.
-  let bytesSource := wrapProgram "BytesRet" <|
-    "  state b : Bytes 2\n\n" ++
-    "  init() do\n" ++
-    "    b[0] := 0\n" ++
-    "    b[1] := 0\n\n" ++
-    "  view getB() : Bytes 2 do\n" ++
-    "    return b\n"
-  match ← (do
-      try
-        let c ← compileSource session bytesSource "Examples.BytesRet" "<solana-bytes-ret>"
-        pure (some c)
-      catch _ => pure none) with
-  | none => pure ()
-  | some c => expectPlanError "BytesRet" (planSolana c)
   -- Map result stays fail-closed.
   let mapSource := wrapProgram "MapRet" <|
     "  state m : Map UInt64 UInt64\n\n" ++
@@ -3766,17 +3751,6 @@ private unsafe def testInt64ContainerFailClosed
     "<solana-arr-i8>"
   expectPlanErrorContaining "ArrI8" "Array state element must be UInt64"
     (planSolana arrI8Compiled)
-  let arrRet := wrapProgram "ArrInt64RetSol" <|
-    "  state slots : Array Int64 2\n\n" ++
-    "  init() do\n" ++
-    "    slots[0] := 0\n" ++
-    "    slots[1] := 0\n\n" ++
-    "  view get() : Array Int64 2 do\n" ++
-    "    return slots\n"
-  let arrRetCompiled ← compileSource session arrRet "Examples.ArrInt64RetSol"
-    "<solana-arr-int64-ret>"
-  expectPlanErrorContaining "ArrInt64Ret" "anonymous Array return element must be UInt64"
-    (planSolana arrRetCompiled)
   let optI8 := wrapProgram "OptI8Sol" <|
     "  state o : Option Int8\n\n" ++
     "  init() do\n" ++
@@ -3797,7 +3771,7 @@ private unsafe def testInt64ContainerFailClosed
     "<solana-map-int-key>"
   expectPlanErrorContaining "MapIntKey" "Map state admits only Map UInt64 UInt64"
     (planSolana mapKeyCompiled)
-  IO.println "  ✓ Solana Int8 containers / Int64 return / Int64-key Map stay fail closed"
+  IO.println "  ✓ Solana Int8 containers / Int64-key Map stay fail closed"
 
 /-- T3: scalar Op.Constant inlines as the existing literal envelope. -/
 private unsafe def testScalarConstInline
@@ -3878,6 +3852,77 @@ unsafe def testArrayParam : IO Unit := do
   expect (put.params.map (·.name) == #["a_0", "a_1"])
     s!"ArrParam must flatten to a_0/a_1, got {put.params.map (·.name)}"
   IO.println "  ✓ ArrParam N×UInt64 flatten"
+
+unsafe def testArrayInt64Return : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source := wrapProgram "ArrInt64RetSol" <|
+    "  state slots : Array Int64 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  view get() : Array Int64 2 do\n" ++
+    "    return slots\n"
+  let compiled ← compileSource session source "Examples.ArrInt64RetSol"
+    "<solana-arr-int64-ret>"
+  let plan ← liftResult <| planSolana compiled
+  let get ← findHandler plan "get"
+  match get.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"ArrInt64Ret aggregate return must have 2 leaves, got {leaves.size}"
+      expect (leaves[0]!.isInt && leaves[1]!.isInt)
+        "ArrInt64Ret leaves must be Int64"
+  | other =>
+      throw <| IO.userError
+        s!"ArrInt64Ret get resultKind must be .aggregate, got {repr other}"
+  IO.println "  ✓ Array Int64 2 view return 2-leaf int64"
+
+unsafe def testOptionInt64Return : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source := wrapProgram "OptInt64RetSol" <|
+    "  state slot : Option Int64\n\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n\n" ++
+    "  view get() : Option Int64 do\n" ++
+    "    return slot\n"
+  let compiled ← compileSource session source "Examples.OptInt64RetSol"
+    "<solana-opt-int64-ret>"
+  let plan ← liftResult <| planSolana compiled
+  let get ← findHandler plan "get"
+  match get.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"OptInt64Ret must have 2 leaves, got {leaves.size}"
+      expect (!leaves[0]!.isInt && leaves[1]!.isInt)
+        "OptInt64Ret must be tag unsigned + payload isInt"
+  | other =>
+      throw <| IO.userError
+        s!"OptInt64Ret get resultKind must be .aggregate, got {repr other}"
+  IO.println "  ✓ Option Int64 view return tag+signed payload"
+
+unsafe def testBytesReturn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source := wrapProgram "BytesRetSol" <|
+    "  state b : Bytes 2\n\n" ++
+    "  init() do\n" ++
+    "    b[0] := 0\n" ++
+    "    b[1] := 0\n\n" ++
+    "  view getB() : Bytes 2 do\n" ++
+    "    return b\n"
+  let compiled ← compileSource session source "Examples.BytesRetSol"
+    "<solana-bytes-ret>"
+  let plan ← liftResult <| planSolana compiled
+  let getB ← findHandler plan "getB"
+  match getB.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"BytesRet must have 2 leaves, got {leaves.size}"
+      expect (leaves.all (fun l => !l.isInt && l.byteWidth == 1))
+        "BytesRet leaves must be UInt8"
+  | other =>
+      throw <| IO.userError
+        s!"BytesRet getB resultKind must be .aggregate, got {repr other}"
+  IO.println "  ✓ Bytes 2 view return 2×UInt8 leaves"
 
 unsafe def run : IO Unit := do
   testNarrowIntAbi

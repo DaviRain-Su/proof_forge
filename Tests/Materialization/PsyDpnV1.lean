@@ -757,6 +757,61 @@ unsafe def testArrayParam : IO Unit := do
   expect (put.params.map (·.name) == #["a_0", "a_1"])
     s!"ArrParam must flatten to a_0/a_1, got {put.params.map (·.name)}"
 
+unsafe def testArrayInt64Return : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrInt64Ret where\n" ++
+    "  state slots : Array Int64 2\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
+    "  view get() : Array Int64 2 do\n" ++
+    "    return slots\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<dpn-arr-int64-ret>" "Tests.DpnArrInt64Ret" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planFromCompiledSemanticV1 compiled
+  let some get := plan.functions.find? (·.name == "get") |
+    throw <| IO.userError "ArrInt64Ret missing get"
+  match get.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"ArrInt64Ret aggregate return must have 2 leaves, got {leaves.size}"
+      expect (leaves[0]!.isInt && leaves[1]!.isInt)
+        "ArrInt64Ret leaves must be Int64"
+  | other =>
+      throw <| IO.userError
+        s!"ArrInt64Ret get resultKind must be .aggregate, got {repr other}"
+
+unsafe def testOptionInt64Return : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptInt64Ret where\n" ++
+    "  state slot : Option Int64\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n" ++
+    "  view get() : Option Int64 do\n" ++
+    "    return slot\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<dpn-opt-int64-ret>" "Tests.DpnOptInt64Ret" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planFromCompiledSemanticV1 compiled
+  let some get := plan.functions.find? (·.name == "get") |
+    throw <| IO.userError "OptInt64Ret missing get"
+  match get.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2)
+        s!"OptInt64Ret must have 2 leaves, got {leaves.size}"
+      expect (!leaves[0]!.isInt && leaves[1]!.isInt)
+        "OptInt64Ret must be tag unsigned + payload isInt"
+  | other =>
+      throw <| IO.userError
+        s!"OptInt64Ret get resultKind must be .aggregate, got {repr other}"
+
 /-- T1: Option Int64 state — names-only tag+payload; isInt from TypeId. -/
 unsafe def testOptionInt64ProductLower : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -1491,17 +1546,6 @@ unsafe def testInt64ContainerFailClosed : IO Unit := do
      "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
      "    return v\n")
     "<dpn-map-int-key>" "Tests.DpnMapIntKey"
-  expectFc "ArrInt64Ret" "anonymous Array return requires UInt64"
-    ("import ProofForgeV2\n" ++
-     "open ProofForgeV2.Language\n" ++
-     "program ArrInt64Ret where\n" ++
-     "  state slots : Array Int64 2\n" ++
-     "  init() do\n" ++
-     "    slots[0] := 0\n" ++
-     "    slots[1] := 0\n" ++
-     "  view get() : Array Int64 2 do\n" ++
-     "    return slots\n")
-    "<dpn-arr-int64-ret>" "Tests.DpnArrInt64Ret"
   expectFc "NestedOpt" "requires UInt64 payload"
     ("import ProofForgeV2\n" ++
      "open ProofForgeV2.Language\n" ++
@@ -2902,6 +2946,8 @@ unsafe def run : IO Unit := do
   testOptionStateProductLower
   testOptionParam
   testArrayParam
+  testArrayInt64Return
+  testOptionInt64Return
   testOptionInt64ProductLower
   testWideCounterDpnWide
   testWideCounter256DpnWide
