@@ -4421,6 +4421,36 @@ def prepareProgramLoweringFinalizationCoreV1
   let callables ← assignExactInvariantStepsV1 bodies.callables
   pure { interner := bodies.interner, callables }
 
+/-- Finalization never rewrites the body interner; TypeIds stay those interned
+    during tables + callable lowering. Kernel certificates project types from
+    the staged interner instead of re-reducing `assembleProgramLoweringDataV1`. -/
+theorem prepareProgramLoweringFinalizationCoreV1_interner
+    (bodies : ProgramLoweringBodiesV1) (core : ProgramLoweringFinalizationCoreV1)
+    (h : prepareProgramLoweringFinalizationCoreV1 bodies = .ok core) :
+    core.interner = bodies.interner := by
+  unfold prepareProgramLoweringFinalizationCoreV1 at h
+  cases hassign : assignExactInvariantStepsV1 bodies.callables with
+  | error _ =>
+      simp [hassign, Bind.bind, Except.bind] at h
+  | ok _ =>
+      simp [hassign, Bind.bind, Except.bind, Pure.pure, Except.pure] at h
+      cases h
+      rfl
+
+/-- When no callable is an invariant root, exact-step assignment is identity
+    and the finalized callable table is the body table. -/
+theorem prepareProgramLoweringFinalizationCoreV1_callables_no_invariant
+    (bodies : ProgramLoweringBodiesV1) (core : ProgramLoweringFinalizationCoreV1)
+    (h : prepareProgramLoweringFinalizationCoreV1 bodies = .ok core)
+    (hinv : (bodies.callables.toList.any
+        (fun callable => callable.kind == .invariant)) = false) :
+    core.callables = bodies.callables := by
+  unfold prepareProgramLoweringFinalizationCoreV1 at h
+  unfold assignExactInvariantStepsV1 at h
+  simp [hinv, Bind.bind, Except.bind, Pure.pure, Except.pure] at h
+  cases h
+  rfl
+
 /-- Normalize the existing S2 requirement freezer's error into the production
     normalizer error domain. -/
 def freezeProgramLoweringS2RequirementsV1

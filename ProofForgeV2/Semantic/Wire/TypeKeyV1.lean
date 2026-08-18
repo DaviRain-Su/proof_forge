@@ -1525,6 +1525,11 @@ private def usageClosureBoolUInt64TypesV1 : Array TypeDeclV1 := #[
   { id := 1, name := none, shape := .uint 64 }
 ]
 
+private def usageClosureUInt64UnitTypesV1 : Array TypeDeclV1 := #[
+  { id := 0, name := none, shape := .uint 64 },
+  { id := 1, name := none, shape := .unit }
+]
+
 private def usageClosureBoolUInt64UnitTypesV1 : Array TypeDeclV1 := #[
   { id := 0, name := none, shape := .bool },
   { id := 1, name := none, shape := .uint 64 },
@@ -1548,6 +1553,20 @@ theorem anonymousTypeUsageBitmapV1_allAnonymousLeaf_boolUInt64
   dsimp [anonymousTypeUsageBitmapV1, markCoreTypeSlotRootsLeafV1]
   rw [htypes, hleaf]
   simp [usageClosureBoolUInt64TypesV1, Array.replicate, Array.size, ↓reduceIte]
+
+theorem anonymousTypeUsageBitmapV1_allAnonymousLeaf_uint64Unit
+    (data : SemanticProgramDataV1)
+    (htypes : data.types = #[{ id := 0, name := none, shape := .uint 64 },
+                            { id := 1, name := none, shape := .unit }]) :
+    anonymousTypeUsageBitmapV1 data =
+      foldBoolUInt64CoreRootsV1 (collectCoreTypeSlotRootsV1 data) := by
+  have hleaf : allUsageLeafTypesV1
+      #[{ id := 0, name := none, shape := .uint 64 },
+        { id := 1, name := none, shape := .unit }] = true := by
+    simp [allUsageLeafTypesV1, isUsageLeafTypeDeclV1, isUsageLeafTypeShapeV1]
+  dsimp [anonymousTypeUsageBitmapV1, markCoreTypeSlotRootsLeafV1]
+  rw [htypes, hleaf]
+  simp [usageClosureUInt64UnitTypesV1, Array.replicate, Array.size, ↓reduceIte]
 
 theorem anonymousTypeUsageBitmapV1_allAnonymousLeaf_boolUInt64Unit
     (data : SemanticProgramDataV1)
@@ -1598,6 +1617,201 @@ theorem foldBoolUInt64CoreRootsV1_statefulEqualityRoots :
   unfold foldBoolUInt64CoreRootsV1
   simp [Array.foldl, Array.set!, Array.replicate]
 
+/-- Kernel-friendly fold for the StateCell production Core-root list
+    (logicalState UInt64 plus initializer Unit result plus body UInt64 slots). -/
+theorem foldBoolUInt64CoreRootsV1_stateCellRoots :
+    foldBoolUInt64CoreRootsV1
+      #[0, 0, 1, 0, 0, 0, 0, 0, 0, 0] = #[true, true] := by
+  unfold foldBoolUInt64CoreRootsV1
+  simp [Array.foldl, Array.set!, Array.replicate]
+
+private def markBoolUInt64RootV1 (used : Array Bool) (root : TypeIdV1) : Array Bool :=
+  match root.toNat with
+  | 0 => used.set! 0 true
+  | 1 => used.set! 1 true
+  | _ => used
+
+private theorem foldBoolUInt64CoreRootsV1_eq_foldl_toList
+    (roots : Array TypeIdV1) :
+    foldBoolUInt64CoreRootsV1 roots =
+      roots.toList.foldl markBoolUInt64RootV1 (Array.replicate 2 false) := by
+  unfold foldBoolUInt64CoreRootsV1 markBoolUInt64RootV1
+  simp [Array.foldl_toList]
+
+private theorem markBoolUInt64RootV1_size
+    (used : Array Bool) (root : TypeIdV1) (h : used.size = 2) :
+    (markBoolUInt64RootV1 used root).size = 2 := by
+  unfold markBoolUInt64RootV1
+  split <;> simp [Array.size_setIfInBounds, h]
+
+private theorem markBoolUInt64RootV1_preserves
+    (used : Array Bool) (root : TypeIdV1) (h : used.size = 2)
+    (i : Nat) (hi : i < 2)
+    (htrue : used[i]'(by simp [h, hi]) = true) :
+    (markBoolUInt64RootV1 used root)[i]'(by
+        simp [markBoolUInt64RootV1_size used root h, hi]) = true := by
+  have hj : i < used.size := by simp [h, hi]
+  by_cases h0 : root.toNat = 0
+  · have hmark : markBoolUInt64RootV1 used root = used.set! 0 true := by
+      simp [markBoolUInt64RootV1, h0]
+    simp [hmark, Array.getElem_setIfInBounds (hj := hj), htrue]
+  · by_cases h1 : root.toNat = 1
+    · have hmark : markBoolUInt64RootV1 used root = used.set! 1 true := by
+        simp [markBoolUInt64RootV1, h1]
+      simp [hmark, Array.getElem_setIfInBounds (hj := hj), htrue]
+    · have hmark : markBoolUInt64RootV1 used root = used := by
+        unfold markBoolUInt64RootV1
+        split
+        · next heq => exact (h0 heq).elim
+        · next heq => exact (h1 heq).elim
+        · rfl
+      simpa [hmark] using htrue
+
+private theorem markBoolUInt64RootV1_sets_zero
+    (used : Array Bool) (h : used.size = 2) :
+    (markBoolUInt64RootV1 used 0)[0]'(by
+        simp [markBoolUInt64RootV1_size used 0 h]) = true := by
+  unfold markBoolUInt64RootV1
+  simp [Array.getElem_setIfInBounds_self]
+
+private theorem markBoolUInt64RootV1_sets_one
+    (used : Array Bool) (h : used.size = 2) :
+    (markBoolUInt64RootV1 used 1)[1]'(by
+        simp [markBoolUInt64RootV1_size used 1 h]) = true := by
+  unfold markBoolUInt64RootV1
+  simp [Array.getElem_setIfInBounds_self]
+
+private theorem foldl_markBoolUInt64RootV1_size
+    (roots : List TypeIdV1) (used : Array Bool) (h : used.size = 2) :
+    (roots.foldl markBoolUInt64RootV1 used).size = 2 := by
+  induction roots generalizing used with
+  | nil => simpa
+  | cons root rest ih =>
+      exact ih (markBoolUInt64RootV1 used root) (markBoolUInt64RootV1_size used root h)
+
+private theorem foldl_markBoolUInt64RootV1_preserves
+    (roots : List TypeIdV1) (used : Array Bool) (h : used.size = 2)
+    (i : Nat) (hi : i < 2)
+    (htrue : used[i]'(by simp [h, hi]) = true) :
+    (roots.foldl markBoolUInt64RootV1 used)[i]'(by
+        simp [foldl_markBoolUInt64RootV1_size roots used h, hi]) = true := by
+  induction roots generalizing used with
+  | nil => simpa
+  | cons root rest ih =>
+      exact ih (markBoolUInt64RootV1 used root)
+        (markBoolUInt64RootV1_size used root h)
+        (markBoolUInt64RootV1_preserves used root h i hi htrue)
+
+private theorem foldl_markBoolUInt64RootV1_mem_zero
+    (roots : List TypeIdV1) (used : Array Bool) (h : used.size = 2)
+    (hmem : (0 : TypeIdV1) ∈ roots) :
+    (roots.foldl markBoolUInt64RootV1 used)[0]'(by
+        simp [foldl_markBoolUInt64RootV1_size roots used h]) = true := by
+  induction roots generalizing used with
+  | nil => cases hmem
+  | cons root rest ih =>
+      have hsize' := markBoolUInt64RootV1_size used root h
+      simp only [List.mem_cons] at hmem
+      rcases hmem with hroot | hrest
+      · subst hroot
+        exact foldl_markBoolUInt64RootV1_preserves rest
+          (markBoolUInt64RootV1 used 0) hsize' 0 (by decide)
+          (markBoolUInt64RootV1_sets_zero used h)
+      · exact ih (markBoolUInt64RootV1 used root) hsize' hrest
+
+private theorem foldl_markBoolUInt64RootV1_mem_one
+    (roots : List TypeIdV1) (used : Array Bool) (h : used.size = 2)
+    (hmem : (1 : TypeIdV1) ∈ roots) :
+    (roots.foldl markBoolUInt64RootV1 used)[1]'(by
+        simp [foldl_markBoolUInt64RootV1_size roots used h]) = true := by
+  induction roots generalizing used with
+  | nil => cases hmem
+  | cons root rest ih =>
+      have hsize' := markBoolUInt64RootV1_size used root h
+      simp only [List.mem_cons] at hmem
+      rcases hmem with hroot | hrest
+      · subst hroot
+        exact foldl_markBoolUInt64RootV1_preserves rest
+          (markBoolUInt64RootV1 used 1) hsize' 1 (by decide)
+          (markBoolUInt64RootV1_sets_one used h)
+      · exact ih (markBoolUInt64RootV1 used root) hsize' hrest
+
+/-- Membership of TypeId 0 and 1 is enough to mark both anonymous UInt64+Unit
+    slots; callers must not unfold instruction CFGs. -/
+theorem foldBoolUInt64CoreRootsV1_of_mem
+    (roots : Array TypeIdV1)
+    (h0 : (0 : TypeIdV1) ∈ roots)
+    (h1 : (1 : TypeIdV1) ∈ roots) :
+    foldBoolUInt64CoreRootsV1 roots = #[true, true] := by
+  have hlist0 : (0 : TypeIdV1) ∈ roots.toList := (Array.mem_def).1 h0
+  have hlist1 : (1 : TypeIdV1) ∈ roots.toList := (Array.mem_def).1 h1
+  have hsize : (Array.replicate 2 false).size = 2 := by simp
+  let folded := roots.toList.foldl markBoolUInt64RootV1 (Array.replicate 2 false)
+  have hfoldSize : folded.size = 2 :=
+    foldl_markBoolUInt64RootV1_size roots.toList (Array.replicate 2 false) hsize
+  have hfold0 :
+      folded[0]'(by simp [hfoldSize]) = true :=
+    foldl_markBoolUInt64RootV1_mem_zero roots.toList (Array.replicate 2 false)
+      hsize hlist0
+  have hfold1 :
+      folded[1]'(by simp [hfoldSize]) = true :=
+    foldl_markBoolUInt64RootV1_mem_one roots.toList (Array.replicate 2 false)
+      hsize hlist1
+  rw [foldBoolUInt64CoreRootsV1_eq_foldl_toList]
+  change folded = #[true, true]
+  apply Array.ext
+  · exact hfoldSize.trans rfl
+  · intro i hleft _
+    have hi : i < 2 := hfoldSize ▸ hleft
+    match i with
+    | 0 => simpa [folded] using hfold0
+    | 1 => simpa [folded] using hfold1
+    | n + 2 =>
+        have : n + 2 < 2 := hi
+        omega
+
+/-- Logical-state TypeIds are Core roots; does not inspect callable CFGs. -/
+theorem collectCoreTypeSlotRootsV1_mem_logicalState
+    (data : SemanticProgramDataV1) (s : StateDeclV1)
+    (hs : s ∈ data.logicalState) :
+    s.typeId ∈ collectCoreTypeSlotRootsV1 data := by
+  unfold collectCoreTypeSlotRootsV1
+  exact Array.mem_append_left _ <|
+    Array.mem_append_left _ <|
+    Array.mem_append_left _ <|
+    Array.mem_append_right _ <|
+      Array.mem_map_of_mem hs
+
+private theorem callableResultTypeId_mem_callableRoots (callable : CallableV1) :
+    callable.result.typeId ∈
+      (let roots := callable.params.map (·.typeId)
+       let roots := roots.push callable.result.typeId
+       roots ++ callable.blocks.flatMap fun block =>
+         let roots := roots ++ block.params.map (·.typeId)
+         roots ++ block.instructions.flatMap fun instr =>
+           let roots :=
+             match instr.result with
+             | some vd => #[vd.typeId]
+             | none => #[]
+           let roots :=
+             match instr.op with
+             | .literal typeId _ => roots.push typeId
+             | .construct typeId _ _ => roots.push typeId
+             | .checkedCast _ toType => roots.push toType
+             | _ => roots
+           roots) :=
+  Array.mem_append_left _
+    (Array.mem_push_self (xs := callable.params.map (·.typeId)))
+
+/-- Callable result TypeIds are Core roots; does not inspect block bodies. -/
+theorem collectCoreTypeSlotRootsV1_mem_callable_result
+    (data : SemanticProgramDataV1) (callable : CallableV1)
+    (hc : callable ∈ data.callables) :
+    callable.result.typeId ∈ collectCoreTypeSlotRootsV1 data := by
+  unfold collectCoreTypeSlotRootsV1
+  exact Array.mem_append_right _ <|
+    Array.mem_flatMap_of_mem hc (callableResultTypeId_mem_callableRoots callable)
+
 theorem foldBoolUInt64UnitCoreRootsV1_initializerViewRoots :
     foldBoolUInt64UnitCoreRootsV1
       #[1, 1, 2, 1, 1, 1, 1, 1, 1, 0, 1, 1, 0] = #[true, true, true] := by
@@ -1647,6 +1861,18 @@ theorem validateAnonymousTypeUsageClosureV1_bool_uint64_coreMarked_eq_ok
     (data : SemanticProgramDataV1)
     (htypes : data.types = #[{ id := 0, name := none, shape := .bool },
                             { id := 1, name := none, shape := .uint 64 }])
+    (hbitmap : anonymousTypeUsageBitmapV1 data = #[true, true]) :
+    validateAnonymousTypeUsageClosureV1 data = .ok () := by
+  unfold validateAnonymousTypeUsageClosureV1
+  rw [htypes]
+  simp only [Array.isEmpty, Array.size, ↓reduceIte]
+  rw [hbitmap]
+  simp [Pure.pure, Except.pure, Bind.bind, Except.bind, ForIn.forIn]
+
+theorem validateAnonymousTypeUsageClosureV1_uint64_unit_coreMarked_eq_ok
+    (data : SemanticProgramDataV1)
+    (htypes : data.types = #[{ id := 0, name := none, shape := .uint 64 },
+                            { id := 1, name := none, shape := .unit }])
     (hbitmap : anonymousTypeUsageBitmapV1 data = #[true, true]) :
     validateAnonymousTypeUsageClosureV1 data = .ok () := by
   unfold validateAnonymousTypeUsageClosureV1
