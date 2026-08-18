@@ -136,8 +136,8 @@ private partial def validateStatements (stmts : Array Statement) : CompileResult
         | none => planError "Psy plan expression exceeds the depth/node limit"
     | .returnAggregate leaves leafIsInt => do
         -- B-RET-ABI: 1..8 leaves, UInt64/Int64 words only (byteWidth checked on ResultKind).
-        unless leaves.size > 0 && leaves.size ≤ 8 do
-          planError "Psy returnAggregate leaf count must be in 1..8 (B-RET-ABI)"
+        unless leaves.size > 0 && (leaves.size ≤ 8 || leaves.size == 24) do
+          planError "Psy returnAggregate leaf count must be in 1..8 (B-RET-ABI) or 24 (B-RET-MAP)"
         unless leafIsInt.size == leaves.size do
           planError "Psy returnAggregate leafIsInt length must match leaves"
         for leaf in leaves do
@@ -441,8 +441,8 @@ private def validateResultKind (fn : PlanFunction) : CompileResult Unit := do
   match fn.resultKind with
   | .felt | .bool | .unit => pure ()
   | .aggregate leaves =>
-      unless leaves.size > 0 && leaves.size ≤ 8 do
-        planError s!"function '{fn.name}' aggregate resultKind leaf count must be in 1..8 (B-RET-ABI)"
+      unless leaves.size > 0 && (leaves.size ≤ 8 || leaves.size == 24) do
+        planError s!"function '{fn.name}' aggregate resultKind leaf count must be in 1..8 (B-RET-ABI) or 24 (B-RET-MAP)"
       let isWideUintAbi :=
         (leaves.size == 4 || leaves.size == 8) &&
           leaves.all (fun leaf => !leaf.isInt && leaf.byteWidth == 4)

@@ -267,9 +267,9 @@ private def validateRelation (plan : Plan) (expectedIndex baseNodes : Nat)
     | .u64 | .bool | .field | .u8 | .u16 | .u32 | .u128 | .u256
     | .i8 | .i16 | .i32 | .i64 => pure ()
     | .aggregate leaves =>
-        unless leaves.size > 0 && leaves.size <= 8 do
+        unless leaves.size > 0 && (leaves.size <= 8 || leaves.size == 24) do
           throw <| .planInvariant .noir
-            s!"relation '{relation.name}' aggregate result leaf count outside 1..8"
+            s!"relation '{relation.name}' aggregate result leaf count outside 1..8 (or 24 B-RET-MAP)"
   let (total, closed) ← checkRelationStatementsV1
     plan relation (relation.mode == .view) relation.body baseNodes
   unless closed do

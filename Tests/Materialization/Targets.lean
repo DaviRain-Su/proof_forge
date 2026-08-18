@@ -5398,9 +5398,10 @@ unsafe def runSignedContainerNeedles : IO Unit := do
       s!"MapMini: {target} must materialize Map UInt64 UInt64"
 
   -- MapRetBox: Map UInt64 UInt64 *entry* return. NEAR/CW + envelope-4
-  -- (Quint/Soroban/OpenVM/ICP) admit 24-leaf return. Aleo admits the
-  -- existing cap-2 6-leaf flatten (≤ B-RET 8; not a 24-leaf exception).
-  -- EVM/Solana/Noir/Psy named B-RET FC; TON entry aggregate stays FC.
+  -- (Quint/Soroban/OpenVM/ICP) + Solana/Noir/Psy admit 24-leaf return.
+  -- Aleo admits the existing cap-2 6-leaf flatten (≤ B-RET 8; not a
+  -- 24-leaf exception). EVM hashed 1-slot stays FC; TON entry aggregate
+  -- stays FC (view Map return is pinned in TonPlanV1).
   -- Entry peek, not Map index get (Option). MapMini state pin stays.
   let mapRetSource :=
     "import ProofForgeV2\n\n" ++
@@ -5419,18 +5420,13 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     | .error e => throw <| IO.userError s!"MapRetBox select: {e.render}"
   let mapRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 mapRetV1
   for target in [TargetId.near, TargetId.cosmwasm, TargetId.quint,
-      TargetId.soroban, TargetId.openvm, TargetId.icp, TargetId.aleo] do
+      TargetId.soroban, TargetId.openvm, TargetId.icp, TargetId.aleo,
+      TargetId.solana, TargetId.noir, TargetId.psy] do
     let out ← liftResult <| materializeSelected target mapRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"MapRetBox: {target} must materialize Map UInt64 return"
   expectMaterializePlanInvariantV1 "MapRetBox" TargetId.evm TargetKind.evm
     mapRetCompiled "cannot return Map"
-  expectMaterializePlanInvariantV1 "MapRetBox" TargetId.solana TargetKind.solana
-    mapRetCompiled "cannot return anonymous Map"
-  expectMaterializePlanInvariantV1 "MapRetBox" TargetId.noir TargetKind.noir
-    mapRetCompiled "anonymous Map return is outside the Noir B-RET ABI"
-  expectMaterializePlanInvariantV1 "MapRetBox" TargetId.psy TargetKind.psy
-    mapRetCompiled "anonymous Map return is outside the Psy B-RET ABI"
   expectMaterializePlanInvariantV1 "MapRetBox" TargetId.ton TargetKind.ton
     mapRetCompiled "entry 'peek' cannot return multi-leaf aggregate"
 

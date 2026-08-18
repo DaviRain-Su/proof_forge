@@ -1244,8 +1244,8 @@ private unsafe def testMapInt64State
 
 /-- Map Int8-value / Map UInt128-value stay fail closed on the historical
     Map-U64-U64 needle (`Map state admits only Map UInt64 UInt64` is a
-    contains-match). Anonymous `Map UInt64 Int64` return stays fail closed
-    on the existing Ton B-RET Map needle (TON does not admit Map return). -/
+    contains-match). Anonymous `Map UInt64 Int64` **view** return is
+    admitted by B-RET-MAP (see testMapInt64Return). -/
 private unsafe def testMapInt64ElementFc
     (session : Language.Loader.ParserSession) : IO Unit := do
   let mapI8 := wrapProgram "MapI8Ton" <|
@@ -1267,18 +1267,7 @@ private unsafe def testMapInt64ElementFc
     "<ton-map-u128>"
   expectPlanErrorContaining "MapU128" "Map state admits only Map UInt64 UInt64"
     (planTon mapU128Compiled)
-  let mapInt64Ret := wrapProgram "MapInt64RetTon" <|
-    "  state m : Map UInt64 Int64\n\n" ++
-    "  init() do\n" ++
-    "    m := Map.empty()\n\n" ++
-    "  view dump() : Map UInt64 Int64 do\n" ++
-    "    return m\n"
-  let mapInt64RetCompiled ← compileSource session mapInt64Ret
-    "Examples.MapInt64RetTon" "<ton-map-int64-ret>"
-  expectPlanErrorContaining "MapInt64Ret"
-    "anonymous Map return is outside the Ton B-RET ABI"
-    (planTon mapInt64RetCompiled)
-  IO.println "  ✓ Map Int8 / Map UInt128 / Map Int64 return stay fail closed"
+  IO.println "  ✓ Map Int8 / Map UInt128 stay fail closed"
 
 /-- BL-14: UInt128 state/param/body as one uint128 cell + loadUint(128). -/
 private unsafe def testUint128Abi
@@ -2326,6 +2315,75 @@ unsafe def testOptionInt64Return : IO Unit := do
         s!"OptInt64Ret get resultKind must be .aggregate, got {repr other}"
   IO.println "  ✓ Option Int64 view return tag+signed payload"
 
+unsafe def testMapReturn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source := wrapProgram "MapRetTon" <|
+    "  state m : Map UInt64 UInt64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  view dump() : Map UInt64 UInt64 do\n" ++
+    "    return m\n"
+  let compiled ← compileSource session source "Examples.MapRetTon"
+    "<ton-map-ret>"
+  let plan ← liftResult <| planTon compiled
+  let dump ← findMethod plan "dump"
+  expect (dump.mode == .view) "MapRet dump must be view"
+  match dump.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 24)
+        s!"MapRet dump must have 24 leaves, got {leaves.size}"
+      expect (leaves.all (fun l => !l.isInt && l.byteWidth == 8))
+        "MapRet leaves must be unsigned 8-byte words"
+  | other =>
+      throw <| IO.userError
+        s!"MapRet dump resultKind must be .aggregate, got {repr other}"
+  liftResult <| validatePlan plan
+  IO.println "  ✓ Map UInt64 UInt64 view return 24-leaf B-RET-MAP"
+
+unsafe def testMapInt64Return : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source := wrapProgram "MapInt64RetTon" <|
+    "  state m : Map UInt64 Int64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  view dump() : Map UInt64 Int64 do\n" ++
+    "    return m\n"
+  let compiled ← compileSource session source "Examples.MapInt64RetTon"
+    "<ton-map-int64-ret>"
+  let plan ← liftResult <| planTon compiled
+  let dump ← findMethod plan "dump"
+  expect (dump.mode == .view) "MapInt64Ret dump must be view"
+  match dump.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 24)
+        s!"MapInt64Ret dump must have 24 leaves, got {leaves.size}"
+      expect ((List.range 24).all (fun i =>
+          leaves[i]!.isInt == (i % 3 == 2)))
+        "MapInt64Ret val slots must be isInt"
+  | other =>
+      throw <| IO.userError
+        s!"MapInt64Ret dump resultKind must be .aggregate, got {repr other}"
+  liftResult <| validatePlan plan
+  IO.println "  ✓ Map UInt64 Int64 view return 24-leaf val-only isInt"
+
+unsafe def testMapParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source := wrapProgram "MapParamTon" <|
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry put(m : Map UInt64 UInt64) : UInt64 do\n" ++
+    "    return pad\n"
+  let compiled ← compileSource session source "Examples.MapParamTon"
+    "<ton-map-param>"
+  let plan ← liftResult <| planTon compiled
+  let put ← findMethod plan "put"
+  let expected := (List.range 24).toArray.map (fun i => s!"m_{i}")
+  expect (put.params.map (·.name) == expected)
+    s!"MapParam must flatten to 24 occ/key/val leaves, got {put.params.map (·.name)}"
+  liftResult <| validatePlan plan
+  IO.println "  ✓ MapParam 24-leaf occ/key/val flatten"
+
 unsafe def testBytesReturn : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source := wrapProgram "BytesRetTon" <|
@@ -3169,6 +3227,9 @@ unsafe def run : IO Unit := do
   testArrayUInt128ReturnFc session
   testMapInt64State session
   testMapInt64ElementFc session
+  testMapReturn
+  testMapInt64Return
+  testMapParam
   testUint128Abi session
   testUint128WideLiteral session
   testUint128ShiftFc session

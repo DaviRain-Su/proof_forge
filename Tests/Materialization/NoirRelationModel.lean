@@ -3953,6 +3953,73 @@ unsafe def testBytesReturn : IO Unit := do
     "BytesRet result leaves must be u8"
   IO.println "  ✓ Bytes 2 view return 2×u8 leaves"
 
+unsafe def testMapReturn : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program MapRetNoir where\n" ++
+    "  state m : Map UInt64 UInt64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  view dump() : Map UInt64 UInt64 do\n" ++
+    "    return m\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let ir ← compileIrFromProgramV1 sourceText
+    "Examples.MapRetNoir" "<noir-map-ret>"
+  let dump ← findRelation ir "dump"
+  let resultLeaves := dump.sourceRelation.inputs.filter fun b =>
+    match b.role with | .resultLeaf _ => true | _ => false
+  expect (resultLeaves.size == 24)
+    s!"MapRet dump must have 24 resultLeaf inputs, got {resultLeaves.size}"
+  expect (resultLeaves.all (·.type == .u64))
+    "MapRet result leaves must be u64"
+  IO.println "  ✓ Map UInt64 UInt64 view return 24-leaf B-RET-MAP"
+
+unsafe def testMapInt64Return : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program MapInt64RetNoir where\n" ++
+    "  state m : Map UInt64 Int64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  view dump() : Map UInt64 Int64 do\n" ++
+    "    return m\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let ir ← compileIrFromProgramV1 sourceText
+    "Examples.MapInt64RetNoir" "<noir-map-int64-ret>"
+  let dump ← findRelation ir "dump"
+  let resultLeaves := dump.sourceRelation.inputs.filter fun b =>
+    match b.role with | .resultLeaf _ => true | _ => false
+  expect (resultLeaves.size == 24)
+    s!"MapInt64Ret dump must have 24 resultLeaf inputs, got {resultLeaves.size}"
+  expect ((List.range 24).all (fun i =>
+      resultLeaves[i]!.type == (if i % 3 == 2 then .i64 else .u64)))
+    "MapInt64Ret val slots must be i64"
+  IO.println "  ✓ Map UInt64 Int64 return 24-leaf val-only i64"
+
+unsafe def testMapParam : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program MapParamNoir where\n" ++
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry put(m : Map UInt64 UInt64) : UInt64 do\n" ++
+    "    return pad\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let ir ← compileIrFromProgramV1 sourceText
+    "Examples.MapParamNoir" "<noir-map-param>"
+  let put ← findRelation ir "put"
+  let expected := (List.range 24).toArray.map (fun i => s!"m_{i}")
+  expect (put.sourceRelation.params.map (·.name) == expected)
+    s!"MapParam must flatten to 24 occ/key/val leaves, got {put.sourceRelation.params.map (·.name)}"
+  IO.println "  ✓ MapParam 24-leaf occ/key/val flatten"
+
 /-- B-RET-ABI: named Struct view return lowers to `.returnAggregate` with
 two resultLeaf verifier inputs (preorder leaves). -/
 private unsafe def checkAggregateReturnProduct : IO Unit := do
@@ -4168,19 +4235,7 @@ private unsafe def expectAnonymousReturnFailClosed
                 s!"{label}: Noir must fail closed on this anonymous return shape"
 
 private unsafe def checkAnonymousReturnFailClosed : IO Unit := do
-  -- Map return remains fail closed.
-  expectAnonymousReturnFailClosed "map-ret" "Examples.MapRet"
-    ("import ProofForgeV2\n\n" ++
-      "namespace ProofForgeV2.Examples\n\n" ++
-      "open ProofForgeV2.Language\n\n" ++
-      "program MapRet where\n" ++
-      "  state table : Map UInt64 UInt64\n\n" ++
-      "  init() do\n" ++
-      "    table[0] := 1\n\n" ++
-      "  view getMap() : Map UInt64 UInt64 do\n" ++
-      "    return table\n\n" ++
-      "end ProofForgeV2.Examples\n")
-    #["Map", "return", "B-RET", "unsupported", "anonymous"]
+  -- Map return is covered by testMapReturn (B-RET-MAP 24-leaf exception).
   -- Array UInt64 9 exceeds leaf cap-8.
   expectAnonymousReturnFailClosed "array9-ret" "Examples.Array9Ret"
     ("import ProofForgeV2\n\n" ++
@@ -4486,6 +4541,9 @@ unsafe def run : IO Unit := do
   testArrInt64
   testOptInt64
   testMapInt64
+  testMapReturn
+  testMapInt64Return
+  testMapParam
   testInt64ContainerFailClosed
   testScalarConstInline
 

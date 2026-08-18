@@ -111,7 +111,8 @@ zero-divisor behavior由 target-owned lowering固定。
 | bn254/BLS12-377 Field | fail closed | Plan type closure |
 | named/Array/Bytes/Principal/Option | bounded lower | leaf cap/layout gate |
 | dense Map UInt64 cap-8 | lowered | fixed 24-leaf layout |
-| nested Map / Map return | fail closed | Plan gate |
+| nested Map / Int64-key Map | fail closed | Plan gate |
+| Map UInt64 UInt64/Int64 return | lowered | B-RET-MAP 24 Felt leaves (not a cap raise) |
 | if / match | lowered | Select/branch construction |
 | bounded for | bounded lower | static-unroll budget |
 | pureFn/localCall | bounded inline | recursion/effect gate |

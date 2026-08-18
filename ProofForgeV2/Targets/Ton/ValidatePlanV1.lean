@@ -267,9 +267,9 @@ private partial def checkMethodStatementsV1
           throw <| .planInvariant .ton "pureFn cannot return an aggregate"
         -- Entry aggregate is rejected at makeEntry; ValidatePlan also requires
         -- view-mode for resultKind.aggregate (checked in validateMethod).
-        unless leaves.size > 0 && leaves.size ≤ 8 do
+        unless leaves.size > 0 && (leaves.size ≤ 8 || leaves.size == 24) do
           throw <| .planInvariant .ton
-            "returnAggregate leaf count must be in 1..8 (B-RET-ABI)"
+            "returnAggregate leaf count must be in 1..8 (B-RET-ABI) or 24 (B-RET-MAP)"
         unless leafIsInt.size == leaves.size do
           throw <| .planInvariant .ton
             "returnAggregate leafIsInt length must match leaves"
@@ -445,12 +445,14 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
       | .uint128 | .uint256 | .int8 | .int16 | .int32 => true
       | .aggregate leaves =>
           -- B-RET-ABI: view-only. Homogeneous pack: 1..8 × 8-byte
-          -- (named Struct/Enum, Array, Option) or 1..8 × 1-byte (Bytes N).
-          -- Entry has no aggregate return channel. Mixed widths stay FC.
+          -- (named Struct/Enum, Array, Option) or 1..8 × 1-byte (Bytes N),
+          -- plus B-RET-MAP 24 × 8-byte. Entry has no aggregate return channel.
           method.mode == MethodMode.view &&
-            leaves.size > 0 && leaves.size ≤ 8 &&
-            (leaves.all (fun l => l.byteWidth == 8) ||
-              leaves.all (fun l => l.byteWidth == 1))
+            leaves.size > 0 &&
+            ((leaves.size ≤ 8 &&
+                (leaves.all (fun l => l.byteWidth == 8) ||
+                  leaves.all (fun l => l.byteWidth == 1))) ||
+              (leaves.size == 24 && leaves.all (fun l => l.byteWidth == 8)))
       | .unit => false
     unless resultKindOk do
       throw <| CompileError.planInvariant .ton

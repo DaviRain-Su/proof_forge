@@ -1071,9 +1071,21 @@ private def anonymousReturnLeafAbiV1
       pure (some #[
         { isInt := false, byteWidth := 8 },
         { isInt := payloadIsInt, byteWidth := 8 }])
-  | some { shape := .map .., name := none, .. } =>
-      throw <| .planInvariant .ton
-        "unsupported Ton semantic shape: anonymous Map return is outside the Ton B-RET ABI"
+  | some { shape := .map keyTid valTid, name := none, .. } =>
+      -- B-RET-MAP view-only: cap-8 × occ/key/val = 24 leaves. Entry stays FC.
+      let valIsInt := types.int64TypeId == some valTid
+      unless keyTid == types.uint64TypeId &&
+          (valTid == types.uint64TypeId || valIsInt) do
+        throw <| .planInvariant .ton
+          "unsupported Ton semantic shape: anonymous Map return is outside the Ton B-RET ABI"
+      let n := nearMapPilotLeafCountV1
+      let mut leaves : Array LeafAbiType := #[]
+      for i in [0:n] do
+        leaves := leaves.push {
+          isInt := valIsInt && i % 3 == 2
+          byteWidth := 8
+        }
+      pure (some leaves)
   | some { shape := .bytes len, name := none, .. } =>
       let n := len.toNat
       unless n ≥ 1 && n ≤ 8 do
@@ -1100,9 +1112,9 @@ private def isAggregateResultCandidateV1
     | _ => false
 
 /-- B-RET-ABI / N-ANON-RESULT: resolve a named Struct/Enum or admitted
-anonymous Array/Option result TypeId into an aggregate `MethodResultKind`.
-Enforces 1..8 leaves. Map/Bytes/nested/narrow-element anonymous containers
-fail closed. Callers must still enforce view-only (entry has no return channel). -/
+anonymous Array/Option/Map result TypeId into an aggregate `MethodResultKind`.
+Enforces 1..8 leaves except the dense Map pilot (B-RET-MAP, 24 leaves).
+Callers must still enforce view-only (entry has no return channel). -/
 private def aggregateResultKindOfV1
     (typeDecls : Array TypeDeclV1) (types : TonTypeClosureV1)
     (owner : String) (typeId : TypeIdV1) : CompileResult MethodResultKind := do
@@ -1119,9 +1131,13 @@ private def aggregateResultKindOfV1
   unless n > 0 do
     throw <| .planInvariant .ton
       s!"{owner} aggregate return must have at least one leaf"
-  unless n ≤ 8 do
+  let maxLeaves :=
+    match typeDecls[typeId.toNat]? with
+    | some { shape := .map _ _, name := none, .. } => nearMapPilotLeafCountV1
+    | _ => 8
+  unless n ≤ maxLeaves do
     throw <| .planInvariant .ton
-      s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of 8"
+      s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of {maxLeaves}"
   pure (.aggregate leaves)
 
 /-- Expected return shape for region emission (scalar vs B-RET aggregate). -/
@@ -1665,6 +1681,35 @@ private def makeParamsV1 (owner : String) (types : TonTypeClosureV1)
               byteWidth := leafByteWidth
               endianness := .little
               isInt := leafIsInt
+            }
+            planned := planned.push binding
+            leafExprs := leafExprs.push (.param nextInputOffset)
+            nextInputOffset := nextInputOffset + slotPitchOfByteWidth leafByteWidth
+          values := values.push (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
+            (leafByteWidth := leafByteWidth))
+      | some { shape := .map keyTid valTid, .. } =>
+          let valIsInt := types.int64TypeId == some valTid
+          unless keyTid == types.uint64TypeId &&
+              (valTid == types.uint64TypeId || valIsInt) &&
+              n == nearMapPilotLeafCountV1 do
+            throw <| .planInvariant .ton
+              "unsupported Ton semantic shape: Map params stay fail closed (Array/Bytes N params flatten)"
+          if planned.size + n > maxParams then
+            throw <| .planInvariant .ton
+              s!"parameter count in {owner} exceeds profile limit {maxParams}"
+          let mut leafExprs : Array Expr := #[]
+          for i in [0:n] do
+            let leafName := param.name ++ "_" ++ toString i
+            unless isIdentifier leafName do
+              throw <| .planInvariant .ton
+                s!"parameter name '{leafName}' in {owner} is not a safe identifier"
+            let binding : Param := {
+              sourceId := planned.size
+              name := leafName
+              inputOffset := nextInputOffset
+              byteWidth := leafByteWidth
+              endianness := .little
+              isInt := valIsInt && i % 3 == 2
             }
             planned := planned.push binding
             leafExprs := leafExprs.push (.param nextInputOffset)

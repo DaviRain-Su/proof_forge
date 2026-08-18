@@ -785,6 +785,84 @@ unsafe def testArrayInt64Return : IO Unit := do
       throw <| IO.userError
         s!"ArrInt64Ret get resultKind must be .aggregate, got {repr other}"
 
+unsafe def testMapReturn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapRet where\n" ++
+    "  state m : Map UInt64 UInt64\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n" ++
+    "  view dump() : Map UInt64 UInt64 do\n" ++
+    "    return m\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<dpn-map-ret>" "Tests.DpnMapRet" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planFromCompiledSemanticV1 compiled
+  let some dump := plan.functions.find? (·.name == "dump") |
+    throw <| IO.userError "MapRet missing dump"
+  match dump.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 24)
+        s!"MapRet must have 24 leaves, got {leaves.size}"
+      expect (leaves.all (fun l => !l.isInt && l.byteWidth == 8))
+        "MapRet leaves must be unsigned 8-byte words"
+  | other =>
+      throw <| IO.userError
+        s!"MapRet dump resultKind must be .aggregate, got {repr other}"
+
+unsafe def testMapInt64Return : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapInt64Ret where\n" ++
+    "  state m : Map UInt64 Int64\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n" ++
+    "  view dump() : Map UInt64 Int64 do\n" ++
+    "    return m\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<dpn-map-int64-ret>" "Tests.DpnMapInt64Ret" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planFromCompiledSemanticV1 compiled
+  let some dump := plan.functions.find? (·.name == "dump") |
+    throw <| IO.userError "MapInt64Ret missing dump"
+  match dump.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 24)
+        s!"MapInt64Ret must have 24 leaves, got {leaves.size}"
+      expect ((List.range 24).all (fun i =>
+          leaves[i]!.isInt == (i % 3 == 2)))
+        "MapInt64Ret val slots must be isInt"
+  | other =>
+      throw <| IO.userError
+        s!"MapInt64Ret dump resultKind must be .aggregate, got {repr other}"
+
+unsafe def testMapParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapParam where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry put(m : Map UInt64 UInt64) : UInt64 do\n" ++
+    "    return pad\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<dpn-map-param>" "Tests.DpnMapParam" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planFromCompiledSemanticV1 compiled
+  let some put := plan.functions.find? (·.name == "put") |
+    throw <| IO.userError "MapParam missing put"
+  expect (put.params.size == 24)
+    s!"MapParam must flatten to 24 occ/key/val leaves, got {put.params.map (·.name)}"
+  expect (put.params[0]!.name == "m_occ0" && put.params[1]!.name == "m_key0" &&
+      put.params[2]!.name == "m_val0")
+    s!"MapParam first triple must be m_occ0/m_key0/m_val0, got {put.params.map (·.name)}"
+
 unsafe def testOptionInt64Return : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -2948,6 +3026,9 @@ unsafe def run : IO Unit := do
   testArrayParam
   testArrayInt64Return
   testOptionInt64Return
+  testMapReturn
+  testMapInt64Return
+  testMapParam
   testOptionInt64ProductLower
   testWideCounterDpnWide
   testWideCounter256DpnWide

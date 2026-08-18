@@ -3307,20 +3307,7 @@ private unsafe def testAggregateFailClosed
       | .ok _ =>
           throw <| IO.userError
             "Solana Array UInt64 9 return must fail closed (cap-8)"
-  -- Map result stays fail-closed.
-  let mapSource := wrapProgram "MapRet" <|
-    "  state m : Map UInt64 UInt64\n\n" ++
-    "  init() do\n" ++
-    "    m := Map.empty()\n\n" ++
-    "  view getM() : Map UInt64 UInt64 do\n" ++
-    "    return m\n"
-  match ← (do
-      try
-        let c ← compileSource session mapSource "Examples.MapRet" "<solana-map-ret>"
-        pure (some c)
-      catch _ => pure none) with
-  | none => pure ()
-  | some c => expectPlanError "MapRet" (planSolana c)
+  -- Map return is covered by testMapReturn (B-RET-MAP 24-leaf exception).
   -- Nested anonymous Array element stays fail-closed (element must be UInt64).
   let nestSource := wrapProgram "NestArrRet" <|
     "  state pad : UInt64\n\n" ++
@@ -3900,6 +3887,73 @@ unsafe def testOptionInt64Return : IO Unit := do
         s!"OptInt64Ret get resultKind must be .aggregate, got {repr other}"
   IO.println "  ✓ Option Int64 view return tag+signed payload"
 
+unsafe def testMapReturn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source := wrapProgram "MapRetSol" <|
+    "  state m : Map UInt64 UInt64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  view dump() : Map UInt64 UInt64 do\n" ++
+    "    return m\n"
+  let compiled ← compileSource session source "Examples.MapRetSol"
+    "<solana-map-ret>"
+  let plan ← liftResult <| planSolana compiled
+  let dump ← findHandler plan "dump"
+  match dump.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 24)
+        s!"MapRet dump must have 24 leaves, got {leaves.size}"
+      expect (leaves.all (fun l => !l.isInt && l.byteWidth == 8))
+        "MapRet leaves must be unsigned 8-byte words"
+  | other =>
+      throw <| IO.userError
+        s!"MapRet dump resultKind must be .aggregate, got {repr other}"
+  liftResult <| validatePlan plan
+  IO.println "  ✓ Map UInt64 UInt64 view return 24-leaf B-RET-MAP"
+
+unsafe def testMapInt64Return : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source := wrapProgram "MapInt64RetSol" <|
+    "  state m : Map UInt64 Int64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  view dump() : Map UInt64 Int64 do\n" ++
+    "    return m\n"
+  let compiled ← compileSource session source "Examples.MapInt64RetSol"
+    "<solana-map-int64-ret>"
+  let plan ← liftResult <| planSolana compiled
+  let dump ← findHandler plan "dump"
+  match dump.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 24)
+        s!"MapInt64Ret dump must have 24 leaves, got {leaves.size}"
+      expect ((List.range 24).all (fun i =>
+          leaves[i]!.isInt == (i % 3 == 2)))
+        "MapInt64Ret val slots must be isInt"
+  | other =>
+      throw <| IO.userError
+        s!"MapInt64Ret dump resultKind must be .aggregate, got {repr other}"
+  liftResult <| validatePlan plan
+  IO.println "  ✓ Map UInt64 Int64 return 24-leaf val-only isInt"
+
+unsafe def testMapParam : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source := wrapProgram "MapParamSol" <|
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry put(m : Map UInt64 UInt64) : UInt64 do\n" ++
+    "    return pad\n"
+  let compiled ← compileSource session source "Examples.MapParamSol"
+    "<solana-map-param>"
+  let plan ← liftResult <| planSolana compiled
+  let put ← findHandler plan "put"
+  let expected := (List.range 24).toArray.map (fun i => s!"m_{i}")
+  expect (put.params.map (·.name) == expected)
+    s!"MapParam must flatten to 24 occ/key/val leaves, got {put.params.map (·.name)}"
+  liftResult <| validatePlan plan
+  IO.println "  ✓ MapParam 24-leaf occ/key/val flatten"
+
 unsafe def testBytesReturn : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source := wrapProgram "BytesRetSol" <|
@@ -3977,6 +4031,9 @@ unsafe def run : IO Unit := do
   testArrayInt64State session
   testOptionInt64State session
   testMapInt64State session
+  testMapReturn
+  testMapInt64Return
+  testMapParam
   testInt64ContainerFailClosed session
   testScalarConstInline session
   testAggregateFailClosed session

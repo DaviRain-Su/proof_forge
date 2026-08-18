@@ -347,9 +347,9 @@ private partial def checkHandlerStatementsV1
     | .returnAggregate leaves leafIsInt =>
         if isInitializer then
           throw <| .planInvariant .solana "initializer cannot return a value"
-        unless leaves.size > 0 && leaves.size ≤ 8 do
+        unless leaves.size > 0 && (leaves.size ≤ 8 || leaves.size == 24) do
           throw <| .planInvariant .solana
-            "handler returnAggregate leaf count must be in 1..8 (B-RET-ABI)"
+            "handler returnAggregate leaf count must be in 1..8 (B-RET-ABI) or 24 (B-RET-MAP)"
         unless leafIsInt.size == leaves.size do
           throw <| .planInvariant .solana
             "handler returnAggregate leafIsInt length must match leaves"

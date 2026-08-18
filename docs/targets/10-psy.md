@@ -76,8 +76,8 @@ algorithms。支持结论以当前 Plan/DPN tests 为准，不由历史 source c
 以下仍拒绝或保持既有 PARTIAL 标签：
 
 - bn254/BLS12-377 Field；
-- nested Map、Map return、Int8 容器、Int64-key Map、Int64 container return、超出
-  aggregate-return cap；
+- nested Map、Int8 容器、Int64-key Map、超出 named-aggregate 8 叶 cap；
+  **B-RET-MAP** `Map UInt64 UInt64` / `Map UInt64 Int64` entry/view 为 24 Felt 叶例外；Map **param** 同 occ/key/val flatten；
 - result-bearing call、schedule、EVM-style ContextRead（`context.caller` / `blockHeight` / `unixTimeSeconds`）、Commit、nonempty invariant；
 - `pf.assets` bindings、UPS、network 与 deploy。
 - **已开放（非 EVM ContextRead）**：`call pf.context.userId|contractId|checkpointId|nonce|callerContractId|userPublicKeyHash|sessionProofTreeRoot()` → DPN ExecutionContext（见 `Examples/ContextProbe.lean`；HashOut 仅 limb0）。

@@ -914,9 +914,20 @@ private def anonymousReturnLeafAbiV1
       unless len ≥ 1 && len ≤ psyBytesMaxLenV1 do
         planError s!"unsupported Psy semantic shape: Bytes return length must be in 1..{psyBytesMaxLenV1}"
       pure (some (Array.replicate len { isInt := false, byteWidth := 1 }))
-  | some { shape := .map .., name := none, .. } =>
-      planError
-        "unsupported Psy semantic shape: anonymous Map return is outside the Psy B-RET ABI"
+  | some { shape := .map keyTid valTid, name := none, .. } =>
+      -- B-RET-MAP: cap-8 × occ/key/val = 24 Felt leaves.
+      let valIsInt := types.int64TypeId == some valTid
+      unless keyTid == types.uint64TypeId && isUInt64OrInt64Tid types valTid do
+        planError
+          "unsupported Psy semantic shape: anonymous Map return is outside the Psy B-RET ABI"
+      let n := psyMapPilotLeafCountV1
+      let mut leaves : Array LeafAbiType := #[]
+      for i in [0:n] do
+        leaves := leaves.push {
+          isInt := valIsInt && i % 3 == 2
+          byteWidth := 8
+        }
+      pure (some leaves)
   | some { shape := .array .., .. } | some { shape := .option .., .. } =>
       pure none
   | _ => pure none
@@ -936,9 +947,9 @@ private def isAggregateResultCandidateV1
     | some { shape := .bytes .., name := none, .. } => true
     | _ => false
 
-/-- B-RET-ABI: resolve a named Struct/Enum or admitted anonymous Array/Option/Bytes
-result TypeId into an aggregate `ResultKind`. Enforces 1..8 leaves.
-Map/nested/narrow-element anonymous containers fail closed. -/
+/-- B-RET-ABI: resolve a named Struct/Enum or admitted anonymous Array/Option/Bytes/Map
+result TypeId into an aggregate `ResultKind`. Enforces 1..8 leaves except the
+dense Map pilot (B-RET-MAP, 24 occ/key/val leaves). -/
 private def aggregateResultKindOfV1
     (typeDecls : Array TypeDeclV1) (types : PsyTypeClosureV1)
     (owner : String) (typeId : TypeIdV1) : CompileResult ResultKind := do
@@ -954,8 +965,12 @@ private def aggregateResultKindOfV1
   let n := leaves.size
   unless n > 0 do
     planError s!"{owner} aggregate return must have at least one leaf"
-  unless n ≤ 8 do
-    planError s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of 8"
+  let maxLeaves :=
+    match typeDecls[typeId.toNat]? with
+    | some { shape := .map _ _, name := none, .. } => psyMapPilotLeafCountV1
+    | _ => 8
+  unless n ≤ maxLeaves do
+    planError s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of {maxLeaves}"
   pure (.aggregate leaves)
 
 private def structFieldLeafRangeV1
@@ -3262,6 +3277,23 @@ private def lowerCallable
                   uintWidth := 0, isField := false }
               physicalParamIndex := physicalParamIndex + 1
         | none =>
+          match layout.typeDecls[p.typeId.toNat]? with
+          | some { shape := .map keyTid valTid, .. } =>
+              unless keyTid == types.uint64TypeId && isUInt64OrInt64Tid types valTid do
+                planError s!"unsupported Psy semantic shape: Map parameter '{p.name}' requires UInt64 keys and UInt64/Int64 values"
+              let leafSpecs ←
+                flattenTypeLeafSpecsV1 layout.typeDecls types p.typeId p.name
+              unless leafSpecs.size == psyMapPilotLeafCountV1 do
+                planError s!"unsupported Psy semantic shape: Map parameter '{p.name}' must flatten to {psyMapPilotLeafCountV1} occ/key/val leaves"
+              for leafName in leafSpecs do
+                unless isIdentifier leafName do
+                  planError s!"parameter name '{leafName}' is not a safe identifier"
+                params := params.push
+                  { sourceIndex := physicalParamIndex,
+                    name := leafName, isBool := false,
+                    uintWidth := 0, isField := false }
+                physicalParamIndex := physicalParamIndex + 1
+          | _ =>
           match uintWidthOfType data p.typeId with
           | some 128 | some 256 =>
               let bitWidth := (uintWidthOfType data p.typeId).getD 128
@@ -3370,6 +3402,18 @@ private def lowerCallable
         limbs := limbs.push (.param physicalParamOrdinal)
         physicalParamOrdinal := physicalParamOrdinal + 1
       env0 := envInsertVal env0 p.valueId (mkAggregateVal limbs)
+    else if match layout.typeDecls[p.typeId.toNat]? with
+        | some { shape := .map .., .. } => true
+        | _ => false then
+      let leafSpecs ←
+        flattenTypeLeafSpecsV1 layout.typeDecls types p.typeId p.name
+      unless leafSpecs.size == psyMapPilotLeafCountV1 do
+        planError s!"unsupported Psy semantic shape: Map parameter '{p.name}' must flatten to {psyMapPilotLeafCountV1} occ/key/val leaves"
+      let mut limbs : Array Expr := #[]
+      for _ in leafSpecs do
+        limbs := limbs.push (.param physicalParamOrdinal)
+        physicalParamOrdinal := physicalParamOrdinal + 1
+      env0 := envInsertVal env0 p.valueId (mkMapPilotVal limbs)
     else
       match ← bytesLeafCountV1 layout.typeDecls types p.typeId with
       | some n =>

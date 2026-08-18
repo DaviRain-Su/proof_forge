@@ -911,9 +911,19 @@ private def anonymousReturnLeafAbiV1
         throw <| .planInvariant .noir
           "unsupported Noir semantic shape: anonymous Option return requires UInt64 or Int64 payload"
       pure (some #[.u64, if payloadIsInt then InputType.i64 else InputType.u64])
-  | some { shape := .map .., name := none, .. } =>
-      throw <| .planInvariant .noir
-        "unsupported Noir semantic shape: anonymous Map return is outside the Noir B-RET ABI"
+  | some { shape := .map keyTid valTid, name := none, .. } =>
+      -- B-RET-MAP: cap-8 × occ/key/val = 24 public-output leaves.
+      let valIsInt := types.int64TypeId == some valTid
+      unless keyTid == types.uint64TypeId &&
+          (valTid == types.uint64TypeId || valIsInt) do
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: anonymous Map return is outside the Noir B-RET ABI"
+      let n := noirMapPilotLeafCountV1
+      let mut leaves : Array InputType := #[]
+      for i in [0:n] do
+        leaves := leaves.push
+          (if valIsInt && i % 3 == 2 then InputType.i64 else InputType.u64)
+      pure (some leaves)
   | some { shape := .bytes len, name := none, .. } =>
       let n := len.toNat
       unless n ≥ 1 && n ≤ 8 do
@@ -939,9 +949,9 @@ private def isAggregateResultCandidateV1
     | some { shape := .bytes .., name := none, .. } => true
     | _ => false
 
-/-- B-RET-ABI: resolve a named Struct/Enum or admitted anonymous Array/Option
-result TypeId into per-leaf `InputType`s. Enforces 1..8 leaves.
-Map/Bytes/nested/narrow-element anonymous containers fail closed. -/
+/-- B-RET-ABI: resolve a named Struct/Enum or admitted anonymous Array/Option/Map
+result TypeId into per-leaf `InputType`s. Enforces 1..8 leaves except the
+dense Map pilot (B-RET-MAP, 24 occ/key/val leaves). -/
 private def aggregateResultLeafTypesV1
     (typeDecls : Array TypeDeclV1) (types : NoirTypeClosureV1)
     (owner : String) (typeId : TypeIdV1) : CompileResult (Array InputType) := do
@@ -959,9 +969,13 @@ private def aggregateResultLeafTypesV1
   unless n > 0 do
     throw <| .planInvariant .noir
       s!"{owner} aggregate return must have at least one leaf"
-  unless n ≤ 8 do
+  let maxLeaves :=
+    match typeDecls[typeId.toNat]? with
+    | some { shape := .map _ _, name := none, .. } => noirMapPilotLeafCountV1
+    | _ => 8
+  unless n ≤ maxLeaves do
     throw <| .planInvariant .noir
-      s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of 8"
+      s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of {maxLeaves}"
   pure leafTypes
 
 /-- Promote pure ValueIds across effect boundaries (Token dual Map store). -/
@@ -1298,6 +1312,35 @@ private def makeParamsV1 (owner : String) (inputOffset : Nat)
             }
             leafExprs := leafExprs.push (.param inputIndex)
             leafIsInt := leafIsInt.push payloadIsInt
+          values := values.push (mkAggregateValueV1 leafExprs leafIsInt #[] 1 leafExprs.size)
+      | some { shape := .map keyTid valTid, .. } =>
+          let valIsInt := types.int64TypeId == some valTid
+          unless keyTid == types.uint64TypeId &&
+              (valTid == types.uint64TypeId || valIsInt) do
+            throw <| .planInvariant .noir
+              s!"unsupported Noir semantic shape: Map params stay fail closed (Array/Bytes N params flatten to 1..8 leaves)"
+          let n := noirMapPilotLeafCountV1
+          if planned.size + n > maxParams then
+            throw <| .planInvariant .noir
+              s!"parameter count in {owner} exceeds profile limit {maxParams}"
+          let mut leafExprs : Array Expr := #[]
+          let mut leafIsInt : Array Bool := #[]
+          for j in [0:n] do
+            let leafName := param.name ++ "_" ++ toString j
+            unless isIdentifier leafName do
+              throw <| .planInvariant .noir
+                s!"parameter name '{leafName}' in {owner} is not a safe identifier"
+            let slotIsInt := valIsInt && j % 3 == 2
+            let inputIndex := inputOffset + planned.size
+            planned := planned.push {
+              sourceId := planned.size
+              name := leafName
+              inputIndex
+              visibility := inputVisibilityOfSemanticV1 param.visibility
+              inputType := if slotIsInt then .i64 else .u64
+            }
+            leafExprs := leafExprs.push (.param inputIndex)
+            leafIsInt := leafIsInt.push slotIsInt
           values := values.push (mkAggregateValueV1 leafExprs leafIsInt #[] 1 leafExprs.size)
       | _ =>
           throw <| .planInvariant .noir

@@ -889,8 +889,9 @@ private def flattenOptionUInt64LeafSpecsV1 (namePrefix : String)
     * named Struct/Enum → preorder UInt64/Int64 leaves via `flattenTypeLeafSpecsV1`
     * anonymous `Array UInt64 N` → N UInt64 leaves (1 ≤ N ≤ 8)
     * anonymous `Option UInt64` → tag + payload (2 UInt64 leaves; none=(0,0), some=(1,v))
-    Fail-closed: Map, Bytes, nested containers, non-UInt64 Array/Option element,
-    Principal, N > 8, N = 0. -/
+    Fail-closed: Principal-keyed Map, nested containers, non-UInt64 Array/Option
+    element, Principal result, named N > 8, N = 0. Dense `Map UInt64 UInt64`
+    / `Map UInt64 Int64` is the B-RET-MAP 24-leaf exception (not a cap raise). -/
 private def aggregateResultKindOfV1
     (typeDecls : Array TypeDeclV1) (types : SolanaTypeClosureV1)
     (owner : String) (typeId : TypeIdV1) : CompileResult ResultKind := do
@@ -925,9 +926,22 @@ private def aggregateResultKindOfV1
         for _ in [0:n] do
           leaves := leaves.push { isInt := leafIsInt, byteWidth := 8 }
         pure (.aggregate leaves)
-    | some { shape := .map _ _, .. } =>
-        throw <| .planInvariant .solana
-          s!"{owner} cannot return anonymous Map; Solana B-RET-ABI admits only named Struct/Enum, Array UInt64 N≤8, or Option UInt64"
+    | some { shape := .map keyTid valTid, .. } =>
+        -- B-RET-MAP: cap-8 × occ/key/val = 24 leaves. Principal-key /
+        -- Int64-key / nested keep the historical needle.
+        let valIsInt := types.int64TypeId == some valTid
+        unless keyTid == types.uint64TypeId &&
+            (valTid == types.uint64TypeId || valIsInt) do
+          throw <| .planInvariant .solana
+            s!"{owner} cannot return anonymous Map; Solana B-RET-ABI admits only named Struct/Enum, Array UInt64 N≤8, or Option UInt64"
+        let n := solanaMapPilotLeafCountV1
+        let mut leaves : Array LeafAbiType := #[]
+        for i in [0:n] do
+          leaves := leaves.push {
+            isInt := valIsInt && i % 3 == 2
+            byteWidth := 8
+          }
+        pure (.aggregate leaves)
     | some { shape := .bytes len, .. } =>
         let n := len.toNat
         unless n > 0 do
@@ -1487,6 +1501,35 @@ private def makeParamsV1 (owner : String) (types : SolanaTypeClosureV1)
               byteWidth := leafByteWidth
               endianness := .little
               isInt := leafIsInt
+            }
+            planned := planned.push binding
+            leafExprs := leafExprs.push (.param nextDataOffset)
+            nextDataOffset := nextDataOffset + slotPitchOfByteWidth leafByteWidth
+          values := values.push
+            (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size (leafByteWidth := leafByteWidth))
+      | some { shape := .map keyTid valTid, .. } =>
+          let valIsInt := types.int64TypeId == some valTid
+          unless keyTid == types.uint64TypeId &&
+              (valTid == types.uint64TypeId || valIsInt) &&
+              n == solanaMapPilotLeafCountV1 do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: Map params stay fail closed (Array/Bytes N params flatten)"
+          if planned.size + n > maxParams then
+            throw <| .planInvariant .solana
+              s!"parameter count in {owner} exceeds profile limit {maxParams}"
+          let mut leafExprs : Array Expr := #[]
+          for i in [0:n] do
+            let leafName := param.name ++ "_" ++ toString i
+            unless isIdentifier leafName do
+              throw <| .planInvariant .solana
+                s!"parameter name '{leafName}' in {owner} is not a safe identifier"
+            let binding : Param := {
+              sourceId := planned.size
+              name := leafName
+              dataOffset := nextDataOffset
+              byteWidth := leafByteWidth
+              endianness := .little
+              isInt := valIsInt && i % 3 == 2
             }
             planned := planned.push binding
             leafExprs := leafExprs.push (.param nextDataOffset)
@@ -4299,8 +4342,8 @@ private def makeEntryV1
           else if types.isNamedAggregate callable.result.typeId ||
               types.isContainer callable.result.typeId ||
               isAnonymousOptionTypeIdV1 typeDecls callable.result.typeId then
-            -- B-RET-ABI: named Struct/Enum + anonymous Array UInt64 N≤8 +
-            -- Option UInt64. Map/Bytes/Principal FC inside resolver.
+            -- B-RET-ABI: named Struct/Enum + anonymous Array/Option/Bytes +
+            -- B-RET-MAP 24-leaf Map UInt64 UInt64/Int64. Principal FC.
             aggregateResultKindOfV1 typeDecls types s!"entry '{name}'"
               callable.result.typeId
           else if types.isPrincipal callable.result.typeId then
