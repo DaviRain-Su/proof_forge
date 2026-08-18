@@ -5835,11 +5835,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "MapStr" TargetId.noir TargetKind.noir
     mapStrCompiled "not a Field element"
   expectMaterializePlanInvariantV1 "MapStr" TargetId.aleo TargetKind.aleo
-<<<<<<< HEAD
-    mapStrCompiled "String stay fail-closed"
-=======
     mapStrCompiled "Map state admits only Map UInt64 UInt64"
->>>>>>> 08d606cfe (Admit leftover String 9-leaf identity and XRPL Map/Bytes pins.)
   expectMaterializePlanInvariantV1 "MapStr" TargetId.psy TargetKind.psy
     mapStrCompiled "Map state pilot requires UInt64 keys and values"
   expectMaterializePlanInvariantV1 "MapStr" TargetId.quint TargetKind.quint
@@ -6905,11 +6901,7 @@ unsafe def runRemainingNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "OptPrin" target kind optPrinCompiled
       "Option state 'o' requires UInt64 payload"
   expectMaterializePlanInvariantV1 "OptPrin" TargetId.aleo TargetKind.aleo
-<<<<<<< HEAD
-    optPrinCompiled "Option of non-UInt64"
-=======
     optPrinCompiled "Option state 'o' requires UInt64 payload"
->>>>>>> 08d606cfe (Admit leftover String 9-leaf identity and XRPL Map/Bytes pins.)
   expectMaterializePlanInvariantV1 "OptPrin" TargetId.quint TargetKind.quint
     optPrinCompiled "Option element must be UInt64"
   expectMaterializePlanInvariantV1 "OptPrin" TargetId.ton TargetKind.ton
@@ -6996,11 +6988,7 @@ unsafe def runRemainingNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "OptStr" TargetId.noir TargetKind.noir
     optStrCompiled "not a Field element"
   expectMaterializePlanInvariantV1 "OptStr" TargetId.aleo TargetKind.aleo
-<<<<<<< HEAD
-    optStrCompiled "String stay fail-closed"
-=======
     optStrCompiled "Option state 'o' requires UInt64 payload"
->>>>>>> 08d606cfe (Admit leftover String 9-leaf identity and XRPL Map/Bytes pins.)
   expectMaterializePlanInvariantV1 "OptStr" TargetId.psy TargetKind.psy
     optStrCompiled "Option state 'o' requires UInt64 payload"
   expectMaterializePlanInvariantV1 "OptStr" TargetId.quint TargetKind.quint
