@@ -1,6 +1,7 @@
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Semantic.Wire.CodecInvertV1
 import ProofForgeV2.Semantic.Wire.CodecInvertRootV1
+import ProofForgeV2.Semantic.Wire.CodecInvertRootFieldsV1
 
 /-
   ProofForgeV2.Semantic.ProofBridgeV1 — exact product-byte proof bridge.
@@ -31,9 +32,11 @@ import ProofForgeV2.Semantic.Wire.CodecInvertRootV1
       empty callables table; array one/two lift from element MidOffsetInvert
     * mig-a1-root (`Wire.CodecInvertRootV1`): root composition +
       `NormalizeEncodeWitnessV1.toValidated` needs encode + RootFieldInvert
-      only (no free decode hyp). Full per-field RootFieldInvert discharge for
-      arbitrary programs remains field-family residual (nested Op/Term,
-      Block/Callable, multi-component QN, full TypeShape).
+      only (no free decode hyp).
+    * `Wire.CodecInvertFieldReadV1` / `TypeTableV1` / `DeclTablesV1` /
+      `RootFieldsV1`: seven of nine root fields (`qualifiedName`, `types`,
+      `constants`, `logicalState`, `events`, `errors`, `invariants`) invert
+      for arbitrary data. Residual is `callables` + `requirements`.
 -/
 
 namespace ProofForgeV2.Semantic.ProofBridgeV1

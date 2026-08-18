@@ -23,8 +23,9 @@ import Init.Data.Array.Lemmas
   CallableKind/ValueDef/LoopBound, pure-U32 Op + Literal, Term.Return, array lift.
   Root composition (mig-a1-root): see `Wire.CodecInvertRootV1` —
   `decodeSemanticProgramDataV1_of_encode_ok_of_rootFieldInvert` discharges
-  `DecodeEncodeRoundtripGoalV1`. Per-field full invert for arbitrary data
-  (multi-component QN / full TypeShape / Block-Callable) remains residual.
+  `DecodeEncodeRoundtripGoalV1`. Arbitrary-data invert of seven root fields
+  is in `Wire.CodecInvertRootFieldsV1` (via FieldRead / TypeTable / DeclTables);
+  residual is `callables` + `requirements`.
 
   Hard boundaries:
     * no axiom / sorry / native_decide / ofReduceBool

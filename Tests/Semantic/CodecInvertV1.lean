@@ -5,12 +5,15 @@
   StateLoad/Commit/Literal, Term.Return, empty callables, array one/two lift,
   DecodeEncodeRoundtripGoal composition discharge.
 
+  Seven of nine root fields invert for arbitrary data via
+  `CodecInvertRootFieldsV1`. Residual is `callables` + `requirements`.
   Does not claim full RootFieldInvert for arbitrary programs.
 -/
 import ProofForgeV2.Semantic.Wire.CodecInvertV1
 import ProofForgeV2.Semantic.Wire.CodecInvertFieldsV1
 import ProofForgeV2.Semantic.Wire.CodecInvertCallableV1
 import ProofForgeV2.Semantic.Wire.CodecInvertRootV1
+import ProofForgeV2.Semantic.Wire.CodecInvertRootFieldsV1
 import ProofForgeV2.Semantic.WireV1
 
 namespace Tests.Semantic.CodecInvertV1
@@ -61,6 +64,13 @@ theorem visibility_of_encode_all (vis : VisibilityV1) :
 theorem visibility_midOffsetInvert :
     MidOffsetInvertV1 encodeVisibilityV1 decodeVisibilityV1 :=
   midOffsetInvert_encodeVisibility_decodeVisibility
+
+/-- Empty invariants table inverts at root-field depth via RootFields assembly. -/
+theorem empty_invariants_table_rootField_exactAt :
+    ExactMidOffsetInvertAtV1 (encodeArray encodeInvariantDeclV1)
+      (decodeArray maxTableElements decodeInvariantDeclV1)
+      (#[] : Array InvariantDeclV1) 1 :=
+  exactMidOffsetInvertAt_invariantsTableV1 #[] (by decide)
 
 /-- A named public callable parameter uses the actual production codec and is
     exactly invertible under arbitrary framing at callable-array depth. -/
