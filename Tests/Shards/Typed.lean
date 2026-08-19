@@ -49,6 +49,7 @@ import Tests.Semantic.Sem003ShapeV1
 import Tests.Semantic.MiniAmmVectorsV1
 import Tests.Semantic.NormalizeConst
 import Tests.Semantic.NormalizeSha256BytesV1
+import Tests.Semantic.NormalizeMerkleVerifyV1
 import Tests.Semantic.ProofBundleV1
 import Tests.Semantic.ProofSubjectV1
 import Tests.Semantic.ProofReferenceJoinV1
@@ -97,6 +98,7 @@ unsafe def main : IO Unit := do
   Tests.Semantic.MiniAmmVectorsV1.run
   Tests.Semantic.NormalizeConst.run
   Tests.Semantic.NormalizeSha256BytesV1.run
+  Tests.Semantic.NormalizeMerkleVerifyV1.run
   Tests.Semantic.ProofBundleV1.run
   Tests.Semantic.ProofSubjectV1.run
   Tests.Semantic.ProofReferenceJoinV1.run

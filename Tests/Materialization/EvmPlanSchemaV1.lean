@@ -488,6 +488,68 @@ private def testSha256BytesPrecompileWireTag : IO Unit := do
     "encoded sha256BytesPrecompile plan must contain wire tag 24 with N=2"
   IO.println "  ✓ CAP-X-BYTES-EVM PlanSchema tag 24 pin"
 
+/-- CAP-X-MERKLE-EVM: statement tag 25 is distinct from tags 21–24. Payload
+    is root, leaf, D, D sibling Exprs, resultTemp. -/
+private def testMerkleVerifyKeccak256WireTag : IO Unit := do
+  let merklePlan : Plan := {
+    objectName := "M"
+    runtimeObjectName := "__proof_forge_runtime"
+    storageLayout := #[]
+    events := #[]
+    errors := #[]
+    constructor := none
+    entries := #[{
+      name := "verify"
+      selector := Targets.Evm.Keccak.selector "verify"
+        #["uint256", "uint256", "uint256"]
+      params := #[
+        { sourceId := 0, name := "root", wordIndex := 0, byteWidth := 32 },
+        { sourceId := 1, name := "leaf", wordIndex := 1, byteWidth := 32 },
+        { sourceId := 2, name := "s0", wordIndex := 2, byteWidth := 32 }
+      ]
+      mutability := .nonpayable
+      body := #[
+        .merkleVerifyKeccak256 (.param 0) (.param 1) #[.param 2] 0,
+        .returnValue (.compare .eq (.temp 0) (.literal 1))
+      ]
+      resultKind := .bool
+    }]
+    fns := #[]
+  }
+  match validatePlan merklePlan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"merkle plan: {e.render}"
+  let encoded ← liftExcept "menc" (encodeEngineeringEvmPlanBytesV1 merklePlan)
+  let keccakPlan : Plan := {
+    merklePlan with
+    entries := #[{
+      merklePlan.entries[0]! with
+        body := #[
+          .keccak256Opcode (.param 0) 0,
+          .returnValue (.temp 0)
+        ]
+        resultKind := .uint256
+    }]
+  }
+  match validatePlan keccakPlan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"keccak plan: {e.render}"
+  let keccakEnc ← liftExcept "kenc" (encodeEngineeringEvmPlanBytesV1 keccakPlan)
+  expect (!(encoded == keccakEnc))
+    "tag 25 merkleVerifyKeccak256 bytes must differ from tag 22 keccak256Opcode"
+  let d1 ← liftExcept "md1" (engineeringEvmPlanDigestV1 merklePlan)
+  let d2 ← liftExcept "md2" (engineeringEvmPlanDigestV1 merklePlan)
+  expect (d1.bytes == d2.bytes) "merkleVerify plan digest determinism"
+  -- Pin tag 25 then later u32le sibling-count 1.
+  let data := encoded.data
+  let mut foundTag25 := false
+  for i in [0:data.size] do
+    if data[i]! == (25 : UInt8) then
+      foundTag25 := true
+  expect foundTag25
+    "encoded merkleVerifyKeccak256 plan must contain wire tag 25"
+  IO.println "  ✓ CAP-X-MERKLE-EVM PlanSchema tag 25 pin"
+
 unsafe def run : IO Unit := do
   testDomain
   testMinimalPlanDeterminism
@@ -500,6 +562,7 @@ unsafe def run : IO Unit := do
   testArrayIndexPlanDigestDeterminism
   testStoreAtomicPlanDigest
   testSha256BytesPrecompileWireTag
+  testMerkleVerifyKeccak256WireTag
   IO.println "Tests.Materialization.EvmPlanSchemaV1: ok"
 
 end Tests.Materialization.EvmPlanSchemaV1

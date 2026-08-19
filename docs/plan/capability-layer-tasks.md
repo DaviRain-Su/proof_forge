@@ -92,6 +92,34 @@ Reference 走 generic ExternalCall response cursor，不在 L1 机内算 hash。
 | **CAP-X-BYTES-TON** | P2 | **done 2026-08-19**：TON `Expr.sha256Bytes`（Expr tag 58）→ 独立 `beginCell().storeUint(b,8)×N.endCell().beginParse().bitsHash()`（N ≤ 127，单 cell 1023-bit 容量；`string_hash`/`HASHCU`/`HASHBU` 负针同覆盖新叶） | `Targets/Ton/{LowerSemantic,ValidatePlan,PlanSchema,EmitIR}V1.lean` · `TonPlanV1.lean` | focused suite 过 | keccak/其余 freeze 不变 |
 | **CAP-X-BYTES-SOR** | P2 | **done 2026-08-19**：Soroban S0 `Sha256BytesSite`/`sha256BytesLimb`（ctor tag 14）→ `Bytes::from_array` + `env.crypto().sha256`（N 1..8，S0 flatten 上限）；Finalize 仍 zero-tool | `Targets/Soroban/{LowerSemantic,ValidatePlan,EmitIR,PlanSchema}V1.lean` · `SorobanPlanV1.lean` | `.rs` 含 Bytes sha256；Finalize 仍 zero-tool | SOR-1 Wasm / stellar-cli |
 
+## Wave 5 — CAP-X-MERKLE：`pf.crypto.merkleVerifyKeccak256` EVM-only（active，2026-08-19 owner 拍板）
+
+设计冻结（owner 在三选一产品问题上的拍板，默认值经确认）：
+
+- **QN**：`pf.crypto.merkleVerifyKeccak256` 单 QN。选 keccak 因为 EVM 原生 opcode
+  （无 precompile CALL）且对齐 OpenZeppelin `MerkleProof` 惯例；sha256 变体属未来独立
+  QN/叶（RPT-027 split-QN 纪律，禁 overload/多 arity）。
+- **ABI**：`(root : UInt256, leaf : UInt256, s0 … s_{D-1} : UInt256) -> Bool`，
+  D ∈ 1..8 个定深 UInt256 sibling。不碰 Array-of-Bytes / Array 参数（第一刀零新类型）；
+  D=0、D>8、非 UInt256 参数、非 Bool result 一律 named FC。
+- **配对哈希**：OpenZeppelin 式 sorted-pair（commutative：每层 `keccak256(min‖max)`）；
+  positional/indexed proof 属未来独立 QN。
+- **结果**：Bool（verify 语义，不 revert）。
+- **范围**：EVM-only；其余十二 target 命名 FC（引 QN）。明确**不**声称 ICS-23/IBC/桥/NS-2、
+  不声称 formal/Anvil differential。
+- **共享核**：`RequirementIdsV1` 新 QN 常量 + 纳入 `isPfCryptoHostSyscallQnV1`
+  （merkle verify 是纯计算，不得贡献 `effect.synchronous-call`）；Normalize **零改动**
+  （全 UInt256 参数过既有 anonymous-integer 门、Bool result 过既有 serializable 门）；
+  Reference 走 generic response cursor。
+- 记录在案的既有裂缝（**不在本切片修**）：`ecdsaRecoverSecp256k1` 未纳入
+  host-syscall predicate（仍贡献 generic sync-call）——挂 backlog 另议（改它会动既有
+  程序 requirement 集）。
+
+| ID | Pri | Objective | Files (expected) | Done when | Not |
+|---|---|---|---|---|---|
+| **CAP-X-MERKLE-CORE** | P1 | **done 2026-08-19**：`RequirementIdsV1` 新 QN + predicate 纳入；聚焦套件 `Tests/Semantic/NormalizeMerkleVerifyV1`：Normalize 放行（全 UInt256、Bool result）、predicate 成员、`value.bool`-only requirements（无 sync-call/rollback 贡献）、view PF-EFFECT-001、Reference generic cursor、近似 QN FC、statement 位 void op 纪律 | `Core/RequirementIdsV1.lean` · `Tests/Semantic/NormalizeMerkleVerifyV1.lean` | 套件绿 + 反剧场验证（摘掉 predicate 即红） | 不改 Normalize/TypeCheck/EffectCheck/Wire/Reference |
+| **CAP-X-MERKLE-EVM** | P1 | **done 2026-08-19**：EVM `merkleVerifyKeccak256` 叶（statement tag 25）：exact ABI（arity 3..10 = 2+D、全 anonymous UInt256、Bool result）、view/constructor 禁、Yul unrolled sorted-pair（`lt`+算术 mux → `mstore(0,min)`/`mstore(32,max)`/`keccak256(0,64)`/D 层）、`eq(mload(64), root)` 进 Bool、false-not-revert | `Targets/Evm/{LowerSemantic,ValidatePlan,PlanSchema,EmitIR}V1.lean` · `EvmSmoke.lean`/`EvmPlanSchemaV1.lean` | 正/负矩阵绿：D=1/D=8 正例；arity<3、D>8、UInt64 参数、UInt64 result、view、近似 QN 负例；老 sha256/keccak/ecdsa/sha256Bytes 叶回归 | 不走 AddressBearing CALL；不碰 generic call 面；B-CALL-SEM |
+
 ## Suggested serial order（既有 CAP-D-* 已于 2026-08-16 全开；XRPL 仅 ADR）
 
 ```text
@@ -104,6 +132,7 @@ CAP-0 (docs, done)
   → CAP-D-XRPL-* (ADR-0052 proposed; SHA keep-FC; TIME/CALLER await owner)
   → CAP-X-BYTES-CORE (done 2026-08-19)
       → CAP-X-BYTES-{EVM,SOL,NEAR,TON,SOR} (done 2026-08-19)
+  → CAP-X-MERKLE-CORE → CAP-X-MERKLE-EVM (done 2026-08-19；EVM-only)
   → stop（XRPL 叶另批；不要发明 CAP-7/8/9）
 ```
 

@@ -151,9 +151,9 @@
       "sha256": "bfc81a32ec55e77510d32cc4eb29635179c2931cb933788606893f70ca9ff56d"
     },
     {
-      "bytes": 19880,
+      "bytes": 20565,
       "path": "ProofForgeV2/Core/RequirementIdsV1.lean",
-      "sha256": "2bc115388614d6fb7040aab0c3865885851b7a595cb9491e9c32dfa066f0c966"
+      "sha256": "e2184dfe0053e2eaa935b3138b586bf1583fc01b5e9be959ea6c4ffeed75b24e"
     },
     {
       "bytes": 11468,
@@ -966,9 +966,9 @@
       "sha256": "2074b12033df812f677404b96c9e5e8a90c04ccb7c62ca28d7b3091d7bcbabf6"
     },
     {
-      "bytes": 140078,
+      "bytes": 142382,
       "path": "ProofForgeV2/Targets/Evm/EmitIRV1.lean",
-      "sha256": "ad00fe817a73d04f5dfefd6158e7d07907e818fe5c0935c7321541ec11e033d4"
+      "sha256": "d63ce2bcded502e6245822da7b6768e6a58946448a8d48c8574d7d8681385384"
     },
     {
       "bytes": 4440,
@@ -981,9 +981,9 @@
       "sha256": "72becf95b688496c97263ab7d1ce49dabd725256471e75fb268d0f0c5f4ac371"
     },
     {
-      "bytes": 287292,
+      "bytes": 290810,
       "path": "ProofForgeV2/Targets/Evm/LowerSemanticV1.lean",
-      "sha256": "2079e66f488e02bfcbd3634e17e564cef540b3be0428f2333caf2bf6024fefca"
+      "sha256": "6329466aa07c89e6526ee62defa6769a3294e5ba8063d2437cdb27fd73f51bbe"
     },
     {
       "bytes": 11917,
@@ -991,9 +991,9 @@
       "sha256": "9ab1e31d3e73c50528df7877a43d8e399c509544c5db696bb6dfb70bf3618134"
     },
     {
-      "bytes": 29619,
+      "bytes": 30245,
       "path": "ProofForgeV2/Targets/Evm/PlanSchemaV1.lean",
-      "sha256": "7bfc0fd77c354f800ef3bf941eed129f9272e2639790bde0595fc0b7573717ef"
+      "sha256": "28331f18374d9a64b61dc7be364a9a9051db16f640c7427b28da314bcbc889ba"
     },
     {
       "bytes": 5256,
@@ -1001,9 +1001,9 @@
       "sha256": "261d0cf2d6444d7520dbb769ce770623b1441d7d5af4c66fabee7f916eb8a51f"
     },
     {
-      "bytes": 51041,
+      "bytes": 51963,
       "path": "ProofForgeV2/Targets/Evm/ValidatePlanV1.lean",
-      "sha256": "c45ea4abffdedd320485488e775bde209016c7965be5664dbf7f36e94df502d5"
+      "sha256": "a8c74bcac0cd2f995fc8610878dc7dcbece1275077d228a0446e28725d5d89d7"
     },
     {
       "bytes": 2981,

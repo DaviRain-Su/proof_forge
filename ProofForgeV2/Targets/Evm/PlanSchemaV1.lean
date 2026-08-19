@@ -435,6 +435,17 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
       out := out.append (← encodeExpr s)
       out := out.append (← encodeNatAsU32le resultTemp)
       pure out
+  -- Tag 25 (CAP-X-MERKLE-EVM): exact
+  -- pf.crypto.merkleVerifyKeccak256(root, leaf, s0…s_{D-1}) -> Bool.
+  -- Payload is root, leaf, D, D sibling Exprs, then resultTemp.
+  -- Distinct from tags 21–24 (sha256 / keccak256 / ecdsa / sha256Bytes).
+  | .merkleVerifyKeccak256 root leaf siblings resultTemp => do
+      let mut out := (encodeU8 25).append (← encodeExpr root)
+      out := out.append (← encodeExpr leaf)
+      out := out.append (← encodeNatAsU32le siblings.size)
+      for sib in siblings do out := out.append (← encodeExpr sib)
+      out := out.append (← encodeNatAsU32le resultTemp)
+      pure out
   -- Tag 13 (ADR-0029 B2): pf.assets.native.deposit(amount).
   | .nativeDeposit amount => do
       pure ((encodeU8 13).append (← encodeExpr amount))

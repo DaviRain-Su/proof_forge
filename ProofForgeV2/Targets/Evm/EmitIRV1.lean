@@ -1791,6 +1791,43 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
           s!"{indent}if iszero({okName}) \{ revert(0, 0) }\n" ++
           s!"{indent}let t{resultTemp} := 0\n" ++
           s!"{indent}if eq(returndatasize(), 32) \{ t{resultTemp} := mload(0) }\n"
+    | .merkleVerifyKeccak256 root leaf siblings resultTemp =>
+        -- CAP-X-MERKLE-EVM: OpenZeppelin MerkleProof.verify convention.
+        -- computed := leaf; for each sibling s:
+        --   computed := keccak256(min(computed,s) ‖ max(computed,s))
+        -- result := (computed == root) as Bool 0/1. Mismatch is false, not revert.
+        -- Scratch: word 0 = min, word 32 = max, word 64 = running computed.
+        -- Each unrolled layer is one keccak256 over 64 bytes (EVM keccak256
+        -- gas: 30 + 6*2 = 42 for a 64-byte input). D layers, no loop.
+        let rootR := renderExpr indent paramPrefix next root
+        output := output ++ rootR.code
+        next := rootR.next
+        let leafR := renderExpr indent paramPrefix next leaf
+        output := output ++ leafR.code
+        next := leafR.next
+        let mut sibRendered : Array String := #[]
+        for sib in siblings do
+          let sR := renderExpr indent paramPrefix next sib
+          output := output ++ sR.code
+          next := sR.next
+          sibRendered := sibRendered.push sR.value
+        let computedName := s!"merkleComputed{next}"
+        next := next + 1
+        output := output ++ s!"{indent}let {computedName} := {leafR.value}\n"
+        for i in [0:sibRendered.size] do
+          let sibVal := sibRendered[i]!
+          let ltName := s!"merkleLt{next}"
+          next := next + 1
+          -- lt(computed, sibling): if true, pair is (computed, sibling);
+          -- else pair is (sibling, computed). Arithmetic mux, no loop.
+          output := output ++
+            s!"{indent}let {ltName} := lt({computedName}, {sibVal})\n" ++
+            s!"{indent}mstore(0, add(mul({ltName}, {computedName}), mul(iszero({ltName}), {sibVal})))\n" ++
+            s!"{indent}mstore(32, add(mul({ltName}, {sibVal}), mul(iszero({ltName}), {computedName})))\n" ++
+            s!"{indent}{computedName} := keccak256(0, 64)\n"
+        output := output ++
+          s!"{indent}mstore(64, {computedName})\n" ++
+          s!"{indent}let t{resultTemp} := eq(mload(64), {rootR.value})\n"
     | .schedule callee args argBitWidths =>
         -- Fire-and-forget: same static address/selector, CALL success ignored.
         let method := callee[callee.size - 1]!
@@ -2371,6 +2408,10 @@ private partial def statementHelperNeedsV1 : Statement → PhaseHelperNeedsV1
       mergeHelperNeeds (exprHelperNeedsV1 hash)
         (mergeHelperNeeds (exprHelperNeedsV1 v)
           (mergeHelperNeeds (exprHelperNeedsV1 r) (exprHelperNeedsV1 s)))
+  | .merkleVerifyKeccak256 root leaf siblings _ =>
+      mergeHelperNeeds (exprHelperNeedsV1 root)
+        (mergeHelperNeeds (exprHelperNeedsV1 leaf)
+          (siblings.foldl (fun acc e => mergeHelperNeeds acc (exprHelperNeedsV1 e)) {}))
   | .nativeDeposit a => exprHelperNeedsV1 a
   | .nativeTransfer dl dw a =>
       mergeHelperNeeds (exprHelperNeedsV1 dl)

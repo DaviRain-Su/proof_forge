@@ -5283,10 +5283,241 @@ unsafe def testCryptoSha256BytesEvm : IO Unit := do
     "outside admitted EVM scope"
   IO.println "  ✓ CAP-X-BYTES-EVM pf.crypto.sha256Bytes → CALL 0x02 inlen=N"
 
+private def countSubstr (hay needle : String) : Nat :=
+  if needle.isEmpty then 0
+  else
+    let parts := hay.splitOn needle
+    if parts.length == 0 then 0 else parts.length - 1
+
+/-- CAP-X-MERKLE-EVM: `call pf.crypto.merkleVerifyKeccak256(root, leaf, s0…s_{D-1})
+    -> Bool` via unrolled OpenZeppelin sorted-pair keccak256(0, 64). D ∈ 1..8. -/
+unsafe def testCryptoMerkleVerifyKeccak256Evm : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let hashedPfCrypto :=
+    (Targets.Evm.Keccak.keccak256Hex "pf.crypto".toUTF8).drop 24
+
+  let inspectPlan (plan : Targets.Evm.Plan) :
+      Bool × Nat × Bool × Bool × Bool × Bool := Id.run do
+    let mut hasDedicated := false
+    let mut dedicatedD : Nat := 0
+    let mut hasKeccakOp := false
+    let mut hasSha256 := false
+    let mut hasSha256Bytes := false
+    let mut hasHashedResultCall := false
+    for e in plan.entries do
+      for s in e.body do
+        match s with
+        | .merkleVerifyKeccak256 _ _ sibs _ =>
+            hasDedicated := true
+            dedicatedD := sibs.size
+        | .keccak256Opcode _ _ => hasKeccakOp := true
+        | .sha256Precompile _ _ => hasSha256 := true
+        | .sha256BytesPrecompile _ _ => hasSha256Bytes := true
+        | .externalCallResult callee _ _ =>
+            if callee == #["pf", "crypto", "merkleVerifyKeccak256"] then
+              hasHashedResultCall := true
+        | .externalCall callee _ _ =>
+            if callee == #["pf", "crypto", "merkleVerifyKeccak256"] then
+              hasHashedResultCall := true
+        | _ => pure ()
+    pure (hasDedicated, dedicatedD, hasKeccakOp, hasSha256, hasSha256Bytes,
+      hasHashedResultCall)
+
+  let expectYulLeaf (label yul : String) (d : Nat) : IO Unit := do
+    let n := countSubstr yul "keccak256(0, 64)"
+    expect (n == d)
+      s!"{label}: Yul must emit exactly {d} unrolled keccak256(0, 64), got {n}"
+    expect (yul.contains "mstore(0,")
+      s!"{label}: Yul must write min into scratch word 0"
+    expect (yul.contains "mstore(32,")
+      s!"{label}: Yul must write max into scratch word 32"
+    expect (yul.contains "mstore(64,")
+      s!"{label}: Yul must park computed in scratch word 64"
+    expect (yul.contains "lt(")
+      s!"{label}: Yul must use lt for sorted-pair selection"
+    expect (yul.contains "eq(mload(64),")
+      s!"{label}: Yul must compare parked computed against root into Bool"
+    expect (!yul.contains "keccak256(0, 32)")
+      s!"{label}: must not emit one-word keccak256Opcode path"
+    expect (!yul.contains "staticcall(gas(), 0x2")
+      s!"{label}: must not emit sha256Precompile STATICCALL"
+    expect (!yul.contains hashedPfCrypto)
+      s!"{label}: Yul must not contain hashed pf.crypto address {hashedPfCrypto}"
+
+  -- Positive D=1 (arity 3).
+  let srcD1 :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MerkleD1Evm where\n" ++
+    "  entry verify(root : UInt256, leaf : UInt256, s0 : UInt256) : Bool do\n" ++
+    "    return call pf.crypto.merkleVerifyKeccak256(root, leaf, s0)\n"
+  let cD1 ← match ← session.selectProgramV1
+      srcD1 "<evm-merkle-d1>" "Tests.EvmMerkleD1" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"MerkleD1Evm select: {e.render}"
+  let compiledD1 ← match Compiler.compileValidatedSourceV1 cD1 with
+    | .error e => throw <| IO.userError s!"MerkleD1Evm must compile, got {e.render}"
+    | .ok c => pure c
+  let planD1 ← match planEvm compiledD1 with
+    | .error e =>
+        throw <| IO.userError s!"MerkleD1Evm must produce a plan, got {e.render}"
+    | .ok p => pure p
+  let (hasD1, d1, keccakD1, shaD1, bytesD1, hashedD1) := inspectPlan planD1
+  expect hasD1 "MerkleD1Evm: plan must contain merkleVerifyKeccak256"
+  expect (d1 == 1) s!"MerkleD1Evm: dedicated node must carry D=1 sibling, got {d1}"
+  expect (!keccakD1) "MerkleD1Evm: must not lower to keccak256Opcode"
+  expect (!shaD1) "MerkleD1Evm: must not lower to sha256Precompile"
+  expect (!bytesD1) "MerkleD1Evm: must not lower to sha256BytesPrecompile"
+  expect (!hashedD1) "MerkleD1Evm: must not lower to hashed AddressBearing CALL"
+  let filesD1 ← match materializeSelected TargetId.evm compiledD1 with
+    | .error e => throw <| IO.userError s!"MerkleD1Evm materialize: {e.render}"
+    | .ok output => pure (MaterializedArtifactsV1.filesOf output)
+  let some yulD1 := filesD1.find? (·.path == "MerkleD1Evm.yul") |
+    throw <| IO.userError "MerkleD1Evm: missing .yul"
+  expectYulLeaf "MerkleD1Evm" yulD1.contents 1
+
+  -- Positive D=8 (arity 10).
+  let srcD8 :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MerkleD8Evm where\n" ++
+    "  entry verify(root : UInt256, leaf : UInt256, s0 : UInt256, s1 : UInt256, s2 : UInt256, s3 : UInt256, s4 : UInt256, s5 : UInt256, s6 : UInt256, s7 : UInt256) : Bool do\n" ++
+    "    return call pf.crypto.merkleVerifyKeccak256(root, leaf, s0, s1, s2, s3, s4, s5, s6, s7)\n"
+  let cD8 ← match ← session.selectProgramV1
+      srcD8 "<evm-merkle-d8>" "Tests.EvmMerkleD8" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"MerkleD8Evm select: {e.render}"
+  let compiledD8 ← match Compiler.compileValidatedSourceV1 cD8 with
+    | .error e => throw <| IO.userError s!"MerkleD8Evm must compile, got {e.render}"
+    | .ok c => pure c
+  let planD8 ← match planEvm compiledD8 with
+    | .error e =>
+        throw <| IO.userError s!"MerkleD8Evm must produce a plan, got {e.render}"
+    | .ok p => pure p
+  let (hasD8, d8, keccakD8, shaD8, bytesD8, hashedD8) := inspectPlan planD8
+  expect hasD8 "MerkleD8Evm: plan must contain merkleVerifyKeccak256"
+  expect (d8 == 8) s!"MerkleD8Evm: dedicated node must carry D=8 siblings, got {d8}"
+  expect (!keccakD8 && !shaD8 && !bytesD8 && !hashedD8)
+    "MerkleD8Evm: must not reuse keccak/sha256/AddressBearing paths"
+  let filesD8 ← match materializeSelected TargetId.evm compiledD8 with
+    | .error e => throw <| IO.userError s!"MerkleD8Evm materialize: {e.render}"
+    | .ok output => pure (MaterializedArtifactsV1.filesOf output)
+  let some yulD8 := filesD8.find? (·.path == "MerkleD8Evm.yul") |
+    throw <| IO.userError "MerkleD8Evm: missing .yul"
+  expectYulLeaf "MerkleD8Evm" yulD8.contents 8
+
+  let expectPlanFc (programName pathLabel moduleName body needle : String) : IO Unit := do
+    let negSrc :=
+      "import ProofForgeV2\n" ++
+      "open ProofForgeV2.Language\n" ++
+      s!"program {programName} where\n" ++
+      body
+    let neg ← match ← session.selectProgramV1
+        negSrc pathLabel moduleName none with
+      | .ok v => pure v
+      | .error e => throw <| IO.userError s!"{programName} select: {e.render}"
+    match Compiler.compileValidatedSourceV1 neg with
+    | .error e => throw <| IO.userError s!"{programName} must compile, got {e.render}"
+    | .ok compiledNeg =>
+        match planEvm compiledNeg with
+        | .error e =>
+            expect (e.render.contains needle)
+              s!"{programName} Plan FC must contain '{needle}', got: {e.render}"
+        | .ok _ =>
+            throw <| IO.userError
+              s!"{programName} must Plan fail closed (no hashed CALL fallback)"
+
+  -- Arity 2 (D=0) and arity 11 (D=9).
+  expectPlanFc "MerkleArity2Evm" "<evm-merkle-arity2>" "Tests.EvmMerkleArity2"
+    ("  entry verify(root : UInt256, leaf : UInt256) : Bool do\n" ++
+      "    return call pf.crypto.merkleVerifyKeccak256(root, leaf)\n")
+    "pf.crypto.merkleVerifyKeccak256"
+  expectPlanFc "MerkleArity11Evm" "<evm-merkle-arity11>" "Tests.EvmMerkleArity11"
+    ("  entry verify(root : UInt256, leaf : UInt256, s0 : UInt256, s1 : UInt256, s2 : UInt256, s3 : UInt256, s4 : UInt256, s5 : UInt256, s6 : UInt256, s7 : UInt256, s8 : UInt256) : Bool do\n" ++
+      "    return call pf.crypto.merkleVerifyKeccak256(root, leaf, s0, s1, s2, s3, s4, s5, s6, s7, s8)\n")
+    "pf.crypto.merkleVerifyKeccak256"
+  -- Mixed UInt64 sibling and UInt64 result.
+  expectPlanFc "MerkleU64ArgEvm" "<evm-merkle-u64arg>" "Tests.EvmMerkleU64Arg"
+    ("  entry verify(root : UInt256, leaf : UInt256, s0 : UInt64) : Bool do\n" ++
+      "    return call pf.crypto.merkleVerifyKeccak256(root, leaf, s0)\n")
+    "pf.crypto.merkleVerifyKeccak256"
+  expectPlanFc "MerkleU64ResEvm" "<evm-merkle-u64res>" "Tests.EvmMerkleU64Res"
+    ("  entry verify(root : UInt256, leaf : UInt256, s0 : UInt256) : UInt64 do\n" ++
+      "    let ok : UInt64 := call pf.crypto.merkleVerifyKeccak256(root, leaf, s0)\n" ++
+      "    return ok\n")
+    "pf.crypto.merkleVerifyKeccak256"
+  -- Statement-position void shape.
+  expectPlanFc "MerkleVoidEvm" "<evm-merkle-void>" "Tests.EvmMerkleVoid"
+    ("  entry verify(root : UInt256, leaf : UInt256, s0 : UInt256) : Bool do\n" ++
+      "    call pf.crypto.merkleVerifyKeccak256(root, leaf, s0)\n" ++
+      "    return true\n")
+    "pf.crypto.merkleVerifyKeccak256"
+  -- Near-miss QNs stay named FC (no hashed CALL).
+  expectPlanFc "MerkleKeccakTypoEvm" "<evm-merkle-typo>" "Tests.EvmMerkleTypo"
+    ("  entry verify(root : UInt256, leaf : UInt256, s0 : UInt256) : Bool do\n" ++
+      "    return call pf.crypto.merkleVerifyKeccak(root, leaf, s0)\n")
+    "outside admitted EVM scope"
+  expectPlanFc "MerkleSha256QnEvm" "<evm-merkle-sha256qn>" "Tests.EvmMerkleSha256Qn"
+    ("  entry verify(root : UInt256, leaf : UInt256, s0 : UInt256) : Bool do\n" ++
+      "    return call pf.crypto.merkleVerifySha256(root, leaf, s0)\n")
+    "outside admitted EVM scope"
+
+  -- View is banned at EffectCheck (same as sha256 / sha256Bytes).
+  let viewSrc :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MerkleViewEvm where\n" ++
+    "  view verify(root : UInt256, leaf : UInt256, s0 : UInt256) : Bool do\n" ++
+    "    return call pf.crypto.merkleVerifyKeccak256(root, leaf, s0)\n"
+  let viewSel ← match ← session.selectProgramV1
+      viewSrc "<evm-merkle-view>" "Tests.EvmMerkleView" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"MerkleViewEvm select: {e.render}"
+  match Compiler.compileValidatedSourceV1 viewSel with
+  | .error e =>
+      expect (e.render.contains "view" || e.render.contains "PF-EFFECT-001")
+        s!"MerkleViewEvm compile FC must mention view/effect, got: {e.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "MerkleViewEvm must fail closed in a view context"
+  let viewPlan : Targets.Evm.Plan := {
+    objectName := "V"
+    runtimeObjectName := "__proof_forge_runtime"
+    storageLayout := #[]
+    events := #[]
+    errors := #[]
+    constructor := none
+    entries := #[{
+      name := "verify"
+      selector := Targets.Evm.Keccak.selector "verify"
+        #["uint256", "uint256", "uint256"]
+      params := #[
+        { sourceId := 0, name := "root", wordIndex := 0, byteWidth := 32 },
+        { sourceId := 1, name := "leaf", wordIndex := 1, byteWidth := 32 },
+        { sourceId := 2, name := "s0", wordIndex := 2, byteWidth := 32 }
+      ]
+      mutability := .view
+      body := #[
+        .merkleVerifyKeccak256 (.param 0) (.param 1) #[.param 2] 0,
+        .returnValue (.compare .eq (.temp 0) (.literal 1))
+      ]
+      resultKind := .bool
+    }]
+    fns := #[]
+  }
+  match Targets.Evm.validatePlan viewPlan with
+  | .error e =>
+      expect (e.render.contains "view")
+        s!"MerkleViewEvm ValidatePlan must mention view, got: {e.render}"
+  | .ok () =>
+      throw <| IO.userError
+        "MerkleViewEvm hand-built view plan must fail closed"
+  IO.println "  ✓ CAP-X-MERKLE-EVM pf.crypto.merkleVerifyKeccak256 unrolled keccak256(0, 64)"
+
 /-- S5-EVM second leaf: `call pf.crypto.keccak256` → native `keccak256(0, 32)`.
     UInt256→UInt256 only; dedicated Plan statement (not hashed AddressBearing,
     not STATICCALL 0x02). -/
-private unsafe def testCryptoKeccak256Evm : IO Unit := do
+unsafe def testCryptoKeccak256Evm : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let hashedPfCrypto :=
     (Targets.Evm.Keccak.keccak256Hex "pf.crypto".toUTF8).drop 24
@@ -5386,7 +5617,7 @@ private unsafe def testCryptoKeccak256Evm : IO Unit := do
 
 /-- EXT-CRYPTO EVM: `call pf.crypto.ecdsaRecoverSecp256k1` → ecrecover `0x01`
     via STATICCALL. Four UInt256 args → UInt256; dedicated Plan statement. -/
-private unsafe def testCryptoEcdsaRecoverEvm : IO Unit := do
+unsafe def testCryptoEcdsaRecoverEvm : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let hashedPfCrypto :=
     (Targets.Evm.Keccak.keccak256Hex "pf.crypto".toUTF8).drop 24
@@ -6182,6 +6413,7 @@ unsafe def run : IO Unit := do
   testScheduleArgNarrowEvm
   testCryptoSha256Evm
   testCryptoSha256BytesEvm
+  testCryptoMerkleVerifyKeccak256Evm
   testCryptoKeccak256Evm
   testSha256CheckFixtureEvm
   testKeccak256CheckFixtureEvm

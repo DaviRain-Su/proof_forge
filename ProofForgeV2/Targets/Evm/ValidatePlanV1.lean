@@ -645,6 +645,22 @@ private partial def checkPlanStatementsV1
               "unsupported EVM semantic shape: pf.crypto.ecdsaRecoverSecp256k1 arguments must be UInt256"
           total ← addPlanExprNodes slots paramCount total fns arg
         total := total + 1
+    | .merkleVerifyKeccak256 root leaf siblings _resultTemp =>
+        if isView then
+          throw <| .planInvariant .evm
+            s!"{owner} calls pf.crypto.merkleVerifyKeccak256 in a view/pureFn context"
+        if isConstructor then
+          throw <| .planInvariant .evm
+            "constructor cannot call pf.crypto.merkleVerifyKeccak256"
+        unless 1 ≤ siblings.size && siblings.size ≤ 8 do
+          throw <| .planInvariant .evm
+            s!"unsupported EVM plan: pf.crypto.merkleVerifyKeccak256 admits D ∈ 1..8 siblings; got D={siblings.size}"
+        for arg in (#[root, leaf] ++ siblings) do
+          unless exprIsExternalUIntCompatibleV1 fns arg do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: pf.crypto.merkleVerifyKeccak256 arguments must be UInt256"
+          total ← addPlanExprNodes slots paramCount total fns arg
+        total := total + 1
     | .schedule callee args argBitWidths =>
         if isView then
           throw <| .planInvariant .evm s!"{owner} schedules a workflow in a view context"

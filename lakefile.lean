@@ -145,6 +145,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Semantic.MiniAmmVectorsV1,
     `Tests.Semantic.NormalizeConst,
     `Tests.Semantic.NormalizeSha256BytesV1,
+    `Tests.Semantic.NormalizeMerkleVerifyV1,
     `Tests.Semantic.ProofBundleV1,
     `Tests.Semantic.ProofSubjectGeneratedFixtureV1,
     `Tests.Semantic.ProofSubjectV1,

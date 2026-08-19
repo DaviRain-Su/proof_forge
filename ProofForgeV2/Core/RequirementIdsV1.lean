@@ -223,20 +223,32 @@ def isPfAssetsEnvReadQnV1 (qn : String) : Bool :=
     QN (RPT-027 split-QN discipline); no same-QN arity overloading. -/
 def pfCryptoSha256BytesQnV1 : String := "pf.crypto.sha256Bytes"
 
+/-- Frozen CAP-X-MERKLE qualified name:
+    `pf.crypto.merkleVerifyKeccak256(root, leaf, s0…s_{D-1}) -> Bool` with
+    D ∈ 1..8 UInt256 siblings and OpenZeppelin sorted-pair hashing. EVM-only
+    leaf; a guest keccak chain is pure computation, not a cross-contract
+    call, so it must not contribute `effect.synchronous-call`. -/
+def pfCryptoMerkleVerifyKeccak256QnV1 : String := "pf.crypto.merkleVerifyKeccak256"
+
 /-- Exact SYS-S5 host-syscall QNs. Like env-read, these are not platform
     `effect.synchronous-call` contributions: EVM precompile/opcode / Solana `sol_sha256`/`sol_keccak256` /
     NEAR host `sha256` are dedicated bindings, not generic sync CPI/CALL.
     CAP-X-BYTES adds `pf.crypto.sha256Bytes` (Bytes-arity SHA-256; shared-core
-    admission only — exact `(Bytes N) -> UInt256` ABI stays target-owned). -/
+    admission only — exact `(Bytes N) -> UInt256` ABI stays target-owned).
+    CAP-X-MERKLE adds `pf.crypto.merkleVerifyKeccak256` (pure guest hash
+    chain; same no-sync-call discipline). -/
 def isPfCryptoHostSyscallQnV1 (qn : String) : Bool :=
   qn == "pf.crypto.sha256" || qn == "pf.crypto.keccak256" ||
-    qn == pfCryptoSha256BytesQnV1
+    qn == pfCryptoSha256BytesQnV1 || qn == pfCryptoMerkleVerifyKeccak256QnV1
 
 def isPfCryptoSha256QnV1 (qn : String) : Bool :=
   qn == "pf.crypto.sha256"
 
 def isPfCryptoSha256BytesQnV1 (qn : String) : Bool :=
   qn == pfCryptoSha256BytesQnV1
+
+def isPfCryptoMerkleVerifyKeccak256QnV1 (qn : String) : Bool :=
+  qn == pfCryptoMerkleVerifyKeccak256QnV1
 
 /-- The two env-read catalog QNs as distinct family tags for typing/Normalize.
     `native` → `.nativeVaultBalance` (0 args); `token` → `.tokenVaultBalance`

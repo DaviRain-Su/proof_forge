@@ -73,7 +73,13 @@ before the Plan key.
 | `keccak256` | A opcode | A `sol_keccak256` | A host | F | F (no keccak) | F | F | F |
 | `ecdsaRecoverSecp256k1` | A `0x01` | F | F | F | F | F | F | F |
 | `sha256Bytes`（Bytes N→UInt256） | **A**（N≤64，`0x02` over memory） | **A**（N≤64，`sol_sha256` 单 slice） | **A**（N≤64，host register bytes） | F (no host) | **A**（N≤127，`SHA256U` 单 cell bits） | **A**（N≤8，`env.crypto().sha256` S0 Bytes） | F (no direct) | F |
+| `merkleVerifyKeccak256`（UInt256×(2+D)→Bool） | **A**（D≤8，sorted-pair keccak 链，false-not-revert） | F (no host shape) | F | F | F | F | F | F |
 | Bytes / Merkle / other verify | F | F | F | F | F | F | F | F |
+
+`merkleVerifyKeccak256` QN 已于 2026-08-19 由 owner 拍板冻结并落地 EVM 叶
+（CAP-X-MERKLE；见 [`capability-layer-tasks.md`](capability-layer-tasks.md) Wave 5）：
+keccak 原生 opcode + OpenZeppelin sorted-pair 惯例；定深 UInt256 sibling（D≤8）；
+Bool verify 结果（false，不 revert）；不声称 ICS-23/IBC/NS-2。无 host target 永 F。
 
 `sha256Bytes` QN 已于 2026-08-19 冻结并落地（CAP-X-BYTES，共享核 + 五叶；
 见 [`capability-layer-tasks.md`](capability-layer-tasks.md) Wave 4）。N 上限为

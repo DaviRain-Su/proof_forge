@@ -369,6 +369,12 @@ inductive Statement where
       the zero word — matching Solidity `ecrecover`, not an auto-revert. Not
       AddressBearing CALL and not a Principal ABI. -/
   | ecdsaRecoverSecp256k1 (hash v r s : Expr) (resultTemp : Nat)
+  /-- CAP-X-MERKLE-EVM: exact
+      `pf.crypto.merkleVerifyKeccak256(root, leaf, s0…s_{D-1}) -> Bool`
+      with D ∈ 1..8 anonymous UInt256 siblings. OpenZeppelin sorted-pair
+      keccak chain; mismatch returns false (no revert). Not keccak256Opcode,
+      not sha256Precompile, and not AddressBearing CALL. -/
+  | merkleVerifyKeccak256 (root leaf : Expr) (siblings : Array Expr) (resultTemp : Nat)
   /-- Async fire-and-forget schedule (void). Same static-callee address/selector
       derivation and per-argument UInt ABI widths as `externalCall`, but CALL
       success is ignored (no response channel — matches Reference schedule
@@ -708,6 +714,10 @@ private def mkAggregateValueV1 (leaves : Array Expr) (leafIsInt : Array Bool)
     fail closed (no silent truncation). Independent of the String/Principal
     64-byte packed-word discipline. -/
 private def evmSha256BytesMaxLenV1 : Nat := 64
+
+/-- CAP-X-MERKLE-EVM: sibling depth D ∈ 1..8 (arity = 2 + D). -/
+private def evmMerkleVerifyMinSiblingsV1 : Nat := 1
+private def evmMerkleVerifyMaxSiblingsV1 : Nat := 8
 
 /-- EVM pilot String storage layout (N4, deterministic, fixed leaf count):
     * leaf 0: UTF-8 byte length (`UInt64`)
@@ -1977,7 +1987,7 @@ private def currentValueWithArmsV1
 
 /-- Reserve the complete `pf.crypto` namespace from generic hashed-QN CALL
     lowering. SYS-S5-EVM admits sha256 and keccak256; EXT-CRYPTO adds
-    ecdsaRecoverSecp256k1. -/
+    ecdsaRecoverSecp256k1; CAP-X-MERKLE-EVM adds merkleVerifyKeccak256. -/
 private def isPfCryptoCalleeV1 (components : Array String) : Bool :=
   components[0]? == some "pf" && components[1]? == some "crypto"
 
@@ -1993,11 +2003,15 @@ private def isPfCryptoKeccak256CalleeV1 (components : Array String) : Bool :=
 private def isPfCryptoEcdsaRecoverSecp256k1CalleeV1 (components : Array String) : Bool :=
   components == #["pf", "crypto", "ecdsaRecoverSecp256k1"]
 
+private def isPfCryptoMerkleVerifyKeccak256CalleeV1 (components : Array String) : Bool :=
+  components == #["pf", "crypto", "merkleVerifyKeccak256"]
+
 private def isPfCryptoAdmittedEvmCalleeV1 (components : Array String) : Bool :=
   isPfCryptoSha256CalleeV1 components ||
     isPfCryptoSha256BytesCalleeV1 components ||
     isPfCryptoKeccak256CalleeV1 components ||
-    isPfCryptoEcdsaRecoverSecp256k1CalleeV1 components
+    isPfCryptoEcdsaRecoverSecp256k1CalleeV1 components ||
+    isPfCryptoMerkleVerifyKeccak256CalleeV1 components
 
 /-- Anonymous `Bytes N` length, if `typeId` resolves to that shape. -/
 private def evmBytesLenOfTypeIdV1
@@ -3510,9 +3524,12 @@ private def lowerBlockInstructionsV1
         if isPfCryptoSha256BytesCalleeV1 components then
           throw <| .planInvariant .evm
             "unsupported EVM semantic shape: pf.crypto.sha256Bytes requires a result-bearing call (not a void statement)"
+        if isPfCryptoMerkleVerifyKeccak256CalleeV1 components then
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: pf.crypto.merkleVerifyKeccak256 requires a result-bearing call (not a void statement)"
         if isPfCryptoCalleeV1 components then
           throw <| .planInvariant .evm
-            "unsupported EVM semantic shape: pf.crypto calls require result-bearing pf.crypto.sha256|keccak256(UInt256) -> UInt256, pf.crypto.sha256Bytes(Bytes N) -> UInt256, or pf.crypto.ecdsaRecoverSecp256k1"
+            "unsupported EVM semantic shape: pf.crypto calls require result-bearing pf.crypto.sha256|keccak256(UInt256) -> UInt256, pf.crypto.sha256Bytes(Bytes N) -> UInt256, pf.crypto.ecdsaRecoverSecp256k1, or pf.crypto.merkleVerifyKeccak256"
         else if isPfAssetsCatalogQnV1 qn then
           -- ADR-0029 B2 QN gate: catalog QN requires exact extension.pf-assets.
           unless layout.pfAssetsDeclared do
@@ -4381,7 +4398,8 @@ private def lowerBlockInstructionsV1
             s!"unsupported EVM semantic shape: unknown ContextRead key '{key.value}'"
     | .externalCall _effectId callee argIds, some result =>
         -- N-CALL-RET/B-CALL-SEM: result-bearing sync call. Exact
-        -- pf.crypto.sha256 / keccak256 / ecdsaRecoverSecp256k1 leaves are dedicated host bindings;
+        -- pf.crypto.sha256 / keccak256 / ecdsaRecoverSecp256k1 /
+        -- merkleVerifyKeccak256 leaves are dedicated host bindings;
         -- remaining callees use the existing AddressBearing CALL path.
         if mode == .view then
           throw <| .planInvariant .evm
@@ -4456,6 +4474,39 @@ private def lowerBlockInstructionsV1
               roots[0]!.expr roots[1]!.expr roots[2]!.expr roots[3]!.expr resultTemp)
             values := ← appendResultValueV1 result.typeId values result
               (mkScalarValueV1 (.temp resultTemp) #[] false false 256 1 1)
+            hasAssert := true
+            armReadables := promoteDominatingPureV1 paramCount values armReadables
+            segmentStart := values.size
+          else if isPfCryptoMerkleVerifyKeccak256CalleeV1 components then
+            if mode == .constructor then
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: constructor cannot call pf.crypto.merkleVerifyKeccak256"
+            unless types.boolTypeId == some result.typeId do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: pf.crypto.merkleVerifyKeccak256 requires 3..10 anonymous UInt256 arguments (root, leaf, s0…s_{D-1}, D ∈ 1..8) and Bool result"
+            unless evmMerkleVerifyMinSiblingsV1 + 2 ≤ argIds.size &&
+                argIds.size ≤ evmMerkleVerifyMaxSiblingsV1 + 2 do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: pf.crypto.merkleVerifyKeccak256 requires 3..10 anonymous UInt256 arguments (root, leaf, s0…s_{D-1}, D ∈ 1..8) and Bool result"
+            let mut roots : Array LoweredValueV1 := #[]
+            for argId in argIds do
+              let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+              unless types.uintWidthOf root.typeId == some 256 &&
+                  !root.isBool && !root.isInt && !root.isField &&
+                  !root.isAggregate && root.bitWidth == 256 do
+                throw <| .planInvariant .evm
+                  "unsupported EVM semantic shape: pf.crypto.merkleVerifyKeccak256 requires 3..10 anonymous UInt256 arguments (root, leaf, s0…s_{D-1}, D ∈ 1..8) and Bool result"
+              roots := roots.push root
+            let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
+            let resultTemp := result.valueId.toNat
+            let siblings := roots.extract 2 roots.size |>.map (·.expr)
+            body := body.push (.merkleVerifyKeccak256
+              roots[0]!.expr roots[1]!.expr siblings resultTemp)
+            -- resultTemp is the 0/1 Bool word; Plan Bool surface is compare,
+            -- not a bare temp (ValidatePlan rejects integer-shaped temps).
+            values := ← appendResultValueV1 result.typeId values result
+              (mkScalarValueV1
+                (.compare .eq (.temp resultTemp) (.literal 1)) #[] true false 1 1 1)
             hasAssert := true
             armReadables := promoteDominatingPureV1 paramCount values armReadables
             segmentStart := values.size

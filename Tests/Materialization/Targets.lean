@@ -6725,6 +6725,47 @@ unsafe def runRemainingNeedles : IO Unit := do
   expect (!(MaterializedArtifactsV1.filesOf sorOut).isEmpty)
     "Sha256BytesSorProbe: soroban must materialize sha256Bytes"
 
+  -- CAP-X-MERKLE: exact `pf.crypto.merkleVerifyKeccak256(root, leaf, s0…s_{D-1})
+  -- -> Bool` cross-target needle (D ∈ 1..8, OpenZeppelin sorted-pair keccak
+  -- chain, false-not-revert). EVM-only leaf; the other twelve keep named
+  -- fail-closed at their own first gate (crypto namespace / width / profile).
+  let merkleProbeSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program MerkleVerifyProbe where\n" ++
+    "  entry verify(root : UInt256, leaf : UInt256, s0 : UInt256) : Bool do\n" ++
+    "    return call pf.crypto.merkleVerifyKeccak256(root, leaf, s0)\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let merkleV1 ← match ← session.selectProgramV1 merkleProbeSource
+      "<targets-merkle-verify>" "Examples.MerkleVerifyProbe" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"MerkleVerifyProbe select: {e.render}"
+  let merkleCompiled ←
+    liftResult <| Compiler.compileValidatedSourceV1 merkleV1
+  let merkleEvmOut ← liftResult <| materializeSelected TargetId.evm merkleCompiled
+  expect (!(MaterializedArtifactsV1.filesOf merkleEvmOut).isEmpty)
+    "MerkleVerifyProbe: evm must materialize merkleVerifyKeccak256"
+  for (target, kind, marker) in #[
+      (TargetId.solana, TargetKind.solana,
+        "only public Principal/UInt64/UInt8 params"),
+      (TargetId.near, TargetKind.near, "state count is outside the profile limits"),
+      (TargetId.noir, TargetKind.noir,
+        "pf.crypto QN 'pf.crypto.merkleVerifyKeccak256' has no Noir host binding"),
+      (TargetId.aleo, TargetKind.aleo, "widths are supported"),
+      (TargetId.psy, TargetKind.psy, "result-bearing external call is not admitted"),
+      (TargetId.quint, TargetKind.quint, "widths are supported"),
+      (TargetId.cosmwasm, TargetKind.cosmwasm,
+        "state count is outside the profile limits"),
+      (TargetId.ton, TargetKind.ton, "state count is outside the profile limits"),
+      (TargetId.soroban, TargetKind.soroban,
+        "UInt256 is admitted only as pf.crypto.sha256"),
+      (TargetId.icp, TargetKind.icp, "widths are supported"),
+      (TargetId.openvm, TargetKind.openvm, "widths are supported"),
+      (TargetId.xrpl, TargetKind.xrpl, "widths are supported")] do
+    expectMaterializePlanInvariantV1 "MerkleVerifyProbe" target kind
+      merkleCompiled marker
+
   -- N-A4: Option state Normalize-admitted. All twelve materializers
   -- admit Option UInt64 state (Enum-shaped 2-leaf / tag+payload layout):
   -- EVM (BL-31), NEAR (BL-30), Solana (BL-29), Aleo (BL-35), CosmWasm
