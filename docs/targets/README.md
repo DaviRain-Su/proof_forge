@@ -3,7 +3,7 @@ id: TARGET-INDEX
 title: Target 研究与实现档案
 status: proposed
 owner: architecture
-updated: 2026-08-17
+updated: 2026-08-19
 normative: true
 ---
 
@@ -60,8 +60,8 @@ normative: true
 > design-only**。十三个 materializer：`evm` / `solana` / `near` / `noir` / `aleo` /
 > `psy` / `quint` / `cosmwasm` / `ton` / `soroban` / `openvm` / `icp` / `xrpl`。
 > 其中 **accepted PRD Phase 1** 仍仅前四；其余 engineering leaves（含 Soroban S0、
-> OpenVM O0/O1、ICP、XRPL Q0）由 ADR-0036/0044/0045/0046/0047/0049 固定为非 accepted
-> 扩面，formal lighthouse=EVM-first。
+> OpenVM O0/O1、ICP、XRPL Q0）由 **proposed** ADR-0036 与 ADR-0044/0045/0046/0047/0049/0050
+> 主张收口为非 accepted 扩面，formal lighthouse=EVM-first。ADR-0036 仍 `proposed`，不得写成 accepted。
 > Registry maturity 标签（如 CosmWasm `wasm-validated-alpha`、TON/Quint/Soroban/OpenVM/XRPL> `source-only`）不变；compile / mock / sandbox / 模型检查不得写成 formal 或 hermetic 完成。
 > **cairo/risc0/sp1 未进 registry 枚举**（仅 dossier/research）。`xrpl` 不得与
 > OpenVM guest 或 EVM 侧链混 Plan。

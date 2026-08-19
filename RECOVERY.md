@@ -181,7 +181,7 @@ C-3 / Anvil lossless 仍 blocked/fail closed（FC）；ADR-0036 仍 proposed。
   host-optional exact 0.32 typecheck/run 非 Tool Lock/formal。
   CosmWasm/TON 已 capability Plan/IR/materialize/finalize
   （CW：sync 拒、async SubMsg 子集；TON：resolver admit async、Plan schedule FC；均非 formal/wasmd/主网）。
-  十二个 materializer 的 Plan body 均由 retained `SemanticProgramV1` 经 capability 构造；工程 output 已接 S7a–S7c + D3-E7
+  十三个 materializer 的 Plan body 均由 retained `SemanticProgramV1` 经 capability 构造；工程 output 已接 S7a–S7c + D3-E7
   descriptors/evidence digest/post-publish inspect closure，仍非 formal D1–D4 / formal OutputSetV1 完成。
 - Legacy Source source-reading 与 v1 export decoder 已删除；command/export 仅 ProgramV1 v2。
   `selectProgramV1ProductWithTheoremInventory` 为产品 CLI 使用的 Loader 入口；
@@ -222,12 +222,12 @@ CLI真实走完 `SemanticProgramV1 → exact resolver → target Plan/IR → Out
 private-ctor `CompiledSemanticV1` 单 carrier + engineering exact requirement resolver capability
 （`resolveEngineeringRequirementsV1 (selection, compiled)` → private
 `ResolvedEngineeringBuildV1`，exact retained SemanticProgramV1 `data.requirements`，
-无 caller request override；静态十五行 S2 target/profile support index）。**精确边界**：shipped
-aggregate/CLI `materialize`/`emit` 仅接受 capability；十二 materializer 均在 capability 后读取
+无 caller request override；静态十七行 S2 target/profile support index）。**精确边界**：shipped
+aggregate/CLI `materialize`/`emit` 仅接受 capability；十三 materializer 均在 capability 后读取
 retained `SemanticProgramV1`，经各自 private lowering 构造 target-owned Plan，再进入各自 IR/emission；
 residual alpha不再参与 Plan body。**D3/S6 工程**：public residual Common resolve / validateResolved /
 public makePlan 与 `TargetDescriptor.supportedRequirements` 字段/membership acceptance 已关闭；
-cycle-free `EngineeringBuildV1` leaf sole mint；十二 materializer 仅 capability-gated
+cycle-free `EngineeringBuildV1` leaf sole mint；十三 materializer 仅 capability-gated
 `planFromCapability`/`irFromCapability`/`buildFromCapability`（+ descriptor/
 validatePlan/validateIR inspection）；Registry 直接 capability dispatch；public
 `namespace Residual` 与 `planFromAlpha`/`lowerPlan`/`filesFromIR` 完整
@@ -242,7 +242,7 @@ ProgramV1 source Digest + `semanticHashV1` Digest + ordered files）；已删 pu
 `s7-output-envelope-deletion-gate` 已接入 dev/ci。**D3/S7b 工程**：locked-tool
 finalization 已迁出 CLI：`Materialization/LockedToolchainV1`（无 Core.Source/CLI）；
 private-ctor `FinalizedArtifactsV1` sole mint；Registry sole
-`finalizeMaterializedArtifactsV1` → 十二 materializer FinalizeV1 adapters；
+`finalizeMaterializedArtifactsV1` → 十三 materializer FinalizeV1 adapters；
 CLI/Emit publisher-only；已删 `CLI/Toolchain` 与 `finalizeEvm`/`finalizeNear`；
 engineering `proof-forge.output.v1`/tool bytes 保持；`s7b-finalize-authority-deletion-gate` 已接入
 dev/ci。**D3/S7c + D3-E7 工程**：`ArtifactContentV1` sole physical walker/stable-read/hash
@@ -252,7 +252,7 @@ dev/ci。**D3/S7c + D3-E7 工程**：`ArtifactContentV1` sole physical walker/st
 重验 no-follow bounded closure（limits 1024/64MiB/256MiB）；`inspect <output-dir>` stable-read sidecars/
 listed artifacts、重走 closure并逐 descriptor 比对；Python validator同样拒绝 symlink/hardlink/额外或
 缺失 leaf并重算 digest；`s7c-disk-closure-gate` 已接入 dev/ci。**D3-E9 工程**：
-`TargetDescriptor` 直接复用 registry-owned 六轴，十二个 registry-implemented descriptors 从 frozen
+`TargetDescriptor` 直接复用 registry-owned 六轴，十三个 registry-implemented descriptors 从 frozen
 `semanticsAxesOfKindV1` seed 派生（含 CosmWasm/TON Plan/materializer leaf）。
 capability resolve、artifact mint 与 CLI inspect 前逐轴 exact join，Protocol 重复轴类型已删除。
 仍**不是 formal** SupportClaim/formal resolver/formal BuildIdentity/formal `OutputSetV1`/

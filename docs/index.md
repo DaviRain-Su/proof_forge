@@ -30,8 +30,8 @@ XRPL Q0：Bedrock-shaped `{name}.rs` + zero-tool finalize（ADR-0049）；opt-in
 host 三键 ADR-0052 proposed（TIME/CALLER 符号冻、SHA keep-FC；叶未开）；
 CosmWasm：WAT + locked check + mock 28 tests +
 wasmd Docker rung-1；TON：Tolk/BoC + sandbox 16 it（新增 1 条本机未执行；schedule `createMessage` PARTIAL）。**Accepted PRD Phase 1 仍为四目标**
-（EVM/Solana/NEAR/Noir）；其余 engineering leaves 由 **ADR-0036**（现 13+0）与 **ADR-0044/0045/0046/0047/0049/0050**
-固定为非 accepted 扩面，formal lighthouse=EVM-first。Normalize 为扩展中的
+（EVM/Solana/NEAR/Noir）；其余 engineering leaves 由 **ADR-0036**（仍 `proposed`；现 13+0）与 **ADR-0044/0045/0046/0047/0049/0050**
+主张收口为非 accepted 扩面，formal lighthouse=EVM-first。不得把 ADR-0036 写成 accepted。Normalize 为扩展中的
 子集（超出最初 Counter-only S1，仍非完整语言面）。前端监督层已于 2026-08-01 移除。
 
 EVM formal 缺口盘点（非 normative、不代签 TASK/TST）：

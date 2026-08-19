@@ -17,7 +17,7 @@ Phase 1 四目标范围；accepted/engineering scope 边界见 **ADR-0036**。
 ## 0. 工程状态（2026-08-04）
 
 **已实现（engineering TON-1/TON-2，branch `integrate/ton-2`）**：ADR-0024 接入 TON 时为
-8 implemented + 3 design-only（ADR-0024 接入时），后经 ADR-0026/Quint 为 9+3；当前（2026-08-14 起）为 **12 implemented + 0 design-only**。
+8 implemented + 3 design-only（ADR-0024 接入时），后经 ADR-0026/Quint 为 9+3；2026-08-14 起曾为 12+0；当前（2026-08-19 起）为 **13 implemented + 0 design-only**（含 XRPL ADR-0049/0050）。
 TON profile `ton-tolk-boc-v1`；六轴为（`tvm`/`transactionAtomic`/
 `cellHashmap`/`asynchronousActor`/`noProof`/`tonChain`）；`Targets/Ton/**` target-owned
 Plan/IR/Tolk emitter——c4 扁平 struct cell 状态（无 dict）、`onInternalMessage` op 分发

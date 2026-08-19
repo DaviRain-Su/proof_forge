@@ -144,7 +144,7 @@ layout: center
 | TON | Tolk → real BoC + sandbox 16/16; schedule `createMessage` PARTIAL | Mainnet / formal; real address+value / callback round-trip |
 
 <div class="mt-6 text-center text-sm opacity-80">
-Engineering registry 12 = 12 implemented materializers + 0 design-only. Accepted PRD Phase 1 remains EVM/Solana/NEAR/Noir; Aleo/Psy/Quint/CosmWasm/TON/Soroban/OpenVM/ICP are engineering leaves (ADR-0036, still proposed; formal lighthouse=EVM-first). Compile/mock/sandbox/host-only model smoke ≠ formal/hermetic.
+Engineering registry 13 = 13 implemented materializers + 0 design-only. Accepted PRD Phase 1 remains EVM/Solana/NEAR/Noir; Aleo/Psy/Quint/CosmWasm/TON/Soroban/OpenVM/ICP/XRPL are engineering leaves (ADR-0036, still proposed; formal lighthouse=EVM-first). Compile/mock/sandbox/host-only model smoke ≠ formal/hermetic.
 </div>
 
 ---
@@ -220,7 +220,7 @@ backgroundSize: contain
 # Roadmap & target landscape
 
 <div class="mt-80 text-center text-sm opacity-80">
-Historical landscape image; engineering registry is now 12 = 12 implemented materializers + 0 design-only (Soroban/OpenVM/ICP implemented per ADR-0044/0045/0046/0047). Accepted PRD Phase 1 is still four targets; ADR-0036 (still proposed) claims the boundary. See the preceding table.
+Historical landscape image; engineering registry is now 13 = 13 implemented materializers + 0 design-only (Soroban/OpenVM/ICP/XRPL implemented per ADR-0044/0045/0046/0047/0049/0050). Accepted PRD Phase 1 is still four targets; ADR-0036 (still proposed) records the boundary. See the preceding table.
 </div>
 
 ---
@@ -231,7 +231,7 @@ layout: center
 
 <v-clicks>
 
-- Engineering path: one Semantic carrier → **nine** target-owned Plan/IR leaves
+- Engineering path: one Semantic carrier → **thirteen** target-owned Plan/IR leaves
 - Accepted PRD Phase 1: EVM / Solana / NEAR / Noir only (Aleo/Psy/Quint/CW/TON/OpenVM = engineering leaves; ADR-0036/0043; formal lighthouse=EVM-first)
 - Quint: `.qnt` source-only executable model + zero-tool finalize (non-deployable; host smoke only)
 - OpenVM O0: controlled Rust guest + catalog + zero-tool finalize (no ELF/prove)
