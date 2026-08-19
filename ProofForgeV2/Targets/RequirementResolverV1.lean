@@ -193,6 +193,17 @@ def cryptoCatalogResidualV1 : TargetKind → Option String
   | .psy => some "keccak-gadget-not-sha2"
   | _ => none
 
+/-- Inspect-only residual when Finalize `deployable` can be true while the
+    registry maturity label stays `source-only`.
+
+    Does **not** change `expectedMaturityLabelOfKindV1` / SupportClaim /
+    `describeImplementedJoin`. `none` means label and deployable already
+    agree for the shipped default (or deployable is unconditionally false). -/
+def maturityResidualV1 : TargetKind → Option String
+  | .icp => some "deployable-wasm-vs-source-only-label"
+  | .ton => some "conditional-boc-deployable-vs-source-only-label"
+  | _ => none
+
 /-- Non-capability inspection of a support match or request resolution outcome.
     Dependency-injected seams may return this — never a materialize capability. -/
 structure RequirementResolutionInspectionV1 where

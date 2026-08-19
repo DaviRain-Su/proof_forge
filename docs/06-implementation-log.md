@@ -12,6 +12,19 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-19 — COMP-1-SYS-CAP-L2 maturityResidual + XRPL context 矩阵
+
+- `RequirementResolverV1.maturityResidualV1`：仅 icp=`deployable-wasm-vs-source-only-label`、
+  ton=`conditional-boc-deployable-vs-source-only-label`。**不**改
+  `expectedMaturityLabelOfKindV1`（ICP/TON 仍 `source-only`）。
+- 产品 `inspect` / `inspect --json` 在 implemented 行露出 optional
+  `maturityResidual`（JSON 无 residual 为 `null`）。`describe` 三行与
+  SupportClaim digest **不变**。
+- `Targets.lean` 补 XRPL unixTime / caller / blockHeight / chainId / self /
+  Commit fail-closed 针（named UInt64 用 host-binding 文案；Principal/Commit
+  用 `op is outside Q0`）。**不**开 XRPL TIME/CALLER 叶。
+- **不是** 新官方 program 叶、**不是** 改 maturity 标签、**不是** formal 0/27。
+
 ## 2026-08-19 — COMP-1-SYS-CAP-L2 official crypto inspect 诚实表面
 
 - `RequirementResolverV1.cryptoCatalogFamilyTagV1`：十三 kind 闭表

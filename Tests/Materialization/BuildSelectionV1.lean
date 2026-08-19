@@ -825,6 +825,8 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
         s!"inspect evm crypto family tag, got {text}"
       expect (!hasSubstr text "cryptoResidual")
         "inspect evm has no official-crypto residual"
+      expect (!hasSubstr text "maturityResidual")
+        "inspect evm has no maturity residual"
   | .error e => throw <| IO.userError s!"inspect evm: {e.render}"
   match ProofForgeV2.CLI.inspectTargetText "aleo" with
   | .ok text =>
@@ -850,6 +852,8 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
         s!"inspect aleo crypto family tag, got {text}"
       expect (!hasSubstr text "cryptoResidual")
         "inspect aleo has no official-crypto residual"
+      expect (!hasSubstr text "maturityResidual")
+        "inspect aleo has no maturity residual"
   | .error e => throw <| IO.userError s!"inspect aleo: {e.render}"
   match ProofForgeV2.CLI.inspectTargetText "psy" with
   | .ok text =>
@@ -873,6 +877,8 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       expect (hasSubstr text
           "cryptoResidual=keccak-gadget-not-sha2")
         s!"inspect psy crypto residual, got {text}"
+      expect (!hasSubstr text "maturityResidual")
+        "inspect psy has no maturity residual"
   | .error e => throw <| IO.userError s!"inspect psy: {e.render}"
   -- Legacy three-line helper remains for S2 exact-string join tests.
   match ProofForgeV2.CLI.describeTargetText "aleo" with

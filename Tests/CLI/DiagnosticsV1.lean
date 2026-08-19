@@ -532,6 +532,8 @@ private def testInspectDigests : IO Unit := do
     s!"inspect evm crypto family tag: {stdout}"
   expect (!containsSubstr stdout "cryptoResidual")
     s!"inspect evm has no crypto residual: {stdout}"
+  expect (!containsSubstr stdout "maturityResidual")
+    s!"inspect evm has no maturity residual: {stdout}"
   let (ec2, stdout2, _) ← runCli #["inspect", "evm"]
   expect (ec2 == 0 && stdout2 == stdout)
     "inspect must be deterministic"
@@ -561,6 +563,9 @@ private def testInspectDigests : IO Unit := do
     s!"inspect icp crypto family tag: {stdout3}"
   expect (!containsSubstr stdout3 "cryptoResidual")
     s!"inspect icp has no crypto residual: {stdout3}"
+  expect (containsSubstr stdout3
+      "maturityResidual=deployable-wasm-vs-source-only-label")
+    s!"inspect icp maturity residual: {stdout3}"
   let (ec4, stdout4, stderr4) ← runCli #["inspect", "aleo"]
   expect (ec4 == 0)
     s!"inspect aleo must exit 0, got {ec4}\n{stderr4}"
@@ -578,6 +583,8 @@ private def testInspectDigests : IO Unit := do
     s!"inspect aleo crypto family tag: {stdout4}"
   expect (!containsSubstr stdout4 "cryptoResidual")
     s!"inspect aleo has no crypto residual: {stdout4}"
+  expect (!containsSubstr stdout4 "maturityResidual")
+    s!"inspect aleo has no maturity residual: {stdout4}"
   let (ec5, stdout5, stderr5) ← runCli #["inspect", "cosmwasm"]
   expect (ec5 == 0)
     s!"inspect cosmwasm must exit 0, got {ec5}\n{stderr5}"
@@ -615,6 +622,8 @@ private def testInspectDigests : IO Unit := do
     s!"inspect solana crypto family tag: {stdout6}"
   expect (!containsSubstr stdout6 "cryptoResidual")
     s!"inspect solana has no crypto residual: {stdout6}"
+  expect (!containsSubstr stdout6 "maturityResidual")
+    s!"inspect solana has no maturity residual: {stdout6}"
   let (ec7, stdout7, stderr7) ← runCli #["inspect", "near"]
   expect (ec7 == 0)
     s!"inspect near must exit 0, got {ec7}\n{stderr7}"
@@ -629,6 +638,8 @@ private def testInspectDigests : IO Unit := do
     s!"inspect near crypto family tag: {stdout7}"
   expect (!containsSubstr stdout7 "cryptoResidual")
     s!"inspect near has no crypto residual: {stdout7}"
+  expect (!containsSubstr stdout7 "maturityResidual")
+    s!"inspect near has no maturity residual: {stdout7}"
   let (ec8, stdout8, stderr8) ← runCli #["inspect", "xrpl"]
   expect (ec8 == 0)
     s!"inspect xrpl must exit 0, got {ec8}\n{stderr8}"
@@ -638,6 +649,16 @@ private def testInspectDigests : IO Unit := do
   expect (containsSubstr stdout8
       "cryptoResidual=sha512-half-not-sha256")
     s!"inspect xrpl crypto residual: {stdout8}"
+  expect (!containsSubstr stdout8 "maturityResidual")
+    s!"inspect xrpl has no maturity residual: {stdout8}"
+  let (ec9, stdout9, stderr9) ← runCli #["inspect", "ton"]
+  expect (ec9 == 0)
+    s!"inspect ton must exit 0, got {ec9}\n{stderr9}"
+  expect (containsSubstr stdout9 "maturity=source-only")
+    s!"inspect ton maturity: {stdout9}"
+  expect (containsSubstr stdout9
+      "maturityResidual=conditional-boc-deployable-vs-source-only-label")
+    s!"inspect ton maturity residual: {stdout9}"
 
 private def testJsonSurface : IO Unit := do
   let (ec, stdout, stderr) ← runCli #["list-targets", "--json"]
@@ -674,6 +695,23 @@ private def testJsonSurface : IO Unit := do
   expect (containsSubstr stdout2
       "\"cryptoResidual\":null")
     s!"inspect json evm crypto residual null: {stdout2}"
+  expect (containsSubstr stdout2
+      "\"maturityResidual\":null")
+    s!"inspect json evm maturity residual null: {stdout2}"
+  let (ecIcp, stdoutIcp, stderrIcp) ← runCli #["inspect", "icp", "--json"]
+  expect (ecIcp == 0)
+    s!"inspect icp --json exit, got {ecIcp}\n{stderrIcp}"
+  expectCanonicalJson "inspect-icp" stdoutIcp
+  expect (containsSubstr stdoutIcp
+      "\"maturityResidual\":\"deployable-wasm-vs-source-only-label\"")
+    s!"inspect json icp maturity residual: {stdoutIcp}"
+  let (ecTon, stdoutTon, stderrTon) ← runCli #["inspect", "ton", "--json"]
+  expect (ecTon == 0)
+    s!"inspect ton --json exit, got {ecTon}\n{stderrTon}"
+  expectCanonicalJson "inspect-ton" stdoutTon
+  expect (containsSubstr stdoutTon
+      "\"maturityResidual\":\"conditional-boc-deployable-vs-source-only-label\"")
+    s!"inspect json ton maturity residual: {stdoutTon}"
   let (ec3, stdout3, stderr3) ← runCli #[
     "check", "Examples/StateCell.lean",
     "--module", "Examples.StateCell", "--json"

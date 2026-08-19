@@ -53,9 +53,10 @@ Solana ADR-0048 D4 剩余证书（非 formal TASK-D5）：
 CAP-X-BYTES / CAP-X-MERKLE / 诚实边界波）。COMP-1-CALL-SEM-LAND 第一刀
 （inspect family-tag + 地址 residual）、COMP-1-NORMALIZE-RESIDUAL FC 针
 （Field/Principal 源字面量、Bytes 嵌套穿透）与 COMP-1-SYS-CAP-L2
-attachedValue inspect/Targets 诚实表面与 official `cryptoHonesty` 闭表
+attachedValue inspect/Targets 诚实表面、official `cryptoHonesty` 闭表、
+ICP/TON `maturityResidual` 与 XRPL ContextRead/Commit 矩阵针
 已部分落地，**不**把 B-CALL-SEM 标 closed，**不**开放 Field/Principal 字面量，
-**不**开官方 program 新叶。
+**不**开官方 program 新叶，**不**改 registry maturity 标签。
 当前剩余人拍项 = B-CALL-SEM 残差（部署地址 / 外层账户 / CW `contract_addr` 绑定）/
 ADR-0051 / D3-E8 / QUINT-2 / SOR-1 / XRPL TIME/CALLER。
 完善度队列 [`plan/completeness-phased-roadmap.md`](plan/completeness-phased-roadmap.md) ·

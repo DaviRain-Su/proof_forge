@@ -1204,6 +1204,18 @@ private def cryptoCatalogResidualJsonV1 (kind : TargetKind) : PfJson :=
   | some tag => .string tag
   | none => .null
 
+/-- Inspect-only maturity residual line. Empty when label and deployable agree. -/
+private def maturityResidualTextSuffixV1 (kind : TargetKind) : String :=
+  match maturityResidualV1 kind with
+  | some tag => s!"\nmaturityResidual={tag}"
+  | none => ""
+
+/-- Inspect JSON maturity residual: string tag or `null`. -/
+private def maturityResidualJsonV1 (kind : TargetKind) : PfJson :=
+  match maturityResidualV1 kind with
+  | some tag => .string tag
+  | none => .null
+
 /-- Product `inspect` human body — registry descriptor + identity chain summary.
 Covers former describe-target fields plus profiles, maturity, status, registry
 root digest, support-claim digest (implemented default profile), and the
@@ -1237,6 +1249,7 @@ def inspectRegistrationText
           s!"\nprofiles={formatProfileList reg.profiles}" ++
           s!"\nstatus=implemented" ++
           s!"\nmaturity={reg.maturityLabel}" ++
+          maturityResidualTextSuffixV1 reg.kind ++
           s!"\nregistryRootDigest={rootDigest}" ++
           s!"\nsupportClaimDigest={claimDigest}" ++
           s!"\nbuildIdentityDomain={domain}"
@@ -1288,6 +1301,7 @@ def inspectRegistrationJson
             ("cryptoResidual", cryptoCatalogResidualJsonV1 reg.kind),
             ("implemented", .bool true),
             ("maturity", .string reg.maturityLabel),
+            ("maturityResidual", maturityResidualJsonV1 reg.kind),
             ("registryRootDigest", .string rootDigest),
             ("supportClaimDigest", .string claimDigest),
             ("buildIdentityDomain", .string engineeringBuildIdentityDomainV1)

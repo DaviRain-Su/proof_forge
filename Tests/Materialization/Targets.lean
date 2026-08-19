@@ -7647,7 +7647,7 @@ unsafe def runRemainingNeedles : IO Unit := do
     | .error e =>
         throw <| IO.userError s!"N5 commit: {target} must admit Commit identity, got {e.render}"
   for target in [TargetId.noir, TargetId.psy, TargetId.quint, TargetId.soroban,
-      TargetId.icp, TargetId.openvm] do
+      TargetId.icp, TargetId.openvm, TargetId.xrpl] do
     match materializeSelected target commitCompiled with
     | .ok _ => throw <| IO.userError s!"N5 commit: {target} must decline Commit"
     | .error e =>
@@ -7679,7 +7679,8 @@ unsafe def runRemainingNeedles : IO Unit := do
   -- CAP-2 / CAP-D-SOL-TIME (2026-08-16): Solana admits Clock.unix_timestamp
   -- (i64@32 via sol_get_clock_sysvar; raw bits as UInt64). CAP-3 /
   -- CAP-D-SOR-LEDGER (2026-08-16): Soroban S0 admits env.ledger().timestamp()
-  -- (source-only; no Wasm Finalize). Circuit-class + Quint/OpenVM stay FC.
+  -- (source-only; no Wasm Finalize). Circuit-class + Quint/OpenVM/XRPL stay FC
+  -- (XRPL TIME leaf is ADR-0052 / CAP-D-XRPL-TIME; COMP-1-SYS-CAP-L2 honesty pin).
   -- Unanchored public-input injection would only prove "the program used T",
   -- never "T is the real chain time".
   let _ ← liftResult <| materializeSelected TargetId.evm ctxCompiled
@@ -7690,7 +7691,7 @@ unsafe def runRemainingNeedles : IO Unit := do
   let _ ← liftResult <| materializeSelected TargetId.solana ctxCompiled
   let _ ← liftResult <| materializeSelected TargetId.soroban ctxCompiled
   for target in [TargetId.noir, TargetId.psy, TargetId.aleo,
-      TargetId.openvm, TargetId.quint] do
+      TargetId.openvm, TargetId.quint, TargetId.xrpl] do
     match materializeSelected target ctxCompiled with
     | .ok _ =>
         throw <| IO.userError s!"N5 context: {target} must decline ContextRead"
@@ -7814,7 +7815,8 @@ unsafe def runRemainingNeedles : IO Unit := do
   let _ ← liftResult <| materializeSelected TargetId.cosmwasm callerCompiled
   let _ ← liftResult <| materializeSelected TargetId.icp callerCompiled
   for target in [TargetId.noir, TargetId.psy, TargetId.openvm,
-      TargetId.ton, TargetId.aleo, TargetId.quint, TargetId.soroban] do
+      TargetId.ton, TargetId.aleo, TargetId.quint, TargetId.soroban,
+      TargetId.xrpl] do
     match materializeSelected target callerCompiled with
     | .ok _ =>
         throw <| IO.userError s!"B-ctx caller: {target} must decline ContextRead caller"
@@ -7881,6 +7883,10 @@ unsafe def runRemainingNeedles : IO Unit := do
     TargetId.openvm .openvm
     s!"unsupported OpenVM semantic shape: ContextRead '{blockHeightContextKeyV1.value}' has no OpenVM host binding (unixTimeSeconds/blockHeight/attachedValue/chainId stay fail closed)"
     blockHeightCompiled
+  expectContextMatrixFailClosed "context.blockHeight/xrpl"
+    TargetId.xrpl .xrpl
+    s!"unsupported XRPL semantic shape: ContextRead '{blockHeightContextKeyV1.value}' has no XRPL host binding (unixTimeSeconds/blockHeight/attachedValue/chainId stay fail closed)"
+    blockHeightCompiled
 
   let session ← Language.Loader.ParserSession.create
   let chainIdSource :=
@@ -7944,6 +7950,10 @@ unsafe def runRemainingNeedles : IO Unit := do
     TargetId.openvm .openvm
     s!"unsupported OpenVM semantic shape: ContextRead '{chainIdContextKeyV1.value}' has no OpenVM host binding (unixTimeSeconds/blockHeight/attachedValue/chainId stay fail closed)"
     chainIdCompiled
+  expectContextMatrixFailClosed "context.chainId/xrpl"
+    TargetId.xrpl .xrpl
+    s!"unsupported XRPL semantic shape: ContextRead '{chainIdContextKeyV1.value}' has no XRPL host binding (unixTimeSeconds/blockHeight/attachedValue/chainId stay fail closed)"
+    chainIdCompiled
 
   let session ← Language.Loader.ParserSession.create
   let selfSource :=
@@ -8001,6 +8011,10 @@ unsafe def runRemainingNeedles : IO Unit := do
   expectContextMatrixFailClosed "context.contractId/openvm"
     TargetId.openvm .openvm
     "unsupported OpenVM semantic shape: op is outside O0"
+    selfCompiled
+  expectContextMatrixFailClosed "context.contractId/xrpl"
+    TargetId.xrpl .xrpl
+    "unsupported XRPL semantic shape: op is outside Q0"
     selfCompiled
 
   -- B-RET-ABI: named Struct view return. EVM + Noir + Solana + NEAR + Psy +

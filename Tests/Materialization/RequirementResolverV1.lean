@@ -1276,6 +1276,8 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
         s!"inspect must surface EVM crypto family tag, got {text}"
       expect (!hasSubstr text "cryptoResidual")
         "EVM inspect has no official-crypto residual"
+      expect (!hasSubstr text "maturityResidual")
+        "EVM inspect has no maturity residual (label and deployable agree)"
   | .error e => throw <| IO.userError e.render
   match ProofForgeV2.CLI.inspectTargetText "solana" with
   | .ok text =>
@@ -1530,6 +1532,8 @@ def testInspectCallScheduleHonestySurface : IO Unit := do
         s!"describe must stay three-line without crypto family tag, got {text}"
       expect (!hasSubstr text "cryptoResidual")
         s!"describe must stay three-line without crypto residual, got {text}"
+      expect (!hasSubstr text "maturityResidual")
+        s!"describe must stay three-line without maturity residual, got {text}"
   | .error e => throw <| IO.userError e.render
 
 /-- Closed 13-kind SYS-S4 inspect surface: every implemented target exposes
@@ -1654,6 +1658,69 @@ def testInspectCryptoCatalogHonestySurface : IO Unit := do
         | none =>
             expect (hasSubstr json "\"cryptoResidual\":null")
               s!"inspect {tid} JSON crypto residual null, got {json}"
+    | .error e => throw <| IO.userError e.render
+
+/-- Pins the closed inspect-only maturity residual table. Registry
+    maturityLabel stays source-only for ICP/TON; this tag names the
+    Finalize deployable=true crack without changing the label. -/
+def testMaturityResiduals : IO Unit := do
+  assert! maturityResidualV1 .icp == some "deployable-wasm-vs-source-only-label"
+  assert! maturityResidualV1 .ton ==
+    some "conditional-boc-deployable-vs-source-only-label"
+  assert! maturityResidualV1 .evm == none
+  assert! maturityResidualV1 .solana == none
+  assert! maturityResidualV1 .near == none
+  assert! maturityResidualV1 .noir == none
+  assert! maturityResidualV1 .aleo == none
+  assert! maturityResidualV1 .psy == none
+  assert! maturityResidualV1 .quint == none
+  assert! maturityResidualV1 .cosmwasm == none
+  assert! maturityResidualV1 .soroban == none
+  assert! maturityResidualV1 .openvm == none
+  assert! maturityResidualV1 .xrpl == none
+
+/-- Closed 13-kind inspect surface for the ICP/TON deployable≠label residual.
+    Human residual line only when `some`; JSON always (`null` otherwise).
+    describe stays three-line exact join. -/
+def testInspectMaturityResidualSurface : IO Unit := do
+  let needles : Array (String × Option String) := #[
+    ("evm", none),
+    ("solana", none),
+    ("near", none),
+    ("cosmwasm", none),
+    ("noir", none),
+    ("ton", some "conditional-boc-deployable-vs-source-only-label"),
+    ("icp", some "deployable-wasm-vs-source-only-label"),
+    ("psy", none),
+    ("quint", none),
+    ("aleo", none),
+    ("soroban", none),
+    ("openvm", none),
+    ("xrpl", none)
+  ]
+  expect (needles.size == 13) "inspect maturity residual surface covers all 13 kinds"
+  for (tid, residual) in needles do
+    match ProofForgeV2.CLI.inspectTargetText tid with
+    | .ok text =>
+        expect (hasSubstr text "maturity=")
+          s!"inspect {tid} still exposes registry maturityLabel, got {text}"
+        match residual with
+        | some tag =>
+            expect (hasSubstr text s!"maturityResidual={tag}")
+              s!"inspect {tid} maturity residual tag, got {text}"
+        | none =>
+            expect (!hasSubstr text "maturityResidual")
+              s!"inspect {tid} must omit maturity residual line, got {text}"
+    | .error e => throw <| IO.userError e.render
+    match ProofForgeV2.CLI.inspectTargetText tid true with
+    | .ok json =>
+        match residual with
+        | some tag =>
+            expect (hasSubstr json s!"\"maturityResidual\":\"{tag}\"")
+              s!"inspect {tid} JSON maturity residual tag, got {json}"
+        | none =>
+            expect (hasSubstr json "\"maturityResidual\":null")
+              s!"inspect {tid} JSON maturity residual null, got {json}"
     | .error e => throw <| IO.userError e.render
 
 private def testDescriptorParityNegatives : IO Unit := do
@@ -2008,6 +2075,8 @@ unsafe def run : IO Unit := do
   testCryptoCatalogFamilyTags
   testCryptoCatalogResiduals
   testInspectCryptoCatalogHonestySurface
+  testMaturityResiduals
+  testInspectMaturityResidualSurface
   testDescriptorParityNegatives
   testRequestResolveNegativesOnInspection
   testBackendSupportDefense
