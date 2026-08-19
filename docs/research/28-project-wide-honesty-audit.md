@@ -3,17 +3,21 @@ id: RPT-028
 title: ProofForge 全仓诚实性对账（文档×代码）
 status: draft
 owner: engineering
-updated: 2026-08-15
+updated: 2026-08-19
 normative: false
 ---
 
 # ProofForge 全仓诚实性对账
 
-> Date: 2026-08-15
+> Date: 2026-08-15（**2026-08-19 事实重核**：计数与 Gaps 已按新代码事实刷新；当时快照保留备查）
 > Core question: 当前控制面、规格、工程队列与真实代码/制品之间，哪些地方已经不对，下一波该改什么？
 > Related: [`AGENTS.md`](../../AGENTS.md) · [`RECOVERY.md`](../../RECOVERY.md) · [`MIGRATION_MATRIX.md`](../../MIGRATION_MATRIX.md) · [`engineering-backlog.md`](../engineering-backlog.md) · [`.grok/next-wave-queue.md`](../../.grok/next-wave-queue.md)
 > Exploration: 2 rounds（6 R1 explorers + R1 verifier GAPS + 3 R2 explorers：CI 计数 / 12-target FC / Goal 空队列）
 > **不是** formal TASK/TST 完成。formal D1–D4 仍为 **0/27**。
+> **2026-08-19 addendum**：P0 已全部闭合（Goal 退役、Next=B-CALL-SEM）；活计数刷新为
+> **13 implemented+0 / 17 resolver rows / SBOM 339 / Mollusk tracked 25 binaries·422 tests**；
+> CAP-1a…5、CAP-X-BYTES、CAP-X-MERKLE、诚实边界波（RES-1B/TON-C4/XRPL-view/ecdsa predicate）
+> 均已落 main。SPEC-SEM-001 三分裂仍待 **ADR-0051** 人拍。
 
 ---
 
@@ -21,15 +25,15 @@ normative: false
 
 | 量 | 代码事实 | 活文档是否对齐 |
 |---|---|---|
-| Registry | 12 implemented + 0 design-only；Solana **sole** `solana-sbpf-cpi-elf-v1` | 本波已改成熟度段 elf-v1 → cpi-elf |
-| Resolver | 15 rows（EVM×2 Noir×2 OpenVM×2 其余×1） | 本波已改矩阵「十一行」→ 十五行 |
-| Materializers | 12，均 `planFromCapability` ← retained Semantic | 本波已改矩阵「九个」→ 十二个 |
+| Registry | **13 implemented + 0 design-only**（2026-08-19；XRPL 经 ADR-0049/0050 加入，双 profile）；Solana **sole** `solana-sbpf-cpi-elf-v1` | AGENTS/矩阵已对齐 |
+| Resolver | **17 rows**（EVM×2 Noir×2 OpenVM×2 XRPL×2 其余×1） | 已对齐 |
+| Materializers | **13**，均 `planFromCapability` ← retained Semantic | 已对齐 |
 | Formal D1–D4 | 0 done / 1 blocked（`TASK-D1-01`）/ 26 pending | 0/27 仍真；Next 改为 D1-01 blocked + 禁止代签 D2-07 |
-| SBOM paths | `lean-package-files.v1.json` `"path":` **313** | Active 已改为 313 |
-| Mollusk | 24 `tests/*.rs` binaries；`#[test] fn` **415**；raw `#[test]` **418**（3 条在注释） | 13/304 标为 #125 历史；24/418 保留（`docs_check` 钉串）并注明 415 fn |
+| SBOM paths | `lean-package-files.v1.json` `"path":` **339**（2026-08-19 实测；**SBOM 244** 为 docs-check 历史 checkpoint 标识，两者并存不矛盾） | 已对齐 |
+| Mollusk | tracked **25** integration binaries / **422** active tests（2026-08-17；`#[test] fn` 以 docs_check 钉串为准）；13/304 为 #125 历史基线 | 已拆开 Mollusk vs Lean |
 | Lean ordinary `just ci` | **12** shard exes（9 nontarget + 3 target-smoke）；**不含** Mollusk | Active 已拆开 Mollusk vs Lean |
-| Goal-auto queue | **零 `pending` 行** | 本波已退役 Goal/workflow 入口 |
-| Alpha leftovers | `planFromAlpha` / `AlphaCompatibility` / `Core/Source` 无；`TypedV1.lean` 0 文件 | 本波已删「仍 orphan」旧句 |
+| Goal-auto queue | **零 `pending` 行** | Goal/workflow 入口已退役 |
+| Alpha leftovers | `planFromAlpha` / `AlphaCompatibility` / `Core/Source` 无；`TypedV1.lean` 0 文件 | 已删「仍 orphan」旧句 |
 
 产品链名称仍在：`IO.FS.readFile` → `selectProgramV1ProductWithTheoremInventory` → `normalizeProgramLocatedV1` → `compileProgramProductV1` → `certifyInlineProofV1`（早于 resolve）→ capability。`--proof-bundle*` 产品面已删。`justfile` 无 `governance-check` / `release-check`。
 
@@ -39,12 +43,12 @@ normative: false
 
 ### 1. 控制面指针
 
-活入口把「下一刀」指到 **已经做完** 或 **禁止自动做** 的工作：
+**2026-08-19：本节四条已全部闭合**（当时事实保留备查）：
 
-- `AGENTS.md` Next / `RECOVERY.md` L140 / backlog 击杀序 L459：闭合 `TASK-D2-07` / `TST-SEM-002/003`
-- `.grok/goals/prompt-next-wave.md` L12：resume `starting at LH-4`（LH-4 已 done）；L158：空队列 → `NEXT=FORMAL_C3`
-- `.grok/next-wave-queue.md` L136：「Live drain continues」——假
-- backlog L505–512：CALL wide admit 与「宽于 UInt64 returndata」仍当 next；changelog L589–592 已 done（2026-08-13）
+- ~~`AGENTS.md` Next / `RECOVERY.md` L140 / backlog 击杀序 L459：闭合 `TASK-D2-07`~~ → Next 现为 B-CALL-SEM（人拍），formal 代签已明文禁止
+- ~~`.grok/goals/prompt-next-wave.md` resume LH-4 / `NEXT=FORMAL_C3`~~ → Goal/workflow 入口已退役
+- ~~`.grok/next-wave-queue.md`「Live drain continues」~~ → queue 零 pending 已核实
+- ~~backlog CALL wide admit 仍当 next~~ → 已标 done（2026-08-13），后续 CAP-X-BYTES/MERKLE 均已闭合
 
 ### 2. D1–D2 产品链
 
@@ -57,7 +61,7 @@ normative: false
 - TypeKey usage/rank 结构门仍缺（会打破 hand-built tables）；isolated `typeKey` byte-form 已 pin
 - ExternalCall/Schedule arg serializability **工程已闭合**；本波已删 AGENTS 里残留的「继续 deferred」旧句
 
-### 3–4. 十二 target（R2 表；Lower/Finalize 抽查，非逐 `irFromCapability`）
+### 3–4. 十三 target（R2 表；Lower/Finalize 抽查，非逐 `irFromCapability`）
 
 | Target | Profiles | Deployable | Invariants | Constants | String evt/err | call / schedule |
 |---|---|---|---|---|---|---|
@@ -73,6 +77,7 @@ normative: false
 | soroban | source-u64 | false | FC | FC | FC | 双 FC |
 | openvm | source + elf | false | FC | FC | FC | 双 FC |
 | icp | wasm-candid-u64 | **true**（wat2wasm） | FC | FC | FC（表空） | sync FC；schedule advertise 后 Plan FC |
+| xrpl | bedrock-source + bedrock-wasm（opt-in ambient rustc） | false | FC | open（literal inline） | FC | 双 FC（ADR-0052 TIME/CALLER 等 owner；SHA keep-FC） |
 
 AGENTS Program 行曾把 ICP 与 Aleo/Psy/Soroban/OpenVM 一并写成「zero-tool/non-deployable」——本波已拆开。CW/NEAR「sync 拒」过粗（pf.assets sync 已 admit）。Quint「仅 4-key」过时（现 6-key）。
 
@@ -94,32 +99,31 @@ AGENTS Program 行曾把 ICP 与 Aleo/Psy/Soroban/OpenVM 一并写成「zero-too
 
 | Pri | 现状 | 建议 |
 |---|---|---|
-| **P0** | Goal/AGENTS/RECOVERY 把下一刀写成 formal closeout 或 LH-4 resume | 退役 next-wave Goal；Next = 诚实文档 / 产品决策；禁止 `NEXT=FORMAL_C3` |
-| **P1** | 活计数/profile 错：SBOM 287、elf-v1、ICP non-deployable、CALL wide 仍 next、矩阵九/十一/10+2、RPT-014 void-call | 改活指针；13/304 留作 #125 历史（`docs_check` 仍钉此串） |
-| **P1** | SPEC-SEM-001 vs WIRE vs 产品 return 三分裂 | 要关 formal 002 须先 ADR；不要再钉 Sem002 returned |
-| **P2** | 历史 blockquote 9+3、TON dossier 9+3、slides、ADR-0036「固定」 | 不挡下一刀；顺手改活页即可 |
+| ~~**P0**~~ | **closed 2026-08-19**：Goal/AGENTS/RECOVERY 指针已全改；`NEXT=FORMAL_C3` 已禁 | 无需再动 |
+| **P1** | 活计数/profile：本文件 2026-08-19 已重核（13/17/339/25·422）；AGENTS/矩阵此前已对齐 | 无遗留；SBOM 数字随 pin 漂移属正常 |
+| **P1** | SPEC-SEM-001 vs WIRE vs 产品 return 三分裂 | **仍待人拍**：ADR-0051 accept 后仅改 SPEC 文字；不要再钉 Sem002 returned |
+| **P2** | 历史 blockquote 9+3、TON dossier 9+3、slides、ADR-0036「固定」 | 不挡下一刀；顺手改活页即可（ADR-0036 升格属人拍） |
 
 ---
 
 ## 四、Verification records
 
-| Claim | Method | Result |
-|---|---|---|
-| 12+0 / Solana sole CPI | Read `TargetRegistryV1.lean` L533–581 | 12 `row`；`solanaSbpfCpiElfV1` only |
-| 15 resolver | Read `RequirementResolverV1.lean` L493–520 | 15 `mkImplementedRow` |
-| formal 0/27 | Read `04-task-breakdown.md` L360–403 | 0 done / D1-01 blocked / 26 pending |
-| SBOM 313 | `rg '"path":'` on package-file JSON | 313 |
-| queue empty | `rg '\| pending'` on next-wave-queue | 0 |
-| 13/304 meaning | `docs_check.py` L1620–1633 + ADR-0028 / matrix L635 | #125 Mollusk baseline，非 Lean |
-| 24 binaries / 415 fn / 418 raw | count `runtime-tests/solana/tests/*.rs` + `#[test]` then `fn` | 24 / 415 / 418 |
-| Lean `just ci` shards | `justfile` `test-nontarget` + `test-targets` | 12 exes |
-| CALL wide done | backlog changelog L589–592 vs kill-order L505 | 击杀序过期 |
-| ICP deployable | `Icp/FinalizeV1.lean` `deployable := true` | AGENTS Program 行过期 |
-| RPT-014 stale | Read L12–23 vs N-CALL-RET backlog | 研究页过期 |
-| SPEC-SEM void | `semantic-core.md` L145 vs `semantic-program-wire.md` L557 | 三分裂 |
-| Goal LH-4 / FORMAL_C3 | Read `prompt-next-wave.md` L12, L158 | 仍在 |
-| no governance/release recipes | `rg` justfile | 0 matches |
-| TypedV1 file | Glob `**/TypedV1.lean` | 0 |
+2026-08-15 快照的方法与结果保留；**2026-08-19 重核值**如下（行号会漂移，以内容为准）：
+
+| Claim | 2026-08-19 重核 |
+|---|---|
+| Registry membership | **13 `row`**（`TargetRegistryV1.lean` 约 L711–800）；Solana sole `solanaSbpfCpiElfV1` |
+| resolver rows | **17 `mkImplementedRow`**（`RequirementResolverV1.lean` 约 L502–534） |
+| formal 0/27 | 仍真（0 done / D1-01 blocked / 26 pending） |
+| SBOM | **339**（`rg '"path":'` on package-file JSON；历史 checkpoint 标识 244 由 docs-check 继续钉在 AGENTS.md） |
+| queue empty | 仍真（0 pending） |
+| 13/304 meaning | 仍是 #125 Mollusk baseline，非 Lean；当前 tracked 25 binaries / 422 tests |
+| Lean `just ci` shards | 仍真（12 exes） |
+| CALL wide / ICP deployable / RPT-014 / 击杀序过期 | 产品侧均已修 |
+| SPEC-SEM void vs wire | **仍在**（ADR-0051 proposed；人拍） |
+| Goal LH-4 / FORMAL_C3 | **已废除**（入口退役横幅在） |
+| no governance/release recipes | 仍真（0 matches） |
+| TypedV1 file | 仍真（0） |
 
 ---
 
@@ -127,10 +131,10 @@ AGENTS Program 行曾把 ICP 与 Aleo/Psy/Soroban/OpenVM 一并写成「zero-too
 
 | Priority | Item | Scope | 不是什么 |
 |---|---|---|---|
-| **0** | 诚实文档：AGENTS Active/Next、RECOVERY 指针、queue/Goal 退役、击杀序、矩阵九/十一、RPT-014 banner、research README | 文档 + `docs_check` 若改 418 串 | 不改 formal 0/27 |
-| **1 决策** | SPEC-honesty ADR（void vs typed return） | accepted SPEC | 不是再写 Sem002 pin |
-| **1 决策** | B-CALL-SEM / D3-E8 / DOC-JUST-CONTROL / QUINT-2 / SOR-1 Wasm | Track C | Goal 必须 skip |
-| **2 若继续编码** | 同一能力层：[`plan/capability-layer-tasks.md`](../plan/capability-layer-tasks.md) 默认 **CAP-1a**（ICP time）。其余 CAP-D-* 等人拍。EXT-CRYPTO Merkle / RES-1B / C-5 / ADR-0048 另叶 | 已实现 leaf | 不是新 TargetId / formal 代签 |
+| ~~**0**~~ | ~~诚实文档刷新~~ | **closed 2026-08-19**（本文件 + RPT-027 + research README + 索引句 + backlog 行） | — |
+| **1 决策** | SPEC-honesty ADR-0051（void vs typed return） | accepted 后仅改 SPEC 文字 | 不是再写 Sem002 pin |
+| **1 决策** | B-CALL-SEM / D3-E8 / DOC-JUST-CONTROL / QUINT-2 / SOR-1 Wasm | Track C；决策清单见 `.agents/notes/proposed/architecture/2026-08-16-b-call-sem-decision-inventory.md` | 决策前不可编码 |
+| **2 若继续编码** | 能力层 wave 4/5（CAP-X-BYTES/CAP-X-MERKLE）与诚实边界波均已 done（2026-08-19）；剩余可编码项 = 文档同步级小修 | 已实现 leaf | 不是新 TargetId / formal 代签 |
 | **3 formal 真轴** | 资格主机上 TASK-D1-01 → D2-06 → D2-07 | `04-task-breakdown` | 单维护者默认做不了；禁止发明 EV |
 
 ---
@@ -139,8 +143,8 @@ AGENTS Program 行曾把 ICP 与 Aleo/Psy/Soroban/OpenVM 一并写成「zero-too
 
 1. **工程 Goal-auto drain 已空。** 再开 `prompt-next-wave` / `next-wave-runner` 会重做 LH-4 或走到禁止的 C-3。
 2. **Formal 0/27 仍然诚实。** 错的是把「闭合 TASK-D2-07」写成下一刀编码。
-3. **本波已改的活句子：** `solana-sbpf-cpi-elf-v1` sole、ICP 与 zero-tool 拆开、SBOM 313、Goal/Next 退役 drain、击杀序 wide CALL 标 done、RPT-014 superseded 横幅。晚到 explorer 后补：Capability caveat 宽 returndata、RECOVERY 完成口径 十五行/十二 materializer/十二 descriptors、`Solana.lean` 默认 profile、Engineering slice ContextRead 已接线 vs formal CAP。
-4. **再往后：** 工程车道 = 同一能力层（CAP-1a 默认可做；Solana unixTime / TON sha256 / Soroban ledger / ICP caller 须人拍）。SPEC/B-CALL-SEM 仍是决策。不要再钉 Sem00x。
+3. **本波已改的活句子：** `solana-sbpf-cpi-elf-v1` sole、ICP 与 zero-tool 拆开、Goal/Next 退役 drain、击杀序 wide CALL 标 done、RPT-014 superseded 横幅。**2026-08-19 续**：本文件计数刷新（13/17/339/25·422）、P0 标 closed、能力层 wave 4/5 与诚实边界波落库（CAP-X-BYTES/CAP-X-MERKLE/RES-1B/TON-C4/XRPL-view/ecdsa predicate）。
+4. **再往后：** 工程车道可编码项已基本耗尽；下一批是真决策（B-CALL-SEM 决策包材料已齐、ADR-0051、D3-E8、QUINT-2/SOR-1、XRPL TIME/CALLER）。不要再钉 Sem00x。
 5. **不要再钉 Sem00x。** corpus 工程面已耗尽。
 
 ---
