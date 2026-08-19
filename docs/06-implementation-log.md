@@ -12,6 +12,18 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-19 — COMP-1-SYS-CAP-L2 official crypto inspect 诚实表面
+
+- `RequirementResolverV1.cryptoCatalogFamilyTagV1`：十三 kind 闭表
+  （EVM 五 QN；Solana/NEAR sha256+keccak+sha256Bytes；TON/Soroban sha256 双
+  QN；Psy keccak gadget + sha256 FC；其余 `crypto-no-host-fc`）。
+- `cryptoCatalogResidualV1`：仅 cw=`no-sha256-host`、xrpl=`sha512-half-not-sha256`、
+  psy=`keccak-gadget-not-sha2`。
+- 产品 `inspect` / `inspect --json` 露出 `cryptoHonesty` 与 optional
+  `cryptoResidual`。`describe` 三行与 SupportClaim digest **不变**。
+- **不是** 新官方 program 叶、**不是** 开 CosmWasm/XRPL sha256 host、
+  **不是** formal 0/27。
+
 ## 2026-08-19 — COMP-1-SYS-CAP-L2 attachedValue inspect 诚实表面
 
 - `RequirementResolverV1.attachedValueFamilyTagV1`：十三 `TargetKind` 闭表

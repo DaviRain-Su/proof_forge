@@ -1271,6 +1271,11 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
       expect (hasSubstr text
           "attachedValueResidual=constructor-fc")
         s!"inspect must surface EVM attachedValue residual, got {text}"
+      expect (hasSubstr text
+          "cryptoHonesty=sha256+keccak+sha256Bytes+merkle+ecdsa")
+        s!"inspect must surface EVM crypto family tag, got {text}"
+      expect (!hasSubstr text "cryptoResidual")
+        "EVM inspect has no official-crypto residual"
   | .error e => throw <| IO.userError e.render
   match ProofForgeV2.CLI.inspectTargetText "solana" with
   | .ok text =>
@@ -1521,6 +1526,10 @@ def testInspectCallScheduleHonestySurface : IO Unit := do
         s!"describe must stay three-line without attachedValue family tag, got {text}"
       expect (!hasSubstr text "attachedValueResidual")
         s!"describe must stay three-line without attachedValue residual, got {text}"
+      expect (!hasSubstr text "cryptoHonesty")
+        s!"describe must stay three-line without crypto family tag, got {text}"
+      expect (!hasSubstr text "cryptoResidual")
+        s!"describe must stay three-line without crypto residual, got {text}"
   | .error e => throw <| IO.userError e.render
 
 /-- Closed 13-kind SYS-S4 inspect surface: every implemented target exposes
@@ -1567,6 +1576,84 @@ def testInspectAttachedValueHonestySurface : IO Unit := do
         | none =>
             expect (hasSubstr json "\"attachedValueResidual\":null")
               s!"inspect {tid} JSON attachedValue residual null, got {json}"
+    | .error e => throw <| IO.userError e.render
+
+/-- Pins the closed official `pf.crypto.*` catalog family-split table. -/
+def testCryptoCatalogFamilyTags : IO Unit := do
+  assert! cryptoCatalogFamilyTagV1 .evm ==
+    "sha256+keccak+sha256Bytes+merkle+ecdsa"
+  assert! cryptoCatalogFamilyTagV1 .solana == "sha256+keccak+sha256Bytes"
+  assert! cryptoCatalogFamilyTagV1 .near == "sha256+keccak+sha256Bytes"
+  assert! cryptoCatalogFamilyTagV1 .ton == "sha256+sha256Bytes"
+  assert! cryptoCatalogFamilyTagV1 .soroban == "sha256+sha256Bytes"
+  assert! cryptoCatalogFamilyTagV1 .psy == "keccak-gadget-sha256-fc"
+  assert! cryptoCatalogFamilyTagV1 .noir == "crypto-no-host-fc"
+  assert! cryptoCatalogFamilyTagV1 .aleo == "crypto-no-host-fc"
+  assert! cryptoCatalogFamilyTagV1 .quint == "crypto-no-host-fc"
+  assert! cryptoCatalogFamilyTagV1 .cosmwasm == "crypto-no-host-fc"
+  assert! cryptoCatalogFamilyTagV1 .openvm == "crypto-no-host-fc"
+  assert! cryptoCatalogFamilyTagV1 .icp == "crypto-no-host-fc"
+  assert! cryptoCatalogFamilyTagV1 .xrpl == "crypto-no-host-fc"
+
+/-- Pins the closed keep-FC official-crypto residual table. -/
+def testCryptoCatalogResiduals : IO Unit := do
+  assert! cryptoCatalogResidualV1 .cosmwasm == some "no-sha256-host"
+  assert! cryptoCatalogResidualV1 .xrpl == some "sha512-half-not-sha256"
+  assert! cryptoCatalogResidualV1 .psy == some "keccak-gadget-not-sha2"
+  assert! cryptoCatalogResidualV1 .evm == none
+  assert! cryptoCatalogResidualV1 .solana == none
+  assert! cryptoCatalogResidualV1 .near == none
+  assert! cryptoCatalogResidualV1 .ton == none
+  assert! cryptoCatalogResidualV1 .soroban == none
+  assert! cryptoCatalogResidualV1 .noir == none
+  assert! cryptoCatalogResidualV1 .aleo == none
+  assert! cryptoCatalogResidualV1 .quint == none
+  assert! cryptoCatalogResidualV1 .openvm == none
+  assert! cryptoCatalogResidualV1 .icp == none
+
+/-- Closed 13-kind official-crypto inspect surface. Residual only for
+    cosmwasm/xrpl/psy (JSON `null` otherwise). -/
+def testInspectCryptoCatalogHonestySurface : IO Unit := do
+  let needles : Array (String × String × Option String) := #[
+    ("evm", "sha256+keccak+sha256Bytes+merkle+ecdsa", none),
+    ("solana", "sha256+keccak+sha256Bytes", none),
+    ("near", "sha256+keccak+sha256Bytes", none),
+    ("cosmwasm", "crypto-no-host-fc", some "no-sha256-host"),
+    ("noir", "crypto-no-host-fc", none),
+    ("ton", "sha256+sha256Bytes", none),
+    ("icp", "crypto-no-host-fc", none),
+    ("psy", "keccak-gadget-sha256-fc", some "keccak-gadget-not-sha2"),
+    ("quint", "crypto-no-host-fc", none),
+    ("aleo", "crypto-no-host-fc", none),
+    ("soroban", "sha256+sha256Bytes", none),
+    ("openvm", "crypto-no-host-fc", none),
+    ("xrpl", "crypto-no-host-fc", some "sha512-half-not-sha256")
+  ]
+  expect (needles.size == 13) "inspect crypto surface covers all 13 kinds"
+  for (tid, family, residual) in needles do
+    match ProofForgeV2.CLI.inspectTargetText tid with
+    | .ok text =>
+        expect (hasSubstr text s!"cryptoHonesty={family}")
+          s!"inspect {tid} crypto family tag, got {text}"
+        match residual with
+        | some tag =>
+            expect (hasSubstr text s!"cryptoResidual={tag}")
+              s!"inspect {tid} crypto residual tag, got {text}"
+        | none =>
+            expect (!hasSubstr text "cryptoResidual")
+              s!"inspect {tid} must omit crypto residual line, got {text}"
+    | .error e => throw <| IO.userError e.render
+    match ProofForgeV2.CLI.inspectTargetText tid true with
+    | .ok json =>
+        expect (hasSubstr json s!"\"cryptoHonesty\":\"{family}\"")
+          s!"inspect {tid} JSON crypto family tag, got {json}"
+        match residual with
+        | some tag =>
+            expect (hasSubstr json s!"\"cryptoResidual\":\"{tag}\"")
+              s!"inspect {tid} JSON crypto residual tag, got {json}"
+        | none =>
+            expect (hasSubstr json "\"cryptoResidual\":null")
+              s!"inspect {tid} JSON crypto residual null, got {json}"
     | .error e => throw <| IO.userError e.render
 
 private def testDescriptorParityNegatives : IO Unit := do
@@ -1918,6 +2005,9 @@ unsafe def run : IO Unit := do
   testAttachedValueFamilyTags
   testAttachedValueResiduals
   testInspectAttachedValueHonestySurface
+  testCryptoCatalogFamilyTags
+  testCryptoCatalogResiduals
+  testInspectCryptoCatalogHonestySurface
   testDescriptorParityNegatives
   testRequestResolveNegativesOnInspection
   testBackendSupportDefense

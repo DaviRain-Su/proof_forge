@@ -820,6 +820,11 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       expect (hasSubstr text
           "attachedValueResidual=constructor-fc")
         s!"inspect evm attachedValue residual, got {text}"
+      expect (hasSubstr text
+          "cryptoHonesty=sha256+keccak+sha256Bytes+merkle+ecdsa")
+        s!"inspect evm crypto family tag, got {text}"
+      expect (!hasSubstr text "cryptoResidual")
+        "inspect evm has no official-crypto residual"
   | .error e => throw <| IO.userError s!"inspect evm: {e.render}"
   match ProofForgeV2.CLI.inspectTargetText "aleo" with
   | .ok text =>
@@ -840,6 +845,11 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
         s!"inspect aleo attachedValue family tag, got {text}"
       expect (!hasSubstr text "attachedValueResidual")
         "inspect aleo has no attachedValue callable residual"
+      expect (hasSubstr text
+          "cryptoHonesty=crypto-no-host-fc")
+        s!"inspect aleo crypto family tag, got {text}"
+      expect (!hasSubstr text "cryptoResidual")
+        "inspect aleo has no official-crypto residual"
   | .error e => throw <| IO.userError s!"inspect aleo: {e.render}"
   match ProofForgeV2.CLI.inspectTargetText "psy" with
   | .ok text =>
@@ -857,6 +867,12 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
         s!"inspect psy attachedValue family tag, got {text}"
       expect (!hasSubstr text "attachedValueResidual")
         "inspect psy has no attachedValue callable residual"
+      expect (hasSubstr text
+          "cryptoHonesty=keccak-gadget-sha256-fc")
+        s!"inspect psy crypto family tag, got {text}"
+      expect (hasSubstr text
+          "cryptoResidual=keccak-gadget-not-sha2")
+        s!"inspect psy crypto residual, got {text}"
   | .error e => throw <| IO.userError s!"inspect psy: {e.render}"
   -- Legacy three-line helper remains for S2 exact-string join tests.
   match ProofForgeV2.CLI.describeTargetText "aleo" with

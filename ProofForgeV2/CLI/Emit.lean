@@ -1192,6 +1192,18 @@ private def attachedValueResidualJsonV1 (kind : TargetKind) : PfJson :=
   | some tag => .string tag
   | none => .null
 
+/-- Inspect-only official-crypto residual line. Empty when none. -/
+private def cryptoCatalogResidualTextSuffixV1 (kind : TargetKind) : String :=
+  match cryptoCatalogResidualV1 kind with
+  | some tag => s!"\ncryptoResidual={tag}"
+  | none => ""
+
+/-- Inspect JSON official-crypto residual: string tag or `null`. -/
+private def cryptoCatalogResidualJsonV1 (kind : TargetKind) : PfJson :=
+  match cryptoCatalogResidualV1 kind with
+  | some tag => .string tag
+  | none => .null
+
 /-- Product `inspect` human body — registry descriptor + identity chain summary.
 Covers former describe-target fields plus profiles, maturity, status, registry
 root digest, support-claim digest (implemented default profile), and the
@@ -1220,6 +1232,8 @@ def inspectRegistrationText
           callScheduleResidualTextSuffixV1 reg.kind ++
           s!"\nattachedValueHonesty={attachedValueFamilyTagV1 reg.kind}" ++
           attachedValueResidualTextSuffixV1 reg.kind ++
+          s!"\ncryptoHonesty={cryptoCatalogFamilyTagV1 reg.kind}" ++
+          cryptoCatalogResidualTextSuffixV1 reg.kind ++
           s!"\nprofiles={formatProfileList reg.profiles}" ++
           s!"\nstatus=implemented" ++
           s!"\nmaturity={reg.maturityLabel}" ++
@@ -1270,6 +1284,8 @@ def inspectRegistrationJson
             ("callScheduleResidual", callScheduleResidualJsonV1 reg.kind),
             ("attachedValueHonesty", .string (attachedValueFamilyTagV1 reg.kind)),
             ("attachedValueResidual", attachedValueResidualJsonV1 reg.kind),
+            ("cryptoHonesty", .string (cryptoCatalogFamilyTagV1 reg.kind)),
+            ("cryptoResidual", cryptoCatalogResidualJsonV1 reg.kind),
             ("implemented", .bool true),
             ("maturity", .string reg.maturityLabel),
             ("registryRootDigest", .string rootDigest),

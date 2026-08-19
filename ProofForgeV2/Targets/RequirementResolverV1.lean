@@ -130,7 +130,7 @@ def callScheduleResidualV1 : TargetKind → Option String
     **not** a claim that every callable kind can read attached value.
     Product `inspect` may surface the tag; engineering `SupportClaim` digest /
     requirement id lists do **not** include it. Official-program L2 catalog
-    leaves are a later slice. Callable-kind residuals use
+    honesty uses `cryptoCatalogFamilyTagV1`. Callable-kind residuals use
     `attachedValueResidualV1` (inspect-only). -/
 def attachedValueFamilyTagV1 : TargetKind → String
   | .evm => "evm-callvalue+view-reads-zero"
@@ -157,6 +157,40 @@ def attachedValueResidualV1 : TargetKind → Option String
   | .evm => some "constructor-fc"
   | .near => some "view-purefn-fc"
   | .cosmwasm => some "query-view-fc"
+  | _ => none
+
+/-- Official `pf.crypto.*` catalog family-split tag (COMP-1-SYS-CAP-L2).
+
+    Host-backed QNs already shipped (sha256 / keccak256 / sha256Bytes /
+    merkleVerifyKeccak256 / ecdsaRecoverSecp256k1) are listed; missing host
+    is named fail-closed. Product `inspect` may surface the tag; engineering
+    `SupportClaim` digest / requirement id lists do **not** include it.
+    Tags do **not** open a new official-program leaf. Residuals use
+    `cryptoCatalogResidualV1` (inspect-only). -/
+def cryptoCatalogFamilyTagV1 : TargetKind → String
+  | .evm => "sha256+keccak+sha256Bytes+merkle+ecdsa"
+  | .solana => "sha256+keccak+sha256Bytes"
+  | .near => "sha256+keccak+sha256Bytes"
+  | .ton => "sha256+sha256Bytes"
+  | .soroban => "sha256+sha256Bytes"
+  | .psy => "keccak-gadget-sha256-fc"
+  | .noir => "crypto-no-host-fc"
+  | .aleo => "crypto-no-host-fc"
+  | .quint => "crypto-no-host-fc"
+  | .cosmwasm => "crypto-no-host-fc"
+  | .openvm => "crypto-no-host-fc"
+  | .icp => "crypto-no-host-fc"
+  | .xrpl => "crypto-no-host-fc"
+
+/-- Official-program residual tags for keep-FC crypto hosts (inspect-only).
+
+    `none` means the family tag already covers the catalog (admitted set or
+    generic no-host). Tags do **not** enter SupportClaim digest, requirement
+    id lists, or `describeImplementedJoin`. They do **not** open a host. -/
+def cryptoCatalogResidualV1 : TargetKind → Option String
+  | .cosmwasm => some "no-sha256-host"
+  | .xrpl => some "sha512-half-not-sha256"
+  | .psy => some "keccak-gadget-not-sha2"
   | _ => none
 
 /-- Non-capability inspection of a support match or request resolution outcome.
