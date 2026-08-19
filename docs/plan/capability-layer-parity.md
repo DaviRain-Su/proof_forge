@@ -1,13 +1,13 @@
 ---
 id: PLAN-CAP-LAYER-PARITY
-title: 十二 target 同一能力层 — 设计
+title: 十三 target 同一能力层 — 设计
 status: draft
 owner: engineering
 updated: 2026-08-19
 normative: false
 ---
 
-# 十二 target 同一能力层
+# 十三 target 同一能力层
 
 > Engineering design only. Does **not** add a TargetId, expand accepted
 > PRD Phase 1, close formal TASK/TST, open SOR-1 Wasm, or auto-open

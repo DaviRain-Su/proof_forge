@@ -47,9 +47,10 @@ Solana ADR-0048 D4 剩余证书（非 formal TASK-D5）：
 **Goal drain 已空（2026-08-15）**：[`.grok/next-wave-queue.md`](../.grok/next-wave-queue.md) 零 pending；
 [`prompt-next-wave.md`](../.grok/goals/prompt-next-wave.md) **已退役**，不要再 launch。
 全仓对账：[research/28-project-wide-honesty-audit.md](research/28-project-wide-honesty-audit.md)。
-**下一刀（工程，非 formal）**：同一能力层设计 [`plan/capability-layer-parity.md`](plan/capability-layer-parity.md) ·
-任务拆分 [`plan/capability-layer-tasks.md`](plan/capability-layer-tasks.md)
-（先加深已实现 leaf 的 catalog 行，不新开 TargetId）。
+**下一刀（工程，非 formal）**：能力层 waves 已全闭合（2026-08-19：CAP-1a…5 / CAP-X-BYTES / CAP-X-MERKLE / 诚实边界波）；
+当前剩余人拍项 = B-CALL-SEM 决策包 / ADR-0051 / D3-E8 / QUINT-2 / SOR-1 / XRPL TIME/CALLER；
+能力层设计 [`plan/capability-layer-parity.md`](plan/capability-layer-parity.md) ·
+任务拆分 [`plan/capability-layer-tasks.md`](plan/capability-layer-tasks.md)。
 旧 [`prompt-master-queue.md`](../.grok/goals/prompt-master-queue.md) 仍为历史/退役队列。
 宽度/ABI 专项：[`roadmap-t8.md`](roadmap-t8.md)。
 Op×target 格子：[`research/12-target-coverage-matrix.md`](research/12-target-coverage-matrix.md)。

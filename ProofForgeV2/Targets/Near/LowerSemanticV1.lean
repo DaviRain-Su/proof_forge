@@ -1175,7 +1175,8 @@ private def requireOptionUInt64StateV1
 /-- N-ANON-RESULT (NEAR ABI): anonymous result leaf layout for admitted
 container returns. `Array UInt64 N` → N×u64-le leaves; `Option UInt64` →
 tag+payload (none=(0,0), some v=(1,v)); `Bytes N` (1..8) → N×u8-le leaves
-packed tightly. Map stays FC (dense cap-8 expands past the 8-leaf B-RET cap). -/
+packed tightly. Dense cap-8 Map returns 24×u64-le leaves — the one
+sanctioned exception past the 8-leaf B-RET cap. -/
 private def anonymousReturnLeafAbiV1
     (typeDecls : Array TypeDeclV1) (types : NearTypeClosureV1)
     (typeId : TypeIdV1) : CompileResult (Option (Array LeafAbiType)) := do

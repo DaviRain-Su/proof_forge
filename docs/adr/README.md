@@ -10,7 +10,7 @@ normative: true
 # Architecture Decision Records
 
 状态：`proposed`
-更新日期：2026-08-11
+更新日期：2026-08-19
 
 ADR 是 V2 架构决定的最高规范性记录。frontmatter 生命周期统一使用
 `draft | proposed | in_review | accepted | superseded | archived`；未采纳的提案使用 `archived`
@@ -34,7 +34,7 @@ ADR，并在旧 ADR frontmatter 中记录 `successor`，不得静默改写历史
 | [ADR-0013](0013-content-addressed-tools-and-host-profile.md) | 内容工具闭包与受信 host profile 分离 | proposed |
 | [ADR-0014](0014-pinned-unicode-normalization.md) | 固定 Unicode 17.0.0 与纯 Lean NFC | proposed |
 | [ADR-0015](0015-canonical-tool-lock-and-candidate-bound-sbom.md) | Tool Lock 唯一摘要与 candidate-bound SBOM | proposed |
-| [ADR-0016](0016-cross-platform-host-profile-and-linux-eligibility.md) | 跨平台 Host Profile、per-platform Tool Lock 与 Linux eligibility | proposed |
+| [ADR-0016](0016-cross-platform-host-profile-and-linux-eligibility.md) | 跨平台 Host Profile、per-platform Tool Lock 与 Linux eligibility | accepted |
 | [ADR-0017](0017-research-phase-targets-ton-move-cairo-zkvm.md) | 研究期新增目标 TON/TVM、Move、Cairo、RISC Zero/SP1 | proposed |
 | [ADR-0018](0018-d0-07-formal-execution-semantics.md) | D0-07 formal 执行语义：fixture 验收域、linux bwrap stage 引擎、freshness 判定与 finalizer 身份 | accepted |
 | [ADR-0019](0019-single-programv1-source-authority.md) | ProgramV1 单一 source authority 与 alpha cutover | accepted |

@@ -1,13 +1,13 @@
 ---
 id: PLAN-CAP-LAYER-TASKS
-title: 十二 target 同一能力层 — 任务拆分
+title: 十三 target 同一能力层 — 任务拆分
 status: draft
 owner: engineering
 updated: 2026-08-19
 normative: false
 ---
 
-# 十二 target 同一能力层：任务拆分
+# 十三 target 同一能力层：任务拆分
 
 > Engineering tasks only. **Not** `docs/04-task-breakdown.md` formal
 > `TASK-*`. Do not mark TST/EV done. Design:
@@ -66,7 +66,7 @@ CAP-7 / CAP-8 / CAP-9。owner 未拍 TIME/CALLER **yes** 之前禁止 Lower/Emit
 | ID | Why skip |
 |---|---|
 | **CAP-X-NEW-TARGET** | No cairo/risc0/sp1/Move/Bitcoin this wave (RPT-025/026) |
-| **CAP-X-MERKLE** | [EXT-CRYPTO auto-open rejected](../../.agents/notes/rejected/architecture/2026-08-15-ext-crypto-auto-open.md) |
+| **CAP-X-MERKLE** | ~~EXT-CRYPTO auto-open rejected~~ → **done 2026-08-19 via Wave 5**（owner 拍板后开为命名切片；EVM-only `merkleVerifyKeccak256`） |
 | **CAP-X-CW-SHA** | CosmWasm has no sha256 host — keep F |
 | **CAP-X-XRPL-SHA** | XRPL has no sha256 host — only `compute_sha512_half` (ADR-0052) |
 | **CAP-X-ICP-HEIGHT** | ICP has no block-height API — keep F |
@@ -111,9 +111,8 @@ Reference 走 generic ExternalCall response cursor，不在 L1 机内算 hash。
   （merkle verify 是纯计算，不得贡献 `effect.synchronous-call`）；Normalize **零改动**
   （全 UInt256 参数过既有 anonymous-integer 门、Bool result 过既有 serializable 门）；
   Reference 走 generic response cursor。
-- 记录在案的既有裂缝（**不在本切片修**）：`ecdsaRecoverSecp256k1` 未纳入
-  host-syscall predicate（仍贡献 generic sync-call）——挂 backlog 另议（改它会动既有
-  程序 requirement 集）。
+- 记录在案的既有裂缝（**2026-08-19 诚实边界波已修**）：`ecdsaRecoverSecp256k1` 已纳入
+  host-syscall predicate（owner 接受既有程序 requirement 集 cut over）。
 
 | ID | Pri | Objective | Files (expected) | Done when | Not |
 |---|---|---|---|---|---|
