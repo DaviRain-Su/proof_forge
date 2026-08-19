@@ -76,25 +76,25 @@ namespace ProofForgeV2.Core.RequirementIdsV1
 /-! ### S2 closed catalog ids (domain `pf.requirement-key.engineering.v1`) -/
 
 /-- S2 catalog: async workflow schedule surface. -/
-def s2EffectAsyncWorkflowIdV1 : String := "effect.asynchronous-workflow"
+@[reducible] def s2EffectAsyncWorkflowIdV1 : String := "effect.asynchronous-workflow"
 
 /-- S2 catalog: event emit surface. -/
-def s2EffectEventIdV1 : String := "effect.event"
+@[reducible] def s2EffectEventIdV1 : String := "effect.event"
 
 /-- S2 catalog: synchronous external call surface. -/
-def s2EffectSyncCallIdV1 : String := "effect.synchronous-call"
+@[reducible] def s2EffectSyncCallIdV1 : String := "effect.synchronous-call"
 
 /-- S2 catalog: atomic rollback / checked failure surface. -/
-def s2FailureAtomicRollbackIdV1 : String := "failure.atomic-rollback"
+@[reducible] def s2FailureAtomicRollbackIdV1 : String := "failure.atomic-rollback"
 
 /-- S2 catalog: persistent logical state surface. -/
-def s2StatePersistentIdV1 : String := "state.persistent"
+@[reducible] def s2StatePersistentIdV1 : String := "state.persistent"
 
 /-- S2 catalog: Bool value surface. -/
-def s2ValueBoolIdV1 : String := "value.bool"
+@[reducible] def s2ValueBoolIdV1 : String := "value.bool"
 
 /-- S2 catalog: checked arithmetic surface. -/
-def s2ValueCheckedArithmeticIdV1 : String := "value.checked-arithmetic"
+@[reducible] def s2ValueCheckedArithmeticIdV1 : String := "value.checked-arithmetic"
 
 /-- Sole closed S2 catalog ID authority in SPEC wire order (UTF-8 ascending).
     Kernel-reducible `List` so membership certificates reduce by exact `==`

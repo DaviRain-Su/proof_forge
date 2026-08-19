@@ -103,7 +103,8 @@ theorem resolveBuildSelectionV1_solana_sbpf_cpi_elf_exists :
   rw [initialTargetRegistryV1Result_eq_ok]
   simp only [inspectBuildSelectionWithSeedV1, Bind.bind, Except.bind]
   rw [findRegistrationV1_initial_solana_eq_some]
-  simp [containsProfile, CodegenProfileId.beq_eq_toString, Pure.pure,
+  simp [containsProfile, expectedImplementedOfKindV1,
+    CodegenProfileId.beq_eq_toString, Pure.pure,
     Except.pure, ResolvedBuildSelectionV1.targetIdOf,
     ResolvedBuildSelectionV1.codegenProfileOf, ResolvedBuildSelectionV1.kindOf]
 

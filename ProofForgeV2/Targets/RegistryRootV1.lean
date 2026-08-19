@@ -124,4 +124,43 @@ def engineeringRegistryRootDigestV1
   let bytes ← encodeEngineeringRegistryRootBytesV1 registry
   domainSeparatedSha256 engineeringRegistryRootDomainV1 bytes
 
+private theorem exceptToOptionGetSuccessV1 {ε α : Type}
+    (result : Except ε α) (success : result.toOption.isSome = true) :
+    result = .ok (result.toOption.get success) := by
+  cases result with
+  | error _ => simp [Except.toOption] at success
+  | ok _ => rfl
+
+/-- The frozen production registry has a kernel-replayable engineering root.
+    The digest remains the symbolic result of the sole SHA-256 implementation;
+    this theorem neither copies concrete digest bytes nor introduces a second
+    root constructor. -/
+theorem engineeringRegistryRootDigestV1_initial_exists
+    (registry : TargetRegistryV1)
+    (hregistry : initialTargetRegistryV1Result = .ok registry) :
+    ∃ digest,
+      engineeringRegistryRootDigestV1 registry = .ok digest ∧
+      validateDigest digest = .ok () := by
+  have hbytesSome :
+      (encodeEngineeringRegistryRootBytesV1 registry).toOption.isSome = true := by
+    rw [initialTargetRegistryV1Result_eq_canonical] at hregistry
+    injection hregistry with hregistryValue
+    subst registry
+    unfold encodeEngineeringRegistryRootBytesV1
+    decide
+  let bytes := (encodeEngineeringRegistryRootBytesV1 registry).toOption.get
+    hbytesSome
+  have hbytes : encodeEngineeringRegistryRootBytesV1 registry = .ok bytes :=
+    exceptToOptionGetSuccessV1 _ hbytesSome
+  let digest := sha256Bytes
+    ((engineeringRegistryRootDomainV1.toUTF8.push 0).append bytes)
+  have hdigest : domainSeparatedSha256 engineeringRegistryRootDomainV1 bytes =
+      .ok digest := by
+    simp only [domainSeparatedSha256, engineeringRegistryRootDomainV1,
+      show validateProfileIdValue "pf.registry-root.engineering.v1" = .ok () by rfl,
+      Bind.bind, Except.bind, Pure.pure, Except.pure, digest]
+  refine ⟨digest, ?_, validateDigest_sha256Bytes _⟩
+  simp only [engineeringRegistryRootDigestV1, hbytes, hdigest, Bind.bind,
+    Except.bind]
+
 end ProofForgeV2.Targets.RegistryRootV1

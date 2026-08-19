@@ -1704,7 +1704,10 @@ private def dualArgSolanaCertifiedPreparationAllowed : Array Name :=
     ``ProofForgeV2.Targets.Solana.CertifiedSolanaProductionPreparationV1.assembly,
     ``ProofForgeV2.Targets.Solana.CertifiedSolanaProductionPreparationV1.artifactSuccess,
     `ProofForgeV2.Targets.Solana.resolveCertifiedSolanaProductionPreparationV1._proof_1,
-    ``ProofForgeV2.Targets.Solana.resolveCertifiedSolanaProductionPreparationV1_exists_of_stages]
+    ``ProofForgeV2.Targets.Solana.resolveCertifiedSolanaProductionPreparationV1_exists_of_stages,
+    ``ProofForgeV2.Targets.resolveEngineeringRequirementsV1_exists_of_stages,
+    ``ProofForgeV2.Targets.resolveEngineeringRequirementsV1_solana_sbpf_cpi_elf_exists,
+    ``ProofForgeV2.Targets.Solana.stateCellEngineeringCapabilityCertificateV1]
 /-- Umbrella library coverage witness (ReferenceV1; outside old selected imports). -/
 private def dualArgUmbrellaCoverageWitnessN : Name :=
   ``ProofForgeV2.Semantic.ReferenceV1.admitReferenceProgramSliceV1
@@ -2800,4 +2803,3 @@ run_cmd do
   | .error message => throwError message
 
 end Tests.Materialization.RequirementResolverV1
-

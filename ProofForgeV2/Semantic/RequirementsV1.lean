@@ -73,10 +73,10 @@ def s2RequirementVersionV1 : SemVer :=
 def s2CatalogIdsWireOrderV1 : Array String :=
   ProofForgeV2.Core.RequirementIdsV1.s2CatalogIdsWireOrderV1
 
-private def stringEqV1 (left right : String) : Bool :=
+@[reducible] private def stringEqV1 (left right : String) : Bool :=
   left.toUTF8 == right.toUTF8
 
-private def containsStringV1 (value : String) : List String → Bool
+@[reducible] private def containsStringV1 (value : String) : List String → Bool
   | [] => false
   | candidate :: rest =>
       stringEqV1 candidate value || containsStringV1 value rest
@@ -84,6 +84,27 @@ private def containsStringV1 (value : String) : List String → Bool
 /-- Closed-catalog membership via sole list authority and exact UTF-8 identity. -/
 def isS2CatalogIdV1 (id : String) : Bool :=
   containsStringV1 id s2CatalogIdsWireOrderListV1
+
+@[simp] theorem isS2CatalogIdV1_async :
+    isS2CatalogIdV1 s2EffectAsyncWorkflowIdV1 = true := by decide
+
+@[simp] theorem isS2CatalogIdV1_event :
+    isS2CatalogIdV1 s2EffectEventIdV1 = true := by decide
+
+@[simp] theorem isS2CatalogIdV1_sync :
+    isS2CatalogIdV1 s2EffectSyncCallIdV1 = true := by decide
+
+@[simp] theorem isS2CatalogIdV1_rollback :
+    isS2CatalogIdV1 s2FailureAtomicRollbackIdV1 = true := by decide
+
+@[simp] theorem isS2CatalogIdV1_state :
+    isS2CatalogIdV1 s2StatePersistentIdV1 = true := by decide
+
+@[simp] theorem isS2CatalogIdV1_bool :
+    isS2CatalogIdV1 s2ValueBoolIdV1 = true := by decide
+
+@[simp] theorem isS2CatalogIdV1_checkedArithmetic :
+    isS2CatalogIdV1 s2ValueCheckedArithmeticIdV1 = true := by decide
 
 /-! ### Kernel-transparent S2 catalog digests
 
@@ -164,6 +185,41 @@ def engineeringRequirementDigestV1 (id : String) : Except String Digest :=
     pure { algorithm := .sha256, bytes := s2ValueCheckedArithmeticDigestBytesV1 }
   else
     domainSeparatedSha256 engineeringRequirementKeyDomainV1 id.toUTF8
+
+@[simp] theorem engineeringRequirementDigestV1_async :
+    engineeringRequirementDigestV1 s2EffectAsyncWorkflowIdV1 = .ok {
+      algorithm := .sha256, bytes := s2EffectAsyncWorkflowDigestBytesV1 } := by
+  rfl
+
+@[simp] theorem engineeringRequirementDigestV1_event :
+    engineeringRequirementDigestV1 s2EffectEventIdV1 = .ok {
+      algorithm := .sha256, bytes := s2EffectEventDigestBytesV1 } := by
+  rfl
+
+@[simp] theorem engineeringRequirementDigestV1_sync :
+    engineeringRequirementDigestV1 s2EffectSyncCallIdV1 = .ok {
+      algorithm := .sha256, bytes := s2EffectSyncCallDigestBytesV1 } := by
+  rfl
+
+@[simp] theorem engineeringRequirementDigestV1_rollback :
+    engineeringRequirementDigestV1 s2FailureAtomicRollbackIdV1 = .ok {
+      algorithm := .sha256, bytes := s2FailureAtomicRollbackDigestBytesV1 } := by
+  rfl
+
+@[simp] theorem engineeringRequirementDigestV1_state :
+    engineeringRequirementDigestV1 s2StatePersistentIdV1 = .ok {
+      algorithm := .sha256, bytes := s2StatePersistentDigestBytesV1 } := by
+  rfl
+
+@[simp] theorem engineeringRequirementDigestV1_bool :
+    engineeringRequirementDigestV1 s2ValueBoolIdV1 = .ok {
+      algorithm := .sha256, bytes := s2ValueBoolDigestBytesV1 } := by
+  rfl
+
+@[simp] theorem engineeringRequirementDigestV1_checkedArithmetic :
+    engineeringRequirementDigestV1 s2ValueCheckedArithmeticIdV1 = .ok {
+      algorithm := .sha256, bytes := s2ValueCheckedArithmeticDigestBytesV1 } := by
+  rfl
 
 /-- Build one RequirementRequestV1 for a catalog id (empty predicates). -/
 def mkS2RequirementRequestV1 (id : String) : Except String RequirementRequestV1 := do

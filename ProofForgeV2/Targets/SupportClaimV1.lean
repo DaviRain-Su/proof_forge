@@ -118,7 +118,11 @@ private def encodeString (value : String) : Except String ByteArray := do
 /-- Embed a validated digest as its exact wire form (`sha256:<64 hex>`). -/
 private def encodeDigestWire (digest : Digest) : Except String ByteArray := do
   let wire ← renderDigest digest
-  encodeString wire
+  -- `renderDigest` accepts only a validated 32-byte SHA-256 digest, so its wire
+  -- form is exactly 71 ASCII bytes. Emit that canonical fixed-width frame
+  -- directly; this is byte-identical to `encodeString wire` and avoids a
+  -- second value-dependent representability check.
+  pure ((encodeU32le 71).append wire.toUTF8)
 
 /-- Canonical engineering support-claim preimage bytes.
 
@@ -174,6 +178,49 @@ def mintEngineeringSupportClaimFromRowV1
     engineeringRegistryRootDigest
     claimDigest)
 
+private def validateStringFrameV1 (value : String) : Except String Unit := do
+  unless value.toUTF8.size ≤ UInt32.size - 1 do
+    throw "support claim u32 length is not representable"
+
+private def validateCountFrameV1 (count : Nat) : Except String Unit := do
+  unless count ≤ UInt32.size - 1 do
+    throw "support claim u32 length is not representable"
+
+private def validateEngineeringSupportClaimRowsV1 :
+    List StaticRequirementSupportRowV1 → Except String Unit
+  | [] => .ok ()
+  | row :: rest => do
+      validateStringFrameV1 row.targetId.toString
+      validateStringFrameV1 row.codegenProfile.toString
+      validateCountFrameV1 row.supported.size
+      for request in row.supported do
+        validateStringFrameV1 request.id
+      validateEngineeringSupportClaimRowsV1 rest
+
+private def encodeStringTotalV1 (value : String) : ByteArray :=
+  let raw := value.toUTF8
+  (encodeU32le (UInt32.ofNat raw.size)).append raw
+
+private def encodeEngineeringSupportClaimBytesTotalV1
+    (row : StaticRequirementSupportRowV1) (rootWire : String) : ByteArray :=
+  let target := encodeStringTotalV1 row.targetId.toString
+  let profile := encodeStringTotalV1 row.codegenProfile.toString
+  let count := encodeU32le (UInt32.ofNat row.supported.size)
+  let ids := row.supported.foldl
+    (fun out request => out.append (encodeStringTotalV1 request.id)) ByteArray.empty
+  target.append profile |>.append count |>.append ids |>.append
+    ((encodeU32le 71).append rootWire.toUTF8)
+
+private def mintEngineeringSupportClaimTotalV1
+    (row : StaticRequirementSupportRowV1)
+    (engineeringRegistryRootDigest : Digest)
+    (rootWire : String) : EngineeringSupportClaimV1 :=
+  let bytes := encodeEngineeringSupportClaimBytesTotalV1 row rootWire
+  let claimDigest := sha256Bytes
+    ((engineeringSupportClaimDomainV1.toUTF8.push 0).append bytes)
+  EngineeringSupportClaimV1.mk row.targetId row.codegenProfile row.supported
+    engineeringRegistryRootDigest claimDigest
+
 /-- Sole bulk mint: one claim per support-index row in canonical index order
     (already strictly ascending by (targetId, codegenProfile)). -/
 def mintEngineeringSupportClaimsV1
@@ -184,11 +231,32 @@ def mintEngineeringSupportClaimsV1
   let rows := StaticRequirementSupportIndexV1.toArray index
   if rows.isEmpty then
     throw "engineering support claim mint requires a non-empty support index"
-  let mut claims : Array EngineeringSupportClaimV1 := #[]
-  for row in rows do
-    let claim ← mintEngineeringSupportClaimFromRowV1 row rootDigest
-    claims := claims.push claim
-  pure claims
+  -- Render/validate the shared root and all length-framed source fields before
+  -- the total map. The total map is byte-identical to the per-row public mint,
+  -- but cannot fail after these checks and does not re-render the same root 17
+  -- times.
+  let rootWire ← renderDigest rootDigest
+  validateEngineeringSupportClaimRowsV1 rows.toList
+  pure (rows.map fun row =>
+    mintEngineeringSupportClaimTotalV1 row rootDigest rootWire)
+
+private theorem mintEngineeringSupportClaimsV1_eq_ok_of_stages
+    (registry : TargetRegistryV1)
+    (index : StaticRequirementSupportIndexV1)
+    (rootDigest : Digest)
+    (rows : Array StaticRequirementSupportRowV1)
+    (rootWire : String)
+    (hroot : engineeringRegistryRootDigestV1 registry = .ok rootDigest)
+    (hrows : StaticRequirementSupportIndexV1.toArray index = rows)
+    (hnonempty : rows.isEmpty = false)
+    (hrender : renderDigest rootDigest = .ok rootWire)
+    (hvalidate : validateEngineeringSupportClaimRowsV1 rows.toList = .ok ()) :
+    mintEngineeringSupportClaimsV1 registry index =
+      .ok (rows.map fun row =>
+        mintEngineeringSupportClaimTotalV1 row rootDigest rootWire) := by
+  simp only [mintEngineeringSupportClaimsV1, hroot, hrows, hnonempty,
+    Bool.false_eq_true, ↓reduceIte, hrender, hvalidate, Bind.bind, Except.bind,
+    Pure.pure, Except.pure]
 
 /-- Lookup a claim by exact (targetId, codegenProfile). -/
 def findEngineeringSupportClaimV1
@@ -197,5 +265,102 @@ def findEngineeringSupportClaimV1
     Option EngineeringSupportClaimV1 :=
   claims.find? (fun c =>
     c.targetId == targetId && c.codegenProfile == codegenProfile)
+
+private theorem exceptToOptionGetSuccessV1 {ε α : Type}
+    (result : Except ε α) (success : result.toOption.isSome = true) :
+    result = .ok (result.toOption.get success) := by
+  cases result with
+  | error _ => simp [Except.toOption] at success
+  | ok _ => rfl
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+/-- The sole bulk claim mint succeeds for the frozen registry/support-index
+    pair. Claim/root digests remain symbolic results of the production SHA-256
+    implementation; no concrete digest bytes or alternate claim are supplied. -/
+theorem mintEngineeringSupportClaimsV1_initial_exists
+    (registry : TargetRegistryV1)
+    (index : StaticRequirementSupportIndexV1)
+    (hregistry : initialTargetRegistryV1Result = .ok registry)
+    (hindex : initialStaticRequirementSupportIndexV1Result = .ok index) :
+    ∃ claims claim,
+      mintEngineeringSupportClaimsV1 registry index = .ok claims ∧
+      findEngineeringSupportClaimV1 claims TargetId.solana
+          CodegenProfileId.solanaSbpfCpiElfV1 = some claim ∧
+      EngineeringSupportClaimV1.targetIdOf claim = TargetId.solana ∧
+      EngineeringSupportClaimV1.codegenProfileOf claim =
+        CodegenProfileId.solanaSbpfCpiElfV1 ∧
+      EngineeringSupportClaimV1.supportedOf claim =
+        initialSolanaSupportRowV1.supported := by
+  rcases engineeringRegistryRootDigestV1_initial_exists registry hregistry with
+    ⟨rootDigest, hrootDigest, hrootValid⟩
+  have hrenderSome : (renderDigest rootDigest).toOption.isSome = true := by
+    unfold renderDigest
+    rw [hrootValid]
+    simp only [Bind.bind, Except.bind, Pure.pure, Except.pure, Except.toOption,
+      Option.isSome]
+  let rootWire := (renderDigest rootDigest).toOption.get hrenderSome
+  have hrender : renderDigest rootDigest = .ok rootWire :=
+    exceptToOptionGetSuccessV1 _ hrenderSome
+  have hrows : StaticRequirementSupportIndexV1.toArray index =
+      initialSupportRowsV1 := by
+    rw [initialStaticRequirementSupportIndexV1Result_eq_ok] at hindex
+    injection hindex with hindexValue
+    subst index
+    rfl
+  have hnonempty : initialSupportRowsV1.isEmpty = false := by
+    unfold initialSupportRowsV1 buildInitialSupportRowsV1
+    rfl
+  have hvalidate :
+      validateEngineeringSupportClaimRowsV1 initialSupportRowsV1.toList =
+        .ok () := by
+    have hsome :
+        (validateEngineeringSupportClaimRowsV1
+          initialSupportRowsV1.toList).toOption.isSome = true := by
+      decide
+    simpa using exceptToOptionGetSuccessV1
+      (validateEngineeringSupportClaimRowsV1 initialSupportRowsV1.toList) hsome
+  let claims := initialSupportRowsV1.map fun row =>
+    mintEngineeringSupportClaimTotalV1 row rootDigest rootWire
+  let claim := mintEngineeringSupportClaimTotalV1 initialSolanaSupportRowV1
+    rootDigest rootWire
+  have hmint : mintEngineeringSupportClaimsV1 registry index = .ok claims :=
+    mintEngineeringSupportClaimsV1_eq_ok_of_stages registry index rootDigest
+      initialSupportRowsV1 rootWire hrootDigest hrows hnonempty hrender hvalidate
+  have hfind : findEngineeringSupportClaimV1 claims TargetId.solana
+      CodegenProfileId.solanaSbpfCpiElfV1 = some claim := by
+    unfold findEngineeringSupportClaimV1
+    rw [Array.find?_eq_some_iff_getElem]
+    refine ⟨?_, ⟨12, ?_, ?_, ?_⟩⟩
+    · rfl
+    · unfold claims initialSupportRowsV1 buildInitialSupportRowsV1
+      simp only [Array.size_map]
+      decide
+    · rw [Array.getElem_map]
+      rfl
+    · intro j hj
+      have hrowsSize : initialSupportRowsV1.size = 17 := by
+        unfold initialSupportRowsV1 buildInitialSupportRowsV1
+        rfl
+      have hjRows : j < initialSupportRowsV1.size := by
+        rw [hrowsSize]
+        omega
+      unfold claims
+      rw [Array.getElem_map]
+      change (!(initialSupportRowsV1[j].targetId == TargetId.solana &&
+        initialSupportRowsV1[j].codegenProfile ==
+          CodegenProfileId.solanaSbpfCpiElfV1)) = true
+      have hjCases :
+          j = 0 ∨ j = 1 ∨ j = 2 ∨ j = 3 ∨ j = 4 ∨ j = 5 ∨
+          j = 6 ∨ j = 7 ∨ j = 8 ∨ j = 9 ∨ j = 10 ∨ j = 11 := by
+        omega
+      rcases hjCases with rfl | rfl | rfl | rfl | rfl | rfl |
+        rfl | rfl | rfl | rfl | rfl | rfl <;>
+      unfold initialSupportRowsV1 buildInitialSupportRowsV1
+      all_goals rfl
+  refine ⟨claims, claim, hmint, hfind, ?_, ?_, ?_⟩
+  · rfl
+  · rfl
+  · rfl
 
 end ProofForgeV2.Targets.SupportClaimV1

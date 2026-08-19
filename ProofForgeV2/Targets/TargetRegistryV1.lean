@@ -539,7 +539,7 @@ def validateRegistrationSetV1
   if let some dup := findDuplicateString targetIds then
     throw <| .registryDuplicate s!"duplicate target id '{dup}'"
 
-private def asciiStringLtListV1 : List Char → List Char → Bool
+@[reducible] private def asciiStringLtListV1 : List Char → List Char → Bool
   | [], [] => false
   | [], _ :: _ => true
   | _ :: _, [] => false
@@ -547,14 +547,14 @@ private def asciiStringLtListV1 : List Char → List Char → Bool
       if a.val == b.val then asciiStringLtListV1 as bs
       else decide (a.val < b.val)
 
-private def asciiStringLtV1 (a b : String) : Bool :=
+@[reducible] private def asciiStringLtV1 (a b : String) : Bool :=
   asciiStringLtListV1 a.toList b.toList
 
-private def targetRegistrationLtV1
+@[reducible] private def targetRegistrationLtV1
     (a b : TargetRegistrationDataV1) : Bool :=
   asciiStringLtV1 a.targetId.toString b.targetId.toString
 
-private def insertRegistrationV1
+@[reducible] private def insertRegistrationV1
     (reg : TargetRegistrationDataV1) :
     List TargetRegistrationDataV1 → List TargetRegistrationDataV1
   | [] => [reg]
@@ -564,12 +564,12 @@ private def insertRegistrationV1
       else
         current :: insertRegistrationV1 reg rest
 
-private def sortRegistrationListV1 :
+@[reducible] private def sortRegistrationListV1 :
     List TargetRegistrationDataV1 → List TargetRegistrationDataV1
   | [] => []
   | reg :: rest => insertRegistrationV1 reg (sortRegistrationListV1 rest)
 
-private def sortRegistrationsV1
+@[reducible] private def sortRegistrationsV1
     (regs : Array TargetRegistrationDataV1) : Array TargetRegistrationDataV1 :=
   (sortRegistrationListV1 regs.toList).toArray
 
@@ -690,7 +690,7 @@ def semanticsAxesOfKindV1 : TargetKind → TargetSemanticsAxesV1
       axes TargetId.xrpl .xrplWasm .transactionAtomic .contractKeyValue
         .synchronousMessage .noProof .xrplChain
 
-private def row
+@[reducible] def registrationRowV1
     (kind : TargetKind)
     (semantics : TargetSemanticsAxesV1)
     (profiles : Array CodegenProfileId)
@@ -707,16 +707,16 @@ private def row
     defaultProfile
   }
 
-private def evmRegistrationRowV1 : TargetRegistrationDataV1 :=
-  row .evm (semanticsAxesOfKindV1 .evm)
+@[reducible] def evmRegistrationRowV1 : TargetRegistrationDataV1 :=
+  registrationRowV1 .evm (semanticsAxesOfKindV1 .evm)
     -- Strictly ASCII-ascending: cancun-v1 < v1. Default = v1 (hashed Map).
     #[CodegenProfileId.evmYulSolc0834CancunV1, CodegenProfileId.evmYulSolc0834V1]
     (some CodegenProfileId.evmYulSolc0834V1)
 
 /-- Frozen Solana product row. This is registration data, not a selection or
     materialization capability; the registry constructor remains the sole mint. -/
-def solanaRegistrationRowV1 : TargetRegistrationDataV1 :=
-  row .solana (semanticsAxesOfKindV1 .solana)
+@[reducible] def solanaRegistrationRowV1 : TargetRegistrationDataV1 :=
+  registrationRowV1 .solana (semanticsAxesOfKindV1 .solana)
     -- ADR-0032 U1: sole product rail only. plan-v1 / elf-v1 shims removed
     -- (no longer registry members; resolve/build reject them).
     #[CodegenProfileId.solanaSbpfCpiElfV1]
@@ -735,8 +735,8 @@ def solanaRegistrationRowV1 : TargetRegistrationDataV1 :=
       #[CodegenProfileId.solanaSbpfCpiElfV1] := by
   rfl
 
-private def nearRegistrationRowV1 : TargetRegistrationDataV1 :=
-  row .near (semanticsAxesOfKindV1 .near)
+@[reducible] def nearRegistrationRowV1 : TargetRegistrationDataV1 :=
+  registrationRowV1 .near (semanticsAxesOfKindV1 .near)
     #[CodegenProfileId.nearWasmRawU64V1]
     (some CodegenProfileId.nearWasmRawU64V1)
 
@@ -744,51 +744,51 @@ private def nearRegistrationRowV1 : TargetRegistrationDataV1 :=
 -- default remains zero-tool source. Same Plan / `.nr` base surface; the
 -- explicit nargo ACIR profile dual-writes path-normalized ProgramArtifact
 -- extras during Finalize (NOIR-IR-6; deployable=false; no prove/VK).
-private def noirRegistrationRowV1 : TargetRegistrationDataV1 :=
-  row .noir (semanticsAxesOfKindV1 .noir)
+@[reducible] def noirRegistrationRowV1 : TargetRegistrationDataV1 :=
+  registrationRowV1 .noir (semanticsAxesOfKindV1 .noir)
     #[CodegenProfileId.noirNargoAcirV1, CodegenProfileId.noirSourceU64RelationsV1]
     (some CodegenProfileId.noirSourceU64RelationsV1)
 
-private def cosmwasmRegistrationRowV1 : TargetRegistrationDataV1 :=
-  row .cosmwasm (semanticsAxesOfKindV1 .cosmwasm)
+@[reducible] def cosmwasmRegistrationRowV1 : TargetRegistrationDataV1 :=
+  registrationRowV1 .cosmwasm (semanticsAxesOfKindV1 .cosmwasm)
     #[CodegenProfileId.cosmwasmWasmU64V1]
     (some CodegenProfileId.cosmwasmWasmU64V1)
 
-private def sorobanRegistrationRowV1 : TargetRegistrationDataV1 :=
-  row .soroban (semanticsAxesOfKindV1 .soroban)
+@[reducible] def sorobanRegistrationRowV1 : TargetRegistrationDataV1 :=
+  registrationRowV1 .soroban (semanticsAxesOfKindV1 .soroban)
     #[CodegenProfileId.sorobanSourceU64V1]
     (some CodegenProfileId.sorobanSourceU64V1)
 
-private def icpRegistrationRowV1 : TargetRegistrationDataV1 :=
-  row .icp (semanticsAxesOfKindV1 .icp)
+@[reducible] def icpRegistrationRowV1 : TargetRegistrationDataV1 :=
+  registrationRowV1 .icp (semanticsAxesOfKindV1 .icp)
     #[CodegenProfileId.icpWasmCandidU64V1]
     (some CodegenProfileId.icpWasmCandidU64V1)
 
 -- Explicit elf profile shares the Plan/guest emission; Finalize resolves
 -- locked cargo-openvm 2.0.1 to build+transpile ELF/VmExe extras
 -- (ADR-0046 O1; deployable=false; no keygen/execute/prove/verify).
-private def openvmRegistrationRowV1 : TargetRegistrationDataV1 :=
-  row .openvm (semanticsAxesOfKindV1 .openvm)
+@[reducible] def openvmRegistrationRowV1 : TargetRegistrationDataV1 :=
+  registrationRowV1 .openvm (semanticsAxesOfKindV1 .openvm)
     #[CodegenProfileId.openvmGuestElfV1, CodegenProfileId.openvmGuestSourceV1]
     (some CodegenProfileId.openvmGuestSourceV1)
 
-private def aleoRegistrationRowV1 : TargetRegistrationDataV1 :=
-  row .aleo (semanticsAxesOfKindV1 .aleo)
+@[reducible] def aleoRegistrationRowV1 : TargetRegistrationDataV1 :=
+  registrationRowV1 .aleo (semanticsAxesOfKindV1 .aleo)
     #[CodegenProfileId.aleoInstructionsV1]
     (some CodegenProfileId.aleoInstructionsV1)
 
-private def psyRegistrationRowV1 : TargetRegistrationDataV1 :=
-  row .psy (semanticsAxesOfKindV1 .psy)
+@[reducible] def psyRegistrationRowV1 : TargetRegistrationDataV1 :=
+  registrationRowV1 .psy (semanticsAxesOfKindV1 .psy)
     #[CodegenProfileId.psyDpnV1]
     (some CodegenProfileId.psyDpnV1)
 
-private def quintRegistrationRowV1 : TargetRegistrationDataV1 :=
-  row .quint (semanticsAxesOfKindV1 .quint)
+@[reducible] def quintRegistrationRowV1 : TargetRegistrationDataV1 :=
+  registrationRowV1 .quint (semanticsAxesOfKindV1 .quint)
     #[CodegenProfileId.quintSourceU64ModelV1]
     (some CodegenProfileId.quintSourceU64ModelV1)
 
-private def tonRegistrationRowV1 : TargetRegistrationDataV1 :=
-  row .ton (semanticsAxesOfKindV1 .ton)
+@[reducible] def tonRegistrationRowV1 : TargetRegistrationDataV1 :=
+  registrationRowV1 .ton (semanticsAxesOfKindV1 .ton)
     #[CodegenProfileId.tonTolkBocV1]
     (some CodegenProfileId.tonTolkBocV1)
 
@@ -796,18 +796,28 @@ private def tonRegistrationRowV1 : TargetRegistrationDataV1 :=
 -- default remains zero-tool source. Same Plan / `.rs` base surface; the
 -- explicit WASM profile builds a `wasm32-unknown-unknown` extra during
 -- Finalize (ADR-0050 Q1; deployable=false; no AlphaNet/mainnet).
-private def xrplRegistrationRowV1 : TargetRegistrationDataV1 :=
-  row .xrpl (semanticsAxesOfKindV1 .xrpl)
+@[reducible] def xrplRegistrationRowV1 : TargetRegistrationDataV1 :=
+  registrationRowV1 .xrpl (semanticsAxesOfKindV1 .xrpl)
     #[CodegenProfileId.xrplBedrockSourceU64V1,
       CodegenProfileId.xrplBedrockWasmU64V1]
     (some CodegenProfileId.xrplBedrockSourceU64V1)
 
 /-- Shipped initial registration rows (any order; create canonicalizes TargetId). -/
-def initialRegistrationRowsV1 : Array TargetRegistrationDataV1 :=
+@[reducible] def initialRegistrationRowsV1 : Array TargetRegistrationDataV1 :=
   #[evmRegistrationRowV1, solanaRegistrationRowV1, nearRegistrationRowV1,
     noirRegistrationRowV1, cosmwasmRegistrationRowV1, sorobanRegistrationRowV1,
     icpRegistrationRowV1, openvmRegistrationRowV1, aleoRegistrationRowV1,
     psyRegistrationRowV1, quintRegistrationRowV1, tonRegistrationRowV1,
+    xrplRegistrationRowV1]
+
+/-- Frozen registrations in the canonical TargetId order produced by the sole
+    registry constructor. These are source rows, not selections/capabilities. -/
+@[reducible] def initialCanonicalRegistrationRowsV1 :
+    Array TargetRegistrationDataV1 :=
+  #[aleoRegistrationRowV1, cosmwasmRegistrationRowV1, evmRegistrationRowV1,
+    icpRegistrationRowV1, nearRegistrationRowV1, noirRegistrationRowV1,
+    openvmRegistrationRowV1, psyRegistrationRowV1, quintRegistrationRowV1,
+    solanaRegistrationRowV1, sorobanRegistrationRowV1, tonRegistrationRowV1,
     xrplRegistrationRowV1]
 
 /-- Frozen product registry seed. Sole membership authority.
@@ -818,7 +828,7 @@ def initialTargetRegistryV1Result : CompileResult TargetRegistryV1 :=
 /-- The frozen registration set passes the production root checks. -/
 theorem initialRegistrationSetV1_eq_ok :
     validateRegistrationSetV1 initialRegistrationRowsV1 = .ok () := by
-  simp [validateRegistrationSetV1, initialRegistrationRowsV1, row,
+  simp [validateRegistrationSetV1, initialRegistrationRowsV1, registrationRowV1,
     evmRegistrationRowV1, solanaRegistrationRowV1, nearRegistrationRowV1,
     noirRegistrationRowV1, cosmwasmRegistrationRowV1, sorobanRegistrationRowV1,
     icpRegistrationRowV1, openvmRegistrationRowV1, aleoRegistrationRowV1,
@@ -869,7 +879,7 @@ theorem initialRegistrationsV1_eq_ok :
       validateRegistrationProfileShapeV1 evmRegistrationRowV1 = .ok () := by
     simp [validateRegistrationProfileShapeV1,
       validateRegistrationProfileUniquenessV1, validateRegistrationProfileOrderV1,
-      evmRegistrationRowV1, row, findDuplicateString, findDuplicateStringLoop,
+      evmRegistrationRowV1, registrationRowV1, findDuplicateString, findDuplicateStringLoop,
       containsString, isStrictlyAscendingAscii, isStrictlyAscendingAsciiList,
       CodegenProfileId.toString, CodegenProfileId.evmYulSolc0834CancunV1,
       CodegenProfileId.evmYulSolc0834V1, hevm, Bind.bind, Except.bind,
@@ -878,7 +888,7 @@ theorem initialRegistrationsV1_eq_ok :
       validateRegistrationProfileShapeV1 noirRegistrationRowV1 = .ok () := by
     simp [validateRegistrationProfileShapeV1,
       validateRegistrationProfileUniquenessV1, validateRegistrationProfileOrderV1,
-      noirRegistrationRowV1, row, findDuplicateString, findDuplicateStringLoop,
+      noirRegistrationRowV1, registrationRowV1, findDuplicateString, findDuplicateStringLoop,
       containsString, isStrictlyAscendingAscii, isStrictlyAscendingAsciiList,
       CodegenProfileId.toString, CodegenProfileId.noirNargoAcirV1,
       CodegenProfileId.noirSourceU64RelationsV1, hnoir, Bind.bind, Except.bind,
@@ -887,7 +897,7 @@ theorem initialRegistrationsV1_eq_ok :
       validateRegistrationProfileShapeV1 openvmRegistrationRowV1 = .ok () := by
     simp [validateRegistrationProfileShapeV1,
       validateRegistrationProfileUniquenessV1, validateRegistrationProfileOrderV1,
-      openvmRegistrationRowV1, row, findDuplicateString, findDuplicateStringLoop,
+      openvmRegistrationRowV1, registrationRowV1, findDuplicateString, findDuplicateStringLoop,
       containsString, isStrictlyAscendingAscii, isStrictlyAscendingAsciiList,
       CodegenProfileId.toString, CodegenProfileId.openvmGuestElfV1,
       CodegenProfileId.openvmGuestSourceV1, hopenvm, Bind.bind, Except.bind,
@@ -896,7 +906,7 @@ theorem initialRegistrationsV1_eq_ok :
       validateRegistrationProfileShapeV1 xrplRegistrationRowV1 = .ok () := by
     simp [validateRegistrationProfileShapeV1,
       validateRegistrationProfileUniquenessV1, validateRegistrationProfileOrderV1,
-      xrplRegistrationRowV1, row, findDuplicateString, findDuplicateStringLoop,
+      xrplRegistrationRowV1, registrationRowV1, findDuplicateString, findDuplicateStringLoop,
       containsString, isStrictlyAscendingAscii, isStrictlyAscendingAsciiList,
       CodegenProfileId.toString, CodegenProfileId.xrplBedrockSourceU64V1,
       CodegenProfileId.xrplBedrockWasmU64V1, hxrpl, Bind.bind, Except.bind,
@@ -1004,6 +1014,27 @@ theorem initialTargetRegistryV1Result_eq_ok :
   exact createTargetRegistryV1_eq_ok_of_stages initialRegistrationRowsV1
     allProfiles initialRegistrationSetV1_eq_ok hregistrations
 
+/-- Exact canonical order of the frozen source rows. -/
+theorem sortInitialRegistrationRowsV1_eq_canonical :
+    sortRegistrationsV1 initialRegistrationRowsV1 =
+      initialCanonicalRegistrationRowsV1 := by
+  rfl
+
+/-- The frozen registry equation with its canonical rows exposed as source
+    data, so downstream certificates need not replay the sort. -/
+theorem initialTargetRegistryV1Result_eq_canonical :
+    initialTargetRegistryV1Result =
+      .ok (TargetRegistryV1.mk initialCanonicalRegistrationRowsV1) := by
+  rw [initialTargetRegistryV1Result_eq_ok,
+    sortInitialRegistrationRowsV1_eq_canonical]
+
+/-- The frozen target registry succeeds through its sole validator/private
+    constructor. The witness is exposed only propositionally. -/
+theorem initialTargetRegistryV1Result_exists :
+    ∃ registry, initialTargetRegistryV1Result = .ok registry := by
+  exact ⟨TargetRegistryV1.mk initialCanonicalRegistrationRowsV1,
+    initialTargetRegistryV1Result_eq_canonical⟩
+
 /-- Solana lookup in the certified frozen registry. The proof computes the
     constructor-owned canonical sort; it does not introduce another index. -/
 theorem findRegistrationV1_initial_solana_eq_some :
@@ -1019,7 +1050,7 @@ theorem findRegistrationV1_initial_solana_eq_some :
     noirRegistrationRowV1, cosmwasmRegistrationRowV1, sorobanRegistrationRowV1,
     icpRegistrationRowV1, openvmRegistrationRowV1, aleoRegistrationRowV1,
     psyRegistrationRowV1, quintRegistrationRowV1, tonRegistrationRowV1,
-    xrplRegistrationRowV1, row, TargetId.ofKind, TargetId.toString, TargetId.evm,
+    xrplRegistrationRowV1, registrationRowV1, TargetId.ofKind, TargetId.toString, TargetId.evm,
     TargetId.solana, TargetId.near, TargetId.noir, TargetId.cosmwasm,
     TargetId.soroban, TargetId.icp, TargetId.openvm, TargetId.aleo, TargetId.psy,
     TargetId.quint, TargetId.ton, TargetId.xrpl, TargetId.beq_eq_toString]
