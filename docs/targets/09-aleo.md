@@ -80,7 +80,7 @@ lowering；任一未声明形状 fail closed。
 - event emission、external call、schedule、ContextRead；
 - 带 payload 的 error；
 - nonempty invariant Plan；
-- UInt256、Int128/256；Principal→address remap；String const / Option-of-String；
+- UInt256、Int128/256；Principal→address remap；Option-of-String；
 - nested/Int8 Option、Int64-key Map、Map-of-Option、aggregate
   pure-function return；
 - record custody、proof execution、deployment 与 network query。

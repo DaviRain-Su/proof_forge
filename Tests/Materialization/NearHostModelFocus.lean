@@ -8,3 +8,5 @@ unsafe def main : IO Unit := do
   Tests.Materialization.NearHostModel.testMapInt64Return
   Tests.Materialization.NearHostModel.testPrincipalReturn
   Tests.Materialization.NearHostModel.testStringReturn
+  Tests.Materialization.NearHostModel.testConstStr
+  Tests.Materialization.NearHostModel.testStrMatch

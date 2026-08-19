@@ -116,6 +116,8 @@ structure StorageLayout where
   constantTypeIds : Array TypeIdV1 := #[]
   constantKinds : Array Nat := #[]
   constantValues : Array UInt64 := #[]
+  /-- Source `valueBytes` for String const 9-leaf inline. Unused for scalars. -/
+  constantPayloads : Array ByteArray := #[]
   deriving BEq, Inhabited, Repr
 
 structure Param where
@@ -1535,6 +1537,17 @@ private def LoweredValueV1.leafExprs (v : LoweredValueV1) : Array Expr :=
   | some ls => ls
   | none => #[v.expr]
 
+/-- Leaf-wise unsigned equality chain. Shared by aggregate `==`/`!=` and
+    N-A1 String match-switch desugar. -/
+private def makeLeafWiseEqExprV1 (lhs rhs : Array Expr) : CompileResult Expr := do
+  unless lhs.size == rhs.size && lhs.size > 0 do
+    throw <| .planInvariant .ton
+      "unsupported Ton semantic shape: aggregate comparison leaf count mismatch"
+  let mut acc : Expr := .compare .eq lhs[0]! rhs[0]!
+  for i in [1:lhs.size] do
+    acc := .boolAnd acc (.compare .eq lhs[i]! rhs[i]!)
+  pure acc
+
 private def mkAggregateValueV1 (leaves : Array Expr) (deps : Array ValueIdV1)
     (depth expandedNodes : Nat) (leafByteWidth : Nat := 8) : LoweredValueV1 :=
   let head := match leaves[0]? with | some e => e | none => .literal 0
@@ -1894,6 +1907,9 @@ private def decodeTonConstantSlotV1
             s!"unsupported Ton semantic shape: UInt{bitWidth} constant is not admitted"
     let value ← decodeUIntWidthLiteralLe tonPlanErr "Ton" bitWidth bytes
     pure (kind, value)
+  else if types.isString typeId then
+    -- 9-leaf wire identity; body reads `constantPayloads`, not this dummy word.
+    pure (.uint64, 0)
   else
     let boolTid ← match types.boolTypeId with
       | some tid => pure tid
@@ -1902,16 +1918,17 @@ private def decodeTonConstantSlotV1
             "unsupported Ton semantic shape: Bool type is missing for Bool constant"
     unless typeId == boolTid do
       throw <| .planInvariant .ton
-        "unsupported Ton semantic shape: constant is not admitted UInt width, Int64, or Bool"
+        "unsupported Ton semantic shape: constant is not admitted UInt width, Int64, Bool, or String"
     let flag ← decodeBoolLiteralV1 bytes
     pure (.bool, if flag then 1 else 0)
 
 private def makeTonConstantTableV1
     (types : TonTypeClosureV1) (constants : Array ConstantV1) :
-    CompileResult (Array TypeIdV1 × Array Nat × Array UInt64) := do
+    CompileResult (Array TypeIdV1 × Array Nat × Array UInt64 × Array ByteArray) := do
   let mut typeIds : Array TypeIdV1 := #[]
   let mut kinds : Array Nat := #[]
   let mut values : Array UInt64 := #[]
+  let mut payloads : Array ByteArray := #[]
   for i in [0:constants.size] do
     let some c := constants[i]? |
       throw <| .planInvariant .ton
@@ -1923,7 +1940,8 @@ private def makeTonConstantTableV1
     typeIds := typeIds.push c.typeId
     kinds := kinds.push (tonConstantKindTagV1 kind)
     values := values.push value
-  pure (typeIds, kinds, values)
+    payloads := payloads.push c.valueBytes
+  pure (typeIds, kinds, values, payloads)
 
 private def comparisonOpOfBinaryV1 (op : BinaryOpV1) : Option ComparisonOp :=
   match op with
@@ -2357,27 +2375,35 @@ private def lowerBlockInstructionsV1
         let some typeId := layout.constantTypeIds[constantId.toNat]? |
           throw <| .planInvariant .ton
             "unsupported Ton semantic shape: Constant references an unknown constant id"
-        let some kindTag := layout.constantKinds[constantId.toNat]? |
-          throw <| .planInvariant .ton
-            "unsupported Ton semantic shape: Constant kind table is incomplete"
-        let some value := layout.constantValues[constantId.toNat]? |
-          throw <| .planInvariant .ton
-            "unsupported Ton semantic shape: Constant value table is incomplete"
         unless result.typeId == typeId do
           throw <| .planInvariant .ton
             "unsupported Ton semantic shape: Constant result typeId must match the declaration"
-        let kind ← match tonConstantKindOfTagV1 kindTag with
-          | some k => pure k
-          | none =>
-              throw <| .planInvariant .ton
-                "unsupported Ton semantic shape: Constant kind tag is corrupt"
-        values := ← appendResultValueV1 typeId values result {
-          expr := .literal value
-          kind
-          depth := 1
-          expandedNodes := 1
-          dependencies := #[]
-        }
+        if types.isString typeId then
+          let some bytes := layout.constantPayloads[constantId.toNat]? |
+            throw <| .planInvariant .ton
+              "unsupported Ton semantic shape: String constant payload is missing"
+          let leafExprs ← decodePrincipalLiteralLeavesV1 bytes
+          let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
+          values := ← appendResultValueV1 typeId values result value
+        else
+          let some kindTag := layout.constantKinds[constantId.toNat]? |
+            throw <| .planInvariant .ton
+              "unsupported Ton semantic shape: Constant kind table is incomplete"
+          let some value := layout.constantValues[constantId.toNat]? |
+            throw <| .planInvariant .ton
+              "unsupported Ton semantic shape: Constant value table is incomplete"
+          let kind ← match tonConstantKindOfTagV1 kindTag with
+            | some k => pure k
+            | none =>
+                throw <| .planInvariant .ton
+                  "unsupported Ton semantic shape: Constant kind tag is corrupt"
+          values := ← appendResultValueV1 typeId values result {
+            expr := .literal value
+            kind
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+          }
     | .literal typeId bytes, some result =>
         if let some bitWidth := types.intWidthOf typeId then
           unless isAbiIntWidth bitWidth do
@@ -4124,27 +4150,52 @@ private partial def emitRegionV1
               pure (instrs ++ #[.ifThenElse cond thenBody elseBody], values2, nextLocal2, .join j)
   | .switch scrutId cases defaultTarget =>
       let scrutVal ← currentValueWithArmsV1 values blockEntry segmentStart freeAfter scrutId
-      let scrut ← consumeCurrentSegmentV1 values blockEntry segmentStart scrutId
       let some defaultT := defaultTarget |
         throw (.planInvariant .ton
           "unsupported Ton semantic shape: switch must carry a default target")
-      let scrutIsBool := scrutVal.kind == .bool
-      let scrutIsUInt32 := scrutVal.kind == .uint32
-      let armFree := extendArmReadablesV1 values freeAfter scrutId
-      let mut caseBodies : Array (UInt64 × Array Statement) := #[]
-      let mut joinAcc : Option Nat := none
-      let mut valuesA := values
-      let mut nextLocalA := nextLocal0
-      for switchCase in cases do
-        let caseValue ← decodeSwitchCaseValueV1 scrutIsBool scrutIsUInt32 switchCase.valueBytes
-        let (body, values1, nextLocal1, armNext) ←
+      if scrutVal.isAggregate then
+        -- N-A1: String match-switch desugars to leaf-wise eq + nested if
+        -- (Plan `switchOn` stays UInt64-case only). TON entry may match String
+        -- (control flow, not entry multi-leaf return).
+        let expectedStringLeaves := nearPrincipalDataWordCountV1 + 1
+        let scrutLeaves := scrutVal.leafExprs
+        unless scrutLeaves.size == expectedStringLeaves do
+          throw <| .planInvariant .ton
+            "unsupported Ton semantic shape: switch on non-String aggregate is outside the TON pilot"
+        let _ ← consumeCurrentSegmentV1 values blockEntry segmentStart scrutId
+        let armFree := extendArmReadablesV1 values freeAfter scrutId
+        let mut caseArms : Array (Expr × Array Statement) := #[]
+        let mut joinAcc : Option Nat := none
+        let mut valuesA := values
+        let mut nextLocalA := nextLocal0
+        for switchCase in cases do
+          let caseLeaves ← decodePrincipalLiteralLeavesV1 switchCase.valueBytes
+          unless caseLeaves.size == scrutLeaves.size do
+            throw <| .planInvariant .ton
+              "unsupported Ton semantic shape: String match case leaf count mismatch"
+          let cond ← makeLeafWiseEqExprV1 scrutLeaves caseLeaves
+          let (body, values1, nextLocal1, armNext) ←
+            emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv blocks loopBounds
+              stableCount nextLocalA enclosingHeader armFree (fuel - 1)
+              switchCase.target.blockId.toNat valuesA
+          caseArms := caseArms.push (cond, body)
+          valuesA := values1
+          nextLocalA := nextLocal1
+          match armNext, joinAcc with
+          | .closed, _ => pure ()
+          | .latch _, _ =>
+              throw <| .planInvariant .ton
+                "unsupported Ton semantic shape: loop latch outside loop-body walk"
+          | .join j, none => joinAcc := some j
+          | .join j, some j0 =>
+              unless j == j0 do
+                throw <| .planInvariant .ton
+                  "unsupported Ton semantic shape: switch arms converge on divergent joins"
+        let (defaultBody, values2, nextLocal2, defaultNext) ←
           emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv blocks loopBounds
             stableCount nextLocalA enclosingHeader armFree (fuel - 1)
-            switchCase.target.blockId.toNat valuesA
-        caseBodies := caseBodies.push (caseValue, body)
-        valuesA := values1
-        nextLocalA := nextLocal1
-        match armNext, joinAcc with
+            defaultT.blockId.toNat valuesA
+        match defaultNext, joinAcc with
         | .closed, _ => pure ()
         | .latch _, _ =>
             throw <| .planInvariant .ton
@@ -4154,29 +4205,71 @@ private partial def emitRegionV1
             unless j == j0 do
               throw <| .planInvariant .ton
                 "unsupported Ton semantic shape: switch arms converge on divergent joins"
-      let (defaultBody, values2, nextLocal2, defaultNext) ←
-        emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv blocks loopBounds
-          stableCount nextLocalA enclosingHeader armFree (fuel - 1)
-          defaultT.blockId.toNat valuesA
-      match defaultNext, joinAcc with
-      | .closed, _ => pure ()
-      | .latch _, _ =>
-          throw <| .planInvariant .ton
-            "unsupported Ton semantic shape: loop latch outside loop-body walk"
-      | .join j, none => joinAcc := some j
-      | .join j, some j0 =>
-          unless j == j0 do
-            throw <| .planInvariant .ton
-              "unsupported Ton semantic shape: switch arms converge on divergent joins"
-      match joinAcc with
-      | none =>
-          pure (instrs ++ #[.switchOn scrut caseBodies defaultBody], values2, nextLocal2, .closed)
-      | some j =>
-          let (rest, values3, nextLocal3, next) ←
+        let mut nested : Array Statement := defaultBody
+        let mut i := caseArms.size
+        while i > 0 do
+          i := i - 1
+          let (cond, body) := caseArms[i]!
+          nested := #[.ifThenElse cond body nested]
+        match joinAcc with
+        | none =>
+            pure (instrs ++ nested, values2, nextLocal2, .closed)
+        | some j =>
+            let (rest, values3, nextLocal3, next) ←
+              emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv blocks loopBounds
+                stableCount nextLocal2 enclosingHeader freeAfter (fuel - 1) j values2
+            pure (instrs ++ nested ++ rest, values3, nextLocal3, next)
+      else
+        let scrut ← consumeCurrentSegmentV1 values blockEntry segmentStart scrutId
+        let scrutIsBool := scrutVal.kind == .bool
+        let scrutIsUInt32 := scrutVal.kind == .uint32
+        let armFree := extendArmReadablesV1 values freeAfter scrutId
+        let mut caseBodies : Array (UInt64 × Array Statement) := #[]
+        let mut joinAcc : Option Nat := none
+        let mut valuesA := values
+        let mut nextLocalA := nextLocal0
+        for switchCase in cases do
+          let caseValue ← decodeSwitchCaseValueV1 scrutIsBool scrutIsUInt32 switchCase.valueBytes
+          let (body, values1, nextLocal1, armNext) ←
             emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv blocks loopBounds
-              stableCount nextLocal2 enclosingHeader freeAfter (fuel - 1) j values2
-          pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest,
-            values3, nextLocal3, next)
+              stableCount nextLocalA enclosingHeader armFree (fuel - 1)
+              switchCase.target.blockId.toNat valuesA
+          caseBodies := caseBodies.push (caseValue, body)
+          valuesA := values1
+          nextLocalA := nextLocal1
+          match armNext, joinAcc with
+          | .closed, _ => pure ()
+          | .latch _, _ =>
+              throw <| .planInvariant .ton
+                "unsupported Ton semantic shape: loop latch outside loop-body walk"
+          | .join j, none => joinAcc := some j
+          | .join j, some j0 =>
+              unless j == j0 do
+                throw <| .planInvariant .ton
+                  "unsupported Ton semantic shape: switch arms converge on divergent joins"
+        let (defaultBody, values2, nextLocal2, defaultNext) ←
+          emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv blocks loopBounds
+            stableCount nextLocalA enclosingHeader armFree (fuel - 1)
+            defaultT.blockId.toNat valuesA
+        match defaultNext, joinAcc with
+        | .closed, _ => pure ()
+        | .latch _, _ =>
+            throw <| .planInvariant .ton
+              "unsupported Ton semantic shape: loop latch outside loop-body walk"
+        | .join j, none => joinAcc := some j
+        | .join j, some j0 =>
+            unless j == j0 do
+              throw <| .planInvariant .ton
+                "unsupported Ton semantic shape: switch arms converge on divergent joins"
+        match joinAcc with
+        | none =>
+            pure (instrs ++ #[.switchOn scrut caseBodies defaultBody], values2, nextLocal2, .closed)
+        | some j =>
+            let (rest, values3, nextLocal3, next) ←
+              emitRegionV1 owner mode expectedReturn types typeDecls layout fnEnv blocks loopBounds
+                stableCount nextLocal2 enclosingHeader freeAfter (fuel - 1) j values2
+            pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest,
+              values3, nextLocal3, next)
   | .revert errorId argIds =>
       let mut argExprs : Array Expr := #[]
       for argId in argIds do
@@ -4484,13 +4577,14 @@ private def makePlanFromSemanticDataV1
   let types ← validateTonTypeClosureV1 source.types
   let typeDecls := source.types
   let storage0 ← makeStorageLayoutV1 types typeDecls source.logicalState
-  let (constTypeIds, constKinds, constValues) ←
+  let (constTypeIds, constKinds, constValues, constPayloads) ←
     makeTonConstantTableV1 types source.constants
   let storage := {
     storage0 with
       constantTypeIds := constTypeIds
       constantKinds := constKinds
       constantValues := constValues
+      constantPayloads := constPayloads
   }
     let events ← source.events.mapM (fun d => do
     let u64Tid ← types.requireUInt64 tonPlanErr "ton"

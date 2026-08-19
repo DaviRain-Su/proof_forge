@@ -308,7 +308,7 @@ Tolk compile (结构/ABI)                    ✅ 工程
 - schedule 的真实 destination/address binding、非零 value 经济与 callback/`query_id` 往返；当前仅
   fixed hash destination stub + value=0 + fixed send-mode。
 - Int128/256、Array/Map/Option of UInt128/256、UInt128/256 shifts/bitwise、entry aggregate return、
-  Map Int8 / Map UInt128 / Int64-key、Option Int8/16/32、Option UInt128 return、Field interface、Principal→address remap、String const / Option-of-String、ContextRead/Commit、
+  Map Int8 / Map UInt128 / Int64-key、Option Int8/16/32、Option UInt128 return、Field interface、Principal→address remap、Option-of-String、ContextRead/Commit、
   nonempty invariants/constants、masterchain/library/extra currencies。
 - FunC/Tact 默认发射、手写 TVM 汇编产品路径。
 - formal Reference 差分、主网 deploy 证据。

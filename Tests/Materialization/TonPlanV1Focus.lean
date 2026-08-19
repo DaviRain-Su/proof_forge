@@ -11,3 +11,5 @@ unsafe def main : IO Unit := do
   Tests.Materialization.TonPlanV1.testMapParam
   Tests.Materialization.TonPlanV1.testPrincipalReturn
   Tests.Materialization.TonPlanV1.testStringReturn
+  Tests.Materialization.TonPlanV1.testConstStr
+  Tests.Materialization.TonPlanV1.testStrMatch

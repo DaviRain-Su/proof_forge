@@ -2218,20 +2218,24 @@ private partial def lowerRegion
               planError "unsupported Aleo semantic shape: Constant instruction must produce a value"
         unless valueDef.typeId == constant.typeId do
           planError "unsupported Aleo semantic shape: Constant result typeId must match the declaration"
-        let e ← lowerLiteral data layout.types constant.typeId constant.valueBytes
-        if isInt64Type data constant.typeId then
-          env := envInsertInt env valueDef.valueId 0 e
-        else if isBls12377FieldType layout.types constant.typeId then
-          env := envInsertVal env valueDef.valueId (mkScalarFieldVal e)
+        if layout.types.isString constant.typeId then
+          let leaves ← decodePrincipalLiteralLeavesV1 constant.valueBytes
+          env := envInsertVal env valueDef.valueId (mkAggregateVal leaves)
         else
-          match uintWidthOfType data constant.typeId with
-          | some w =>
-              if isNarrowUintWidth w then
-                env := envInsertUint env valueDef.valueId w e
-              else
+          let e ← lowerLiteral data layout.types constant.typeId constant.valueBytes
+          if isInt64Type data constant.typeId then
+            env := envInsertInt env valueDef.valueId 0 e
+          else if isBls12377FieldType layout.types constant.typeId then
+            env := envInsertVal env valueDef.valueId (mkScalarFieldVal e)
+          else
+            match uintWidthOfType data constant.typeId with
+            | some w =>
+                if isNarrowUintWidth w then
+                  env := envInsertUint env valueDef.valueId w e
+                else
+                  env := envInsert env valueDef.valueId e
+            | none =>
                 env := envInsert env valueDef.valueId e
-          | none =>
-              env := envInsert env valueDef.valueId e
     | .checkedCast .. =>
         planError "unsupported Aleo semantic shape: CheckedCast is outside the public UInt64 envelope"
   -- Terminator
@@ -2268,6 +2272,56 @@ private partial def lowerRegion
       -- would render as an i64/unsigned-literal comparison — fail closed.
       unless !s.isIntScalar do
         planError "Aleo does not support Int64 match scrutinees (Normalize admits only UInt/Bool)"
+      if s.isAggregate then
+        -- N-A1: String match-switch desugars to leaf-wise eq + nested if
+        -- (Plan `switchOn` stays UInt64-case only).
+        let scrutLeaves := s.leafExprs
+        unless scrutLeaves.size == aleoPrincipalLeafCountV1 do
+          planError
+            "Aleo switch on non-String aggregate is outside the Aleo pilot"
+        let mut caseArms : Array (Expr × Array Statement) := #[]
+        let mut joins : Array Nat := #[]
+        let emptyLs : LowerStateV1 := { stmts := #[] }
+        for case in cases do
+          let caseLeaves ← decodePrincipalLiteralLeavesV1 case.valueBytes
+          unless caseLeaves.size == scrutLeaves.size do
+            planError "Aleo String match case leaf count mismatch"
+          let some l0 := scrutLeaves[0]? |
+            planError "Aleo String match missing first scrutinee leaf"
+          let some r0 := caseLeaves[0]? |
+            planError "Aleo String match missing first case leaf"
+          let mut cond : Expr := .compare .eq l0 r0
+          for i in [1:scrutLeaves.size] do
+            let some li := scrutLeaves[i]? |
+              planError "Aleo String match scrutinee leaf missing"
+            let some ri := caseLeaves[i]? |
+              planError "Aleo String match case leaf missing"
+            cond := .logicalAnd cond (.compare .eq li ri)
+          let targetRes ← lowerRegion data layout callable fnNames case.target.blockId.toNat loops env emptyLs
+          caseArms := caseArms.push (cond, targetRes.stmts)
+          match targetRes.join? with
+          | some j => joins := joins.push j
+          | none => pure ()
+        let defaultRes ← match defaultTarget with
+          | none => regionClosed
+          | some t => lowerRegion data layout callable fnNames t.blockId.toNat loops env emptyLs
+        match defaultRes.join? with
+        | some j => joins := joins.push j
+        | none => pure ()
+        let join? ← match joins.toList with
+          | [] => pure none
+          | j :: rest =>
+              if rest.all (· == j) then pure (some j)
+              else planError "Aleo lowering: switch arms join at different blocks"
+        let mut nested : Array Statement := defaultRes.stmts
+        let mut i := caseArms.size
+        while i > 0 do
+          i := i - 1
+          let (cond, body) := caseArms[i]!
+          nested := #[.ifThenElse cond body nested]
+        let stmts := ls.stmts ++ nested
+        pure { stmts, join? }
+      else
       let sExpr := s.expr
       let mut caseStmts : Array (UInt64 × Array Statement) := #[]
       let mut joins : Array Nat := #[]

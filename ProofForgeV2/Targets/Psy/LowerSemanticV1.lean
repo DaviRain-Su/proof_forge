@@ -2995,6 +2995,50 @@ private partial def lowerRegion
         | none => planError "unsupported Psy semantic shape: switch references an undefined scrutinee"
       if sVal.isWideUint then
         planError "unsupported Psy semantic shape: Switch on UInt128/256 is outside the Psy VM profile"
+      if sVal.isAggregate then
+        -- N-A1: String match-switch desugars to leaf-wise eq + nested if
+        -- (Plan `switchOn` stays UInt64-case only).
+        let expectedStringLeaves := 1 + psyWireIdentityBodyLimbCountV1
+        let scrutLeaves := sVal.leafExprs
+        unless scrutLeaves.size == expectedStringLeaves do
+          planError
+            "unsupported Psy semantic shape: switch on non-String aggregate is outside the Psy VM profile"
+        let mut caseArms : Array (Expr × Array Statement) := #[]
+        let mut joins : Array Nat := #[]
+        for case in cases do
+          let caseLeaves ← decodeWireIdentityLimbsV1 case.valueBytes
+          unless caseLeaves.size == scrutLeaves.size do
+            planError "unsupported Psy semantic shape: String match case leaf count mismatch"
+          let mut cond : Expr := .compare .eq scrutLeaves[0]! caseLeaves[0]!
+          for i in [1:scrutLeaves.size] do
+            cond := .logicalAnd cond (.compare .eq scrutLeaves[i]! caseLeaves[i]!)
+          let emptyLs : LowerStateV1 := { stmts := #[] }
+          let targetRes ← lowerRegion data layout callable fnNames expectedAggregateLeaves case.target.blockId.toNat loops env emptyLs
+          caseArms := caseArms.push (cond, targetRes.stmts)
+          match targetRes.join? with
+          | some j => joins := joins.push j
+          | none => pure ()
+        let emptyLs : LowerStateV1 := { stmts := #[] }
+        let defaultRes ← match defaultTarget with
+          | none => regionClosed
+          | some t => lowerRegion data layout callable fnNames expectedAggregateLeaves t.blockId.toNat loops env emptyLs
+        match defaultRes.join? with
+        | some j => joins := joins.push j
+        | none => pure ()
+        let join? ← match joins.toList with
+          | [] => pure none
+          | j :: rest =>
+              if rest.all (· == j) then pure (some j)
+              else planError "unsupported Psy semantic shape: switch arms join at different blocks"
+        let mut nested : Array Statement := defaultRes.stmts
+        let mut i := caseArms.size
+        while i > 0 do
+          i := i - 1
+          let (cond, body) := caseArms[i]!
+          nested := #[.ifThenElse cond body nested]
+        let stmts := ls.stmts ++ nested
+        pure { stmts, join? }
+      else
       let s := sVal.expr
       -- Case values: UInt64 wire decoding for 8-byte; narrow switch cases use
       -- the same LE decode path sized to the scrutinee width.

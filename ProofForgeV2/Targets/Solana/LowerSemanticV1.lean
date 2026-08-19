@@ -1714,7 +1714,8 @@ private def decodeUInt64LiteralV1 (bytes : ByteArray) : CompileResult UInt64 :=
 private def decodeBoolLiteralV1 (bytes : ByteArray) : CompileResult Bool :=
   decodeBoolLiteralBit solanaPlanErr "Solana" bytes
 
-/-- Scalar const envelope: UInt{8,16,32,64} / Int64 / Bool. -/
+/-- Scalar const envelope: UInt{8,16,32,64} / Int64 / Bool, plus String as the
+    same 9-leaf wire identity as `Op.Literal` String. Principal stays FC. -/
 private def isSolanaScalarConstUintWidth (w : Nat) : Bool :=
   w == 8 || w == 16 || w == 32 || w == 64
 
@@ -1728,10 +1729,9 @@ private def admitSolanaConstantTypeV1
     unless bitWidth == 64 do
       throw <| .planInvariant .solana
         s!"unsupported Solana semantic shape: Int{bitWidth} constant is not admitted"
-  else
-    unless types.boolTypeId == some typeId do
-      throw <| .planInvariant .solana
-        "unsupported Solana semantic shape: constant is not admitted UInt width, Int64, or Bool"
+  else unless types.isString typeId || types.boolTypeId == some typeId do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: constant is not admitted UInt width, Int64, Bool, or String"
 
 private def validateSolanaConstantTableV1
     (types : SolanaTypeClosureV1) (constants : Array ConstantV1) :
@@ -2485,9 +2485,13 @@ private def lowerBlockInstructionsV1
             isInt := false
             bitWidth
           }
+        else if types.isString c.typeId then
+          let leafExprs ← decodePrincipalLiteralLeavesV1 c.valueBytes
+          let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
+          values := ← appendResultValueV1 c.typeId values result value
         else
           throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: constant is not admitted UInt width, Int64, or Bool"
+            "unsupported Solana semantic shape: constant is not admitted UInt width, Int64, Bool, or String"
     | .literal typeId bytes, some result =>
         if types.isUInt64 typeId then
           let value ← decodeUInt64LiteralV1 bytes
@@ -4084,23 +4088,49 @@ private partial def emitRegionV1
                   "unsupported Solana semantic shape: branch else-arm cannot be a raw loop latch"
   | .switch scrutId cases defaultTarget =>
       let scrutVal ← currentValueWithArmsV1 values blockEntry segmentStart freeAfter scrutId
-      let scrut ← consumeCurrentSegmentV1 values blockEntry segmentStart scrutId
       let some defaultT := defaultTarget |
         throw (.planInvariant .solana
           "unsupported Solana semantic shape: switch must carry a default target")
-      let armFree := extendArmReadablesV1 values freeAfter scrutId
-      let mut caseBodies : Array (UInt64 × Array Statement) := #[]
-      let mut joinAcc : Option Nat := none
-      let mut valuesA := values
-      for switchCase in cases do
-        let caseValue ← decodeSwitchCaseValueV1 scrutVal.isBool scrutVal.bitWidth switchCase.valueBytes
-        let (body, values1, armExit) ←
+      if scrutVal.isAggregate then
+        -- N-A1: String match-switch desugars to leaf-wise eq + nested if
+        -- (Plan `switchOn` stays UInt64-case only).
+        let expectedStringLeaves := 1 + solanaPrincipalDataWordCountV1
+        let scrutLeaves := scrutVal.leafExprs
+        unless scrutLeaves.size == expectedStringLeaves do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: switch on non-String aggregate is outside the Solana pilot"
+        let _ ← consumeCurrentSegmentValueV1 values blockEntry segmentStart scrutId
+        let armFree := extendArmReadablesV1 values freeAfter scrutId
+        let mut caseArms : Array (Expr × Array Statement) := #[]
+        let mut joinAcc : Option Nat := none
+        let mut valuesA := values
+        for switchCase in cases do
+          let caseLeaves ← decodePrincipalLiteralLeavesV1 switchCase.valueBytes
+          unless caseLeaves.size == scrutLeaves.size do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: String match case leaf count mismatch"
+          let cond ← makeLeafWiseEqExprV1 scrutLeaves caseLeaves
+          let (body, values1, armExit) ←
+            emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account constants pureFns blocks
+              loopBounds enclosingHeaders armFree (fuel - 1)
+              switchCase.target.blockId.toNat valuesA
+          caseArms := caseArms.push (cond, body)
+          valuesA := values1
+          match armExit, joinAcc with
+          | .closed, _ => pure ()
+          | .join j, none => joinAcc := some j
+          | .join j, some j0 =>
+              unless j == j0 do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: switch arms converge on divergent joins"
+          | .latch _, _ =>
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: switch arm cannot be a loop latch"
+        let (defaultBody, values2, defaultExit) ←
           emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account constants pureFns blocks
             loopBounds enclosingHeaders armFree (fuel - 1)
-            switchCase.target.blockId.toNat valuesA
-        caseBodies := caseBodies.push (caseValue, body)
-        valuesA := values1
-        match armExit, joinAcc with
+            defaultT.blockId.toNat valuesA
+        match defaultExit, joinAcc with
         | .closed, _ => pure ()
         | .join j, none => joinAcc := some j
         | .join j, some j0 =>
@@ -4109,29 +4139,67 @@ private partial def emitRegionV1
                 "unsupported Solana semantic shape: switch arms converge on divergent joins"
         | .latch _, _ =>
             throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: switch arm cannot be a loop latch"
-      let (defaultBody, values2, defaultExit) ←
-        emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account constants pureFns blocks
-          loopBounds enclosingHeaders armFree (fuel - 1)
-          defaultT.blockId.toNat valuesA
-      match defaultExit, joinAcc with
-      | .closed, _ => pure ()
-      | .join j, none => joinAcc := some j
-      | .join j, some j0 =>
-          unless j == j0 do
-            throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: switch arms converge on divergent joins"
-      | .latch _, _ =>
-          throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: switch default cannot be a loop latch"
-      match joinAcc with
-      | none =>
-          pure (instrs ++ #[.switchOn scrut caseBodies defaultBody], values2, .closed)
-      | some j =>
-          let (rest, values3, exit) ←
+              "unsupported Solana semantic shape: switch default cannot be a loop latch"
+        let mut nested : Array Statement := defaultBody
+        let mut i := caseArms.size
+        while i > 0 do
+          i := i - 1
+          let (cond, body) := caseArms[i]!
+          nested := #[.ifThenElse cond body nested]
+        match joinAcc with
+        | none =>
+            pure (instrs ++ nested, values2, .closed)
+        | some j =>
+            let (rest, values3, exit) ←
+              emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account constants pureFns blocks
+                loopBounds enclosingHeaders freeAfter (fuel - 1) j values2
+            pure (instrs ++ nested ++ rest, values3, exit)
+      else
+        let scrut ← consumeCurrentSegmentV1 values blockEntry segmentStart scrutId
+        let armFree := extendArmReadablesV1 values freeAfter scrutId
+        let mut caseBodies : Array (UInt64 × Array Statement) := #[]
+        let mut joinAcc : Option Nat := none
+        let mut valuesA := values
+        for switchCase in cases do
+          let caseValue ← decodeSwitchCaseValueV1 scrutVal.isBool scrutVal.bitWidth switchCase.valueBytes
+          let (body, values1, armExit) ←
             emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account constants pureFns blocks
-              loopBounds enclosingHeaders freeAfter (fuel - 1) j values2
-          pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest, values3, exit)
+              loopBounds enclosingHeaders armFree (fuel - 1)
+              switchCase.target.blockId.toNat valuesA
+          caseBodies := caseBodies.push (caseValue, body)
+          valuesA := values1
+          match armExit, joinAcc with
+          | .closed, _ => pure ()
+          | .join j, none => joinAcc := some j
+          | .join j, some j0 =>
+              unless j == j0 do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: switch arms converge on divergent joins"
+          | .latch _, _ =>
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: switch arm cannot be a loop latch"
+        let (defaultBody, values2, defaultExit) ←
+          emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account constants pureFns blocks
+            loopBounds enclosingHeaders armFree (fuel - 1)
+            defaultT.blockId.toNat valuesA
+        match defaultExit, joinAcc with
+        | .closed, _ => pure ()
+        | .join j, none => joinAcc := some j
+        | .join j, some j0 =>
+            unless j == j0 do
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: switch arms converge on divergent joins"
+        | .latch _, _ =>
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: switch default cannot be a loop latch"
+        match joinAcc with
+        | none =>
+            pure (instrs ++ #[.switchOn scrut caseBodies defaultBody], values2, .closed)
+        | some j =>
+            let (rest, values3, exit) ←
+              emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account constants pureFns blocks
+                loopBounds enclosingHeaders freeAfter (fuel - 1) j values2
+            pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest, values3, exit)
   | .revert errorId argIds =>
       let mut argExprs : Array Expr := #[]
       for argId in argIds do

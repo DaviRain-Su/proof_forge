@@ -2263,17 +2263,87 @@ private partial def emitRegion
               "unsupported Soroban semantic shape: switch must carry a default target"
           unless !cases.isEmpty do
             planError "unsupported Soroban semantic shape: switch cases must be nonempty"
-          let scrut ← match envLookup acc.env scrutId with
-            | some v =>
-                if !v.leaves.isEmpty then
-                  planError "unsupported Soroban semantic shape: switch scrutinee must be scalar"
-                else
-                  pure v.expr
+          let scrutVal ← match envLookup acc.env scrutId with
+            | some v => pure v
             | none =>
                 planError "unsupported Soroban semantic shape: switch scrutinee undefined"
           unless defaultT.args.isEmpty do
             planError
               "unsupported Soroban semantic shape: switch default args / block-param phi are outside S0"
+          if isPrincipalValue scrutVal then
+            -- N-A1: String 9-leaf identity match desugars to leaf-wise eq +
+            -- nested if (Plan `switchOn` stays UInt64-case only).
+            let (preStmts, acc) := flushRegion layout acc
+            let mut caseArms : Array (Expr × Array Statement) := #[]
+            let mut accA := acc
+            let mut joinAcc : Option Nat := none
+            let mut retAcc : Option TypedExpr := none
+            for switchCase in cases do
+              unless switchCase.target.args.isEmpty do
+                planError
+                  "unsupported Soroban semantic shape: switch case args / block-param phi are outside S0"
+              let caseLeaves ← decodePrincipalLiteralLeavesV1 switchCase.valueBytes
+              unless caseLeaves.size == scrutVal.leaves.size do
+                planError
+                  "unsupported Soroban semantic shape: String match case leaf count mismatch"
+              let mut cond : Expr :=
+                .compare .eq scrutVal.leaves[0]! caseLeaves[0]!
+              for i in [1:principalLeafCountV1] do
+                cond := .boolAnd cond
+                  (.compare .eq scrutVal.leaves[i]! caseLeaves[i]!)
+              let (body, acc1, armRet, armCont) ←
+                emitRegion data types idx callable numericTy layout
+                  allowStateRead allowStateWrite forbidChecks inlineDepth
+                  enclosingHeader fuel' switchCase.target.blockId.toNat accA
+              caseArms := caseArms.push (cond, body)
+              accA := acc1
+              retAcc := retAcc <|> armRet
+              match armCont, joinAcc with
+              | .closed, _ => pure ()
+              | .latch _, _ =>
+                  planError
+                    "unsupported Soroban semantic shape: latch jump is only valid as a loop body end"
+              | .join j, none => joinAcc := some j
+              | .join j, some j0 =>
+                  unless j == j0 do
+                    planError
+                      "unsupported Soroban semantic shape: switch arms converge on divergent joins"
+            let (defaultBody, acc2, defaultRet, defaultCont) ←
+              emitRegion data types idx callable numericTy layout
+                allowStateRead allowStateWrite forbidChecks inlineDepth
+                enclosingHeader fuel' defaultT.blockId.toNat accA
+            retAcc := retAcc <|> defaultRet
+            match defaultCont, joinAcc with
+            | .closed, _ => pure ()
+            | .latch _, _ =>
+                planError
+                  "unsupported Soroban semantic shape: latch jump is only valid as a loop body end"
+            | .join j, none => joinAcc := some j
+            | .join j, some j0 =>
+                unless j == j0 do
+                  planError
+                    "unsupported Soroban semantic shape: switch arms converge on divergent joins"
+            let mut nested : Array Statement := defaultBody
+            let mut i := caseArms.size
+            while i > 0 do
+              i := i - 1
+              let (cond, body) := caseArms[i]!
+              nested := #[.ifThenElse cond body nested]
+            match joinAcc with
+            | none =>
+                pure (preStmts ++ nested, acc2, retAcc, .closed)
+            | some j => do
+                let (rest, acc3, restRet, restCont) ←
+                  emitRegion data types idx callable numericTy layout
+                    allowStateRead allowStateWrite forbidChecks inlineDepth
+                    enclosingHeader fuel' j acc2
+                pure
+                  (preStmts ++ nested ++ rest, acc3,
+                    retAcc <|> restRet, restCont)
+          else if !scrutVal.leaves.isEmpty then
+            planError "unsupported Soroban semantic shape: switch scrutinee must be scalar"
+          else
+          let scrut := scrutVal.expr
           let (preStmts, acc) := flushRegion layout acc
           let mut caseBodies : Array (UInt64 × Array Statement) := #[]
           let mut accA := acc
@@ -2577,9 +2647,10 @@ private def makePlanFromSemanticDataV1
   let types ← validateSorobanTypeClosureV1 data.types
   for c in data.constants do
     unless isInt64Type types c.typeId || isUInt64Type types c.typeId ||
-        isUInt32Type types c.typeId || isBoolType types c.typeId do
+        isUInt32Type types c.typeId || isBoolType types c.typeId ||
+        isStringType types c.typeId do
       planError
-        "unsupported Soroban semantic shape: constant is not admitted UInt64/Int64/UInt32/Bool"
+        "unsupported Soroban semantic shape: constant is not admitted UInt64/Int64/UInt32/Bool/String"
     let _ ← lowerLiteral types c.typeId c.valueBytes
   let mut signed? : Option Bool := none
   for st in data.logicalState do

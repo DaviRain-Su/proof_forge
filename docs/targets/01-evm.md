@@ -28,7 +28,7 @@ deploy 默认 ctor `0` 或 `PF_EVM_INIT_ARGS`，再 view/mutate；`init`/`constr
 
 - multi-width UInt/Int 与 body 窄宽、UInt128/256（EVM-only）ABI/body 子集；Field(bn254) mod-p 通道；
 - 控制流 if/match、fn/localCall、let/bounded for、shift/bitwise/logical、revert/emit；
-- named 聚合 flatten、定长 Array IndexGet/Set（bounds revert）；String 类型面（**String match switch 已落地 N-A1**）；
+- named 聚合 flatten、定长 Array IndexGet/Set（bounds revert）；String 9 叶 identity + **String const 9 叶 inline** + **String match desugar（N-A1；十三家同构，Plan `switchOn` 仍仅 UInt64）**；
 - **Map 产品默认 = hashed storage（ADR-0038）**：`Map UInt64 UInt64`、
   `Map UInt64 Int64` 与 `Map Principal UInt64` 各占 **1 个 base storage leaf**；
   entry 经 keccak 派生 slot，Yul helpers `pf_hmap_u64_*` / `pf_hmap_p_*`。

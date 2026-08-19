@@ -3392,9 +3392,10 @@ private unsafe def testScalarConstInline
     "  view get() : UInt64 do\n" ++
     "    return count\n"
   let strCompiled ← compileSource session strSource "Examples.ConstStr" "<ton-const-str>"
-  expectPlanErrorContaining "ConstStr" "supported"
-    (planTon strCompiled)
-  IO.println "  ✓ Ton scalar const inline + String FC pin ok"
+  let strPlan ← liftResult (planTon strCompiled)
+  expect (strPlan.storage.fields.size == 1)
+    s!"ConstStr unused String const must keep a single UInt64 field, got {strPlan.storage.fields.size}"
+  IO.println "  ✓ Ton scalar const inline + unused String const table admit ok"
 
 /-- T4: Principal state/params flatten to 9 UInt64 identity leaves. Return FC. -/
 private unsafe def testPrincipalIdentityLeaves
@@ -3497,6 +3498,46 @@ unsafe def testStringReturn : IO Unit := do
   expectPlanErrorContaining "StrEntryTon" "cannot return multi-leaf aggregate"
     (planTon entryCompiled)
   IO.println "  ✓ String view return 9-leaf identity; TON entry String stays FC"
+
+unsafe def testConstStr : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source := wrapProgram "GreetingBox" <|
+    "  const GREETING : String := \"hi\"\n\n" ++
+    "  state label : String\n\n" ++
+    "  init() do\n" ++
+    "    label := GREETING\n\n" ++
+    "  view getLabel() : String do\n" ++
+    "    return label\n"
+  let compiled ← compileSource session source "Examples.GreetingBox" "<ton-const-str-focus>"
+  let plan ← liftResult (planTon compiled)
+  let getLabel ← findMethod plan "getLabel"
+  expect (getLabel.mode == .view) "GreetingBox getLabel must be view"
+  match getLabel.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 9)
+        s!"GreetingBox must have 9 leaves, got {leaves.size}"
+  | other =>
+      throw <| IO.userError
+        s!"GreetingBox getLabel resultKind must be .aggregate, got {repr other}"
+  IO.println "  ✓ String const 9-leaf inline"
+
+unsafe def testStrMatch : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source := wrapProgram "StrMatch" <|
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry classify(s : String) : UInt64 do\n" ++
+    "    match s with\n" ++
+    "    | \"a\" => do\n" ++
+    "      return 1\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let compiled ← compileSource session source "Examples.StrMatch" "<ton-str-match>"
+  let plan ← liftResult (planTon compiled)
+  let classify ← findMethod plan "classify"
+  expect (classify.mode != .view) "StrMatch classify must be an entry"
+  IO.println "  ✓ String match desugars to nested ifThenElse"
 
 unsafe def run : IO Unit := do
   IO.println "TonPlanV1"

@@ -861,11 +861,12 @@ private unsafe def testRichUInt64SemanticPlans : IO Unit := do
   expect (noirSource.contents.contains "assert(t0 >= arg_p1);" &&
       noirSource.contents.contains "let t1: u64 = t0 - arg_p1;")
     "Noir source must constrain underflow before subtraction"
-  -- Extra eight from probe; public UInt64 Ledger lighthouse. All twelve
+  -- Extra eight from probe; public UInt64 Ledger lighthouse. All thirteen
   -- materialize. Not opening a new shape; existing four Plan pins unchanged.
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
       TargetId.aleo, TargetId.psy, TargetId.quint, TargetId.cosmwasm,
-      TargetId.ton, TargetId.soroban, TargetId.openvm, TargetId.icp] do
+      TargetId.ton, TargetId.soroban, TargetId.openvm, TargetId.icp,
+      TargetId.xrpl] do
     let out ← liftResult <| materializeSelected target compiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"rich UInt64 Ledger: {target} must materialize"
@@ -967,12 +968,13 @@ private unsafe def testBoolPredicateSemanticPlans : IO Unit := do
     throw <| IO.userError "bool-predicate: missing NEAR ABI"
   expect (nearAbi.contents.contains "\"bool\"")
     "NEAR ABI must carry the bool result type"
-  -- Extra eight + EVM from probe; Bool view/entry lighthouse. Twelve
+  -- Extra eight + EVM from probe; Bool view/entry lighthouse. Thirteen
   -- materialize (ICP Bool results + Aleo computed query view).
   -- Existing four Plan/IR/IDL pins unchanged.
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
       TargetId.psy, TargetId.quint, TargetId.cosmwasm, TargetId.ton,
-      TargetId.soroban, TargetId.openvm, TargetId.icp, TargetId.aleo] do
+      TargetId.soroban, TargetId.openvm, TargetId.icp, TargetId.aleo,
+      TargetId.xrpl] do
     let out ← liftResult <| materializeSelected target compiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"BoolPredicate: {target} must materialize"
@@ -1135,7 +1137,8 @@ private unsafe def testBranchingSemanticPlans : IO Unit := do
   -- Plan/IR/file pins unchanged.
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
       TargetId.aleo, TargetId.psy, TargetId.cosmwasm, TargetId.ton,
-      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp] do
+      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp,
+      TargetId.xrpl] do
     let out ← liftResult <| materializeSelected target compiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"BranchFlow: {target} must materialize"
@@ -1880,7 +1883,8 @@ private unsafe def testForLoopSemanticPlans : IO Unit := do
   -- call·emit stay fail closed. Existing four Plan/IR/file pins unchanged.
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
       TargetId.psy, TargetId.aleo, TargetId.cosmwasm, TargetId.ton,
-      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp] do
+      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp,
+      TargetId.xrpl] do
     let out ← liftResult <| materializeSelected target compiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"LoopSum: {target} must materialize"
@@ -2453,10 +2457,11 @@ unsafe def runProductLighthouse : IO Unit := do
     "EVM selector hashing must absorb signatures longer than one Keccak rate block"
   -- Product aggregate: CompiledSemanticV1 only (no bare-alpha materializeResult).
   -- Extra eight from probe; public UInt64 StateCell is the shared lighthouse.
-  -- All twelve implemented targets admit. Not opening a new type/capability.
+  -- All thirteen implemented targets admit. Not opening a new type/capability.
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
       TargetId.aleo, TargetId.psy, TargetId.quint, TargetId.cosmwasm,
-      TargetId.ton, TargetId.soroban, TargetId.openvm, TargetId.icp] do
+      TargetId.ton, TargetId.soroban, TargetId.openvm, TargetId.icp,
+      TargetId.xrpl] do
     let output ← liftResult <| materializeSelected target stateCellCompiled
     expect (!(MaterializedArtifactsV1.filesOf output).isEmpty)
       s!"{target} must emit at least one artifact"
@@ -3425,12 +3430,12 @@ unsafe def runProductLighthouse : IO Unit := do
   expect (solanaAccumulator.files.map (·.path) ==
       #["Accumulator.cpi-plan.json", "Accumulator.cpi-ir.json", "Accumulator.idl.json", "Accumulator.s", "Accumulator.cpi-bindings.json"])
     "Solana Accumulator must emit plan then IDL in canonical order"
-  -- Extra eight from probe; public UInt64 Accumulator lighthouse. Eleven
+  -- Extra eight from probe; public UInt64 Accumulator lighthouse. Twelve
   -- materialize. Aleo declines reserved entry name `add`. Not opening a
   -- rename/shape; existing four-target goldens unchanged.
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
       TargetId.psy, TargetId.quint, TargetId.cosmwasm, TargetId.ton,
-      TargetId.soroban, TargetId.openvm, TargetId.icp] do
+      TargetId.soroban, TargetId.openvm, TargetId.icp, TargetId.xrpl] do
     let out ← liftResult <| materializeSelected target accCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"Accumulator: {target} must materialize"
@@ -4959,6 +4964,8 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
       "narrow Int/Field/aggregates"
   expectMaterializePlanInvariantV1 "ArrStr" TargetId.icp TargetKind.icp
     arrStrCompiled "Array element must be UInt64"
+  expectMaterializePlanInvariantV1 "ArrStr" TargetId.xrpl TargetKind.xrpl
+    arrStrCompiled "Array element must be UInt64"
 
   -- ArrBool: Array Bool 2 state. All twelve stay named element/pilot FC.
   -- Not opening Array-of-Bool. ArrStr / ArrayBox / BoolPredicate stay.
@@ -5567,6 +5574,8 @@ unsafe def runSignedContainerNeedles : IO Unit := do
       "Map state admits only Map UInt64 UInt64"
   expectMaterializePlanInvariantV1 "MapOpt" TargetId.icp TargetKind.icp
     mapOptCompiled "Map state admits only Map UInt64 UInt64"
+  expectMaterializePlanInvariantV1 "MapOpt" TargetId.xrpl TargetKind.xrpl
+    mapOptCompiled "Map state admits only Map UInt64 UInt64"
 
   -- MapArr: Map UInt64 Array UInt64 2 state. All twelve targets stay named
   -- Map-value/pilot FC. Not opening Map-of-Array. MapOpt / MapMini /
@@ -5609,6 +5618,8 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "MapArr" target kind mapArrCompiled
       "Map state admits only Map UInt64 UInt64"
   expectMaterializePlanInvariantV1 "MapArr" TargetId.icp TargetKind.icp
+    mapArrCompiled "Map state admits only Map UInt64 UInt64"
+  expectMaterializePlanInvariantV1 "MapArr" TargetId.xrpl TargetKind.xrpl
     mapArrCompiled "Map state admits only Map UInt64 UInt64"
 
   -- MapBytes: Map UInt64 Bytes 4 state. All twelve targets stay named
@@ -5741,6 +5752,8 @@ unsafe def runSignedContainerNeedles : IO Unit := do
       "anonymous Bytes is outside the current container-state pilot"
   expectMaterializePlanInvariantV1 "MapBytesKey" TargetId.icp TargetKind.icp
     mapBytesKeyCompiled "Map state admits only Map UInt64 UInt64"
+  expectMaterializePlanInvariantV1 "MapBytesKey" TargetId.xrpl TargetKind.xrpl
+    mapBytesKeyCompiled "Map state admits only Map UInt64 UInt64"
 
   -- MapPrin: Map Principal UInt64 state. EVM/Solana admit the Principal-key
   -- alternative named in MapBytesKey needles. Remaining ten stay named
@@ -5790,6 +5803,8 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   -- UInt64 fails on the Map UInt64 UInt64 shape gate instead of the closure.
   expectMaterializePlanInvariantV1 "MapPrin" TargetId.icp TargetKind.icp
     mapPrinCompiled "Map state admits only Map UInt64 UInt64"
+  expectMaterializePlanInvariantV1 "MapPrin" TargetId.xrpl TargetKind.xrpl
+    mapPrinCompiled "Map state admits only Map UInt64 UInt64"
 
   -- MapField: Map UInt64 Field bn254_fr state. All twelve stay named
   -- Map-value/Field FC. Not opening Map-of-Field. MapPrin / MapMini /
@@ -5836,6 +5851,8 @@ unsafe def runSignedContainerNeedles : IO Unit := do
       "narrow Int/Field/aggregates"
   expectMaterializePlanInvariantV1 "MapField" TargetId.icp TargetKind.icp
     mapFieldCompiled "Map state admits only Map UInt64 UInt64"
+  expectMaterializePlanInvariantV1 "MapField" TargetId.xrpl TargetKind.xrpl
+    mapFieldCompiled "narrow Int/Field"
   -- MapStr: Map UInt64 String state. All twelve stay named Map-value/String
   -- FC. Not opening Map-of-String. MapField / MapMini /
   -- StringInterfaceBoundary / ArrStr / OptStr stay.
@@ -5879,6 +5896,8 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "MapStr" target kind mapStrCompiled
       "narrow Int/Field/aggregates"
   expectMaterializePlanInvariantV1 "MapStr" TargetId.icp TargetKind.icp
+    mapStrCompiled "Map state admits only Map UInt64 UInt64"
+  expectMaterializePlanInvariantV1 "MapStr" TargetId.xrpl TargetKind.xrpl
     mapStrCompiled "Map state admits only Map UInt64 UInt64"
   -- MapBool: Map UInt64 Bool state. All twelve stay named Map-value/pilot
   -- FC. Not opening Map-of-Bool. MapStr / MapMini / ArrBool / OptBool stay.
@@ -6524,7 +6543,8 @@ unsafe def runSignedContainerNeedles : IO Unit := do
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
       (TargetId.openvm, TargetKind.openvm),
-      (TargetId.icp, TargetKind.icp)] do
+      (TargetId.icp, TargetKind.icp),
+      (TargetId.xrpl, TargetKind.xrpl)] do
     expectMaterializePlanInvariantV1 "MapI32" target kind mapI32Compiled
       "only anonymous UInt64/Int64 widths are supported"
 
@@ -6570,7 +6590,8 @@ unsafe def runSignedContainerNeedles : IO Unit := do
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
       (TargetId.openvm, TargetKind.openvm),
-      (TargetId.icp, TargetKind.icp)] do
+      (TargetId.icp, TargetKind.icp),
+      (TargetId.xrpl, TargetKind.xrpl)] do
     expectMaterializePlanInvariantV1 "MapI32Key" target kind mapI32KeyCompiled
       "only anonymous UInt64/Int64 widths are supported"
 
@@ -7106,6 +7127,8 @@ unsafe def runRemainingNeedles : IO Unit := do
       "narrow Int/Field/aggregates"
   expectMaterializePlanInvariantV1 "OptStr" TargetId.icp TargetKind.icp
     optStrCompiled "anonymous Option is outside the current container-state pilot"
+  expectMaterializePlanInvariantV1 "OptStr" TargetId.xrpl TargetKind.xrpl
+    optStrCompiled "requires UInt64 payload"
   -- OptBool: Option Bool state. Eight targets stay named payload FC.
   -- Quint/Soroban/OpenVM admit Option type so they fail on payload.
   -- ICP stays Option-pilot. Not opening Option-of-Bool. OptStr / OptBox /

@@ -755,6 +755,53 @@ unsafe def testStringReturn : IO Unit := do
     s!"StringReturn view must be aggregate 9, got {repr v.resultKind}"
   expect (v.leaves.size == 9) "StringReturn must carry nine identity leaves"
 
+unsafe def testConstStr : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program GreetingBox where\n" ++
+    "  const GREETING : String := \"hi\"\n" ++
+    "  state label : String\n" ++
+    "  init() do\n" ++
+    "    label := GREETING\n" ++
+    "  entry ping() : UInt64 do\n" ++
+    "    return 0\n" ++
+    "  view getLabel() : String do\n" ++
+    "    return label\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-const-str>" "Tests.XrplGreetingBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  let some v := plan.views[0]? |
+    throw <| IO.userError "GreetingBox must emit a view"
+  expect (v.resultKind == .aggregate 9)
+    s!"GreetingBox view must be aggregate 9, got {repr v.resultKind}"
+  expect (v.leaves.size == 9) "GreetingBox must carry nine identity leaves"
+
+unsafe def testStrMatch : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program StrMatch where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry classify(s : String) : UInt64 do\n" ++
+    "    match s with\n" ++
+    "    | \"a\" => do\n" ++
+    "      return 1\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-str-match>" "Tests.XrplStrMatch" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  let some e := plan.entries[0]? |
+    throw <| IO.userError "StrMatch must emit classify"
+  expect (e.name == "classify") "StrMatch entry must be classify"
+
 /-- T8b: Bytes N view flattens to `(u64, …)`; entry Bytes stays FC. -/
 unsafe def testBytesViewRet : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -1259,6 +1306,8 @@ unsafe def run : IO Unit := do
   testPrincipalIdentityLeaves
   testPrincipalReturn
   testStringReturn
+  testConstStr
+  testStrMatch
   testPointBoxFlatten
   testPointParam
   testBytesParam

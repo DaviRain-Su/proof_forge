@@ -3524,6 +3524,68 @@ unsafe def testStringReturn : IO Unit := do
         s!"StringRetFocus getLabel resultKind must be .aggregate, got {repr other}"
   IO.println "  ✓ String view return 9-leaf identity"
 
+unsafe def testConstStr : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program GreetingBox where\n" ++
+    "  const GREETING : String := \"hi\"\n" ++
+    "  state label : String\n" ++
+    "  init() do\n" ++
+    "    label := GREETING\n" ++
+    "  view getLabel() : String do\n" ++
+    "    return label\n"
+  let src ← liftResult "load GreetingBox" (← session.selectProgramV1
+    source "<evm-const-str-focus>" "Tests.EvmGreetingBox" none)
+  let compiled ← liftResult "compile GreetingBox" <|
+    Compiler.compileValidatedSourceV1 src
+  let plan ← liftResult "plan GreetingBox" <| planEvm compiled
+  let some getLabel := plan.entries.find? (·.name == "getLabel") |
+    throw <| IO.userError "GreetingBox missing getLabel"
+  match getLabel.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 9)
+        s!"GreetingBox must have 9 leaves, got {leaves.size}"
+  | other =>
+      throw <| IO.userError
+        s!"GreetingBox getLabel resultKind must be .aggregate, got {repr other}"
+  IO.println "  ✓ String const 9-leaf inline"
+
+unsafe def testStrMatch : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program StrMatch where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry classify(s : String) : UInt64 do\n" ++
+    "    match s with\n" ++
+    "    | \"a\" => do\n" ++
+    "      return 1\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let src ← liftResult "load StrMatch" (← session.selectProgramV1
+    source "<evm-str-match>" "Tests.EvmStrMatch" none)
+  let compiled ← liftResult "compile StrMatch" <|
+    Compiler.compileValidatedSourceV1 src
+  let plan ← liftResult "plan StrMatch" <| planEvm compiled
+  let aEq := stringLeafEqAgainstParams "a"
+  expect (plan.entries[0]!.body == #[
+      .ifThenElse aEq
+        #[.returnValue (.literal 1)]
+        #[.returnValue (.literal 0)]])
+    "StrMatch must desugar String match to ifThenElse + leaf-wise eq"
+  let hasSwitch := plan.entries[0]!.body.any fun s =>
+    match s with | .switchOn .. => true | _ => false
+  expect (!hasSwitch) "StrMatch must not emit switchOn for String scrutinee"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"StrMatch plan must validate: {e.render}"
+  IO.println "  ✓ String match desugars to nested ifThenElse"
+
 /-- EVM ContextRead pin (B-CTX-OPEN / ADR-0031 S1+S2): `context.unixTimeSeconds`
     lowers to `timestamp()` (UInt64); `context.blockHeight` → `number()`;
     `context.caller` lowers to Principal aggregate `literal 20` +
@@ -4358,13 +4420,15 @@ private unsafe def testScalarConstInline : IO Unit := do
     strSource "<evm-const-str>" "Tests.EvmConstStr" none)
   let strCompiled ← liftResult "compile ConstStr" <|
     Compiler.compileValidatedSourceV1 strSrc
-  match planEvm strCompiled with
-  | .ok _ => throw <| IO.userError "EVM String constant must fail closed"
-  | .error e =>
-      expect (e.render.contains "constant" || e.render.contains "String" ||
-          e.render.contains "admitted")
-        s!"String const FC must cite constant envelope, got: {e.render}"
-  IO.println "  ConstBox scalar const inline + String FC pin ok"
+  let strPlan ← liftResult "plan ConstStr" <| planEvm strCompiled
+  match Targets.Evm.validatePlan strPlan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"ConstStr unused String const must plan: {e.render}"
+  let strOut ← liftResult "materialize ConstStr" <|
+    materializeSelected TargetId.evm strCompiled
+  expect (!(MaterializedArtifactsV1.filesOf strOut).isEmpty)
+    "ConstStr unused String const must materialize"
+  IO.println "  ConstBox scalar const inline + unused String const table admit ok"
 
 /-- BL-28: result-bearing external call lowers on EVM to real CALL +
     returndata read (iszero/returndatasize/UInt64 range guards). UInt64

@@ -1578,7 +1578,8 @@ private def decodeBoolLiteralV1 (bytes : ByteArray) : CompileResult UInt64 := do
     (invalidDetail := "Bool literal byte must be 0x00 or 0x01")
   pure (if bit then 1 else 0)
 
-/-- Scalar const envelope: UInt{8,16,32,64} / Int64 / Bool. -/
+/-- Scalar const envelope: UInt{8,16,32,64} / Int64 / Bool, plus String as the
+    same 9-leaf wire identity as `Op.Literal` String. Principal stays FC. -/
 private def isNoirScalarConstUintWidth (w : Nat) : Bool :=
   w == 8 || w == 16 || w == 32 || w == 64
 
@@ -1592,10 +1593,9 @@ private def admitNoirConstantTypeV1
     unless bitWidth == 64 do
       throw <| .planInvariant .noir
         s!"unsupported Noir semantic shape: Int{bitWidth} constant is not admitted"
-  else
-    unless types.boolTypeId == some typeId do
-      throw <| .planInvariant .noir
-        "unsupported Noir semantic shape: constant is not admitted UInt width, Int64, or Bool"
+  else unless types.isString typeId || types.boolTypeId == some typeId do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: constant is not admitted UInt width, Int64, Bool, or String"
 
 private def validateNoirConstantTableV1
     (types : NoirTypeClosureV1) (constants : Array ConstantV1) :
@@ -2135,8 +2135,14 @@ private def lowerBlockInstructionsV1
                 dependencies := #[]
               }
           | none =>
-              throw <| .planInvariant .noir
-                "unsupported Noir semantic shape: constant is not admitted UInt width, Int64, or Bool"
+              if types.isString c.typeId then
+                let leafExprs ← decodePrincipalLiteralLeavesV1 c.valueBytes
+                let leafIsInt := leafExprs.map (fun _ => false)
+                let value := mkAggregateValueV1 leafExprs leafIsInt #[] 1 leafExprs.size
+                values := ← appendResultValueV1 c.typeId values result value
+              else
+                throw <| .planInvariant .noir
+                  "unsupported Noir semantic shape: constant is not admitted UInt width, Int64, Bool, or String"
     | .literal typeId bytes, some result =>
         if let some bitWidth := types.intWidthOf typeId then
           unless isAbiIntWidth bitWidth do
@@ -3409,59 +3415,123 @@ private partial def emitRegionV1
           pure (instrs ++ #[.ifThenElse cond thenBody elseBody], values2, elseNext, elseBack)
   | .switch scrutId cases defaultTarget =>
       let scrutVal ← currentValueWithArmsV1 values paramCount segmentStart freeAfter scrutId
-      let scrut ← consumeCurrentSegmentV1 values paramCount segmentStart freeAfter scrutId
       let some defaultT := defaultTarget |
         throw (.planInvariant .noir
           "unsupported Noir semantic shape: switch must carry a default target")
-      let scrutIsBool := scrutVal.kind == .bool
-      let scrutBitWidth :=
-        match scrutVal.kind with
-        | .uint32 => 32
-        | .bool => 1
-        | _ => 64
-      let mut caseBodies : Array (UInt64 × Array Statement) := #[]
-      let mut joinAcc : Option Nat := none
-      let mut valuesA := values
-      for switchCase in cases do
-        let caseValue ← decodeSwitchCaseValueV1 scrutIsBool scrutBitWidth switchCase.valueBytes
-        let (body, values1, armNext, armBack) ←
+      if scrutVal.isAggregate then
+        -- N-A1: String match-switch desugars to leaf-wise eq + nested if
+        -- (Plan `switchOn` stays UInt64-case only).
+        let expectedStringLeaves := noirPrincipalDataWordCountV1 + 1
+        let scrutLeaves := scrutVal.leafExprs
+        unless scrutLeaves.size == expectedStringLeaves do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: switch on non-String aggregate is outside the Noir pilot"
+        let _ ← consumeCurrentSegmentV1 values paramCount segmentStart freeAfter scrutId
+        let armFree := extendArmReadablesV1 values freeAfter scrutId
+        let mut caseArms : Array (Expr × Array Statement) := #[]
+        let mut joinAcc : Option Nat := none
+        let mut valuesA := values
+        for switchCase in cases do
+          let caseLeaves ← decodePrincipalLiteralLeavesV1 switchCase.valueBytes
+          unless caseLeaves.size == scrutLeaves.size do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: String match case leaf count mismatch"
+          let cond ← makeLeafWiseEqExprV1 scrutLeaves caseLeaves
+          let (body, values1, armNext, armBack) ←
+            emitRegionV1 owner mode types layout fnSigs returnKind blocks loops paramCount
+              armFree (fuel - 1)
+              switchCase.target.blockId.toNat valuesA
+          unless armBack.isNone do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: loop back edge escapes a switch arm"
+          caseArms := caseArms.push (cond, body)
+          valuesA := values1
+          match armNext, joinAcc with
+          | none, _ => pure ()
+          | some j, none => joinAcc := some j
+          | some j, some j0 =>
+              unless j == j0 do
+                throw <| .planInvariant .noir
+                  "unsupported Noir semantic shape: switch arms converge on divergent joins"
+        let (defaultBody, values2, defaultNext, defaultBack) ←
           emitRegionV1 owner mode types layout fnSigs returnKind blocks loops paramCount
-            (extendArmReadablesV1 values freeAfter scrutId) (fuel - 1)
-            switchCase.target.blockId.toNat valuesA
-        unless armBack.isNone do
+            armFree (fuel - 1)
+            defaultT.blockId.toNat valuesA
+        unless defaultBack.isNone do
           throw <| .planInvariant .noir
             "unsupported Noir semantic shape: loop back edge escapes a switch arm"
-        caseBodies := caseBodies.push (caseValue, body)
-        valuesA := values1
-        match armNext, joinAcc with
+        match defaultNext, joinAcc with
         | none, _ => pure ()
         | some j, none => joinAcc := some j
         | some j, some j0 =>
             unless j == j0 do
               throw <| .planInvariant .noir
                 "unsupported Noir semantic shape: switch arms converge on divergent joins"
-      let (defaultBody, values2, defaultNext, defaultBack) ←
-        emitRegionV1 owner mode types layout fnSigs returnKind blocks loops paramCount
-          (extendArmReadablesV1 values freeAfter scrutId) (fuel - 1)
-          defaultT.blockId.toNat valuesA
-      unless defaultBack.isNone do
-        throw <| .planInvariant .noir
-          "unsupported Noir semantic shape: loop back edge escapes a switch arm"
-      match defaultNext, joinAcc with
-      | none, _ => pure ()
-      | some j, none => joinAcc := some j
-      | some j, some j0 =>
-          unless j == j0 do
-            throw <| .planInvariant .noir
-              "unsupported Noir semantic shape: switch arms converge on divergent joins"
-      match joinAcc with
-      | none =>
-          pure (instrs ++ #[.switchOn scrut caseBodies defaultBody], values2, none, none)
-      | some j =>
-          let (rest, values3, next, back3) ←
+        let mut nested : Array Statement := defaultBody
+        let mut i := caseArms.size
+        while i > 0 do
+          i := i - 1
+          let (cond, body) := caseArms[i]!
+          nested := #[.ifThenElse cond body nested]
+        match joinAcc with
+        | none =>
+            pure (instrs ++ nested, values2, none, none)
+        | some j =>
+            let (rest, values3, next, back3) ←
+              emitRegionV1 owner mode types layout fnSigs returnKind blocks loops paramCount
+                freeAfter (fuel - 1) j values2
+            pure (instrs ++ nested ++ rest, values3, next, back3)
+      else
+        let scrut ← consumeCurrentSegmentV1 values paramCount segmentStart freeAfter scrutId
+        let scrutIsBool := scrutVal.kind == .bool
+        let scrutBitWidth :=
+          match scrutVal.kind with
+          | .uint32 => 32
+          | .bool => 1
+          | _ => 64
+        let mut caseBodies : Array (UInt64 × Array Statement) := #[]
+        let mut joinAcc : Option Nat := none
+        let mut valuesA := values
+        for switchCase in cases do
+          let caseValue ← decodeSwitchCaseValueV1 scrutIsBool scrutBitWidth switchCase.valueBytes
+          let (body, values1, armNext, armBack) ←
             emitRegionV1 owner mode types layout fnSigs returnKind blocks loops paramCount
-              freeAfter (fuel - 1) j values2
-          pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest, values3, next, back3)
+              (extendArmReadablesV1 values freeAfter scrutId) (fuel - 1)
+              switchCase.target.blockId.toNat valuesA
+          unless armBack.isNone do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: loop back edge escapes a switch arm"
+          caseBodies := caseBodies.push (caseValue, body)
+          valuesA := values1
+          match armNext, joinAcc with
+          | none, _ => pure ()
+          | some j, none => joinAcc := some j
+          | some j, some j0 =>
+              unless j == j0 do
+                throw <| .planInvariant .noir
+                  "unsupported Noir semantic shape: switch arms converge on divergent joins"
+        let (defaultBody, values2, defaultNext, defaultBack) ←
+          emitRegionV1 owner mode types layout fnSigs returnKind blocks loops paramCount
+            (extendArmReadablesV1 values freeAfter scrutId) (fuel - 1)
+            defaultT.blockId.toNat valuesA
+        unless defaultBack.isNone do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: loop back edge escapes a switch arm"
+        match defaultNext, joinAcc with
+        | none, _ => pure ()
+        | some j, none => joinAcc := some j
+        | some j, some j0 =>
+            unless j == j0 do
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: switch arms converge on divergent joins"
+        match joinAcc with
+        | none =>
+            pure (instrs ++ #[.switchOn scrut caseBodies defaultBody], values2, none, none)
+        | some j =>
+            let (rest, values3, next, back3) ←
+              emitRegionV1 owner mode types layout fnSigs returnKind blocks loops paramCount
+                freeAfter (fuel - 1) j values2
+            pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest, values3, next, back3)
   | .revert errorId argIds =>
       let mut argExprs : Array Expr := #[]
       for argId in argIds do

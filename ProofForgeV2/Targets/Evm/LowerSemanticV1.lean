@@ -2599,8 +2599,9 @@ private def decodeBoolLiteralV1 (bytes : ByteArray) : CompileResult UInt64 := do
   let bit ← decodeBoolLiteralBit evmPlanErr "EVM" bytes
   pure (if bit then 1 else 0)
 
-/-- Scalar const envelope: UInt{8,16,32,64} / Int64 / Bool. String, Principal,
-    aggregate, Field, and wide/narrow-Int constants stay fail closed. -/
+/-- Scalar const envelope: UInt{8,16,32,64} / Int64 / Bool, plus String as the
+    same 9-leaf wire identity as `Op.Literal` String. Principal, aggregate,
+    Field, and wide/narrow-Int constants stay fail closed. -/
 private def isEvmScalarConstUintWidth (w : Nat) : Bool :=
   w == 8 || w == 16 || w == 32 || w == 64
 
@@ -2614,6 +2615,8 @@ private def admitEvmConstantTypeV1
     unless bitWidth == 64 do
       throw <| .planInvariant .evm
         s!"unsupported EVM semantic shape: Int{bitWidth} constant is not admitted"
+  else if types.isString typeId then
+    pure ()
   else
     let boolTid ← match types.boolTypeId with
       | some tid => pure tid
@@ -2622,7 +2625,7 @@ private def admitEvmConstantTypeV1
             "unsupported EVM semantic shape: Bool type is missing for Bool constant"
     unless typeId == boolTid do
       throw <| .planInvariant .evm
-        "unsupported EVM semantic shape: constant is not admitted UInt width, Int64, or Bool"
+        "unsupported EVM semantic shape: constant is not admitted UInt width, Int64, Bool, or String"
 
 private def validateEvmConstantTableV1
     (types : EvmTypeClosureV1) (constants : Array ConstantV1) :
@@ -2952,23 +2955,29 @@ private def lowerBlockInstructionsV1
                   bitWidth
                 }
             | none => do
-                let boolTid ← match types.boolTypeId with
-                  | some tid => pure tid
-                  | none => throw (.planInvariant .evm
-                      "unsupported EVM semantic shape: Bool type is missing for Bool constant")
-                unless c.typeId == boolTid do
-                  throw <| .planInvariant .evm
-                    "unsupported EVM semantic shape: constant is not admitted UInt width, Int64, or Bool"
-                let value ← decodeBoolLiteralV1 c.valueBytes
-                values := ← appendResultValueV1 boolTid values result {
-                  expr := .literal value
-                  depth := 1
-                  expandedNodes := 1
-                  dependencies := #[]
-                  isBool := true
-                  isInt := false
-                  bitWidth := 1
-                }
+                if types.isString c.typeId then
+                  let leafExprs ← decodeStringLiteralLeavesV1 c.valueBytes
+                  let leafIsInt := leafExprs.map (fun _ => false)
+                  let value := mkAggregateValueV1 leafExprs leafIsInt #[] 1 leafExprs.size
+                  values := ← appendResultValueV1 c.typeId values result value
+                else
+                  let boolTid ← match types.boolTypeId with
+                    | some tid => pure tid
+                    | none => throw (.planInvariant .evm
+                        "unsupported EVM semantic shape: Bool type is missing for Bool constant")
+                  unless c.typeId == boolTid do
+                    throw <| .planInvariant .evm
+                      "unsupported EVM semantic shape: constant is not admitted UInt width, Int64, Bool, or String"
+                  let value ← decodeBoolLiteralV1 c.valueBytes
+                  values := ← appendResultValueV1 boolTid values result {
+                    expr := .literal value
+                    depth := 1
+                    expandedNodes := 1
+                    dependencies := #[]
+                    isBool := true
+                    isInt := false
+                    bitWidth := 1
+                  }
     | .literal typeId bytes, some result =>
         match types.uintWidthOf typeId with
         | some bitWidth => do

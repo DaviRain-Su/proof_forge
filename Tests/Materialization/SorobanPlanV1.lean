@@ -1466,6 +1466,52 @@ unsafe def testPrincipalIdentityLeaves : IO Unit := do
     s!"StringReturn view must be aggregate 9, got {repr sv.resultKind}"
   liftResult <| Targets.Soroban.validatePlan planStr
 
+unsafe def testConstStr : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program GreetingBox where\n" ++
+    "  const GREETING : String := \"hi\"\n" ++
+    "  state label : String\n" ++
+    "  init() do\n" ++
+    "    label := GREETING\n" ++
+    "  view getLabel() : String do\n" ++
+    "    return label\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-const-str>" "Tests.SorobanGreetingBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  let some v := plan.views[0]? |
+    throw <| IO.userError "GreetingBox must emit a view"
+  expect (v.resultKind == .aggregate 9)
+    s!"GreetingBox view must be aggregate 9, got {repr v.resultKind}"
+  liftResult <| Targets.Soroban.validatePlan plan
+
+unsafe def testStrMatch : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program StrMatch where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry classify(s : String) : UInt64 do\n" ++
+    "    match s with\n" ++
+    "    | \"a\" => do\n" ++
+    "      return 1\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-str-match>" "Tests.SorobanStrMatch" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  let some e := plan.entries[0]? |
+    throw <| IO.userError "StrMatch must emit classify"
+  expect (e.name == "classify") "StrMatch entry must be classify"
+  liftResult <| Targets.Soroban.validatePlan plan
+
 unsafe def testPointBoxFlatten : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -1965,6 +2011,8 @@ unsafe def run : IO Unit := do
   testMapReturnFailClosed
   testSignedNumericMapStateFailClosed
   testPrincipalIdentityLeaves
+  testConstStr
+  testStrMatch
   testPointBoxFlatten
   testMaybeMarkFlatten
   testArrViewRet

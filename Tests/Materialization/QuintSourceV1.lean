@@ -611,6 +611,52 @@ unsafe def testPrincipalIdentityLeaves : IO Unit := do
   expect (sv.leaves.size == 9) "StringReturn must carry nine identity leaves"
   liftResult <| Targets.Quint.validatePlan planStr
 
+unsafe def testConstStr : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program GreetingBox where\n" ++
+    "  const GREETING : String := \"hi\"\n" ++
+    "  state label : String\n" ++
+    "  init() do\n" ++
+    "    label := GREETING\n" ++
+    "  view getLabel() : String do\n" ++
+    "    return label\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-const-str>" "Tests.QuintGreetingBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  let some v := plan.views[0]? |
+    throw <| IO.userError "GreetingBox must emit a view"
+  expect (v.resultKind == .aggregate 9)
+    s!"GreetingBox view must be aggregate 9, got {repr v.resultKind}"
+  expect (v.leaves.size == 9) "GreetingBox must carry nine identity leaves"
+
+unsafe def testStrMatch : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program StrMatch where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry classify(s : String) : UInt64 do\n" ++
+    "    match s with\n" ++
+    "    | \"a\" => do\n" ++
+    "      return 1\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-str-match>" "Tests.QuintStrMatch" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  let some e := plan.entries[0]? |
+    throw <| IO.userError "StrMatch must emit classify"
+  expect (e.name == "classify") "StrMatch entry must be classify"
+  liftResult <| Targets.Quint.validatePlan plan
+
 /-- N=9 exceeds the 1..8 flatten cap. -/
 unsafe def testArrayN9FailClosed : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -2462,6 +2508,8 @@ unsafe def run : IO Unit := do
   testArraySlotsFlatten
   testBytesBoxFlatten
   testPrincipalIdentityLeaves
+  testConstStr
+  testStrMatch
   testArrInt64Flatten
   testArrayN9FailClosed
   testArrayInt64N9FailClosed

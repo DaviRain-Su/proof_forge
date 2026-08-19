@@ -64,7 +64,8 @@ Phase 1：实现
   产品推进见 `docs/plan/near-parity-roadmap.md`。
 - **Scalar constants table**：source `const` / body `Op.Constant` 对
   UInt{8,16,32,64} / Int{8,16,32,64} / Bool 开放，预解码进 `StorageLayout` 后按 inline
-  plan literal 发射；UInt128/256、aggregate、Principal const 仍 FC。空表保持 historical
+  plan literal 发射；**B-CONST-STR** String 走同一 9 叶 identity 内联；UInt128/256、named
+  aggregate、Principal const 仍 FC。空表保持 historical
   Plan bytes。
 - **Bytes N (1..8) entry/view return**：B-RET-ABI 扩 admit；`value_return` 紧凑 N×u8 打包
   （与 Array/Option 的 N×8 LE 路径分流）。dense Map return 已 open：cap-8 →

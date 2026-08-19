@@ -4032,9 +4032,12 @@ private unsafe def testScalarConstInline
     "  view get() : UInt64 do\n" ++
     "    return count\n"
   let strCompiled ← compileSource session strSource "Examples.ConstStr" "<solana-const-str>"
-  expectPlanErrorContaining "ConstStr" "supported"
-    (planSolana strCompiled)
-  IO.println "  ✓ Solana scalar const inline + String FC pin ok"
+  let strPlan ← liftResult (planSolana strCompiled)
+  liftResult <| validatePlan strPlan
+  let strFiles ← liftResult (filesSolana strCompiled)
+  expect (!strFiles.isEmpty)
+    "ConstStr unused String const must emit Solana artifacts"
+  IO.println "  ✓ Solana scalar const inline + unused String const table admit ok"
 
 unsafe def testPointParam : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -4203,6 +4206,48 @@ unsafe def testStringReturn : IO Unit := do
         s!"StrRet getLabel resultKind must be .aggregate, got {repr other}"
   liftResult <| validatePlan plan
   IO.println "  ✓ String view return 9-leaf identity"
+
+unsafe def testConstStr : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source := wrapProgram "GreetingBox" <|
+    "  const GREETING : String := \"hi\"\n\n" ++
+    "  state label : String\n\n" ++
+    "  init() do\n" ++
+    "    label := GREETING\n\n" ++
+    "  view getLabel() : String do\n" ++
+    "    return label\n"
+  let compiled ← compileSource session source "Examples.GreetingBox"
+    "<solana-const-str-focus>"
+  let plan ← liftResult <| planSolana compiled
+  let getLabel ← findHandler plan "getLabel"
+  match getLabel.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 9)
+        s!"GreetingBox must have 9 leaves, got {leaves.size}"
+  | other =>
+      throw <| IO.userError
+        s!"GreetingBox getLabel resultKind must be .aggregate, got {repr other}"
+  liftResult <| validatePlan plan
+  IO.println "  ✓ String const 9-leaf inline"
+
+unsafe def testStrMatch : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source := wrapProgram "StrMatch" <|
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry classify(s : String) : UInt64 do\n" ++
+    "    match s with\n" ++
+    "    | \"a\" => do\n" ++
+    "      return 1\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let compiled ← compileSource session source "Examples.StrMatch"
+    "<solana-str-match>"
+  let plan ← liftResult <| planSolana compiled
+  let _ ← findHandler plan "classify"
+  liftResult <| validatePlan plan
+  IO.println "  ✓ String match desugars to nested ifThenElse"
 
 unsafe def testMapInt64Return : IO Unit := do
   let session ← Tests.Language.ParserSession.shared

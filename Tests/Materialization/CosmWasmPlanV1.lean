@@ -2460,6 +2460,46 @@ unsafe def testStringReturn : IO Unit := do
         s!"StrRet getLabel resultKind must be .aggregate, got {repr other}"
   IO.println "  ✓ String view return 9-leaf identity"
 
+unsafe def testConstStr : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source := wrapProgram "GreetingBox" <|
+    "  const GREETING : String := \"hi\"\n\n" ++
+    "  state label : String\n\n" ++
+    "  init() do\n" ++
+    "    label := GREETING\n\n" ++
+    "  view getLabel() : String do\n" ++
+    "    return label\n"
+  let compiled ← compileSource session source "Examples.GreetingBox" "<cw-const-str>"
+  let plan ← liftResult <| planCw compiled
+  let some getLabel := plan.entries.find? (·.name == "getLabel") |
+    throw <| IO.userError "GreetingBox missing getLabel"
+  match getLabel.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 9)
+        s!"GreetingBox must have 9 leaves, got {leaves.size}"
+  | other =>
+      throw <| IO.userError
+        s!"GreetingBox getLabel resultKind must be .aggregate, got {repr other}"
+  IO.println "  ✓ String const 9-leaf inline"
+
+unsafe def testStrMatch : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source := wrapProgram "StrMatch" <|
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry classify(s : String) : UInt64 do\n" ++
+    "    match s with\n" ++
+    "    | \"a\" => do\n" ++
+    "      return 1\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let compiled ← compileSource session source "Examples.StrMatch" "<cw-str-match>"
+  let plan ← liftResult <| planCw compiled
+  let some _ := plan.entries.find? (·.name == "classify") |
+    throw <| IO.userError "StrMatch missing classify"
+  IO.println "  ✓ String match desugars to nested ifThenElse"
+
 unsafe def run : IO Unit := do
   IO.println "CosmWasmPlanV1"
   let session ← Tests.Language.ParserSession.shared
@@ -2510,6 +2550,8 @@ unsafe def run : IO Unit := do
   testContextReadCaller session
   testContextReadAttachedValue session
   testStringReturn
+  testConstStr
+  testStrMatch
   IO.println "CosmWasmPlanV1: all checks passed"
 
 end Tests.Materialization.CosmWasmPlanV1

@@ -864,6 +864,54 @@ unsafe def testStringReturn : IO Unit := do
       throw <| IO.userError
         s!"StrRet getLabel resultKind must be .aggregate, got {repr other}"
 
+unsafe def testConstStr : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program GreetingBox where\n" ++
+    "  const GREETING : String := \"hi\"\n" ++
+    "  state label : String\n" ++
+    "  init() do\n" ++
+    "    label := GREETING\n" ++
+    "  view getLabel() : String do\n" ++
+    "    return label\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<dpn-const-str>" "Tests.DpnGreetingBox" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planFromCompiledSemanticV1 compiled
+  let some getLabel := plan.functions.find? (·.name == "getLabel") |
+    throw <| IO.userError "GreetingBox missing getLabel"
+  match getLabel.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 9)
+        s!"GreetingBox must have 9 leaves, got {leaves.size}"
+  | other =>
+      throw <| IO.userError
+        s!"GreetingBox getLabel resultKind must be .aggregate, got {repr other}"
+
+unsafe def testStrMatch : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program StrMatch where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry classify(s : String) : UInt64 do\n" ++
+    "    match s with\n" ++
+    "    | \"a\" => do\n" ++
+    "      return 1\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<dpn-str-match>" "Tests.DpnStrMatch" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planFromCompiledSemanticV1 compiled
+  let some _ := plan.functions.find? (·.name == "classify") |
+    throw <| IO.userError "StrMatch missing classify"
+
 unsafe def testMapInt64Return : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=

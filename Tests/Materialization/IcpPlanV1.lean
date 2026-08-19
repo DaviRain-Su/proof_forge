@@ -1516,6 +1516,42 @@ private unsafe def testPrincipalIdentityLeaves
     s!"StringReturn view must be aggregate 9, got {repr sv.resultKind}"
   IO.println "  ✓ String 9-leaf view return (not Candid text/principal)"
 
+unsafe def testConstStr : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let src := wrapProgram "GreetingBox" <|
+    "  const GREETING : String := \"hi\"\n\n" ++
+    "  state label : String\n\n" ++
+    "  init() do\n" ++
+    "    label := GREETING\n\n" ++
+    "  view getLabel() : String do\n" ++
+    "    return label\n"
+  let compiled ← compileSource session src "Examples.GreetingBox" "<icp-const-str>"
+  let plan ← liftResult <| planFromCompiledSemanticV1 compiled
+  let some sv := plan.views[0]? |
+    throw <| IO.userError "GreetingBox must emit a view"
+  expect (sv.resultKind == .aggregate 9)
+    s!"GreetingBox view must be aggregate 9, got {repr sv.resultKind}"
+  IO.println "  ✓ String const 9-leaf inline"
+
+unsafe def testStrMatch : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let src := wrapProgram "StrMatch" <|
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry classify(s : String) : UInt64 do\n" ++
+    "    match s with\n" ++
+    "    | \"a\" => do\n" ++
+    "      return 1\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let compiled ← compileSource session src "Examples.StrMatch" "<icp-str-match>"
+  let plan ← liftResult <| planFromCompiledSemanticV1 compiled
+  let some e := plan.entries[0]? |
+    throw <| IO.userError "StrMatch must emit classify"
+  expect (e.name == "classify") "StrMatch entry must be classify"
+  IO.println "  ✓ String match desugars to nested ifThenElse"
+
 /-- Dense Map UInt64 UInt64 flattens to 24 i64 globals (cap-8 × occ/key/val).
     No Candid `vec`/`record`/`map`. Cap-8 overflow is a Plan assert. -/
 private unsafe def testMapMiniFlatten
@@ -1844,6 +1880,8 @@ unsafe def run : IO Unit := do
   testCapabilityProductPath session
   testUnknownProfileFailClosed
   testPrincipalIdentityLeaves session
+  testConstStr
+  testStrMatch
   testMapMiniFlatten session
   testMapInt64Flatten session
   testMapInt64ElementFc session

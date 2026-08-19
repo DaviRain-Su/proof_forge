@@ -4022,6 +4022,49 @@ unsafe def testStringReturn : IO Unit := do
     "StrRet result leaves must be u64"
   IO.println "  ✓ String view return 9-leaf identity"
 
+unsafe def testConstStr : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program GreetingBox where\n" ++
+    "  const GREETING : String := \"hi\"\n\n" ++
+    "  state label : String\n\n" ++
+    "  init() do\n" ++
+    "    label := GREETING\n\n" ++
+    "  view getLabel() : String do\n" ++
+    "    return label\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let ir ← compileIrFromProgramV1 sourceText
+    "Examples.GreetingBox" "<noir-const-str-focus>"
+  let getLabel ← findRelation ir "getLabel"
+  let resultLeaves := getLabel.sourceRelation.inputs.filter fun b =>
+    match b.role with | .resultLeaf _ => true | _ => false
+  expect (resultLeaves.size == 9)
+    s!"GreetingBox getLabel must have 9 resultLeaf inputs, got {resultLeaves.size}"
+  IO.println "  ✓ String const 9-leaf inline"
+
+unsafe def testStrMatch : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program StrMatch where\n" ++
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry classify(s : String) : UInt64 do\n" ++
+    "    match s with\n" ++
+    "    | \"a\" => do\n" ++
+    "      return 1\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let ir ← compileIrFromProgramV1 sourceText
+    "Examples.StrMatch" "<noir-str-match>"
+  let _ ← findRelation ir "classify"
+  IO.println "  ✓ String match desugars to nested ifThenElse"
+
 unsafe def testMapInt64Return : IO Unit := do
   let sourceText :=
     "import ProofForgeV2\n\n" ++
@@ -4505,7 +4548,7 @@ private unsafe def testScalarConstInline : IO Unit := do
   let plan ← compileNoirPlan sourceText "Examples.ConstBox" "<noir-const-box>"
   expect (plan.states.size == 1)
     s!"ConstBox must keep a single UInt64 state, got {plan.states.size}"
-  expectNoirPlanErrorContaining "ConstStr" "Examples.ConstStr"
+  let strPlan ← compileNoirPlan
     ("import ProofForgeV2\n\n" ++
       "namespace ProofForgeV2.Examples\n\n" ++
       "open ProofForgeV2.Language\n\n" ++
@@ -4517,8 +4560,10 @@ private unsafe def testScalarConstInline : IO Unit := do
       "  view get() : UInt64 do\n" ++
       "    return count\n\n" ++
       "end ProofForgeV2.Examples\n")
-    "supported"
-  IO.println "  ✓ Noir scalar const inline + String FC pin ok"
+    "Examples.ConstStr" "<noir-const-str>"
+  expect (strPlan.states.size == 1)
+    s!"ConstStr unused String const must keep a single UInt64 state, got {strPlan.states.size}"
+  IO.println "  ✓ Noir scalar const inline + unused String const table admit ok"
 
 unsafe def run : IO Unit := do
   runCheckedSubFast

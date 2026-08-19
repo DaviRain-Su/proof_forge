@@ -11,3 +11,5 @@ unsafe def main : IO Unit := do
   Tests.Materialization.SolanaPlanV1.testMapParam
   Tests.Materialization.SolanaPlanV1.testPrincipalReturn
   Tests.Materialization.SolanaPlanV1.testStringReturn
+  Tests.Materialization.SolanaPlanV1.testConstStr
+  Tests.Materialization.SolanaPlanV1.testStrMatch

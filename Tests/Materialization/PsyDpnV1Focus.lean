@@ -10,3 +10,5 @@ unsafe def main : IO Unit := do
   Tests.Materialization.PsyDpnV1.testMapParam
   Tests.Materialization.PsyDpnV1.testPrincipalReturn
   Tests.Materialization.PsyDpnV1.testStringReturn
+  Tests.Materialization.PsyDpnV1.testConstStr
+  Tests.Materialization.PsyDpnV1.testStrMatch

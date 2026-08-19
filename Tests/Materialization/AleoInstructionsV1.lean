@@ -1742,6 +1742,57 @@ unsafe def testPrincipalIdentityLeaves : IO Unit := do
       expect (leaves.all (fun l => l.byteWidth == 8 && !l.isInt))
         "StringReturn leaves must be unsigned 8-byte identity words"
 
+unsafe def testConstStr : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program GreetingBox where\n" ++
+    "  const GREETING : String := \"hi\"\n" ++
+    "  state label : String\n" ++
+    "  init() do\n" ++
+    "    label := GREETING\n" ++
+    "  view getLabel() : String do\n" ++
+    "    return label\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<greeting-const>" "Tests.GreetingBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| Targets.Aleo.engineeringPlanFromCompiled compiled
+  expect (!plan.programName.contains "aleo")
+    s!"GreetingBox program id must not contain substring aleo, got {plan.programName}"
+  let some getLabel := plan.views.find? (·.name == "getLabel") |
+    throw <| IO.userError "GreetingBox must emit getLabel view"
+  match getLabel.resultAggregateLeaves with
+  | none =>
+      throw <| IO.userError "GreetingBox getLabel must bind resultAggregateLeaves"
+  | some leaves =>
+      expect (leaves.size == 9)
+        s!"GreetingBox must flatten to 9 identity leaves, got {leaves.size}"
+
+unsafe def testStrMatch : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program StrMatch where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry classify(s : String) : UInt64 do\n" ++
+    "    match s with\n" ++
+    "    | \"a\" => do\n" ++
+    "      return 1\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<str-match>" "Tests.StrMatch" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| Targets.Aleo.engineeringPlanFromCompiled compiled
+  expect (!plan.programName.contains "aleo")
+    s!"StrMatch program id must not contain substring aleo, got {plan.programName}"
+  let some _ := plan.functions.find? (·.name == "classify") |
+    throw <| IO.userError "StrMatch must emit classify"
+
 /-- G5-HARD: former residual bucket true lower (Int64 / Field / pureFn). -/
 private def testG5HardResidualTrueLower : IO Unit := do
   let intParam0 : PlanParam :=
@@ -3165,6 +3216,8 @@ unsafe def run : IO Unit := do
   testG5MatrixBoolAssertStructural
   testG5MatrixProductAssertLower
   testConstProductLower
+  testConstStr
+  testStrMatch
   testPrincipalIdentityLeaves
   testG5HardResidualTrueLower
   testG5HardResidualAllowlistClassifier
