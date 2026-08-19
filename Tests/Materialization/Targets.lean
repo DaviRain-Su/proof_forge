@@ -4276,11 +4276,10 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"T10 principal return select: {e.render}"
   let prinRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 prinRetV1
-  -- XRPL stays out: the bedrock slice requires at least one entry, so
-  -- view-only fixtures are outside the admitted XRPL product shape.
   for target in [TargetId.evm, TargetId.near, TargetId.noir,
       TargetId.aleo, TargetId.psy, TargetId.quint, TargetId.cosmwasm,
-      TargetId.ton, TargetId.soroban, TargetId.icp, TargetId.openvm] do
+      TargetId.ton, TargetId.soroban, TargetId.icp, TargetId.openvm,
+      TargetId.xrpl] do
     let out ← liftResult <| materializeSelected target prinRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"T10: {target} Principal view return must materialize 9-leaf identity"
@@ -4338,11 +4337,10 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"StringReturn select: {e.render}"
   let strRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 strRetV1
-  -- XRPL stays out: the bedrock slice requires at least one entry, so
-  -- view-only fixtures are outside the admitted XRPL product shape.
   for target in [TargetId.evm, TargetId.near, TargetId.noir,
       TargetId.aleo, TargetId.psy, TargetId.quint, TargetId.cosmwasm,
-      TargetId.ton, TargetId.soroban, TargetId.icp, TargetId.openvm] do
+      TargetId.ton, TargetId.soroban, TargetId.icp, TargetId.openvm,
+      TargetId.xrpl] do
     let out ← liftResult <| materializeSelected target strRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"B-RET-STR: {target} String view return must materialize 9-leaf identity"
@@ -4511,11 +4509,10 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"MaybeViewRet select: {e.render}"
   let enumViewRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 enumViewRetV1
-  -- XRPL stays out: the bedrock slice requires at least one entry, so
-  -- view-only fixtures are outside the admitted XRPL product shape.
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
       TargetId.aleo, TargetId.psy, TargetId.cosmwasm, TargetId.ton,
-      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp] do
+      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp,
+      TargetId.xrpl] do
     let out ← liftResult <| materializeSelected target enumViewRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"MaybeViewRet: {target} must materialize named Enum view return"
@@ -4647,11 +4644,10 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"ArrViewRet select: {e.render}"
   let arrViewRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 arrViewRetV1
-  -- XRPL stays out: the bedrock slice requires at least one entry, so
-  -- view-only fixtures are outside the admitted XRPL product shape.
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
       TargetId.aleo, TargetId.psy, TargetId.cosmwasm, TargetId.ton,
-      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp] do
+      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp,
+      TargetId.xrpl] do
     let out ← liftResult <| materializeSelected target arrViewRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"ArrViewRet: {target} must materialize Array UInt64 2 view return"
@@ -5515,11 +5511,9 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"MapViewRet select: {e.render}"
   let mapViewCompiled ← liftResult <| Compiler.compileValidatedSourceV1 mapViewV1
-  -- XRPL stays out: the bedrock slice requires at least one entry, so
-  -- view-only fixtures are outside the admitted XRPL product shape.
   for target in [TargetId.near, TargetId.cosmwasm, TargetId.quint,
       TargetId.soroban, TargetId.openvm, TargetId.icp, TargetId.aleo,
-      TargetId.noir, TargetId.psy, TargetId.ton] do
+      TargetId.noir, TargetId.psy, TargetId.ton, TargetId.xrpl] do
     let out ← liftResult <| materializeSelected target mapViewCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"MapViewRet: {target} must materialize Map UInt64 view return"
@@ -6645,12 +6639,10 @@ unsafe def runRemainingNeedles : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"BytesRetBox select: {e.render}"
   let bytesRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 bytesRetV1
-  -- XRPL stays out: the bedrock slice requires at least one entry, so
-  -- view-only fixtures are outside the admitted XRPL product shape.
   for target in [TargetId.evm, TargetId.solana, TargetId.near,
       TargetId.noir, TargetId.aleo, TargetId.psy, TargetId.cosmwasm,
       TargetId.ton, TargetId.quint, TargetId.soroban, TargetId.openvm,
-      TargetId.icp] do
+      TargetId.icp, TargetId.xrpl] do
     let out ← liftResult <| materializeSelected target bytesRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"BytesRetBox: {target} must materialize Bytes 4 return"
@@ -6859,11 +6851,10 @@ unsafe def runRemainingNeedles : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"OptViewRet select: {e.render}"
   let optViewRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 optViewRetV1
-  -- XRPL stays out: the bedrock slice requires at least one entry, so
-  -- view-only fixtures are outside the admitted XRPL product shape.
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
       TargetId.aleo, TargetId.psy, TargetId.cosmwasm, TargetId.ton,
-      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp] do
+      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp,
+      TargetId.xrpl] do
     let out ← liftResult <| materializeSelected target optViewRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"OptViewRet: {target} must materialize Option UInt64 view return"

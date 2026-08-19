@@ -36,7 +36,9 @@ host 或诚实 keep-FC，再另批 leaf。XRPL 是第 13 个 materializer，**�
 - [XLS-0102](https://xls.xrpl.org/xls/XLS-0102-wasm-vm.html) host 表
   （`parent_ldgr_time` / `sha512_half`）
 - Q0 已发射：`get_current_contract_call` / `ContractCallFields` /
-  `get_data`/`set_data` / `trace`
+  `get_data`/`set_data` / `trace`。view-only 与 entry+view 共用同一
+  `get_current_contract_call` storage helper；这不开放
+  `context.caller`，也不声称 ContractCall 运行期对 view 诚实。
 
 不得改用 official `ripple/xrpl-wasm-stdlib` + `wasm32v1-none`（ADR-0050 已拒）。
 

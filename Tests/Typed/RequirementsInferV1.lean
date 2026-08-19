@@ -347,6 +347,31 @@ private unsafe def testCryptoSha256Contribution
   expect (ids.contains "state.persistent")
     s!"sha256 stateful program must still contribute state.persistent; got {ids}"
 
+/-- SYS-S5: exact `pf.crypto.ecdsaRecoverSecp256k1` is the EVM `0x01`
+    STATICCALL precompile leaf and must NOT contribute
+    `effect.synchronous-call` / `failure.atomic-rollback`. -/
+private unsafe def testCryptoEcdsaRecoverContribution
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\nopen ProofForgeV2.Language\n" ++
+    "program EcdsaReqInfer where\n" ++
+    "  state last : UInt256\n" ++
+    "  init() do\n" ++
+    "    last := 0\n" ++
+    "  entry recover(hash : UInt256, v : UInt256, r : UInt256, s : UInt256) : UInt256 do\n" ++
+    "    let a : UInt256 := call pf.crypto.ecdsaRecoverSecp256k1(hash, v, r, s)\n" ++
+    "    last := a\n" ++
+    "    return a\n"
+  let validated ← loadSource session "ecdsa-req" source
+  let contributions := inferRequirementContributionsFromSourceV1 validated
+  let ids := contributionIds contributions
+  expect (!ids.contains "effect.synchronous-call")
+    s!"pf.crypto.ecdsaRecoverSecp256k1 must NOT contribute effect.synchronous-call; got {ids}"
+  expect (!ids.contains "failure.atomic-rollback")
+    s!"pf.crypto.ecdsaRecoverSecp256k1 must NOT contribute failure.atomic-rollback; got {ids}"
+  expect (ids.contains "state.persistent")
+    s!"ecdsa stateful program must still contribute state.persistent; got {ids}"
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testStateCellLike session
@@ -358,6 +383,7 @@ unsafe def run : IO Unit := do
   testS2CatalogDigestParity
   testEnvReadContribution session
   testCryptoSha256Contribution session
+  testCryptoEcdsaRecoverContribution session
   IO.println "Tests.Typed.RequirementsInferV1: ok"
 
 end Tests.Typed.RequirementsInferV1

@@ -416,9 +416,10 @@ at product path: `build/v2` and `.`). `json` selects PF-JCS stdout.
 D3-E5: `resourceLimits` / `minimumEvidence` are parsed and validated fail-closed
 before source open. RES-1 enforces wall clocks (build: pre-rename inside
 emitProgram; check: post-success path). The RES-1B output-only slice enforces
-`artifact-output.published-bytes` before publication. Memory/process/protocol/
-stderr remain observation-only gaps. Structural ambient ProofBundle product
-flags remain deleted; product proof gating is the in-process inline certifier. -/
+`artifact-output.published-bytes` before publication. Product preflight rejects
+`memory-bytes` / `processes` / `protocol-bytes` / `stderr-bytes` (parsed, no
+in-process producer). Structural ambient ProofBundle product flags remain
+deleted; product proof gating is the in-process inline certifier. -/
 structure BuildOptions where
   source : Option String := none
   target : Option TargetId := none
@@ -703,7 +704,9 @@ def isValidMinimumEvidenceGradeV1 (grade : String) : Bool :=
 
 /-- Post-parse validation for check vs build (SPEC-CLI resource/evidence).
 Runs before source open / materialize. Wall-clock **enforcement** is RES-1
-(`enforceWallMsLimitV1` after product stages). -/
+(`enforceWallMsLimitV1` after product stages). Product preflight rejects the
+four fields that parse but have no in-process producer (usage/exit 2, not
+`PF-RESOURCE-*`). -/
 def validateBuildOptionsCliV1
     (kind : CliBuildCommandKindV1) (options : BuildOptions) :
     Except String BuildOptions := do
@@ -715,6 +718,9 @@ def validateBuildOptionsCliV1
         if lim.stage == "external-tool" || lim.stage == "artifact-output" then
           throw s!"check rejects --resource-limit stage '{lim.stage}'"
     | .build => pure ()
+    if lim.field == "memory-bytes" || lim.field == "processes" ||
+        lim.field == "protocol-bytes" || lim.field == "stderr-bytes" then
+      throw s!"--resource-limit {lim.stage}.{lim.field} is parsed but has no in-process producer; omit it"
     -- Re-validate against hard profiles (parser already did; belt-and-braces).
     let _ ← hardResourceProfileForCliStageV1 lim.stage
     let key := (lim.stage, lim.field)

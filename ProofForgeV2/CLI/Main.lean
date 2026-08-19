@@ -48,7 +48,7 @@ private def usage : String :=
   "  version / --version prints engineering product identity (not formal Stage-0 release).\n" ++
   "  --profile selects a registered codegen profile for the target (default profile when omitted).\n" ++
   "  build --network is not supported (no network registry).\n" ++
-  "  --resource-limit is lower-only; check rejects external-tool/artifact-output; wall-ms and build artifact-output.published-bytes are enforced in-process (RES-1 / output-only RES-1B).\n" ++
+  "  --resource-limit is lower-only; check rejects external-tool/artifact-output; only wall-ms and build artifact-output.published-bytes are enforced in-process (RES-1 / output-only RES-1B); memory-bytes/processes/protocol-bytes/stderr-bytes are rejected at preflight (no in-process producer).\n" ++
   "  --minimum-evidence is build-only (specified|artifact_validated|local_runtime|network_or_proof_validated).\n" ++
   "  --json emits deterministic PF-JCS on stdout for list-targets/inspect/check/build;\n" ++
   "    version --json emits proof-forge.cli.version.v1;\n" ++

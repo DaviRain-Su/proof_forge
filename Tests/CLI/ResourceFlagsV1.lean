@@ -1,7 +1,8 @@
 /-
   Tests.CLI.ResourceFlagsV1 — D3-E5 SPEC-CLI resource/evidence flags plus RES-1
-  pure wall-ms enforce/product CLI PF-RESOURCE-TIME and RES-1B artifact-output
-  published-bytes enforcement/PF-RESOURCE-OUTPUT pins.
+  pure wall-ms enforce/product CLI PF-RESOURCE-TIME, RES-1B artifact-output
+  published-bytes enforcement/PF-RESOURCE-OUTPUT, and RES-1B honesty preflight
+  rejection of the four no-producer --resource-limit fields.
 
   Drives shipped pure parse + product preflight (`parseProductCliCommandV1` /
   `parseBuildArgsExcept` / `validateBuildOptionsCliV1` / `parseResourceLimitSpecV1`),
@@ -81,11 +82,89 @@ def run : IO Unit := do
     (validateBuildOptionsCliV1 .build buildOpts)
   expect (buildOk.resourceLimits[0]!.value == 1000) "validated build keeps limit"
 
+  -- Pure parse still accepts the four no-producer fields (hard-max remains).
+  let memLim ← expectOk "parse memory"
+    (parseResourceLimitSpecV1 "frontend.memory-bytes=1024")
+  expect (memLim.stage == "frontend" && memLim.field == "memory-bytes" && memLim.value == 1024)
+    "frontend.memory-bytes=1024 must parse"
+  let procLim ← expectOk "parse processes"
+    (parseResourceLimitSpecV1 "compiler-core.processes=1")
+  expect (procLim.field == "processes" && procLim.value == 1)
+    "compiler-core.processes=1 must parse"
+  let protoLim ← expectOk "parse protocol"
+    (parseResourceLimitSpecV1 "frontend.protocol-bytes=1024")
+  expect (protoLim.field == "protocol-bytes" && protoLim.value == 1024)
+    "frontend.protocol-bytes=1024 must parse"
+  let stderrLim ← expectOk "parse stderr"
+    (parseResourceLimitSpecV1 "frontend.stderr-bytes=1024")
+  expect (stderrLim.field == "stderr-bytes" && stderrLim.value == 1024)
+    "frontend.stderr-bytes=1024 must parse"
+  expectErr "memory over max"
+    (parseResourceLimitSpecV1 "frontend.memory-bytes=2147483649")
+    "exceeds hard maximum"
+
+  -- Product preflight: check/build reject no-producer fields (usage, not PF-RESOURCE-*).
+  let noProducerNeedle (stage field : String) : String :=
+    s!"--resource-limit {stage}.{field} is parsed but has no in-process producer; omit it"
+  expectErr "check frontend.memory-bytes"
+    (parseProductCliCommandV1
+      ["check", "Examples/StateCell.lean", "--module", "Examples.StateCell",
+        "--resource-limit", "frontend.memory-bytes=1024"])
+    (noProducerNeedle "frontend" "memory-bytes")
+  expectErr "check compiler-core.processes"
+    (parseProductCliCommandV1
+      ["check", "Examples/StateCell.lean", "--module", "Examples.StateCell",
+        "--resource-limit", "compiler-core.processes=1"])
+    (noProducerNeedle "compiler-core" "processes")
+  expectErr "check frontend.protocol-bytes"
+    (parseProductCliCommandV1
+      ["check", "Examples/StateCell.lean", "--module", "Examples.StateCell",
+        "--resource-limit", "frontend.protocol-bytes=1024"])
+    (noProducerNeedle "frontend" "protocol-bytes")
+  expectErr "check frontend.stderr-bytes"
+    (parseProductCliCommandV1
+      ["check", "Examples/StateCell.lean", "--module", "Examples.StateCell",
+        "--resource-limit", "frontend.stderr-bytes=1024"])
+    (noProducerNeedle "frontend" "stderr-bytes")
+  expectErr "build frontend.memory-bytes"
+    (parseProductCliCommandV1
+      ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
+        "--target", "evm", "--resource-limit", "frontend.memory-bytes=1024"])
+    (noProducerNeedle "frontend" "memory-bytes")
+  expectErr "build compiler-core.processes"
+    (parseProductCliCommandV1
+      ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
+        "--target", "evm", "--resource-limit", "compiler-core.processes=1"])
+    (noProducerNeedle "compiler-core" "processes")
+  expectErr "build compiler-core.protocol-bytes"
+    (parseProductCliCommandV1
+      ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
+        "--target", "evm", "--resource-limit", "compiler-core.protocol-bytes=1024"])
+    (noProducerNeedle "compiler-core" "protocol-bytes")
+  expectErr "build artifact-output.stderr-bytes"
+    (parseProductCliCommandV1
+      ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
+        "--target", "evm", "--resource-limit", "artifact-output.stderr-bytes=1"])
+    (noProducerNeedle "artifact-output" "stderr-bytes")
+  match parseProductCliCommandV1
+      ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
+        "--target", "evm", "--resource-limit", "artifact-output.stderr-bytes=1"] with
+  | .ok _ => throw <| IO.userError "build stderr-bytes must be usage, not accepted"
+  | .error msg =>
+      expect (!hasSubstr msg "PF-RESOURCE-OUTPUT")
+        s!"build stderr-bytes must not cite PF-RESOURCE-OUTPUT, got: {msg}"
+
   -- Product preflight: check rejects external-tool stage
   expectErr "check external-tool"
     (parseProductCliCommandV1
       ["check", "Examples/StateCell.lean", "--module", "Examples.StateCell",
         "--resource-limit", "external-tool.wall-ms=1000"])
+    "check rejects"
+  -- Stage rejection still precedes the no-producer field gate.
+  expectErr "check external-tool.memory-bytes"
+    (parseProductCliCommandV1
+      ["check", "Examples/StateCell.lean", "--module", "Examples.StateCell",
+        "--resource-limit", "external-tool.memory-bytes=1024"])
     "check rejects"
 
   -- Product preflight: check rejects minimum-evidence
@@ -220,6 +299,27 @@ def run : IO Unit := do
       e.fileName.startsWith ".res1b-published-limit.staging-"
     expect stagingLeft.isEmpty
       "RES-1B: output limit must clean the sibling staging directory"
+
+    -- No-producer field: product build usage/exit 2, not PF-RESOURCE-OUTPUT/exit 6.
+    let stderrOut := FilePath.mk "build/v2/res1b-stderr-limit"
+    if ← stderrOut.pathExists then IO.FS.removeDirAll stderrOut
+    let stderrRejected ← IO.Process.output {
+      cmd := absoluteCli.toString
+      args := #["build", "Examples/StateCell.lean",
+        "--module", "Examples.StateCell", "--target", "solana",
+        "--output", stderrOut.toString,
+        "--resource-limit", "artifact-output.stderr-bytes=1"]
+    }
+    expect (stderrRejected.exitCode == 2)
+      s!"RES-1B honesty: stderr-bytes=1 build must exit 2, got {stderrRejected.exitCode}"
+    let stderrCombined := stderrRejected.stdout ++ "\n" ++ stderrRejected.stderr
+    expect (hasSubstr stderrCombined
+        "--resource-limit artifact-output.stderr-bytes is parsed but has no in-process producer; omit it")
+      s!"RES-1B honesty: product must emit no-producer usage, got:\n{stderrCombined}"
+    expect (!hasSubstr stderrCombined "PF-RESOURCE-OUTPUT")
+      s!"RES-1B honesty: stderr-bytes must not cite PF-RESOURCE-OUTPUT, got:\n{stderrCombined}"
+    expect (!(← stderrOut.pathExists))
+      "RES-1B honesty: usage reject must not publish a destination"
 
     -- RES-1 wall zero-publish: wall-ms over during product build must exit 6
     -- with PF-RESOURCE-TIME and must not leave a published destination (or

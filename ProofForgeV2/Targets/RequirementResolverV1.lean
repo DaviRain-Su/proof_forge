@@ -13,13 +13,15 @@
     effect.asynchronous-workflow, effect.event, effect.synchronous-call,
     failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic
   with SemVer 1.0.0, engineeringRequirementDigestV1, and empty predicates only.
-  Capability gates: EVM admits both call keys via static `QualifiedName`
-  callees (AddressBearing; no dynamic address type). NEAR declines only
-  `effect.synchronous-call` (async workflow promises are native), Noir
-  supports all seven. Both legacy Solana profiles decline sync call and async
-  workflow. The opt-in `solana-sbpf-cpi-elf-v1` row (#125) admits exact
-  `effect.synchronous-call` plus the ADR-0028 extension, and still declines
-  async.
+  Capability gates (call keys): EVM (both profiles) and CosmWasm advertise
+  both call keys plus `extension.pf-assets`; NEAR advertises both (sync is
+  spelled by the pf.assets deposit/transferAsync half binding; generic sync
+  stays Plan fail closed); Noir (both profiles) advertises all seven as a
+  witness-binding relation. The sole Solana profile `solana-sbpf-cpi-elf-v1`
+  (legacy profiles deleted, #125) advertises exact `effect.synchronous-call`
+  plus the ADR-0028 extension and pf.assets, and still declines async.
+  Psy/Quint advertise sync only; TON/ICP advertise async only; Aleo,
+  Soroban, OpenVM and XRPL decline both call keys.
 
   Extension rows are **not** S2 catalog members. A closed advertise table maps
   each extension wire id to admitted (target, profile) pairs:

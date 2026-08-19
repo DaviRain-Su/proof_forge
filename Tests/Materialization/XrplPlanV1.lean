@@ -48,6 +48,42 @@ private def stateCellSource : String :=
   "  view get() : UInt64 do\n" ++
   "    return count\n"
 
+/-- Minimal init+view, no entry: Q0 export surface is view-only. -/
+unsafe def testViewOnlyGet : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ViewOnlyGet where\n" ++
+    "  state count : UInt64\n" ++
+    "  init() do\n" ++
+    "    count := 0\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<xrpl-view-only>" "Tests.XrplViewOnlyGet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planXrpl compiled
+  expect plan.entries.isEmpty
+    "ViewOnlyGet plan must have no entries"
+  expect (plan.views.size == 1)
+    s!"ViewOnlyGet plan must have exactly one view, got {plan.views.size}"
+  expect (plan.views.map (·.name) == #["get"])
+    "ViewOnlyGet plan must carry the get view"
+  liftResult <| Targets.Xrpl.validatePlan plan
+  let files ← liftResult <| buildXrpl compiled
+  let some rsFile := files.find? (·.path == "ViewOnlyGet.rs") |
+    throw <| IO.userError "xrpl: missing ViewOnlyGet.rs"
+  let rs := rsFile.contents
+  expect (rs.contains "pub extern \"C\" fn get() -> i32")
+    "ViewOnlyGet.rs must export the get view"
+  expect (!rs.contains "pub extern \"C\" fn increment")
+    "ViewOnlyGet.rs must not invent an increment entry"
+  expect (!rs.contains "pub extern \"C\" fn ping")
+    "ViewOnlyGet.rs must not invent a ping entry"
+  expect (rs.contains "get_current_contract_call")
+    "ViewOnlyGet.rs still shares the Q0 storage helper"
+
 unsafe def testStateCellXrplSource : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let parsed ← liftResult (← session.selectProgramV1
@@ -261,9 +297,23 @@ private unsafe def expectPlanFc (label source : String) : IO Unit := do
   | .ok _ =>
       throw <| IO.userError s!"{label} must Plan fail closed"
 
+private unsafe def expectPlanFcMsg (label source needle : String) : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let parsed ← liftResult (← session.selectProgramV1
+    source s!"<xrpl-{label}>" s!"Tests.Xrpl{label}" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planXrpl compiled with
+  | .error e =>
+      expect (e.code == "PF-PLAN-INVARIANT")
+        s!"{label} must be a Plan invariant, got {e.code}: {e.render}"
+      expect (e.render.contains needle)
+        s!"{label} must mention `{needle}`, got {e.render}"
+  | .ok _ =>
+      throw <| IO.userError s!"{label} must Plan fail closed"
+
 unsafe def testInvariantFailClosed : IO Unit := do
-  expectPlanFc "Invariant" <|
-    "import ProofForgeV2\n" ++
+  expectPlanFcMsg "Invariant"
+    ("import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
     "program InvCell where\n" ++
     "  state count : UInt64\n" ++
@@ -274,7 +324,57 @@ unsafe def testInvariantFailClosed : IO Unit := do
     "    return count\n" ++
     "  view get() : UInt64 do\n" ++
     "    return count\n" ++
-    "  invariant even : count % 2 == 0\n"
+    "  invariant even : count % 2 == 0\n")
+    "invariants are outside Q0"
+
+/-- Init-only (zero entry, zero view) stays fail-closed. Source decl-set
+    already requires an entry or view, so this usually dies at Loader.
+    If that earlier gate is ever relaxed, Lower must use the new wording. -/
+unsafe def testInitOnlyFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program InitOnly where\n" ++
+    "  state count : UInt64\n" ++
+    "  init() do\n" ++
+    "    count := 0\n"
+  match ← session.selectProgramV1
+      source "<xrpl-InitOnly>" "Tests.XrplInitOnly" none with
+  | .error e =>
+      expect (e.render.contains "at least one entry or view")
+        s!"InitOnly Loader must fail closed on empty export, got {e.render}"
+  | .ok parsed =>
+      let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+      match planXrpl compiled with
+      | .error e =>
+          expect (e.code == "PF-PLAN-INVARIANT")
+            s!"InitOnly must be a Plan invariant, got {e.code}: {e.render}"
+          expect (e.render.contains "at least one entry or view is required")
+            s!"InitOnly Lower must use the entry-or-view wording, got {e.render}"
+      | .ok _ =>
+          throw <| IO.userError "InitOnly must Plan fail closed"
+
+/-- Validate is isomorphic: empty entries and empty views fail closed. -/
+unsafe def testValidateEmptyExportFailClosed : IO Unit := do
+  let forged : Targets.Xrpl.Plan := {
+    programName := "InitOnly"
+    sourceHash := "00"
+    semanticHash := "00"
+    signedNumeric := false
+    states := #[{ name := "count" }]
+    initializer := some { name := "initialize", params := #[], stores := #[(0, .litU64 0)] }
+    entries := #[]
+    views := #[]
+  }
+  match Targets.Xrpl.validatePlan forged with
+  | .error e =>
+      expect (e.code == "PF-PLAN-INVARIANT")
+        s!"empty-export Validate must be a Plan invariant, got {e.code}: {e.render}"
+      expect (e.render.contains "at least one entry or view")
+        s!"empty-export Validate must use the entry-or-view wording, got {e.render}"
+  | .ok _ =>
+      throw <| IO.userError "empty-export Plan must Validate fail closed"
 
 unsafe def testCallFailClosed : IO Unit := do
   expectPlanFc "Call" <|
@@ -1283,12 +1383,15 @@ unsafe def testMapParam : IO Unit := do
 
 unsafe def run : IO Unit := do
   testStateCellXrplSource
+  testViewOnlyGet
   testMaterializeDeterminism
   testSelectionBindsDefaultSourceProfile
   testWasmProfileSelection
   testWasmProfileFinalize
   testUnknownProfileFailClosed
   testInvariantFailClosed
+  testInitOnlyFailClosed
+  testValidateEmptyExportFailClosed
   testCallFailClosed
   testCryptoSha256StayFailClosed
   testContextReadStayFailClosed

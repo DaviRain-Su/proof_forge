@@ -2397,8 +2397,8 @@ private def makePlanFromSemanticDataV1
         views := views.push { name, params, resultKind := rk, value, leaves }
     | .invariant =>
         planError "unsupported XRPL semantic shape: invariants are outside Q0"
-  unless entries.size > 0 do
-    planError "unsupported XRPL semantic shape: at least one entry is required"
+  unless entries.size > 0 || views.size > 0 do
+    planError "unsupported XRPL semantic shape: at least one entry or view is required"
   pure {
     programName
     sourceHash

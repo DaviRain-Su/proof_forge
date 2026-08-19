@@ -10,6 +10,13 @@ import ProofForgeV2.Compiler.Pipeline
 Owns the TON/TVM Plan surface (c4 cell storage, internal-message op dispatch,
 get-methods) and Semantic→Plan body for the public-UInt64 state-cell pilot.
 
+c4 storage budget (`makeStorageLayoutV1`): default
+`64+Σ(field.byteWidth×8)≤1023` over every flattened field. Sole
+exemption = `isLegacyMapFlattenV1` (exactly 24×8-byte leaves; Map
+cap-8 known over-cell; multi-cell packing is not implemented).
+Bytes 127 / Bytes 127+UInt256 fail as storage-budget negatives;
+SHA256U N≤127 is a different (hash) cell.
+
 CAP-5 admits exact `pf.crypto.sha256` (UInt256→UInt256) as Tolk
 `slice.bitsHash()` / TVM `SHA256U` over the Semantic 32-byte LE image.
 CAP-X-BYTES admits exact `pf.crypto.sha256Bytes` (Bytes N→UInt256,
@@ -507,10 +514,12 @@ private def pfCryptoSha256BytesArityErrorV1 : String :=
     as 8N bits into a fresh builder cell (no `__layout` word):
     8*127 = 1016 ≤ 1023; 8*128 = 1024 > 1023. The emitter has no tighter
     builder budget. `maxParams = 64` only limits flattened **parameter**
-    Bytes, not this hash cell. c4 Storage `__layout`+fields may exceed
-    1023 for large Bytes (same class as Map 24×uint64 flatten); that is
-    a storage packing fact, not a tighter SHA256U bound. Multi-cell
-    trees stay outside this leaf. -/
+    Bytes, not this hash cell. Shared c4 storage (`__layout` uint64 +
+    every field) is a **separate** Plan gate in `makeStorageLayoutV1`
+    (`64+Σ(byteWidth×8)≤1023`, with the explicit 24×8-byte Map flatten
+    exemption). Bytes 127 / Bytes 127+UInt256 therefore fail as
+    **storage-budget** negatives; they do not tighten this SHA256U N≤127
+    hash-cell cap. Multi-cell trees stay outside this leaf. -/
 private def maxSha256BytesLengthV1 : Nat := 127
 
 private def pfCryptoSha256BytesLengthErrorV1 : String :=
@@ -873,8 +882,9 @@ private def nearMapPilotLeafCountV1 : Nat :=
     CosmWasm 2-limb Regions and not two UInt64 leaves). Shared-cell
     budget `64+N*128 ≤ 1023` (`__layout` uint64 + N×uint128; N=8 FC).
     `makeStorageLayoutV1` then re-checks `64+Σ(field.byteWidth*8)`
-    whenever any 16-byte leaf is present, so N=7 plus a sibling
-    uint64 cannot overflow the same cell.
+    over **every** field (not only uint128 leaves), so N=7 plus a
+    sibling uint64 cannot overflow the same cell. The sole exemption
+    is `isLegacyMapFlattenV1` (exactly 24 leaves, all `byteWidth==8`).
     Map: dense capacity-8 occ/key/val → 24×8-byte cells. Third Bool is
     **value-is-Int64** for `Map UInt64 Int64` (occ/key stay unsigned
     uint64 cells; not a UInt64-value alias); `Map UInt64 UInt64` keeps
@@ -1334,6 +1344,15 @@ private def mapUpsertLeavesV1
     out := out.push occ' |>.push k' |>.push v'
   pure (out, okInsert)
 
+/-- Map cap-8 known over-cell flatten: exactly 24 leaves, all 8-byte.
+    Multi-cell packing is not implemented; this is an explicit exemption
+    from the shared c4 `64+Σ(byteWidth×8)≤1023` gate. Array Int64 24
+    happens to share the physical shape and is likewise exempt. A
+    sibling field (25th leaf) is **not** exempt. -/
+private def isLegacyMapFlattenV1 (fields : Array StorageField) : Bool :=
+  fields.size == nearMapPilotLeafCountV1 &&
+    fields.all (fun f => f.byteWidth == 8)
+
 private def makeStorageLayoutV1
     (types : TonTypeClosureV1)
     (typeDecls : Array TypeDeclV1)
@@ -1490,15 +1509,19 @@ private def makeStorageLayoutV1
             isInt
           }
           stateLeaves := stateLeaves.push #[fi]
-  -- Shared c4 cell: `__layout` uint64 + every field. Only enforce when a
-  -- 16-byte (uint128) leaf is present — do not apply this to the
-  -- historical Map 24×uint64 flatten, which already exceeds one cell.
-  if fields.any (fun f => f.byteWidth == 16) then
+  -- Shared c4 cell: `__layout` uint64 + every field bit.
+  -- Default: 64 + Σ(byteWidth×8) ≤ 1023. Honesty fix: toCell would
+  -- explode at runtime for over-budget layouts; name that FC here.
+  -- Do **not** invent multi-cell packing.
+  -- Sole exemption: Map cap-8 24×uint64 flatten (known over-cell;
+  -- multi-cell packing is not implemented). The predicate is the
+  -- physical 24×8-byte shape, not a TypeDecl walk.
+  unless isLegacyMapFlattenV1 fields do
     let payloadBits : Nat :=
       fields.foldl (fun (acc : Nat) f => acc + f.byteWidth * 8) 0
     if 64 + payloadBits > 1023 then
       throw <| .planInvariant .ton
-        "unsupported Ton semantic shape: Array UInt128 exceeds the 1023-bit c4 cell budget"
+        "unsupported Ton semantic shape: exceeds the 1023-bit c4 cell budget"
   let marker := layoutMarker fields
   if marker == 0 then
     throw <| .planInvariant .ton

@@ -275,8 +275,8 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     planError "XRPL plan exceeds the entry limit"
   unless plan.views.size ≤ maxViews do
     planError "XRPL plan exceeds the view limit"
-  unless plan.entries.size > 0 do
-    planError "XRPL plan requires at least one entry"
+  unless plan.entries.size > 0 || plan.views.size > 0 do
+    planError "XRPL plan requires at least one entry or view"
   let signed := plan.signedNumeric
   let numeric := numericTyOf signed
   let mut exprBudget := maxPlanExprNodes

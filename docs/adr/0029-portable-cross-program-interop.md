@@ -9,7 +9,7 @@ normative: true
 
 # ADR-0029：Portable 跨程序互通层
 
-- 状态：`draft`
+- 状态：`proposed`
 - 日期：2026-08-04
 - 动机：产品 owner 决策（2026-08-04）——可被诚实映射的链差异必须在物化层消化，
   源码保持 target-neutral；PDA 是 Solana 对"程序控制地址/金库"的实现机制，不是业务语义。

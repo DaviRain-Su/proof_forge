@@ -99,7 +99,7 @@ formal `OutputSetV1` 或 `TASK-D3-05` 完成。
    不再仅是 StateCell-like S1（**当前**：Normalize 已扩多宽/控制流/fn/for/call 等，完整语言面仍未闭合）。
 3. `CompiledSemanticV1` 是唯一产品编译成功 carrier；alpha Typed/Semantic lowering与 residual accessors 无产品调用。
 4. `ProgramRequirementsV1` 是唯一产品 requirement authority；target-neutral contribution engine 只向该 authority供给，不存在第二套 AST walker、alpha parity或 caller override。
-5. 十二个 materializer（EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/CosmWasm/TON/Soroban/OpenVM/ICP）Plan body 均直接消费 retained `SemanticProgramV1`（经 resolved capability）。
+5. 十三个 materializer（EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/CosmWasm/TON/Soroban/OpenVM/ICP/XRPL）Plan body 均直接消费 retained `SemanticProgramV1`（经 resolved capability）。
 6. 产品 identity/output 不再依赖 transitional parallel authority：frozen registry membership/axes、
    engineering SupportClaim/BuildIdentity/PlanDigest 与 content-bound engineering `proof-forge.output.v1`
    publish/inspect 已接线。按 D3-E1，formal-layout `registryDigest` 不进入当前产品路径；formal
@@ -138,9 +138,9 @@ materialize）→ capability Plan/publish。历史上的 B9–B12 监督层与 s
 `Frontend/ProtocolV1` 与 `WorkerV1` 不是产品 CLI 源权威。D1-04 shared IntegerLiteral 与
 ProgramV1 command/export/v2 仍为 sole 源表面。
 
-**当前执行指针 = Goal-auto drain 已空（LH-1…28 + Track F engineering-done；不要再开 `prompt-next-wave`）**：formal `TASK-D2-07` / `TST-SEM-002/003` **仍 pending，不是下一刀编码**。CAP-1a…5 已收口。TypeKey Stage D（usage-closure → StructureV1）**已接线**——[`docs/plan/evm-formal-d2-06-typekey-usage.md`](docs/plan/evm-formal-d2-06-typekey-usage.md)。日常工程下一刀（择一）：**B-CALL-SEM**（人拍）或 **CAP-X-BYTES**（共享核另立）。**CodecInvert 九字段工程闭合**（transport invert；不关闭 TASK-D2-06 / TST-SEM-001）。对账见 [`docs/research/28-project-wide-honesty-audit.md`](docs/research/28-project-wide-honesty-audit.md) 与 [`AGENTS.md`](AGENTS.md) Next task。
+**当前执行指针 = Goal-auto drain 已空（LH-1…28 + Track F engineering-done；不要再开 `prompt-next-wave`）**：formal `TASK-D2-07` / `TST-SEM-002/003` **仍 pending，不是下一刀编码**。CAP-1a…5、TypeKey Stage D（usage-closure → StructureV1）、**CAP-X-BYTES 与 CAP-X-MERKLE（均 2026-08-19）已收口**——[`docs/plan/capability-layer-tasks.md`](docs/plan/capability-layer-tasks.md)。日常工程下一刀（择一）：**B-CALL-SEM**（人拍）或诚实边界小切（见 AGENTS.md Next）。**CodecInvert 九字段工程闭合**（transport invert；不关闭 TASK-D2-06 / TST-SEM-001）。对账见 [`docs/research/28-project-wide-honesty-audit.md`](docs/research/28-project-wide-honesty-audit.md) 与 [`AGENTS.md`](AGENTS.md) Next task。
 产品路径仍为进程内单次 read → `Loader` → `Normalize` → `compile` → `certifyInlineProofV1`
-→ capability；十二个 materializer Plan body 已直连 retained `SemanticProgramV1`，`CompiledSemanticV1`
+→ capability；十三个 materializer Plan body 已直连 retained `SemanticProgramV1`，`CompiledSemanticV1`
 + `ProgramRequirementsV1` sole freeze + engineering resolver/capability 已接线。registry
 **13 = 13 implemented + 0 design-only**，resolver **17** rows。LH-1…28
 engineering packaging/corpus pin 已完成（含 LH-13 Sem003 trap+unconsumed `218ddc447`）；
@@ -170,7 +170,7 @@ C-3 / Anvil lossless 仍 blocked/fail closed（FC）；ADR-0036 仍 proposed。
 - ProgramV1 expression 与 pattern integer literal 共用 sole decoder：unsigned decimal 或
   lowercase-prefix `0x` hexadecimal（hex digits 可大小写），拒绝 `0X`/binary/octal/underscore，
   范围 `0..2^256-1`；等值 spelling → 相同 AST/canonical bytes/sourceHash（D1-04 工程切片）。
-- StateCell/Accumulator 等真实 source 可经 CLI 产出十二个 materializer 的工程制品；EVM 使用 digest-pinned
+- StateCell/Accumulator 等真实 source 可经 CLI 产出十三个 materializer 的工程制品；EVM 使用 digest-pinned
   `solc 0.8.34` 生成 bytecode，并有 EvmSolc 与 G4 Anvil 工程差分（**非** formal Reference↔Anvil）。
   Solana 有 SBPF→ELF + Mollusk 运行时差分工程链路；NEAR 有 locked `wat2wasm` 结构编译、
   host-optional runtime load 与 locked

@@ -3,7 +3,7 @@ id: TARGET-TON
 title: TON / TVM target dossier
 status: draft
 owner: architecture
-updated: 2026-08-16
+updated: 2026-08-19
 normative: true
 ---
 
@@ -53,10 +53,15 @@ fixed `Bytes N` state 已 flatten 到 c4。**Array Int64 N** 是 N 个连续
 UInt64 位别名，也**不是** CosmWasm Regions。**Array UInt128 N** 是 N 个连续
 `uint128` c4 cell（`loadUint(128)` / int257 `0≤t<2^128`），flatten 与
 Array UInt64/Int64 相同，`leafByteWidth=16`、`isInt=false`；**不是**
-CosmWasm 2-limb Regions，也**不是** 两个 UInt64 叶。Cell budget
-`64+Σ(field.byteWidth*8)≤1023` 当存在 uint128 叶（与 `__layout` uint64
-共享同一 cell；N=8 fail closed；N=7 + sibling UInt64 也 fail closed；
-不套用到既有 Map 24×uint64）。Map-of-UInt128 与 Array UInt256
+CosmWasm 2-limb Regions，也**不是** 两个 UInt64 叶。**c4 storage budget**
+（`makeStorageLayoutV1`，Emit 零改动）：默认对**全部 field** 查
+`64+Σ(field.byteWidth×8)≤1023`（与 `__layout` uint64 共享同一 cell）。
+唯一明示豁免是 `isLegacyMapFlattenV1`：恰好 24 叶且全 `byteWidth==8`
+（Map cap-8 24×uint64 flatten 已知超 cell；多 cell 打包未做，不发明）。
+Array UInt128 N=8 与 N=7+sibling UInt64 仍 fail closed。Bytes 127
+（1080）与 Bytes 127+UInt256（Sha256BytesTon127，1336）因此转为
+**storage-budget** 负例；SHA256U 单 cell N≤127 上限本身不变
+（hash cell 无 `__layout`）。Map-of-UInt128 与 Array UInt256
 仍 FC。**Option UInt128 state** 是 Enum 形双叶：`name_tag` 无符号
 uint64 cell + `name_p0` 一个 unsigned `uint128` cell（`loadUint(128)` /
 int257 `0≤t<2^128`）；flatten 与 Option UInt64 相同；**不是** CosmWasm

@@ -14,7 +14,10 @@ normative: true
 > authority 已删除。当前 CLI 进程内单次读源并调用 `Loader.selectProgramV1ProductWithTheoremInventory`，compile 后经 `certifyInlineProofV1`；没有 supervisor
 > receipt 或 controller-backed resource attribution；但已有 in-process `PF-RESOURCE-TIME`，以及
 > build published-byte gate 的 `PF-RESOURCE-OUTPUT` producer。memory/process 与 supervised
-> protocol/stderr output attribution 仍未实现。下文 controller 条款是 proposed / 历史设计。
+> protocol/stderr output attribution 仍无 producer；产品 CLI 对 `--resource-limit` 的
+> `memory-bytes` / `processes` / `protocol-bytes` / `stderr-bytes` override 在 preflight
+> 以 usage/exit 2 拒绝，不得发明对应 `PF-RESOURCE-*`。下文 controller 条款是 proposed /
+> 历史设计。
 
 本规格对齐 [`ADR-0022`](../adr/0022-d1-diagnostics-contained-frontend-contract.md) 的 D1
 diagnostic / contained-frontend 工程契约（proposed；非 formal approval）。
@@ -150,9 +153,9 @@ requiredness 失败使用 `PF-INTERNAL`，因为 emitter 生成非法自身协�
 | `PF-BOUND-001` | portable Syntax/identifier/program identity 超过 100000 nodes 或 nesting/components 256；未来也用于无法证明的控制流 bound |
 | `PF-SRC-INVALID` | source 非 UTF-8、超过 16 MiB 或无法进入 parser |
 | `PF-RESOURCE-TIME` | compiler stage 超过 effective monotonic wall budget；当前产品仅实现 in-process wall enforcement，不代表 containment |
-| `PF-RESOURCE-MEMORY` | 规划中的 controller/supervisor memory budget 超限；当前产品无 producer |
-| `PF-RESOURCE-PROCESS` | 规划中的 controller process/session budget 超限；当前产品无 producer |
-| `PF-RESOURCE-OUTPUT` | 当前 build 在 `artifact-output.published-bytes` effective limit 超限时于 publish 前产生；supervised protocol/stdout/stderr attribution 仍无 producer |
+| `PF-RESOURCE-MEMORY` | 规划中的 controller/supervisor memory budget 超限；当前产品无 producer；CLI `--resource-limit *.memory-bytes` 在 preflight 以 usage/exit 2 拒绝，不得用本码冒充超限 |
+| `PF-RESOURCE-PROCESS` | 规划中的 controller process/session budget 超限；当前产品无 producer；CLI `--resource-limit *.processes` 在 preflight 以 usage/exit 2 拒绝，不得用本码冒充超限 |
+| `PF-RESOURCE-OUTPUT` | 当前 build 在 `artifact-output.published-bytes` effective limit 超限时于 publish 前产生；supervised protocol/stdout/stderr attribution 仍无 producer；CLI `--resource-limit *.protocol-bytes` / `*.stderr-bytes` 在 preflight 以 usage/exit 2 拒绝 |
 | `PF-FRONTEND-PROTOCOL` | retained worker protocol 或未来 supervisor 的异常；当前 CLI source path 不经过 worker |
 | `PF-LANGUAGE-VERSION-UNKNOWN` | 请求的 exact DSL parser version 未登记 |
 | `PF-LANGUAGE-VERSION-DISABLED` | parser version 已禁用/撤销 |

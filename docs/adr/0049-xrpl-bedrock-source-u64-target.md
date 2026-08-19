@@ -75,6 +75,9 @@ EVM-first formal lighthouse，不关闭 formal 0/27。
    - 结果：public `Unit` / `UInt64` / `Bool`，外加 T6/T7/T8b 叶元组；
    - callables：`init` / `entry` / `view` / `pureFn`；T9a–T9c 允许
      reducible if / `switchOn` / counted `forLoop`；不可约 CFG 仍 FC；
+     Q0 合法导出面为 `entries.size > 0 || views.size > 0`（与
+     ICP/OpenVM/Soroban/Quint 同构）；view-only 程序可 materialize；
+     零 entry 且零 view fail closed。
    - ops：literal、state load/store、checked `UInt64` `+`/`-`/`*`/`/`/`%`、
      比较、Bool `and`/`or`/`not`、`pureCall` inline（depth ≤ 64）、bare
      assert、zero-payload declared revert；

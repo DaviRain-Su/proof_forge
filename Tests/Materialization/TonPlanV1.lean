@@ -26,8 +26,9 @@
   CosmWasm Regions; Array Int64 24 stays uniformly isInt), Array UInt128 N
   as N consecutive uint128 c4 cells (leafByteWidth=16 / loadUint(128) /
   int257 0≤t<2^128; not CosmWasm 2-limb Regions and not two UInt64 leaves;
-  cell budget 64+Σ(field bits)≤1023 when any uint128 leaf is present,
-  so N=8 and N=7+sibling UInt64 FC), dense Map
+  c4 storage budget `64+Σ(field.byteWidth×8)≤1023` over **every** field,
+  with one explicit exemption for the Map cap-8 24×8-byte flatten shape;
+  Array UInt128 N=8 and N=7+sibling UInt64 stay FC), dense Map
   UInt64 Int64 cap-8 as 24-leaf occ/key unsigned uint64 cells + val signed
   int64/loadInt with signedChecked* val mux (not a UInt64-value alias;
   Map Int8 / Map UInt128 / Map Int64 return stay FC), and explicit
@@ -41,7 +42,9 @@
   TVM `SHA256U` over the Semantic 32-byte LE image (`string_hash` /
   keccak256 / siblings stay fail closed).
   CAP-X-BYTES `pf.crypto.sha256Bytes` Bytes N→UInt256 (`1 ≤ N ≤ 127`,
-  one-cell 8N-bit `bitsHash`/`SHA256U`; N=128 and siblings stay FC).
+  one-cell 8N-bit `bitsHash`/`SHA256U`; hash-cell N=128 stays FC).
+  Bytes 127 + UInt256 state is a **c4 storage-budget** negative
+  (1336 bits); SHA256U's own N≤127 hash-cell cap is unchanged.
 
   Registered in Tests/Shards/Targets. Not @ton/sandbox runtime (TON-3).
   Not formal D4.
@@ -590,32 +593,23 @@ private unsafe def testCryptoSha256BytesAdmitted
     "Sha256BytesTon Tolk must not emit cell representation hash HASHCU"
   expect (!tolk.contains "HASHBU")
     "Sha256BytesTon Tolk must not emit slice representation hash HASHBU"
-  -- N=127 (8*127=1016 ≤ 1023) via state flatten (param flatten is
-  -- maxParams=64 and would mask the hash-cell bound).
-  let src127 := wrapProgram "Sha256BytesTon127" <|
-    "  state data : Bytes 127\n" ++
-    "  state last : UInt256\n\n" ++
-    "  init() do\n" ++
-    "    last := 0\n\n" ++
-    "  entry probe() : UInt256 do\n" ++
-    "    let h : UInt256 := call pf.crypto.sha256Bytes(data)\n" ++
-    "    last := h\n" ++
-    "    return last\n\n" ++
-    "  view get() : UInt256 do\n" ++
-    "    return last\n"
-  let compiled127 ← compileSource session src127 "Examples.Sha256BytesTon127"
-    "<ton-sha256-bytes-127>"
-  let plan127 ← liftResult <| planTon compiled127
-  let some probe127 := plan127.entries.find? (·.name == "probe") |
-    throw <| IO.userError "Sha256BytesTon127: missing probe"
-  expect (probe127.body.any hasSha256BytesStmt)
-    "Sha256BytesTon127: plan must contain Expr.sha256Bytes"
-  let files127 ← liftResult <| filesTon compiled127
-  let tolk127 ← findFile files127 "Sha256BytesTon127.tolk"
-  expect (tolk127.contains "bitsHash()")
-    "Sha256BytesTon127 Tolk must call slice.bitsHash()"
-  expect (!tolk127.contains "string_hash")
-    "Sha256BytesTon127 Tolk must not emit string_hash"
+  -- N=127 hash-cell (8*127=1016 ≤ 1023) is still the SHA256U bound, but
+  -- Bytes 127 + UInt256 c4 storage is 64+1016+256=1336 > 1023. That
+  -- layout is now a named storage-budget FC (not a tighter SHA256U cap).
+  -- Small-N Sha256BytesTon above still pins bitsHash / not string_hash.
+  expectPlanFc "Sha256BytesTon127" "<ton-sha256-bytes-127>"
+    "Examples.Sha256BytesTon127"
+    ("  state data : Bytes 127\n" ++
+      "  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe() : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.sha256Bytes(data)\n" ++
+      "    last := h\n" ++
+      "    return last\n\n" ++
+      "  view get() : UInt256 do\n" ++
+      "    return last\n")
+    "1023-bit c4 cell budget"
   -- Integer argument stays at the shared-core Bytes gate (never a host CALL).
   let intSrc := wrapProgram "Sha256BytesTonInt" <|
     "  state pad : UInt64\n\n" ++
@@ -678,6 +672,11 @@ private unsafe def testCryptoSha256BytesAdmitted
       "  view get() : UInt64 do\n" ++
       "    return pad\n")
     "pf.crypto.sha256Bytes requires exactly one Bytes N argument and UInt256 result"
+  -- Bytes 128 state is 64+1024 > 1023 even before the sibling UInt256.
+  -- After TON-C4-BUDGET the shared c4 storage gate fires first. The
+  -- SHA256U hash-cell `N ≤ 127` check in Lower is unchanged but is no
+  -- longer reachable via Bytes 128 state flatten (param flatten is
+  -- still maxParams=64).
   expectPlanFc "Sha256BytesTon128" "<ton-sha256-bytes-128>"
     "Examples.Sha256BytesTon128"
     ("  state data : Bytes 128\n" ++
@@ -690,7 +689,7 @@ private unsafe def testCryptoSha256BytesAdmitted
       "    return last\n\n" ++
       "  view get() : UInt256 do\n" ++
       "    return last\n")
-    "1023-bit TVM cell capacity" "N ≤ 127"
+    "1023-bit c4 cell budget"
   expectPlanFc "Sha256BytesTonNear" "<ton-sha256-bytes-near>"
     "Examples.Sha256BytesTonNear"
     ("  state last : UInt256\n\n" ++
@@ -703,7 +702,7 @@ private unsafe def testCryptoSha256BytesAdmitted
       "  view get() : UInt256 do\n" ++
       "    return last\n")
     "has no Ton host binding" "sha256Bytess"
-  IO.println "  ✓ pf.crypto.sha256Bytes → bitsHash/SHA256U; N=128/arity/siblings FC"
+  IO.println "  ✓ pf.crypto.sha256Bytes → bitsHash/SHA256U; N=127+U256 storage budget / arity / siblings FC"
 
 /-- Schedule → Plan/IR/Tolk createMessage pins (destination hash stub, bounce,
     send mode, value=0, op encoding). Sync call remains FC (above). -/
@@ -1090,16 +1089,17 @@ private unsafe def testArrayInt64State
 
 /-- Array Int64 24 must stay 24 uniform signed cells. Map val-only isInt
     is TypeDecl `.map`, not `n == 24`; this N is the Map flatten width so
-    a count-keyed layout would silently mark occ/key unsigned. Init writes
-    only the pad scalar — IndexGet/IndexSet still use size==24 as a Map
-    proxy (pre-existing), so this pin is layout-only. -/
+    a count-keyed layout would silently mark occ/key unsigned. No sibling
+    pad: 25×uint64 would exceed the shared c4 budget, while the 24×8-byte
+    shape is the explicit Map-flatten exemption. Init must not IndexSet
+    the array — IndexGet/IndexSet still use size==24 as a Map proxy
+    (pre-existing), so this pin is layout-only. -/
 private unsafe def testArrayInt64x24Layout
     (session : Language.Loader.ParserSession) : IO Unit := do
   let src := wrapProgram "ArrInt64x24" <|
-    "  state slots : Array Int64 24\n" ++
-    "  state pad : UInt64\n\n" ++
+    "  state slots : Array Int64 24\n\n" ++
     "  init() do\n" ++
-    "    pad := 0\n\n" ++
+    "    assert true\n\n" ++
     "  entry ping(v : Int64) : Int64 do\n" ++
     "    return v\n\n" ++
     "  view get() : Int64 do\n" ++
@@ -1107,8 +1107,8 @@ private unsafe def testArrayInt64x24Layout
   let compiled ← compileSource session src "Examples.ArrInt64x24"
     "<ton-arr-int64-24>"
   let plan ← liftResult <| planTon compiled
-  expect (plan.storage.fields.size == 25)
-    s!"ArrInt64x24: 24 array leaves + pad, got {plan.storage.fields.size}"
+  expect (plan.storage.fields.size == 24)
+    s!"ArrInt64x24: 24 array leaves, got {plan.storage.fields.size}"
   for i in [0:24] do
     let some field := plan.storage.fields[i]? |
       throw <| IO.userError s!"ArrInt64x24 missing field {i}"
@@ -1119,10 +1119,6 @@ private unsafe def testArrayInt64x24Layout
       s!"ArrInt64x24 slots_{i} must stay isInt (not Map occ/key/val mix)"
     expect (layoutFieldTypeSuffix field.byteWidth field.isInt == "i64-le")
       s!"ArrInt64x24 slots_{i} ABI suffix must be i64-le"
-  let some pad := plan.storage.fields[24]? |
-    throw <| IO.userError "ArrInt64x24 missing pad"
-  expect (pad.name == "pad" && !pad.isInt && pad.byteWidth == 8)
-    "ArrInt64x24 pad stays unsigned u64-le"
   match validatePlan plan with
   | .ok () => pure ()
   | .error e => throw <| IO.userError s!"ArrInt64x24 plan must validate: {e.render}"
@@ -1240,7 +1236,7 @@ private unsafe def testArrayUInt128CellBudget
   let compiled ← compileSource session src "Examples.ArrU128N8" "<ton-arr-u128-n8>"
   match planTon compiled with
   | .error (.planInvariant .ton msg) =>
-      expect (msg.contains "Array UInt128 exceeds the 1023-bit c4 cell budget")
+      expect (msg.contains "1023-bit c4 cell budget")
         s!"ArrU128 N=8 must cite cell budget, got: {msg}"
       expect (!msg.contains "Array state element must be UInt64")
         s!"ArrU128 N=8 must not reuse the element needle, got: {msg}"
@@ -1266,13 +1262,134 @@ private unsafe def testArrayUInt128SiblingCellBudget
     "<ton-arr-u128-n7-pad>"
   match planTon compiled with
   | .error (.planInvariant .ton msg) =>
-      expect (msg.contains "Array UInt128 exceeds the 1023-bit c4 cell budget")
+      expect (msg.contains "1023-bit c4 cell budget")
         s!"ArrU128 N=7+pad must cite cell budget, got: {msg}"
       expect (!msg.contains "Array state element must be UInt64")
         s!"ArrU128 N=7+pad must not reuse the element needle, got: {msg}"
   | .error e => throw <| IO.userError s!"ArrU128 N=7+pad: unexpected {e.render}"
   | .ok _ => throw <| IO.userError "ArrU128 N=7+pad: expected FC, got ok"
   IO.println "  ✓ Array UInt128 7 + UInt64 exceeds 1023-bit c4 cell budget"
+
+/-- TON-C4-BUDGET: shared c4 `__layout`+fields is gated for every field
+    (`64+Σ(byteWidth×8)≤1023`). The sole exemption is the 24×8-byte
+    flatten shape (Map cap-8 historical over-cell; multi-cell packing
+    is not implemented). SHA256U N≤127 is a different cell. -/
+private unsafe def testC4StorageBudget
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let expectFc (name pathLabel moduleName body : String) : IO Unit := do
+    let src := wrapProgram name body
+    let compiled ← compileSource session src moduleName pathLabel
+    match planTon compiled with
+    | .error (.planInvariant .ton msg) =>
+        expect (msg.contains "1023-bit c4 cell budget")
+          s!"{name} must cite 1023-bit c4 cell budget, got: {msg}"
+    | .error e => throw <| IO.userError s!"{name}: unexpected {e.render}"
+    | .ok _ => throw <| IO.userError s!"{name}: expected FC, got ok"
+  let expectOk (name pathLabel moduleName body : String) : IO Unit := do
+    let src := wrapProgram name body
+    let compiled ← compileSource session src moduleName pathLabel
+    let plan ← liftResult <| planTon compiled
+    match validatePlan plan with
+    | .ok () => pure ()
+    | .error e => throw <| IO.userError s!"{name} plan must validate: {e.render}"
+  -- N1: Bytes 127 + UInt64 = 64+1016+64=1144.
+  expectFc "C4N1Bytes127U64" "<ton-c4-n1>" "Examples.C4N1Bytes127U64"
+    ("  state data : Bytes 127\n" ++
+      "  state pad : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n\n" ++
+      "  entry ping() : UInt64 do\n" ++
+      "    return pad\n\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+  -- N3: UInt256×4 = 64+1024=1088.
+  expectFc "C4N3U256x4" "<ton-c4-n3>" "Examples.C4N3U256x4"
+    ("  state a : UInt256\n" ++
+      "  state b : UInt256\n" ++
+      "  state c : UInt256\n" ++
+      "  state d : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    a := 0\n\n" ++
+      "  entry ping() : UInt256 do\n" ++
+      "    return a\n\n" ++
+      "  view get() : UInt256 do\n" ++
+      "    return a\n")
+  -- N4: UInt256×3 = 64+768=832.
+  expectOk "C4N4U256x3" "<ton-c4-n4>" "Examples.C4N4U256x3"
+    ("  state a : UInt256\n" ++
+      "  state b : UInt256\n" ++
+      "  state c : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    a := 0\n\n" ++
+      "  entry ping() : UInt256 do\n" ++
+      "    return a\n\n" ++
+      "  view get() : UInt256 do\n" ++
+      "    return a\n")
+  -- N5: UInt256×3 + UInt64 = 64+768+64=896.
+  expectOk "C4N5U256x3U64" "<ton-c4-n5>" "Examples.C4N5U256x3U64"
+    ("  state a : UInt256\n" ++
+      "  state b : UInt256\n" ++
+      "  state c : UInt256\n" ++
+      "  state pad : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n\n" ++
+      "  entry ping() : UInt64 do\n" ++
+      "    return pad\n\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+  -- N6: UInt256×3 + 3×UInt64 = 64+768+192=1024.
+  expectFc "C4N6U256x3U64x3" "<ton-c4-n6>" "Examples.C4N6U256x3U64x3"
+    ("  state a : UInt256\n" ++
+      "  state b : UInt256\n" ++
+      "  state c : UInt256\n" ++
+      "  state p : UInt64\n" ++
+      "  state q : UInt64\n" ++
+      "  state r : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    p := 0\n\n" ++
+      "  entry ping() : UInt64 do\n" ++
+      "    return p\n\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return p\n")
+  -- N7: Bytes 119 = 64+952=1016.
+  expectOk "C4N7Bytes119" "<ton-c4-n7>" "Examples.C4N7Bytes119"
+    ("  state data : Bytes 119\n\n" ++
+      "  init() do\n" ++
+      "    data[0] := 0\n\n" ++
+      "  entry ping() : UInt8 do\n" ++
+      "    return data[0]\n\n" ++
+      "  view get() : UInt8 do\n" ++
+      "    return data[0]\n")
+  -- N8: Bytes 120 = 64+960=1024.
+  expectFc "C4N8Bytes120" "<ton-c4-n8>" "Examples.C4N8Bytes120"
+    ("  state data : Bytes 120\n\n" ++
+      "  init() do\n" ++
+      "    data[0] := 0\n\n" ++
+      "  entry ping() : UInt8 do\n" ++
+      "    return data[0]\n\n" ++
+      "  view get() : UInt8 do\n" ++
+      "    return data[0]\n")
+  -- N9: Bytes 87 + UInt256 = 64+696+256=1016.
+  expectOk "C4N9Bytes87U256" "<ton-c4-n9>" "Examples.C4N9Bytes87U256"
+    ("  state data : Bytes 87\n" ++
+      "  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry ping() : UInt256 do\n" ++
+      "    return last\n\n" ++
+      "  view get() : UInt256 do\n" ++
+      "    return last\n")
+  -- N10: Bytes 88 + UInt256 = 64+704+256=1024.
+  expectFc "C4N10Bytes88U256" "<ton-c4-n10>" "Examples.C4N10Bytes88U256"
+    ("  state data : Bytes 88\n" ++
+      "  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry ping() : UInt256 do\n" ++
+      "    return last\n\n" ++
+      "  view get() : UInt256 do\n" ++
+      "    return last\n")
+  IO.println "  ✓ c4 storage budget N1/N3–N10 (N2 = Sha256BytesTon127)"
 
 /-- Anonymous Array UInt128 view return stays UInt64-only after container
     layout started admitting UInt128 elements. -/
@@ -3561,6 +3678,7 @@ unsafe def run : IO Unit := do
   testArrayUInt128State session
   testArrayUInt128CellBudget session
   testArrayUInt128SiblingCellBudget session
+  testC4StorageBudget session
   testArrayUInt128ReturnFc session
   testMapInt64State session
   testMapInt64ElementFc session

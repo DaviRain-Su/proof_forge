@@ -16,9 +16,11 @@ normative: true
 > supervisor；不输出 supervised `receipts`。`--proof-bundle` / `--proof-bundle-digest`
 > 已从产品 CLI **删除**（unknown option / exit 2）；`ProofBundleV1` /
 > `ProofReferenceJoinV1` 仅 library/historical/formal-oriented，**不是** check/build
-> alternate surface 或 fallback。六类 `--resource-limit` 中 `wall-ms` 与 build
-> `artifact-output.published-bytes` 已进程内强制。以下 receipt/containment 条款是
-> proposed 目标。
+> alternate surface 或 fallback。六类 `--resource-limit` 中仅 `wall-ms` 与 build
+> `artifact-output.published-bytes` 已进程内强制；`memory-bytes` / `processes` /
+> `protocol-bytes` / `stderr-bytes` 仍可被 parser 识别，但产品 `check`/`build`
+> preflight 以 usage/exit 2 拒绝（无 in-process producer，不得报 `PF-RESOURCE-*`）。
+> 以下 receipt/containment 条款是 proposed 目标。
 >
 > **Inline proof（ADR-0027 base + ADR-0034 kind extension；sole product gate）**：
 > ProgramV1/`semanticHash` 不含 theorem body；固定 axiom
@@ -100,19 +102,28 @@ SPEC-COMMON-001，不创建第二套 resource profile：
 | `external-tool` | `externalTool` | rejected | allowed |
 | `artifact-output` | `artifactOutput` | rejected | allowed |
 
-field 只允许 `wall-ms`、`memory-bytes`、`processes`、`protocol-bytes`、`stderr-bytes`、
-`published-bytes`，分别一一映射 `ResourceProfileV1` 的六个 limit 字段。值必须是无符号十进制
-正整数；同一 `(stage,field)` 重复、unknown stage/field、`0`、负数、指数、overflow、该 hard
-maximum 为 `0`，或值大于该 stage/field hard maximum，均在 spawn/source open/output staging 前
-以 usage error/exit 2 拒绝。不存在 clamp：合法 override 就是 effective limit，省略的字段恰为
-SPEC-COMMON-001 hard maximum。不同 stage 的 maximum 互不比较，因此例如 tool wall override
-不会被 frontend wall maximum 误拒绝。
+parser 仍识别六个 field：`wall-ms`、`memory-bytes`、`processes`、`protocol-bytes`、
+`stderr-bytes`、`published-bytes`，分别一一映射 `ResourceProfileV1` 的六个 limit 字段。
+值必须是无符号十进制正整数；同一 `(stage,field)` 重复、unknown stage/field、`0`、负数、
+指数、overflow、该 hard maximum 为 `0`，或值大于该 stage/field hard maximum，均在
+spawn/source open/output staging 前以 usage error/exit 2 拒绝。不存在 clamp：合法
+override 就是 effective limit，省略的字段恰为 SPEC-COMMON-001 hard maximum。不同 stage
+的 maximum 互不比较，因此例如 tool wall override 不会被 frontend wall maximum 误拒绝。
 
-selection 后未执行的 target-specific external tool 仍可带合法 override，但 receipt 必须将该 stage
-记录为 `not-executed`，不能伪造 observed peak；`check` 因命令面明确没有 tool/output stage，直接
-拒绝对应 override。exact limit 接受，首次超过以对应 `PF-RESOURCE-*`、exit 6 终止并保持旧输出；
-receipt 记录全部 effective limits 与 override source。target execution gas/compute/proof limits 属于
-target semantics/Plan，不得通过这些 compiler-operation flags 改写。
+产品 `check`/`build` 命令面只 enforce 两个字段：任意允许 stage 的 `wall-ms`，以及
+`build` 的 `artifact-output.published-bytes`。其余四字段
+（`memory-bytes` / `processes` / `protocol-bytes` / `stderr-bytes`）在 preflight
+以 usage/exit 2 拒绝，稳定文案
+`--resource-limit <stage>.<field> is parsed but has no in-process producer; omit it`；
+**不是** `PF-RESOURCE-MEMORY` / `PF-RESOURCE-PROCESS` / `PF-RESOURCE-OUTPUT`。
+`check` 对 `external-tool`/`artifact-output` 的 stage 拒绝仍先于该 field 拒绝。
+
+selection 后未执行的 target-specific external tool 仍可带合法 **enforced** override，但
+receipt 必须将该 stage 记录为 `not-executed`，不能伪造 observed peak；`check` 因命令面
+明确没有 tool/output stage，直接拒绝对应 override。enforced 字段 exact limit 接受，首次
+超过以对应 `PF-RESOURCE-TIME` / `PF-RESOURCE-OUTPUT`、exit 6 终止并保持旧输出；
+receipt 记录全部 effective limits 与 override source。target execution gas/compute/proof
+limits 属于 target semantics/Plan，不得通过这些 compiler-operation flags 改写。
 
 ## Proof certification（sole product gate：inline same-file）
 
