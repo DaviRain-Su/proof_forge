@@ -15,9 +15,9 @@ normative: false
 > [`../research/12-target-coverage-matrix.md`](../research/12-target-coverage-matrix.md)
 > 为准；勾选只回写 [`../engineering-backlog.md`](../engineering-backlog.md) §12。  
 > **不是** formal / accepted-PRD / SPEC 代签。2026-08-19 owner 继续指令后，
-> **COMP-1-CALL-SEM-LAND 第一刀**（十三 kind inspect family-tag 表面针 +
-> evm/solana/cosmwasm `callScheduleResidual` 地址缺口标签 + ExtFlow/LaterFlow xrpl 针）
-> 已部分落地；部署地址绑定仍 pending。ADR 仍 `proposed`。
+> **COMP-1-CALL-SEM-LAND 第一刀**（inspect family + residual 标签）与
+> **COMP-1-NORMALIZE-RESIDUAL FC 针**（Field/Principal 源字面量 + Bytes 嵌套穿透）
+> 已部分落地；部署地址绑定与 Field/Principal 字面量开放仍 pending。ADR 仍 `proposed`。
 
 范围边界：[`../adr/0036-engineering-scope-and-evm-formal-lighthouse.md`](../adr/0036-engineering-scope-and-evm-formal-lighthouse.md)
 （工程 **13+0**，仍 `proposed`）。SPEC 分裂收口：
@@ -58,9 +58,10 @@ Cairo / RISC0 / SP1 / Move / 比特币 **不进本队列**。
 已强：13 种声明、递归 `pfType`、语句/表达式/place/pattern 大子集、v2 export、
 span/origin join、B8b 诊断、进程内 Loader。
 
-工程仍差：Normalize 仍拒绝嵌套穿透赋值 `m[k].x := v`、更深构造器子模式、
-Field/Principal 源字面量、Field 排序/`mod`、真可变 local。
-TypeKey 全 usage-closure / unused rejection 仍 deferred。
+工程仍差：Field/Principal **源字面量**与 Bytes 嵌套穿透仍 TypeCheck FC（已有
+产品针；开则须十三叶同时 Lower 或命名 FC）。Map 嵌套穿透 `m[k].x := v` 已开
+（N-NEST-IDX）。Enum/Option 嵌套构造器子模式已开；产品 parser 仍拒单分量
+struct pattern。Field 排序/`mod` 仍 FC。TypeKey unused rejection 仍 deferred。
 
 formal：TASK-D1-01…07 pending；D1-08 产品层已删，不恢复监督层。
 
@@ -133,7 +134,7 @@ Capability 横切（2026-08-19）：`sha256Bytes` 五叶已开；`merkleVerifyKe
 | ID | 项 | 依赖 | 状态 |
 |---|---|---|---|
 | **COMP-1-SPEC-ALIGN** | ADR-0051 accepted 后修订 `semantic-core.md` + corpus 对齐；无新 Sem00x pin | COMP-0-SPEC-HONESTY owner 接受 | pending |
-| **COMP-1-NORMALIZE-RESIDUAL** | 嵌套穿透赋值；仍拒绝的构造器嵌套；Field/Principal 源字面量（开则十三叶同时 Lower 或命名 FC） | 无（可先做 FC 针） | pending |
+| **COMP-1-NORMALIZE-RESIDUAL** | 嵌套穿透赋值；仍拒绝的构造器嵌套；Field/Principal 源字面量（开则十三叶同时 Lower 或命名 FC） | 无（可先做 FC 针） | **partial** — Field/Principal 源字面量 + Bytes 嵌套穿透产品 FC 针；Map 穿透已是 N-NEST-IDX；开字面量/Bytes 穿透另批 |
 | **COMP-1-TYPEKEY-REST** | TypeKey 剩余 usage-closure → StructureV1 | 不关 TASK-D2-06 | pending |
 | **COMP-1-CALL-SEM-LAND** | 先改 resolver/文档/针，再按 COMP-0 做 EVM 部署地址、Solana 外层账户、CW `contract_addr` | COMP-0-CALL-SEM 人拍 | **partial** — 十三 kind inspect 表面针（human+JSON）+ evm/solana/cosmwasm `callScheduleResidual` 地址缺口标签 + ExtFlow/LaterFlow xrpl 针；地址绑定仍 pending |
 | **COMP-1-SYS-CAP-L2** | 官方 program catalog：有 host 就 exact 一行一叶，无 host 就命名 FC | SYS-CAP S1–S4 已闭 | pending |
@@ -221,6 +222,6 @@ Capability 横切（2026-08-19）：`sha256Bytes` 五叶已开；`merkleVerifyKe
 ## 9. 下一刀
 
 日常编码下一刀仍是 **B-CALL-SEM 残差绑定**（EVM 部署地址 / Solana 外层账户 / CW
-`contract_addr`），**不是**把 B-CALL-SEM 标 closed。COMP-1-CALL-SEM-LAND 第一刀
-（inspect family tag + 三项地址 residual 标签）已落地；其余 COMP-0 三句与 ADR
-仍 proposed。
+`contract_addr`），或下一项共享核（COMP-1-TYPEKEY-REST / SYS-CAP-L2），**不是**
+把 B-CALL-SEM 标 closed。COMP-1-CALL-SEM-LAND inspect 标签与
+COMP-1-NORMALIZE-RESIDUAL FC 针已落地；字面量/Bytes 穿透开放与 ADR 仍 proposed。

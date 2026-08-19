@@ -80,10 +80,11 @@
       Map/Bytes **state** already admitted (ArrayState); empty Map default +
       IndexSet upsert; **N-1** product nonempty Map = empty default or
       `Map.empty()` Construct + successive IndexSet (Wire Construct stays
-      empty-only); fixed Bytes default zeros + IndexSet. Nested assign
-      *through* a Map element (`m[k].x = v`) or Bytes element still fail
-      closed (Option intermediate / UInt8 scalar). Bare-local field/index
-      assign rebinds the local; param roots still fail closed
+      empty-only); fixed Bytes default zeros + IndexSet.       Nested assign *through* a Map element (`m[k].x = v`) is open
+      (N-NEST-IDX). Nested assign through a Bytes element stays fail
+      closed (UInt8 leaf — TypeCheck rejects field/index on the element;
+      Normalize Bytes nested-assign arm is defense-in-depth). Bare-local
+      field/index assign rebinds the local; param roots still fail closed
     * callables: multi-block CFG (entryBlock=0, dense block ids).
       init/entry/view/pureFn carry `invariantSteps=none` unless a pureFn is
       in an invariant PureCall closure (then sole Wire exact steps).

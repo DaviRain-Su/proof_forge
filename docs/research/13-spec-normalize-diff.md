@@ -3,7 +3,7 @@ id: RPT-013
 title: SPEC × NormalizeV1 机械对账（DOC-SPEC-AUDIT）
 status: draft
 owner: research
-updated: 2026-08-03
+updated: 2026-08-19
 normative: false
 ---
 
@@ -129,7 +129,7 @@ Wire 可接受的 op 不代表 Normalize 会发出。对照 Normalize docstring 
 ## 6. 回流 engineering-backlog（2026-08-04 复核更新）
 
 1. 登记本文路径；DOC-SPEC-AUDIT → done（已登记）。
-2. N 家族 done 声明与代码主路径一致；String event payload、Int bounded-for、anonymous container result、zero-arg assert-else 与 invariant IR 已闭合。剩余余量为 call 返回值、嵌套穿透与 multi-entry Map Construct，并继续只在 backlog §2.4 排队。
+2. N 家族 done 声明与代码主路径一致；String event payload、Int bounded-for、anonymous container result、zero-arg assert-else 与 invariant IR 已闭合。剩余余量为 call 返回值、**Bytes** 嵌套穿透与 multi-entry Map Construct，并继续只在 backlog §2.4 排队。
 3. 下一产品优先按 backlog 推荐序：先处理 call 返回值 schema 与 call/schedule capability 产品决策；嵌套 Map 缺键和 multi-entry Map Construct 均需先冻结语义/schema，target leaf 仅在接口冻结后并行。
 
 ---

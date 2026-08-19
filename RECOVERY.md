@@ -139,7 +139,7 @@ materialize）→ capability Plan/publish。历史上的 B9–B12 监督层与 s
 ProgramV1 command/export/v2 仍为 sole 源表面。
 
 **当前执行指针 = Goal-auto drain 已空（LH-1…28 + Track F engineering-done；不要再开 `prompt-next-wave`）**：formal `TASK-D2-07` / `TST-SEM-002/003` **仍 pending，不是下一刀编码**。CAP-1a…5、TypeKey Stage D（usage-closure → StructureV1）、**CAP-X-BYTES 与 CAP-X-MERKLE（均 2026-08-19）已收口**——[`docs/plan/capability-layer-tasks.md`](docs/plan/capability-layer-tasks.md)。日常工程下一刀（择一）：**B-CALL-SEM**（人拍）或诚实边界小切（见 AGENTS.md Next）。**2026-08-19 完善度审查**已落地为 [`docs/plan/completeness-phased-roadmap.md`](docs/plan/completeness-phased-roadmap.md) 与 [`docs/engineering-backlog.md`](docs/engineering-backlog.md) §12；阶段 0 仍 proposed（ADR 未 accepted）；**COMP-1-CALL-SEM-LAND 第一刀**已部分落地
-（十三 kind inspect `callScheduleHonesty` 表面针 + evm/solana/cosmwasm `callScheduleResidual` 地址缺口标签 + ExtFlow/LaterFlow xrpl 针）；部署地址绑定仍 pending。**CodecInvert 九字段工程闭合**（transport invert；不关闭 TASK-D2-06 / TST-SEM-001）。对账见 [`docs/research/28-project-wide-honesty-audit.md`](docs/research/28-project-wide-honesty-audit.md) 与 [`AGENTS.md`](AGENTS.md) Next task。
+（inspect family + residual 标签；COMP-1-NORMALIZE-RESIDUAL Field/Principal 字面量与 Bytes 嵌套穿透 FC 针）；部署地址绑定与字面量开放仍 pending。**CodecInvert 九字段工程闭合**（transport invert；不关闭 TASK-D2-06 / TST-SEM-001）。对账见 [`docs/research/28-project-wide-honesty-audit.md`](docs/research/28-project-wide-honesty-audit.md) 与 [`AGENTS.md`](AGENTS.md) Next task。
 产品路径仍为进程内单次 read → `Loader` → `Normalize` → `compile` → `certifyInlineProofV1`
 → capability；十三个 materializer Plan body 已直连 retained `SemanticProgramV1`，`CompiledSemanticV1`
 + `ProgramRequirementsV1` sole freeze + engineering resolver/capability 已接线。registry

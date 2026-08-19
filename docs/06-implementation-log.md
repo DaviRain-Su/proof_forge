@@ -12,6 +12,15 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-19 — COMP-1-NORMALIZE-RESIDUAL fail-closed 针
+
+- CheckV1：Field/Principal 源整数字面量（return + Field state assign）与
+  Bytes 嵌套穿透（`b[i].x` / `b[i][j]`）TypeCheck not-ok。
+- `CheckV1ProductGate`：产品 `compileValidatedSourceV1` 钉
+  `PF-SRC-INVALID: type mismatch: expected Field(bn254_fr)|Principal|struct type`.
+- Normalize 头与完善度审查 1.1：Map `m[k].x := v` 已开（N-NEST-IDX），不再写成仍拒。
+- **不是** 字面量/Bytes 穿透开放、**不是** 十三叶 Lower、**不是** formal 0/27。
+
 ## 2026-08-19 — COMP-1-CALL-SEM-LAND inspect residual 标签
 
 - `RequirementResolverV1.callScheduleResidualV1`：仅 evm / solana / cosmwasm

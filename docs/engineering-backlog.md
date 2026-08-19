@@ -472,12 +472,12 @@ Cairo / RISC0 / SP1 / Move / 比特币 **不进本队列**。
 | **COMP-0-ADR-0036** | 工程计数改为 **13+0（含 XRPL）**；status 仍 `proposed`；accepted PRD 仍四目标 | 计数已对齐；acceptance 等人拍 |
 | **COMP-0-SPEC-HONESTY** | 采纳已起草 ADR-0051（typed return 一等；schedule void）；accepted 前不改 SPEC | ADR-0051 proposed |
 
-### 12.1 阶段 1 — 共享核（串行；COMP-1-CALL-SEM-LAND 第一刀已部分落地）
+### 12.1 阶段 1 — 共享核（串行；CALL-SEM inspect + NORMALIZE FC 针已部分落地）
 
 | ID | 项 | 状态 |
 |---|---|---|
 | **COMP-1-SPEC-ALIGN** | ADR-0051 accepted 后改 semantic-core + corpus；无新 Sem00x pin | pending |
-| **COMP-1-NORMALIZE-RESIDUAL** | 嵌套穿透赋值 / 更深 pattern / Field·Principal 源字面量（开则十三叶 Lower 或命名 FC） | pending |
+| **COMP-1-NORMALIZE-RESIDUAL** | 嵌套穿透赋值 / 更深 pattern / Field·Principal 源字面量（开则十三叶 Lower 或命名 FC） | **partial** — Field/Principal 源字面量 + Bytes 嵌套穿透产品 FC 针；Map 穿透已是 N-NEST-IDX；开放另批 |
 | **COMP-1-TYPEKEY-REST** | TypeKey 剩余 usage-closure → StructureV1（不关 TASK-D2-06） | pending |
 | **COMP-1-CALL-SEM-LAND** | resolver/文档/针，再按 COMP-0 做 EVM 地址、Solana 外层账户、CW `contract_addr` | **partial** — 十三 kind inspect 表面针（human+JSON）+ evm/solana/cosmwasm `callScheduleResidual` + ExtFlow/LaterFlow xrpl 针；地址绑定仍 pending |
 | **COMP-1-SYS-CAP-L2** | 官方 program catalog：有 host 一行一叶，无 host 命名 FC | pending |
@@ -920,6 +920,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-19 | **COMP-1-CALL-SEM-LAND 第一刀（partial）**：owner「继续」指令按族拆诚实。`callScheduleFamilyTagV1` 十三 kind 闭表；产品 `inspect`/`inspect --json` 露出 `callScheduleHonesty`（**不**进 SupportClaim / describe 三行）。NEAR resolver 头注释对齐 Phase C2。ExtFlow/LaterFlow 补 xrpl `effect.asynchronous-workflow` 针。CosmWasm 档案改 generic sync FC + pf.assets sync admitted。**不**关闭 B-CALL-SEM / 部署地址 / formal / ADR accepted |
 | 2026-08-19 | **COMP-1-CALL-SEM-LAND 十三 kind inspect 表面针**：`testInspectCallScheduleHonestySurface` 对全部 implemented target 钉 human+JSON `callScheduleHonesty`；BuildSelection evm/aleo/psy 与 CLI inspect aleo/cosmwasm 补针；describe 仍无该字段。**不**关闭 B-CALL-SEM / 部署地址 / formal |
 | 2026-08-19 | **COMP-1-CALL-SEM-LAND inspect residual 标签**：`callScheduleResidualV1` 仅 evm/solana/cosmwasm 有地址缺口标签（hashed-qn / outer-account / contract-addr stub）；human 仅 `some` 时出一行；JSON 其余 kind 为 `null`。**不**实现绑定、**不**进 SupportClaim / describe、**不**关闭 B-CALL-SEM / formal |
+| 2026-08-19 | **COMP-1-NORMALIZE-RESIDUAL FC 针（partial）**：CheckV1 + product compile 钉 Field/Principal 源整数字面量（`Field(bn254_fr)` / `Principal` vs `integer literal`）与 Bytes 嵌套穿透（`b[i].x` / `b[i][j]` TypeCheck FC）。Normalize 头与 roadmap 1.1 去掉过期「Map `m[k].x:=v` 仍拒」说法（N-NEST-IDX 已开）。**不**开放字面量/Bytes 穿透、**不**改十三叶 Lower、**不**关 formal |
 | 2026-08-19 | **文档事实刷新波（done）**：RPT-027（27-extension-crypto-design）整文刷新——§2 已交付表重画为按-QN 行（sha256 五叶/keccak 三叶/sha256Bytes 五叶/merkle EVM 叶/ecdsa EVM 叶+predicate 纪律）、§3 分桶标 done/pending、§4 改交付记录+剩余须人拍项；RPT-028 重核——计数 13+0/17/339/25·422、P0 标 closed、Gaps 仅余 ADR-0051（人拍）与 P2 顺手项、Verification 行全部重核、roadmap 下一刀=B-CALL-SEM；research README 25/27/28 摘要、`docs/index.md` 下一刀行、ADR README（0016 行 proposed→accepted 对齐 frontmatter、日期）、本文件 EXT-CRYPTO 行/「默认 CAP-1a」行/ecdsa「另议」行、capability-layer-tasks 标题十二→十三与 Wave-3 MERKLE 行/Wave-5 ecdsa 行、NEAR Lower 过期 Map-FC 注释一并修正。**未动**：ADR status 批次升格（需审批字段，人拍）、SPEC 正文（ADR-0051 禁止）、AGENTS 钉串（SBOM 244 / 13/304 / 25/422）、document-status 八行索引 |
 ---
 
