@@ -3,7 +3,7 @@ id: TARGET-NEAR
 title: NEAR target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-16
+updated: 2026-08-19
 normative: true
 ---
 
@@ -52,7 +52,13 @@ Phase 1：实现
   state-hold）、`BlockHeightCheck`（`context.blockHeight` ↔ sandbox
   `status.sync_info.latest_block_height`）、`ConstAnswer`（scalar `const` 表 / `Op.Constant`）
   与 `UnixTimeCheck`（`context.unixTimeSeconds` ↔ `block_timestamp` ns÷10^9）、
-  `BytesRet`（anonymous `Bytes 4` → 4×u8 tight `value_return`）。
+  `BytesRet`（anonymous `Bytes 4` → 4×u8 tight `value_return`）、
+  `Sha256Check`（`pf.crypto.sha256` UInt256 字 ↔ `env.sha256`）、
+  `Sha256BytesCheck`（`pf.crypto.sha256Bytes` Bytes 4 ↔ `env.sha256`，N≤64；
+  HostModel 对该 IR 仍 `modelError`，不实现 hash）、
+  `Keccak256Check`（`pf.crypto.keccak256` UInt256 字 ↔ `env.keccak256`）、
+  `AttachedValueCheck`（`context.attachedValue` ↔ `attached_deposit`）、
+  `SelfIdentityCheck`（`context.self` ↔ `current_account_id`）。
   2026-08-11 required run 以 userspace GLIBC 2.39 loader 在 GLIBC 2.36 host 启动原始 locked
   executable，原十套 corpus 全部 PASS；后续扩为十五套+ engineering 门（含
   `negative_corpus`）。**GLIBC 兼容启动（engineering）**：

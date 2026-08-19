@@ -269,7 +269,7 @@ Reference 差分或 Stage-0 证据。
 工程验收（已有部分）与后续：
 
 1. Tolk 编译产物结构门（BoC / ABI 形状）— **已接线**。
-2. `@ton/sandbox` 五阶段断言（Counter/EventFlowTon/ScheduleFlow 10/10 工程差分）— **已接线**；**非** formal。
+2. `@ton/sandbox` 五阶段断言（Counter/EventFlowTon/ScheduleFlow 15 it + 新增 Sha256BytesTon 1 条——**本机未执行**：fift companion 缺席、skip-clean）— **非** formal。
 3. Counter：init data cell、内部消息 inc、get-method 读回 — **已接线**。
 4. schedule out-message 发射与单消息证据 — **已接线**；callback/`query_id` 往返与真实地址/value 经济仍未闭合。
 5. bounce / action-fail / exit-code 负例 — sandbox 子集已观察。

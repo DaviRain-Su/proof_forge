@@ -82,7 +82,7 @@
 > Solana 已能把产品计划汇编为真实 sBPF ELF，并由 20-program/89-test Mollusk 工程 corpus 验证；
 > NEAR 有 locked `wat2wasm` 与 near-sandbox Counter overflow、聚合返回、Option state 工程路径；
 > Noir 与 Aleo 只有 compile-only 门，Psy 仍 source-only；Quint 是 zero-tool executable model；
-> CosmWasm 已有 Plan/IR/Wasm、mock 28 tests 与 wasmd rung-1；TON 已有 Tolk/BoC、schedule PARTIAL 与 sandbox 10/10。
+> CosmWasm 已有 Plan/IR/Wasm、mock 28 tests 与 wasmd rung-1；TON 已有 Tolk/BoC、schedule PARTIAL 与 sandbox 16/16。
 > 这些都是工程门，不是 formal、hermetic 或 release evidence；成熟度不人为升级。
 
 ---

@@ -33,7 +33,7 @@ ADR-0045 O0），opt-in `openvm-guest-elf-v1` 锁定 `cargo-openvm` 2.0.1 build/
 出 RV32IM ELF + `.vmexe`（ADR-0046 O1；仍无 keygen/execute/prove/verify）；CosmWasm
 工程面为 WAT + locked `wat2wasm`/`cosmwasm-check` + mock 28 tests + wasmd Docker rung-1
 （sync call FC、Binary SubMsg same-tx PARTIAL）；TON 工程面为 Tolk + real BoC +
-`@ton/sandbox` 10/10，schedule `createMessage` 为 hash destination/value=0 的 PARTIAL
+`@ton/sandbox` 16 it（新增 1 条本机未执行），schedule `createMessage` 为 hash destination/value=0 的 PARTIAL
 语义。以上均为工程观察，**非** formal/hermetic。
 **Accepted PRD Phase 1 范围仍为四目标**（EVM/Solana/NEAR/Noir）；engineering
 leaves 的边界由 **ADR-0036**（现 13+0：含 Soroban ADR-0044、OpenVM ADR-0045/0046、ICP ADR-0047、XRPL ADR-0049/0050）固定为非

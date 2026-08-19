@@ -141,7 +141,7 @@ layout: center
 | Psy | Dargo/Psy source + host-optional compile | Locked VM / prover |
 | Quint | `.qnt` executable model + zero-tool finalize | Product toolchain / ITF / MBT / verify / formal |
 | CosmWasm | WAT + locked toolchain + 28-test mock + wasmd Docker rung-1 | Mainnet / reply / formal; sync call stays FC; QN addr stub |
-| TON | Tolk → real BoC + sandbox 10/10; schedule `createMessage` PARTIAL | Mainnet / formal; real address+value / callback round-trip |
+| TON | Tolk → real BoC + sandbox 16/16; schedule `createMessage` PARTIAL | Mainnet / formal; real address+value / callback round-trip |
 
 <div class="mt-6 text-center text-sm opacity-80">
 Engineering registry 12 = 12 implemented materializers + 0 design-only. Accepted PRD Phase 1 remains EVM/Solana/NEAR/Noir; Aleo/Psy/Quint/CosmWasm/TON/Soroban/OpenVM/ICP are engineering leaves (ADR-0036, still proposed; formal lighthouse=EVM-first). Compile/mock/sandbox/host-only model smoke ≠ formal/hermetic.
@@ -236,7 +236,7 @@ layout: center
 - Quint: `.qnt` source-only executable model + zero-tool finalize (non-deployable; host smoke only)
 - OpenVM O0: controlled Rust guest + catalog + zero-tool finalize (no ELF/prove)
 - CosmWasm: WAT + check + 28-test mock + wasmd rung-1 (sync FC; Binary SubMsg same-tx, QN stub)
-- TON: Tolk/BoC + sandbox 10/10 (schedule createMessage PARTIAL; sync FC)
+- TON: Tolk/BoC + sandbox 16/16 (schedule createMessage PARTIAL; sync FC)
 - Current validation also: EVM Anvil, Solana Mollusk, NEAR sandbox, Noir/Aleo compile-only
 - Formal D1–D4 qualification remains separate and pending
 - Design-only: Soroban, ICP

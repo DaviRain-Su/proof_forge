@@ -118,7 +118,7 @@ normative: false
 | Principal/String state/params | **LOWERED** | T4：9 叶 `owner_len`+`w0..w7` identity（≠ TON address / 非 UTF-8 ABI）；**B-RET-PRIN / B-RET-STR** **view** 9 叶返回已开；entry 聚合 / caller→address 仍 FC |
 | `pf.crypto.sha256`（UInt256→UInt256） | **LOWERED**（CAP-5 2026-08-16） | Tolk `slice.bitsHash()`（TVM `SHA256U`）over Semantic UInt256 32B LE image；`string_hash`/HASHCU/HASHBU 永不发射；keccak256/siblings 名义 FC；freeze 其余不变 |
 | Commit · nonempty invariants · Field/String interface | **FAIL-CLOSED** | scalar `Op.Constant` 已 LOWERED（T3）+ **B-CONST-STR** String 9 叶 inline；Option UInt64 state 已 LOWERED（B-OPT-STATE） |
-| 制品 / 验收 | Tolk 1.4.2 → `.fif` + real BoC + `@ton/sandbox` 10/10（含 ScheduleFlow） | **非** 主网 / formal / hermetic |
+| 制品 / 验收 | Tolk 1.4.2 → `.fif` + real BoC + `@ton/sandbox` 16/16（含 ScheduleFlow + Sha256BytesTon） | **非** 主网 / formal / hermetic |
 
 ## 1c. Quint Q0 executable-model 真实范围（十二 materializer 之一）
 
@@ -170,7 +170,7 @@ normative: false
 | Plan canonicity (ValidatePlan) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | IR 结构验证 (ValidateIR) | ✅(M4) | N/A | N/A | N/A | N/A | N/A | ✅(structured Q AST) | N/A | N/A | N/A | N/A | N/A |
 | 真实工具链编译验收 | ✅(EvmSolc: solc) | ✅(Mollusk runtime) | ✅(NearWasmAcceptance: locked wat2wasm + host-optional wasm-interp/wasmtime/wasmer load) | ✅(NoirCompileAcceptance: nargo 1.0.0-beta.26 compile-only；G123；缺席 skip；**非** prove/verify) | ❌ zero-tool direct DPN materializer；无 Dargo/compiler/runtime lane | ❌ zero-tool direct Aleo Instructions materializer；无 Leo/compiler/runtime lane | ❌ product toolchain；⚠️ host-only exact Quint 0.32 typecheck（非 Tool Lock/finalize） | ✅(locked wat2wasm + cosmwasm-check 3.0.9；**非** wasmd) | ✅(tolk 1.4.2 → real BoC；**非** 主网) | ❌ S0 zero-tool `.rs`；无 stellar-cli/Wasm | ⚠️ 默认 O0 zero-tool；opt-in O1 locked `cargo-openvm` ELF/VmExe（**非** prove） | ✅ locked wat2wasm `{name}.wasm`；PocketIC 不进 Finalize |
-| 运行时差分 (Reference↔target) | ⚠️(G4 工程 Anvil 差分：Counter/Accumulator/ArithOps/EventFlow + caller/Ownable corpus；**非** formal C-3) | ✅(Mollusk 工程门 + ADR-0048 bounded HandlerIR↔sBPF observation；**非** formal Stage-0 / `.so`/validator) | ⚠️(WABT dummy env + near-sandbox 2.13.0 九套件，含 CallerCheck；非 Reference↔Wasm formal) | ❌ | ❌（DPN package emission only；无 local VM/proof） | ❌（Instructions emission only；无 VM/proof/network） | ⚠️(TS evaluator smoke；非 Reference differential/verify) | ⚠️(cosmwasm-vm mock 48 tests，含 CallerGate 7/7 + wasmd v0.70.3 Docker rung-1；**非** formal/主网) | ⚠️(@ton/sandbox 10/10 工程，含 ScheduleFlow；**非** formal/主网) | ❌ 无 local invoke | ❌ 无 keygen/execute/prove | ⚠️ host-optional PocketIC；**非** replica/mainnet/formal |
+| 运行时差分 (Reference↔target) | ⚠️(G4 工程 Anvil 差分：Counter/Accumulator/ArithOps/EventFlow + caller/Ownable corpus；**非** formal C-3) | ✅(Mollusk 工程门 + ADR-0048 bounded HandlerIR↔sBPF observation；**非** formal Stage-0 / `.so`/validator) | ⚠️(WABT dummy env + near-sandbox 2.13.0 九套件，含 CallerCheck；非 Reference↔Wasm formal) | ❌ | ❌（DPN package emission only；无 local VM/proof） | ❌（Instructions emission only；无 VM/proof/network） | ⚠️(TS evaluator smoke；非 Reference differential/verify) | ⚠️(cosmwasm-vm mock 48 tests，含 CallerGate 7/7 + wasmd v0.70.3 Docker rung-1；**非** formal/主网) | ⚠️(@ton/sandbox 16/16 工程，含 ScheduleFlow + Sha256BytesTon；**非** formal/主网) | ❌ 无 local invoke | ❌ 无 keygen/execute/prove | ⚠️ host-optional PocketIC；**非** replica/mainnet/formal |
 
 ## 3. 工程轨道未实现 feature 全清单（A/B/C/D 组）
 

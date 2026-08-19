@@ -5,8 +5,8 @@
  * Env:
  *   PF_TON_ARTIFACT_DIR — OutputSet with *.compiled.boc + *.ton-abi.json
  *   PF_TON_METHOD       — method name (init|increment|get|…)
- *   PF_TON_ARGS         — space-separated u64 decimals
- *   PF_TON_INIT_ARGS    — auto-init u64 when method ≠ init (default: 0)
+ *   PF_TON_ARGS         — space-separated decimals, 0x-hex, or Bytes leaves
+ *   PF_TON_INIT_ARGS    — auto-init args when method ≠ init (default: 0)
  *
  * Honesty: engineering @ton/sandbox only — not mainnet, not formal.
  * Sync call FC at compiler; schedule = createMessage subset.
@@ -37,13 +37,59 @@ function envReq(name) {
   return v;
 }
 
-function parseU64s(s) {
+function parseArgTokens(s) {
   if (!s || !s.trim()) return [];
-  return s.split(/\s+/).map((tok) => {
+  const out = [];
+  for (const tok of s.split(/\s+/)) {
     const cleaned = tok.replace(/u64$/i, '').replace(/u$/i, '');
-    if (!/^\d+$/.test(cleaned)) die(`arg must be u64 decimal, got ${tok}`);
-    return BigInt(cleaned);
-  });
+    if (/^0x[0-9a-fA-F]+$/.test(cleaned)) {
+      let hex = cleaned.slice(2);
+      if (hex.length % 2 === 1) hex = `0${hex}`;
+      const bytes = [];
+      for (let i = 0; i < hex.length; i += 2) {
+        bytes.push(parseInt(hex.slice(i, i + 2), 16));
+      }
+      out.push({ kind: 'bytes', bytes });
+      continue;
+    }
+    if (!/^\d+$/.test(cleaned)) die(`arg must be decimal or 0x-hex, got ${tok}`);
+    out.push(BigInt(cleaned));
+  }
+  return out;
+}
+
+function abiBitWidth(type) {
+  switch (type) {
+    case 'uint256':
+    case 'int256':
+      return 256;
+    case 'uint128':
+    case 'int128':
+      return 128;
+    case 'uint32':
+    case 'int32':
+      return 32;
+    case 'uint16':
+    case 'int16':
+      return 16;
+    case 'uint8':
+    case 'int8':
+      return 8;
+    default:
+      return 64;
+  }
+}
+
+function namedStorageFields(abi) {
+  const fields = abi.storage?.fields;
+  if (!Array.isArray(fields)) return [];
+  return fields.filter((f) => f && typeof f === 'object' && f.name);
+}
+
+function fieldBitWidths(abi) {
+  const named = namedStorageFields(abi);
+  if (named.length === 0) return [64];
+  return named.map((f) => abiBitWidth(f.type));
 }
 
 function findBocAndAbi(dir) {
@@ -91,18 +137,60 @@ function findBocAndAbi(dir) {
   return { boc, abi, stem };
 }
 
-function buildBody(op, queryId, params) {
+function flattenArgs(paramsSpec, tokens) {
+  const spec = Array.isArray(paramsSpec) ? paramsSpec : [];
+  if (spec.length === 0) {
+    const out = [];
+    for (const tok of tokens) {
+      if (tok && typeof tok === 'object' && tok.kind === 'bytes') {
+        for (const byte of tok.bytes) out.push({ bits: 8, value: BigInt(byte) });
+      } else {
+        out.push({ bits: 64, value: BigInt(tok) });
+      }
+    }
+    return out;
+  }
+  const queue = [...tokens];
+  const out = [];
+  for (const p of spec) {
+    const bits = abiBitWidth(p.type);
+    if (bits === 8 && queue[0] && typeof queue[0] === 'object' && queue[0].kind === 'bytes') {
+      const next = queue[0].bytes;
+      if (next.length === 0) die(`empty Bytes token for param ${p.name}`);
+      out.push({ bits: 8, value: BigInt(next[0]) });
+      next.shift();
+      if (next.length === 0) queue.shift();
+      continue;
+    }
+    if (queue.length === 0) die(`missing arg for param ${p.name}`);
+    const tok = queue.shift();
+    if (tok && typeof tok === 'object' && tok.kind === 'bytes') {
+      if (tok.bytes.length !== Math.ceil(bits / 8)) {
+        die(`0x-hex width mismatch for ${p.name}: got ${tok.bytes.length} bytes, want ${Math.ceil(bits / 8)}`);
+      }
+      let v = 0n;
+      for (const byte of tok.bytes) v = (v << 8n) | BigInt(byte);
+      out.push({ bits, value: v });
+    } else {
+      out.push({ bits, value: BigInt(tok) });
+    }
+  }
+  if (queue.length > 0) die(`too many args (leftover ${queue.length})`);
+  return out;
+}
+
+function buildBody(op, queryId, encodedParams) {
   let b = beginCell().storeUint(BigInt(op), 32).storeUint(BigInt(queryId), 64);
-  for (const p of params) {
-    b = b.storeUint(p, 64);
+  for (const p of encodedParams) {
+    b = b.storeUint(p.value, p.bits);
   }
   return b.endCell();
 }
 
-function emptyStorageData(fieldCount) {
+function emptyStorageData(fieldBits) {
   let b = beginCell().storeUint(0, 64);
-  for (let i = 0; i < fieldCount; i++) {
-    b = b.storeUint(0, 64);
+  for (const w of fieldBits) {
+    b = b.storeUint(0, w);
   }
   return b.endCell();
 }
@@ -132,20 +220,13 @@ function loadMethod(abi, name) {
   return m;
 }
 
-function fieldCount(abi) {
-  const fields = abi.storage?.fields;
-  if (Array.isArray(fields)) {
-    // may mix objects and layoutMarker number
-    return fields.filter((f) => f && typeof f === 'object' && f.name).length || 1;
-  }
-  return 1;
-}
+
 
 async function main() {
   const artifactDir = envReq('PF_TON_ARTIFACT_DIR');
   const method = envReq('PF_TON_METHOD');
-  const args = parseU64s(process.env.PF_TON_ARGS || '');
-  const initArgs = parseU64s(process.env.PF_TON_INIT_ARGS || '');
+  const args = parseArgTokens(process.env.PF_TON_ARGS || '');
+  const initArgs = parseArgTokens(process.env.PF_TON_INIT_ARGS || '');
 
   if (!fs.existsSync(path.join(artifactDir, 'manifest.json'))) {
     die('missing manifest.json (run pf build -t ton first)');
@@ -166,8 +247,7 @@ async function main() {
     die(`ton-abi JSON parse failed (${abiPath}): ${e.message}`);
   }
   const code = Cell.fromBoc(fs.readFileSync(boc))[0];
-  const nFields = fieldCount(abi);
-  const data = emptyStorageData(nFields);
+  const data = emptyStorageData(fieldBitWidths(abi));
 
   const blockchain = await Blockchain.create({ config: 'default' });
   blockchain.now = FIXED_NOW;
@@ -187,8 +267,8 @@ async function main() {
 
   let queryId = 1n;
 
-  async function sendMethod(m, params) {
-    const body = buildBody(m.op, queryId++, params);
+  async function sendMethod(m, tokens) {
+    const body = buildBody(m.op, queryId++, flattenArgs(m.params || [], tokens));
     const bounce = m.mode !== 'init';
     const res = await contract.sendOp(
       deployer.getSender(),
@@ -223,9 +303,6 @@ async function main() {
         : m.params?.length
           ? Array(m.params.length).fill(0n)
           : [];
-    if (m.params && params.length !== m.params.length) {
-      die(`init wants ${m.params.length} args, got ${params.length}`);
-    }
     await sendMethod(m, params);
     // Print get if available
     if ((abi.methods || []).some((x) => x.name === 'get')) {
@@ -259,10 +336,6 @@ async function main() {
     }
   }
 
-  const want = m.params?.length ?? args.length;
-  if (args.length !== want && (m.params?.length ?? 0) > 0) {
-    die(`method ${method} wants ${want} args, got ${args.length}`);
-  }
   await sendMethod(m, args);
 
   // After mutate, print get() if present

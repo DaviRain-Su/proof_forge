@@ -70,6 +70,7 @@ fixtures=(
   BlockHeight
   UnixTimeSeconds
   Sha256Check
+  Sha256BytesCheck
   LoopSum
   MathOps
   FnCall

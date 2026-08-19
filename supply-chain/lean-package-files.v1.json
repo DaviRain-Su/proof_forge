@@ -1401,9 +1401,9 @@
       "sha256": "c27ec364c89205fe7dbf27bddb8cdad4c72b024053bfdab579dc38a2e37462ab"
     },
     {
-      "bytes": 158041,
+      "bytes": 158418,
       "path": "ProofForgeV2/Targets/Solana/EmitSbpfAsmV1.lean",
-      "sha256": "4fc1f04863f419628232f795e80064a1234648d1d4707837b4c00ab70243250e"
+      "sha256": "6b639ef9449e35ea639051c2c7eab8ec266b9f153df78d8c30a54b2ea4d729f1"
     },
     {
       "bytes": 14287,
@@ -1481,9 +1481,9 @@
       "sha256": "6a856cdfbe66bdafd7be186c43f0481ab05365f9f17c119dfe01fd1dc87e9d19"
     },
     {
-      "bytes": 28958,
+      "bytes": 29224,
       "path": "ProofForgeV2/Targets/Solana/SbpfOptionStateProductionV1.lean",
-      "sha256": "6f6cccce1b013c824eff9a3ad4dcc2200f5cd6f617214e4ad81cabede35c6f5b"
+      "sha256": "6c0a138d96c50b098ab4834356099b0d3c4c6bb5c29c1fd8f4c999e8162b4a89"
     },
     {
       "bytes": 12023,

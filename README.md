@@ -247,7 +247,7 @@ portable command，不 elaboration / 执行用户文件中的任意 Lean command
 | `psy` | ZK application chain | engineering implemented (scope ADR open) | sole `psy-dpn-v1`：target-owned Plan → canonical DPN `.dpn.json`；zero-tool、non-deployable；**无** DPN execution/local VM/proof/UPS/network/deploy |
 | `quint` | executable specification / model | engineering implemented (scope ADR open) | target-owned Q0 Plan/structured IR → `.qnt`；zero-tool finalize、`deployable=false`；host Quint 0.32 仅 optional observation，**非** Tool Lock / ITF / MBT / verify / formal |
 | `cosmwasm` | Wasm host | engineering implemented (scope ADR open) | Plan/IR→WAT；UInt8/16/32、named state、bounded aggregate/Array/Option return；Binary SubMsg PARTIAL；locked check + mock 28 tests + wasmd Docker rung-1；label=`wasm-validated-alpha`；**非** 主网/formal |
-| `ton` | TVM stack-account | engineering implemented (scope ADR open) | Plan/IR→Tolk + real BoC；UInt8/16/32、named/container state、bounded view returns；schedule `createMessage` PARTIAL；sandbox 10/10；label=`source-only`；**非** 主网/formal |
+| `ton` | TVM stack-account | engineering implemented (scope ADR open) | Plan/IR→Tolk + real BoC；UInt8/16/32、named/container state、bounded view returns；schedule `createMessage` PARTIAL；sandbox 16 it（新增 1 条本机未执行）；label=`source-only`；**非** 主网/formal |
 | Soroban / OpenVM / ICP | source-only / source-only / source-only | engineering implemented | ADR-0044 / ADR-0045–0046 / ADR-0047；非 formal/mainnet |
 
 详情：[`docs/targets/README.md`](docs/targets/README.md)。

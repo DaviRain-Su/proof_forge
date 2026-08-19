@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # TON engineering @ton/sandbox runtime differential (TON-3):
-#   product CLI build → StateCell.compiled.boc + EventFlowTon.compiled.boc
-#   → npm ci → node --test under runtime-tests/ton
+#   product CLI build → StateCell / EventFlowTon / ScheduleFlow /
+#   Sha256BytesTon compiled.boc → npm ci → node --test under runtime-tests/ton
 #
 # Covers StateCell init/increment/get/overflow + EventFlowTon emit/Cap revert
-# + ScheduleFlow createMessage schedule shape under @ton/sandbox 0.44.0
-# (local TVM emulator).
+# + ScheduleFlow createMessage schedule shape + Sha256BytesTon SHA256U
+# (N=4, Node crypto oracle) under @ton/sandbox 0.44.0 (local TVM emulator).
 #
 # Not mainnet, not formal Stage-0 / hermetic release evidence / CI-registered
 # shard (main agent decides just recipe wiring).
@@ -118,6 +118,7 @@ programs=(
   "Examples/StateCell.lean:Examples.StateCell:StateCell"
   "runtime-tests/ton/fixtures/EventFlowTon.lean:Examples.EventFlowTon:EventFlowTon"
   "runtime-tests/ton/fixtures/ScheduleFlow.lean:Examples.ScheduleFlow:ScheduleFlow"
+  "runtime-tests/ton/fixtures/Sha256BytesTon.lean:Examples.Sha256BytesTon:Sha256BytesTon"
 )
 
 echo "ton-runtime-test: building proof-forge-next (lake build proof_forge_next)"

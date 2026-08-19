@@ -5514,6 +5514,26 @@ private unsafe def testCryptoSha256BytesNear (session : Language.Loader.ParserSe
   expectContains capWat.contents "(call $pf_sha256 (i64.const 64)"
     "sha256-bytes-cap WAT must pass value_len=64"
 
+  -- HostModel does not execute env.sha256; the dedicated IR op traps with
+  -- the same modelError as the UInt256 sha256Host leaf. Sandbox owns hash.
+  let probeIR ← findMethod ir "probe"
+  let initIR ← findMethod ir "init"
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let (storage0, _, _) ← requireSuccess "sha256-bytes-near init"
+    (execute initIR empty ByteArray.empty zero)
+  let bytes4Input :=
+    encodeUInt64LE 1 ++ encodeUInt64LE 2 ++ encodeUInt64LE 3 ++ encodeUInt64LE 4
+  match execute probeIR storage0 bytes4Input zero with
+  | .trapped restored reason =>
+      expect (restored == storage0)
+        "sha256-bytes-near HostModel trap must restore pre-call storage"
+      expect (reason == "sha256BytesHost is outside the NearHostModel interpreter")
+        s!"sha256-bytes-near HostModel must modelError sha256BytesHost, got {reason}"
+  | .success .. =>
+      throw <| IO.userError
+        "sha256-bytes-near HostModel must not execute sha256BytesHost"
+
 /-- SYS-S5-NEAR: `call pf.crypto.keccak256` UInt256→UInt256 via host
     `keccak256`. Dedicated Plan/IR/WAT; other widths/QNs stay FC. -/
 private unsafe def testCryptoKeccak256Near (session : Language.Loader.ParserSession) :
