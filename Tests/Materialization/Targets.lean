@@ -6759,6 +6759,47 @@ unsafe def runRemainingNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "MerkleVerifyProbe" target kind
       merkleCompiled marker
 
+  -- COMP-1-SYS-CAP-L2: exact `pf.crypto.ecdsaRecoverSecp256k1(h,v,r,s) -> UInt256`
+  -- cross-target needle (EVM precompile `0x01` STATICCALL). EVM-only leaf;
+  -- the other twelve keep named fail-closed at their own first gate
+  -- (crypto namespace / width / profile), same discipline as merkle.
+  let ecdsaProbeSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program EcdsaRecoverProbe where\n" ++
+    "  entry recover(h : UInt256, v : UInt256, r : UInt256, s : UInt256) : UInt256 do\n" ++
+    "    return call pf.crypto.ecdsaRecoverSecp256k1(h, v, r, s)\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let ecdsaV1 ← match ← session.selectProgramV1 ecdsaProbeSource
+      "<targets-ecdsa-recover>" "Examples.EcdsaRecoverProbe" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"EcdsaRecoverProbe select: {e.render}"
+  let ecdsaCompiled ←
+    liftResult <| Compiler.compileValidatedSourceV1 ecdsaV1
+  let ecdsaEvmOut ← liftResult <| materializeSelected TargetId.evm ecdsaCompiled
+  expect (!(MaterializedArtifactsV1.filesOf ecdsaEvmOut).isEmpty)
+    "EcdsaRecoverProbe: evm must materialize ecdsaRecoverSecp256k1"
+  for (target, kind, marker) in #[
+      (TargetId.solana, TargetKind.solana,
+        "only public Principal/UInt64/UInt8 params"),
+      (TargetId.near, TargetKind.near, "state count is outside the profile limits"),
+      (TargetId.noir, TargetKind.noir,
+        "pf.crypto QN 'pf.crypto.ecdsaRecoverSecp256k1' has no Noir host binding"),
+      (TargetId.aleo, TargetKind.aleo, "widths are supported"),
+      (TargetId.psy, TargetKind.psy, "result-bearing external call is not admitted"),
+      (TargetId.quint, TargetKind.quint, "widths are supported"),
+      (TargetId.cosmwasm, TargetKind.cosmwasm,
+        "state count is outside the profile limits"),
+      (TargetId.ton, TargetKind.ton, "state count is outside the profile limits"),
+      (TargetId.soroban, TargetKind.soroban,
+        "UInt256 is admitted only as pf.crypto.sha256"),
+      (TargetId.icp, TargetKind.icp, "widths are supported"),
+      (TargetId.openvm, TargetKind.openvm, "widths are supported"),
+      (TargetId.xrpl, TargetKind.xrpl, "widths are supported")] do
+    expectMaterializePlanInvariantV1 "EcdsaRecoverProbe" target kind
+      ecdsaCompiled marker
+
   -- N-A4: Option state Normalize-admitted. All twelve materializers
   -- admit Option UInt64 state (Enum-shaped 2-leaf / tag+payload layout):
   -- EVM (BL-31), NEAR (BL-30), Solana (BL-29), Aleo (BL-35), CosmWasm

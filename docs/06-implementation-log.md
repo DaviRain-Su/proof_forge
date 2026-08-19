@@ -12,6 +12,15 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-19 — COMP-1-SYS-CAP-L2 ecdsa 十二叶第一道门针
+
+- `Tests/Materialization/Targets.lean`：合法
+  `pf.crypto.ecdsaRecoverSecp256k1(h,v,r,s) -> UInt256` 探针。EVM 必须 materialize；
+  其余十二叶 `expectMaterializePlanInvariantV1` 钉各自 first gate（与
+  `merkleVerifyKeccak256` 同纪律：width / profile / 命名 QN）。
+- `Tests/Materialization/XrplPlanV1.lean`：补 ecdsa QN 命名 FC（此前仅 sha256/keccak）。
+- **不是** 十二叶 ecdsa host、**不是** Anvil 差分、**不是** formal 0/27。
+
 ## 2026-08-19 — COMP-1-SYS-CAP-L2 maturityResidual + XRPL context 矩阵
 
 - `RequirementResolverV1.maturityResidualV1`：仅 icp=`deployable-wasm-vs-source-only-label`、
