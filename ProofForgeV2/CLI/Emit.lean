@@ -414,8 +414,10 @@ def emitProgram (capability : Targets.ResolvedEngineeringBuildV1)
 `output`/`root` are `Option` so duplicate flags are detectable (defaults applied
 at product path: `build/v2` and `.`). `json` selects PF-JCS stdout.
 D3-E5: `resourceLimits` / `minimumEvidence` are parsed and validated fail-closed
-before source open. RES-1 enforces wall clocks (build: pre-rename inside
-emitProgram; check: post-success path). The RES-1B output-only slice enforces
+before source open. D3-E8 honesty: build JSON exposes requested grade and
+`minimumEvidenceEnforcement: parse-only-not-enforced`; no resolver gate yet.
+RES-1 enforces wall clocks (build: pre-rename inside emitProgram; check:
+post-success path). The RES-1B output-only slice enforces
 `artifact-output.published-bytes` before publication. Product preflight rejects
 `memory-bytes` / `processes` / `protocol-bytes` / `stderr-bytes` (parsed, no
 in-process producer). Structural ambient ProofBundle product flags remain
@@ -701,6 +703,11 @@ def isValidMinimumEvidenceGradeV1 (grade : String) : Bool :=
   grade == "artifact_validated" ||
   grade == "local_runtime" ||
   grade == "network_or_proof_validated"
+
+/-- Build JSON honesty: flag is parsed/observable only until D3-E8 wires resolver
+and manifest effective minimum (owner decision). Must not imply enforcement. -/
+def minimumEvidenceEnforcementWireV1 : String :=
+  "parse-only-not-enforced"
 
 /-- Post-parse validation for check vs build (SPEC-CLI resource/evidence).
 Runs before source open / materialize. Wall-clock **enforcement** is RES-1
@@ -1354,15 +1361,18 @@ def renderCheckOkJsonV1
 def renderBuildOkHumanV1 (receipt : EmitReceiptV1) : String :=
   s!"built target={receipt.target} profile={receipt.codegenProfile} deployable={receipt.deployable}"
 
-/-- Product build success JSON (`proof-forge.cli.build.v1`). -/
+/-- Product build success JSON (`proof-forge.cli.build.v1`).
+`minimumEvidence` stays null until profile effective minimum is wired (D3-E8).
+`minimumEvidenceRequested` mirrors the CLI flag; `minimumEvidenceEnforcement`
+labels parse-only honesty (see docs/plan/d3-e8-minimum-evidence.md). -/
 def renderBuildOkJsonV1
     (receipt : EmitReceiptV1)
     (resourceLimits : Array ResourceLimitOverrideV1 := #[])
-    (minimumEvidence : Option String := none) :
+    (minimumEvidenceRequested : Option String := none) :
     CompileResult String :=
   let limitsJson := PfJson.array (resourceLimits.map renderResourceLimitJsonV1)
-  let evidenceJson :=
-    match minimumEvidence with
+  let requestedJson :=
+    match minimumEvidenceRequested with
     | some g => PfJson.string g
     | none => PfJson.null
   renderCliJsonV1 <|
@@ -1372,7 +1382,9 @@ def renderBuildOkJsonV1
       ("codegenProfile", .string receipt.codegenProfile.toString),
       ("deployable", .bool receipt.deployable),
       ("resourceLimits", limitsJson),
-      ("minimumEvidence", evidenceJson)
+      ("minimumEvidence", PfJson.null),
+      ("minimumEvidenceRequested", requestedJson),
+      ("minimumEvidenceEnforcement", .string minimumEvidenceEnforcementWireV1)
     ]
 
 -- ---------------------------------------------------------------------------

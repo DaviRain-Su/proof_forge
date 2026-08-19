@@ -92,6 +92,13 @@ negotiation、unknown exact、disabled/revoked 与 non-unique current-major defa
 `specified | artifact_validated | local_runtime | network_or_proof_validated`；有效值是
 `max(profile.minimumEvidence, cliRequested)`，CLI 不得降低 profile 下限。
 
+**Engineering 诚实边界（D3-E8，2026-08-19）**：当前产品只 parse + preflight 白名单 +
+build JSON 可观测（`minimumEvidenceRequested`、`minimumEvidenceEnforcement:
+parse-only-not-enforced`；`minimumEvidence` 仍为 null）。**不参与** capability resolve、
+support decision、manifest identity 或 exit 4 门禁；不得以成功 build 暗示已达
+`artifact_validated` / `local_runtime` / `network_or_proof_validated`。接线计划见
+[`docs/plan/d3-e8-minimum-evidence.md`](../plan/d3-e8-minimum-evidence.md)。
+
 `--resource-limit` 是 repeatable、逐 stage/field 的 lower-only override。CLI 名称固定映射到
 SPEC-COMMON-001，不创建第二套 resource profile：
 
