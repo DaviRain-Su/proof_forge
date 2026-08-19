@@ -70,6 +70,7 @@ Ops: literal, loadParam, loadState, checkedAdd/Sub/Mul/Div/Mod,
 bitAnd/Or/Xor/Not, checkedShl/Shr, boolNot/And/Or, zeroState, storeState,
 storeStateMulti, setHeader, setReturnData (u64 LE / bool / multi-leaf B-RET-ABI),
 compare, sha256Syscall (ADR-0031 S5: `sol_sha256` UInt256→UInt256),
+sha256BytesSyscall (CAP-X-BYTES-SOL: `sol_sha256` Bytes N→UInt256, N≤64),
 keccak256Syscall (ADR-0031 S5: `sol_keccak256` UInt256→UInt256),
 clockSlot (ADR-0031 S2: `sol_get_clock_sysvar` → Clock.slot; physical
 ≈400ms slot, not logical block number; no Clock account meta),
@@ -332,7 +333,7 @@ private def opResultLimbCount : Operation → Nat
   | .bitNot .. | .boolNot .. | .boolAnd .. | .boolOr ..
   | .compare .. | .wideCompare .. | .callFn .. | .clockSlot ..
   | .clockUnixTimestamp .. | .callerPrincipalLeaf .. => 1
-  | .sha256Syscall .. | .keccak256Syscall .. => 4
+  | .sha256Syscall .. | .keccak256Syscall .. | .sha256BytesSyscall .. => 4
   | .externalCall _ _ _ (some _) => 1
   | .mapPrincipalUpsert .. => mapPrincipalLeafCountV1 + 1
   | _ => 0
@@ -361,7 +362,7 @@ private def opDestination? : Operation → Option Nat
       .narrowCheckedShl _ destination .. | .narrowCheckedShr _ destination .. |
       .compare destination .. | .wideCompare _ destination .. |
       .callFn _ destination _ | .sha256Syscall destination _ |
-      .keccak256Syscall destination _ |
+      .keccak256Syscall destination _ | .sha256BytesSyscall destination _ |
       .clockSlot destination | .clockUnixTimestamp destination
       | .callerPrincipalLeaf destination _ _ => some destination
   | .mapPrincipalUpsert _ _ _ outTemps _ =>
@@ -2733,6 +2734,62 @@ private def emitOperation (fuel : Nat) (b : AsmBuf) (ir : IR) (tempBase : Nat)
       b := emit b "  call sol_sha256"
       -- Syscall status is explicit: non-zero is program_error(1), never a
       -- silently accepted zero digest.
+      b := emit b s!"  jeq r0, 0, {okLab}"
+      b := emit b "  lddw r0, 0x1"
+      b := emit b "  exit"
+      b := emit b s!"{okLab}:"
+      for i in [:4] do
+        b := loadTempAbs b "r1" (outputBase + 3 - i)
+        b := storeTemp b tempBase (destination + i) "r1"
+      pure b
+  | .sha256BytesSyscall destination inputs => do
+      -- CAP-X-BYTES-SOL: pack N UInt8 temps into one contiguous stack slice
+      -- (source byte order, unused tail of the last word zeroed) and call
+      -- `sol_sha256` with slice count 1 and len=N. Output is the same four
+      -- LE UInt256 limbs as `sha256Syscall`. Scratch = ceil(N/8) + 4 + 2.
+      if inlineCtx.isSome then
+        return ← asmError "S1b sha256Bytes syscall is not admitted inside pureFn inline"
+      let n := inputs.size
+      unless 1 ≤ n && n ≤ maxSha256BytesLenV1 do
+        return ← asmError
+          s!"S1b sha256Bytes N={n} exceeds Solana limit {maxSha256BytesLenV1} (maxParams flatten + scratch budget)"
+      let nWords := (n + 7) / 8
+      let (b0, scratchBase) := allocTemps b (nWords + 6)
+      let inputBase := scratchBase
+      let outputBase := scratchBase + nWords
+      let sliceBase := scratchBase + nWords + 4
+      let inputPtrTemp := inputBase + nWords - 1
+      let outputPtrTemp := outputBase + 3
+      let slicePtrTemp := sliceBase + 1
+      let (b1, okLab) := fresh b0 "sha256_bytes_ok"
+      let mut b := b1
+      b := emit b
+        s!"  ; %{destination}..%{destination + 3} = sol_sha256 bytes[{n}]"
+      for w in [:nWords] do
+        b := emit b "  mov64 r1, 0"
+        b := storeTempAbs b (inputBase + w) "r1"
+      for i in [:n] do
+        let some src := inputs[i]? |
+          return ← asmError "S1b sha256Bytes input temp missing"
+        b := loadTemp b "r1" tempBase src
+        b := emit b "  and64 r1, 0xff"
+        let wordIdx := i / 8
+        let byteInWord := i % 8
+        let destTemp := inputBase + nWords - 1 - wordIdx
+        b := emit b "  mov64 r8, r10"
+        b := emit b s!"  add64 r8, -{tempStackOff destTemp}"
+        b := emit b s!"  stxb [r8 + {byteInWord}], r1"
+      b := emit b "  mov64 r1, r10"
+      b := emit b s!"  add64 r1, -{tempStackOff inputPtrTemp}"
+      b := storeTempAbs b slicePtrTemp "r1"
+      b := emit b s!"  lddw r1, {n}"
+      b := storeTempAbs b sliceBase "r1"
+      b := emit b "  mov64 r1, r10"
+      b := emit b s!"  add64 r1, -{tempStackOff slicePtrTemp}"
+      b := emit b "  lddw r2, 1"
+      b := emit b "  mov64 r3, r10"
+      b := emit b s!"  add64 r3, -{tempStackOff outputPtrTemp}"
+      b := emit b "  call sol_sha256"
       b := emit b s!"  jeq r0, 0, {okLab}"
       b := emit b "  lddw r0, 0x1"
       b := emit b "  exit"

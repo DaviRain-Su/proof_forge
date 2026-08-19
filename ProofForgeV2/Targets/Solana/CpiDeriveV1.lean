@@ -123,9 +123,10 @@ private def qnDotted (qn : QualifiedName) : CompileResult String := do
 
 /-- Exact SYS-S5 Solana host syscall bindings. These semantic ExternalCalls
     are lowered by the full-body Plan/IR path and must never become CPI
-    RawSites. -/
+    RawSites. Delegates to the shared catalog predicate (CAP-X-BYTES added
+    `pf.crypto.sha256Bytes` there). -/
 private def isCryptoHostSyscallQnV1 (qn : String) : Bool :=
-  qn == "pf.crypto.sha256" || qn == "pf.crypto.keccak256"
+  ProofForgeV2.Core.RequirementIdsV1.isPfCryptoHostSyscallQnV1 qn
 
 private def anonUintWidth?
     (types : Array TypeDeclV1) (typeId : TypeIdV1) : Option Nat :=

@@ -8,6 +8,26 @@
       encodeEngineeringSorobanPlanBytesV1(plan))
 
   **Engineering only — not formal Plan identity / OutputSetV1.**
+
+  Expr ctor tags (Lean inductive / `reprStr` engineering digest; not a
+  tagged binary schema). Frozen CAP-4 `sha256Limb` stays tag 6.
+  CAP-X-BYTES-SOR pins the next free ctor as tag 14 `sha256BytesLimb`.
+
+    0 litU64
+    1 litBool
+    2 param
+    3 stateLoad
+    4 unixTimeSeconds
+    5 blockHeight
+    6 sha256Limb          -- CAP-4, frozen
+    7 temp
+    8 arith
+    9 compare
+    10 boolAnd
+    11 boolOr
+    12 boolNot
+    13 ite
+    14 sha256BytesLimb    -- CAP-X-BYTES-SOR, pinned 2026-08-19
 -/
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Targets.Soroban.ValidatePlanV1

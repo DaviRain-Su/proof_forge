@@ -52,6 +52,7 @@ import Tests.Semantic.Sem001ShapeV1
 import Tests.Semantic.Sem002ShapeV1
 import Tests.Semantic.Sem003ShapeV1
 import Tests.Semantic.AttachedValueContextV1
+import Tests.Semantic.NormalizeSha256BytesV1
 import Tests.Materialization.EvmOutcomeAdapterV1
 import Tests.Semantic.MiniAmmL1Admit
 import Tests.Semantic.MiniAmmVectorsV1
@@ -226,6 +227,7 @@ private unsafe def runSemanticTests : IO Unit := do
   Tests.Semantic.Sem002ShapeV1.run
   Tests.Semantic.Sem003ShapeV1.run
   Tests.Semantic.AttachedValueContextV1.run
+  Tests.Semantic.NormalizeSha256BytesV1.run
   Tests.Materialization.EvmOutcomeAdapterV1.run
   Tests.Semantic.MiniAmmL1Admit.run
   Tests.Semantic.MiniAmmVectorsV1.run

@@ -604,6 +604,22 @@ private partial def checkPlanStatementsV1
             "unsupported EVM semantic shape: pf.crypto.sha256 input must be UInt256"
         total ← addPlanExprNodes slots paramCount total fns input
         total := total + 1
+    | .sha256BytesPrecompile byteLeaves _resultTemp =>
+        if isView then
+          throw <| .planInvariant .evm
+            s!"{owner} calls pf.crypto.sha256Bytes in a view/pureFn context"
+        if isConstructor then
+          throw <| .planInvariant .evm
+            "constructor cannot call pf.crypto.sha256Bytes"
+        unless 1 ≤ byteLeaves.size && byteLeaves.size ≤ 64 do
+          throw <| .planInvariant .evm
+            s!"unsupported EVM plan: pf.crypto.sha256Bytes EVM leaf admits Bytes N only for 1 ≤ N ≤ 64 (unrolled memory emission); got N={byteLeaves.size}"
+        for leaf in byteLeaves do
+          unless exprIsExternalUIntCompatibleV1 fns leaf do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: pf.crypto.sha256Bytes byte leaves must be unsigned UInt expressions"
+          total ← addPlanExprNodes slots paramCount total fns leaf
+        total := total + 1
     | .keccak256Opcode input _resultTemp =>
         if isView then
           throw <| .planInvariant .evm

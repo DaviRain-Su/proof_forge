@@ -12,8 +12,11 @@ get-methods) and Semantic→Plan body for the public-UInt64 state-cell pilot.
 
 CAP-5 admits exact `pf.crypto.sha256` (UInt256→UInt256) as Tolk
 `slice.bitsHash()` / TVM `SHA256U` over the Semantic 32-byte LE image.
-`pf.crypto.keccak256` and sibling QNs stay fail closed. FunC `string_hash`
-is forbidden (cell-hash-flavored name; not this binding).
+CAP-X-BYTES admits exact `pf.crypto.sha256Bytes` (Bytes N→UInt256,
+N ≤ 127) as the same `bitsHash`/`SHA256U` over the N-byte unsigned
+bit image in one cell. `pf.crypto.keccak256` and sibling QNs stay
+fail closed. FunC `string_hash` is forbidden (cell-hash-flavored
+name; not this binding).
 -/
 
 namespace ProofForgeV2.Targets.Ton
@@ -207,6 +210,11 @@ inductive Expr where
       Forbidden: FunC `string_hash` spelling / cell representation hash
       (`slice.hash` / `HASHCU` / `HASHBU`). -/
   | sha256 (operand : Expr)
+  /-- CAP-X-BYTES: SHA-256 of anonymous `Bytes N` (`1 ≤ N ≤ 127`) via
+      Tolk `slice.bitsHash()` (TVM `SHA256U`) over one cell of 8N
+      unsigned bits. Independent of `.sha256`. Forbidden: FunC
+      `string_hash` / `slice.hash` / `HASHCU` / `HASHBU`. -/
+  | sha256Bytes (bytes : Array Expr)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -466,8 +474,9 @@ def canonicalRegisters : RegisterLayout := {
 def isIdentifier (value : String) : Bool :=
   isAsciiIdentifier maxIdentifierBytes value
 
-/-- CAP-5: reserve the whole `pf.crypto.*` namespace. Only exact sha256
-    is admitted; keccak256 and siblings keep the named host-binding FC. -/
+/-- CAP-5 / CAP-X-BYTES: reserve the whole `pf.crypto.*` namespace.
+    Only exact `sha256` and `sha256Bytes` are admitted; keccak256 and
+    siblings keep the named host-binding FC. -/
 private def isPfCryptoCalleeV1 (components : Array String) : Bool :=
   components[0]? == some "pf" && components[1]? == some "crypto"
 
@@ -477,8 +486,33 @@ private def isPfCryptoSha256CalleeV1 (components : Array String) : Bool :=
     components[1]? == some "crypto" &&
     components[2]? == some "sha256"
 
+private def isPfCryptoSha256BytesCalleeV1 (components : Array String) : Bool :=
+  components.size == 3 &&
+    components[0]? == some "pf" &&
+    components[1]? == some "crypto" &&
+    components[2]? == some "sha256Bytes"
+
 private def pfCryptoSha256ArityErrorV1 : String :=
   "unsupported Ton semantic shape: pf.crypto.sha256 requires exactly one UInt256 argument and UInt256 result"
+
+/-- Exact ABI: one anonymous `Bytes N` argument and a UInt256 result.
+    N-capacity is a separate named gate (`pfCryptoSha256BytesLengthErrorV1`). -/
+private def pfCryptoSha256BytesArityErrorV1 : String :=
+  "unsupported Ton semantic shape: pf.crypto.sha256Bytes requires exactly one Bytes N argument and UInt256 result"
+
+/-- TVM ordinary cell data capacity is 1023 bits. SHA256U (`slice.bitsHash`)
+    hashes the data bits of one slice. This leaf packs N unsigned bytes
+    as 8N bits into a fresh builder cell (no `__layout` word):
+    8*127 = 1016 ≤ 1023; 8*128 = 1024 > 1023. The emitter has no tighter
+    builder budget. `maxParams = 64` only limits flattened **parameter**
+    Bytes, not this hash cell. c4 Storage `__layout`+fields may exceed
+    1023 for large Bytes (same class as Map 24×uint64 flatten); that is
+    a storage packing fact, not a tighter SHA256U bound. Multi-cell
+    trees stay outside this leaf. -/
+private def maxSha256BytesLengthV1 : Nat := 127
+
+private def pfCryptoSha256BytesLengthErrorV1 : String :=
+  "unsupported Ton semantic shape: pf.crypto.sha256Bytes Bytes N exceeds the 1023-bit TVM cell capacity (N ≤ 127; multi-cell SHA256U is outside this leaf)"
 
 private def pfCryptoScheduleErrorV1 : String :=
   "unsupported Ton semantic shape: pf.crypto calls cannot be scheduled"
@@ -3000,12 +3034,45 @@ private def lowerBlockInstructionsV1
         segmentStart := values.size
     | .externalCall _effectId callee argIds, some result =>
         -- CAP-5: exact `pf.crypto.sha256` UInt256→UInt256 is a host SHA-256
-        -- leaf (Tolk `bitsHash` / TVM `SHA256U`), not a sync call. keccak256
+        -- leaf (Tolk `bitsHash` / TVM `SHA256U`), not a sync call.
+        -- CAP-X-BYTES: exact `pf.crypto.sha256Bytes` Bytes N→UInt256
+        -- (N ≤ 127, one-cell SHA256U) is a sibling host leaf. keccak256
         -- and siblings stay named FC. Generic result-bearing CALL stays
         -- outside the envelope.
         let components := callee.components.toArray
         let qn := String.intercalate "." components.toList
-        if isPfCryptoSha256CalleeV1 components then
+        if isPfCryptoSha256BytesCalleeV1 components then
+          if mode == .pureFn then
+            throw <| .planInvariant .ton
+              "unsupported Ton semantic shape: pureFn cannot call pf.crypto.sha256Bytes"
+          unless argIds.size == 1 && types.uintTypeIdAt 256 == some result.typeId do
+            throw <| .planInvariant .ton pfCryptoSha256BytesArityErrorV1
+          let some argId := argIds[0]? |
+            throw <| .planInvariant .ton pfCryptoSha256BytesArityErrorV1
+          let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
+          unless root.isAggregate && root.leafByteWidth == 1 do
+            throw <| .planInvariant .ton pfCryptoSha256BytesArityErrorV1
+          let leaves := root.leafExprs
+          unless leaves.size ≥ 1 do
+            throw <| .planInvariant .ton pfCryptoSha256BytesArityErrorV1
+          unless leaves.size ≤ maxSha256BytesLengthV1 do
+            throw <| .planInvariant .ton pfCryptoSha256BytesLengthErrorV1
+          let depth := 1 + root.depth
+          if depth > maxExprDepth then
+            throw <| .planInvariant .ton
+              s!"Ton plan expression exceeds depth {maxExprDepth}"
+          if root.expandedNodes > maxPlanNodes - 1 then
+            throw <| .planInvariant .ton
+              s!"Ton plan expression exceeds node limit {maxPlanNodes}"
+          let value : LoweredValueV1 := {
+            expr := .sha256Bytes leaves
+            kind := .uint256
+            depth
+            expandedNodes := 1 + root.expandedNodes
+            dependencies := #[argId]
+          }
+          values := ← appendResultValueV1 result.typeId values result value
+        else if isPfCryptoSha256CalleeV1 components then
           if mode == .pureFn then
             throw <| .planInvariant .ton
               "unsupported Ton semantic shape: pureFn cannot call pf.crypto.sha256"
@@ -3026,9 +3093,11 @@ private def lowerBlockInstructionsV1
     | .externalCall _effectId callee _argIds, none =>
         -- Ton has no synchronous cross-contract calls. The S2 resolver already
         -- declines effect.synchronous-call; this is the defensive plan gate.
-        -- Void sha256 is not a host-syscall shape (result is required).
+        -- Void sha256 / sha256Bytes is not a host-syscall shape (result is required).
         let components := callee.components.toArray
         let qn := String.intercalate "." components.toList
+        if isPfCryptoSha256BytesCalleeV1 components then
+          throw <| .planInvariant .ton pfCryptoSha256BytesArityErrorV1
         if isPfCryptoSha256CalleeV1 components then
           throw <| .planInvariant .ton pfCryptoSha256ArityErrorV1
         if isPfCryptoCalleeV1 components then
@@ -4504,8 +4573,9 @@ def materializePlanFromCapabilityV1 (capability : ResolvedEngineeringBuildV1) : 
 
     Used to pin named fail-closed diagnostics (generic sync CALL, pf.assets)
     while the Ton resolver still declines `effect.synchronous-call`.
-    CAP-5 `pf.crypto.sha256` is a product-path leaf (no sync-call
-    contribution). **Not** a product path. -/
+    CAP-5 `pf.crypto.sha256` and CAP-X-BYTES `pf.crypto.sha256Bytes`
+    are product-path leaves (no sync-call contribution). **Not** a
+    product path. -/
 def engineeringPlanFromSemanticV1 (source : SemanticProgramV1) : CompileResult Plan :=
   makePlanFromSemanticV1 source
 

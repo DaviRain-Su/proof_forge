@@ -38,6 +38,10 @@ inductive Operation where
   /-- ADR-0031 S5: exact host `sha256` over one 32-byte UInt256 word.
       `input` and `destination` each name four consecutive LE UInt64 limbs. -/
   | sha256Host (destination input : Nat)
+  /-- CAP-X-BYTES-NEAR: exact host `sha256` over N consecutive Bytes leaves
+      (`N ∈ 1..maxSha256BytesLenV1`). `inputTemps` are UInt8 temps in source
+      order; `destination` names four consecutive LE UInt64 digest limbs. -/
+  | sha256BytesHost (destination : Nat) (inputTemps : Array Nat)
   /-- ADR-0031 S5: exact host `keccak256` over one 32-byte UInt256 word.
       Same four-limb ABI as `sha256Host`. -/
   | keccak256Host (destination input : Nat)
@@ -957,7 +961,8 @@ private partial def statementListClosesV1 : List Statement → Bool
             cases.all fun (_, caseBody) => statementListClosesV1 caseBody.toList
       | .store _ | .storeAtomic _ | .assert _ | .emitEvent .. | .forLoop ..
       | .promiseAccount .. | .nativeDeposit _ | .promiseTransfer ..
-      | .promiseTokenTransfer .. | .sha256Precompile .. | .keccak256Host .. => false
+      | .promiseTokenTransfer .. | .sha256Precompile .. | .sha256BytesHost ..
+      | .keccak256Host .. => false
   | _ :: _ :: rest => statementListClosesV1 rest
 
 /-- Append the hard return after a closed region arm, unless the arm already
@@ -1070,6 +1075,17 @@ private partial def lowerBodyOps
         operations := operations ++ inputL.operations
         let resultBase := inputL.next
         operations := operations.push (.sha256Host resultBase inputL.value)
+        localEnv := localEnv.push (sha256EnvKeyV1 resultTemp, resultBase)
+        next := resultBase + 4
+    | .sha256BytesHost inputLeaves resultTemp =>
+        let mut leafTemps : Array Nat := #[]
+        for leaf in inputLeaves do
+          let lowered := lowerExpr keys next fnMode localEnv leaf
+          operations := operations ++ lowered.operations
+          leafTemps := leafTemps.push lowered.value
+          next := lowered.next
+        let resultBase := next
+        operations := operations.push (.sha256BytesHost resultBase leafTemps)
         localEnv := localEnv.push (sha256EnvKeyV1 resultTemp, resultBase)
         next := resultBase + 4
     | .keccak256Host input resultTemp =>
@@ -1339,7 +1355,8 @@ private partial def opIsMethodOnlyV1 : Operation → Bool
   | .setReturnDataLeaves _ _
   | .loadParam _ _ | .narrowLoadParam _ _ _ | .narrowSignedLoadParam _ _ _
   | .blockTimestampSeconds _ | .blockIndex _ | .accountBalance _ | .accountBalanceU128 _
-  | .attachedDepositValue _ | .sha256Host .. | .keccak256Host ..
+  | .attachedDepositValue _ | .sha256Host .. | .sha256BytesHost ..
+  | .keccak256Host ..
   | .callerPrincipalLen _ | .callerPrincipalWord _ _
   | .selfPrincipalLen _ | .selfPrincipalWord _ _ => true
   | .ifRegion _ thenOps elseOps =>
@@ -1375,7 +1392,7 @@ private partial def operationHostImportsCoveredV1
   | .requireZeroAttachedDeposit | .requireExactAttachedDeposit _
   | .attachedDepositValue _ =>
       imports.contains .attachedDeposit
-  | .sha256Host .. =>
+  | .sha256Host .. | .sha256BytesHost .. =>
       imports.contains .sha256 && imports.contains .registerLen &&
         imports.contains .readRegister
   | .keccak256Host .. =>
@@ -1512,6 +1529,9 @@ private partial def operationLocalReferencesValidV1
   | .sha256Host destination input | .keccak256Host destination input =>
       tempSpanDeclaredV1 tempCount destination 4 &&
         tempSpanDeclaredV1 tempCount input 4
+  | .sha256BytesHost destination inputTemps =>
+      tempSpanDeclaredV1 tempCount destination 4 &&
+        inputTemps.all (· < tempCount)
   | .narrowLoadParam bitWidth destination _
   | .narrowLoadState bitWidth destination _
   | .narrowSignedLoadParam bitWidth destination _
@@ -1789,7 +1809,10 @@ private partial def operationMemoryEndV1 (ir : IR) : Operation → Option Nat
   | .requireZeroAttachedDeposit | .requireExactAttachedDeposit _
   | .accountBalance _ | .accountBalanceU128 _ | .attachedDepositValue _ =>
       some (ir.memory.depositOffset + 16)
-  | .sha256Host .. | .keccak256Host .. => some (ir.memory.valueOffset + 32)
+  | .sha256Host .. => some (ir.memory.valueOffset + 32)
+  | .sha256BytesHost _ inputTemps =>
+      some (ir.memory.valueOffset + max 32 inputTemps.size)
+  | .keccak256Host .. => some (ir.memory.valueOffset + 32)
   | .requireLayoutAbsent marker => some (keyRegionMemoryEndV1 marker)
   | .requireLayout marker _ =>
       some (max (keyRegionMemoryEndV1 marker) (ir.memory.valueOffset + 8))
@@ -2821,6 +2844,26 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
             s!"{indent}(i64.store (i32.const {buffer + 8 * i}) (local.get $t{input + i}))\n"
         out := out ++
           s!"{indent}(call $pf_sha256 (i64.const 32) (i64.const {buffer}) (i64.const {registers.evicted}))\n" ++
+          s!"{indent}(if (i64.ne (call $pf_register_len (i64.const {registers.evicted})) (i64.const 32)) (then unreachable))\n" ++
+          s!"{indent}(call $pf_read_register (i64.const {registers.evicted}) (i64.const {buffer}))\n"
+        for i in [:4] do
+          out := out ++
+            s!"{indent}(local.set $t{destination + i} (i64.load (i32.const {buffer + 8 * i})))\n"
+        pure out
+  | .sha256BytesHost destination inputTemps =>
+      -- CAP-X-BYTES-NEAR: write N UInt8 leaves consecutively at valueOffset,
+      -- call host sha256(N, ptr, register), then overlay the 32-byte digest
+      -- onto the same scratch and bind four LE UInt64 limbs. Independent of
+      -- the 32-byte UInt256 word packing used by sha256Host.
+      Id.run do
+        let buffer := memory.valueOffset
+        let n := inputTemps.size
+        let mut out := ""
+        for i in [:n] do
+          out := out ++
+            s!"{indent}(i32.store8 (i32.const {buffer + i}) (i32.wrap_i64 (local.get $t{inputTemps[i]!})))\n"
+        out := out ++
+          s!"{indent}(call $pf_sha256 (i64.const {n}) (i64.const {buffer}) (i64.const {registers.evicted}))\n" ++
           s!"{indent}(if (i64.ne (call $pf_register_len (i64.const {registers.evicted})) (i64.const 32)) (then unreachable))\n" ++
           s!"{indent}(call $pf_read_register (i64.const {registers.evicted}) (i64.const {buffer}))\n"
         for i in [:4] do

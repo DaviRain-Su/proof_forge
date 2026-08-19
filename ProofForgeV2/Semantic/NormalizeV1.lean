@@ -625,6 +625,21 @@ private def requireAnonymousIntegerTypeId
   | none =>
       failUnsupported s!"S1 {context} references missing or named TypeId {typeId}"
 
+/-- CAP-X-BYTES: require anonymous `Bytes N` with `N ≤ maxTypeLengthV1` at the
+    exact `pf.crypto.sha256Bytes` argument site. Other QNs keep the integer
+    (expression) / integer-or-Principal (statement) discipline. -/
+private def requireAnonymousBytesTypeId
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) (context : String) :
+    Except NormalizeErrorV1 Unit :=
+  match anonShapeOf? types typeId with
+  | some (.bytes n) =>
+      if n.toNat ≤ maxTypeLengthV1 then pure ()
+      else failUnsupported s!"S1 {context} requires Bytes N with N ≤ {maxTypeLengthV1}"
+  | some _ =>
+      failUnsupported s!"S1 {context} requires anonymous Bytes type"
+  | none =>
+      failUnsupported s!"S1 {context} references missing or named TypeId {typeId}"
+
 /-- Target-neutral external `call`/`schedule` argument gate (N-8 + Principal).
     Admits legal UInt/Int and Principal only. String/Field/aggregates stay
     fail closed here; target-owned QN/account binding is not consulted. -/
@@ -2931,6 +2946,11 @@ private def lowerExprFuelV1
         let qn ← match parseQualifiedName calleeComponents with
           | .ok qn => pure qn
           | .error e => failUnsupported s!"S1 call callee: {e}"
+        -- CAP-X-BYTES: the exact `pf.crypto.sha256Bytes` QN admits anonymous
+        -- `Bytes N` arguments; every other QN keeps anonymous-integer args.
+        let sha256BytesCall :=
+          ProofForgeV2.Core.RequirementIdsV1.isPfCryptoSha256BytesQnV1
+            (String.intercalate "." qn.components.toArray.toList)
         let resultLegal :=
           match shapeOf? st.interner.types expectedTid with
           | some .bool => true
@@ -2957,8 +2977,12 @@ private def lowerExprFuelV1
                 match synthLetExpectedV1 arg st' states fns with
                 | .ok pair => pure pair
                 | .error _ => pure (internShape st'.interner (.uint 64))
-          requireAnonymousIntegerTypeId i1.types expectedArgTid
-            "call argument"
+          if sha256BytesCall then
+            requireAnonymousBytesTypeId i1.types expectedArgTid
+              "call argument for pf.crypto.sha256Bytes"
+          else
+            requireAnonymousIntegerTypeId i1.types expectedArgTid
+              "call argument"
           let st0 := { st' with interner := i1 }
           let (vid, argTid, st1) ←
             lowerExprFuelV1 fuel arg expectedArgTid st0 states fns

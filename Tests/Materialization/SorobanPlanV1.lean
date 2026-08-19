@@ -355,6 +355,177 @@ unsafe def testCryptoSha256Admitted : IO Unit := do
       "    return 0\n")
     "UInt256 is admitted only as pf.crypto.sha256 operand/result plumbing"
 
+/-- CAP-X-BYTES-SOR: exact `pf.crypto.sha256Bytes(Bytes N) -> UInt256` on
+    init/entry as an independent Plan site (`sha256BytesSites` /
+    `sha256BytesLimb`). N is 1..8 because S0 Bytes flatten to N UInt64
+    low-8 leaves and the emitter builds `Bytes::from_array(&[u8; N])`.
+    Existing CAP-4 UInt256 `sha256Sites` stay a separate record. View,
+    sibling QNs, and non-exact ABI fail closed by name. -/
+unsafe def testCryptoSha256BytesAdmitted : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let expectPlanFc (label body needle : String)
+      (also : String := "") : IO Unit := do
+    let source :=
+      "import ProofForgeV2\n" ++
+      "open ProofForgeV2.Language\n" ++
+      s!"program {label} where\n" ++ body
+    let parsed ← liftResult (← session.selectProgramV1
+      source s!"<soroban-{label}>" s!"Tests.Soroban{label}" none)
+    match Compiler.compileValidatedSourceV1 parsed with
+    | .error e =>
+        expect (e.render.contains needle)
+          s!"{label} compile FC must contain '{needle}', got: {e.render}"
+        unless also.isEmpty do
+          expect (e.render.contains also)
+            s!"{label} compile FC must contain '{also}', got: {e.render}"
+    | .ok compiled =>
+        match planSoroban compiled with
+        | .error e =>
+            expect (e.render.contains needle)
+              s!"{label} Plan FC must contain '{needle}', got: {e.render}"
+            unless also.isEmpty do
+              expect (e.render.contains also)
+                s!"{label} Plan FC must contain '{also}', got: {e.render}"
+        | .ok _ =>
+            throw <| IO.userError
+              s!"{label} must compile-or-Plan fail closed"
+  let bytesBody (qn : String) : String :=
+    "  state pad : UInt64\n" ++
+      "  state data : Bytes 4\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n" ++
+      "    data[0] := 1\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let h : UInt256 := call " ++ qn ++ "(data)\n" ++
+      "    return pad\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n"
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Sha256BytesSoroban where\n" ++
+    bytesBody "pf.crypto.sha256Bytes"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-sha256-bytes>" "Tests.SorobanSha256Bytes" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  let some probe := plan.entries.find? (·.name == "probe") |
+    throw <| IO.userError "Sha256BytesSoroban: missing probe entry"
+  expect (probe.sha256Sites.size == 0)
+    "Sha256BytesSoroban: must not reuse the CAP-4 UInt256 sha256Sites record"
+  expect (probe.sha256BytesSites.size == 1)
+    "Sha256BytesSoroban: plan must record exactly one sha256Bytes site"
+  let some site := probe.sha256BytesSites[0]? |
+    throw <| IO.userError "Sha256BytesSoroban: missing sha256Bytes site"
+  expect (site.byteLen == 4 && site.bytes.size == 4)
+    s!"Sha256BytesSoroban: site must carry 4 Bytes leaves, got {site.byteLen}/{site.bytes.size}"
+  liftResult <| Targets.Soroban.validatePlan plan
+  let files ← liftResult <| buildSoroban compiled
+  let some rsFile := files.find? (fun f => f.path == "Sha256BytesSoroban.rs") |
+    throw <| IO.userError "soroban: missing Sha256BytesSoroban.rs"
+  let rs := rsFile.contents
+  expect (rs.contains "env.crypto().sha256")
+    "Soroban sha256Bytes source must call env.crypto().sha256"
+  expect (rs.contains "soroban_sdk::Bytes::from_array")
+    "Soroban sha256Bytes source must construct soroban_sdk::Bytes from N low-8 leaves"
+  expect (rs.contains "pf_sha256b_0")
+    "Soroban sha256Bytes source must use the independent Bytes-site name prefix"
+  expect (!rs.contains "pf_sha256_0_bytes")
+    "Soroban sha256Bytes source must not emit the CAP-4 UInt256 limb packer"
+  expect (rs.contains "ProofForge Soroban S0")
+    "sha256Bytes source must stay an S0 recipe"
+  let selection ← liftResult <|
+    Targets.BuildSelectionV1.resolveBuildSelectionV1 TargetId.soroban none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let artifacts ← liftResult <| Targets.materializeResult capability
+  let finalized ← Targets.finalizeMaterializedArtifactsV1
+    capability artifacts (System.FilePath.mk ".")
+  expect (!FinalizedArtifactsV1.deployableOf finalized)
+    "sha256Bytes must not make Soroban S0 deployable"
+  expect (FinalizedArtifactsV1.extraFilesOf finalized).isEmpty
+    "sha256Bytes must not grow S0 Finalize beyond zero-tool"
+  -- Sibling / near-miss QNs keep the CAP-4 host-binding envelope (UInt256
+  -- operand so they reach Plan rather than the shared-core integer-arg gate).
+  let siblingBody (qn : String) : String :=
+    "  state pad : UInt64\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt256 := 0\n" ++
+      "    let h : UInt256 := call " ++ qn ++ "(w)\n" ++
+      "    return pad\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n"
+  expectPlanFc "Keccak256BytesSoroban" (siblingBody "pf.crypto.keccak256")
+    "has no Soroban host binding" "keccak256"
+  expectPlanFc "Sha256BytesHashNoPad"
+    (siblingBody "pf.crypto.hashNoPad")
+    "has no Soroban host binding"
+  expectPlanFc "Sha256BytesSibling"
+    (siblingBody "pf.crypto.sha256Bytess")
+    "has no Soroban host binding" "sha256Bytess"
+  expectPlanFc "Sha256BytesU64"
+    ("  state pad : UInt64\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt64 := 0\n" ++
+      "    let h : UInt256 := call pf.crypto.sha256Bytes(w)\n" ++
+      "    return pad\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "pf.crypto.sha256Bytes" "Bytes"
+  expectPlanFc "Sha256BytesZeroArg"
+    ("  state pad : UInt64\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let h : UInt256 := call pf.crypto.sha256Bytes()\n" ++
+      "    return pad\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "pf.crypto.sha256Bytes"
+  expectPlanFc "Sha256BytesTwoArg"
+    ("  state pad : UInt64\n" ++
+      "  state data : Bytes 4\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n" ++
+      "    data[0] := 1\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let h : UInt256 := call pf.crypto.sha256Bytes(data, data)\n" ++
+      "    return pad\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "pf.crypto.sha256Bytes"
+  expectPlanFc "Sha256BytesResU64"
+    ("  state data : Bytes 4\n" ++
+      "  init() do\n" ++
+      "    data[0] := 1\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    return call pf.crypto.sha256Bytes(data)\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return 0\n")
+    "pf.crypto.sha256Bytes" "UInt256"
+  expectPlanFc "Sha256BytesN9"
+    ("  state pad : UInt64\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n" ++
+      "  entry probe(b : Bytes 9) : UInt64 do\n" ++
+      "    let h : UInt256 := call pf.crypto.sha256Bytes(b)\n" ++
+      "    return pad\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "1..8" "9"
+  expectPlanFc "Sha256BytesView"
+    ("  state data : Bytes 4\n" ++
+      "  init() do\n" ++
+      "    data[0] := 1\n" ++
+      "  view peek() : UInt64 do\n" ++
+      "    let h : UInt256 := call pf.crypto.sha256Bytes(data)\n" ++
+      "    return 0\n")
+    "view" "external.call.sync"
+
 /-- CAP-3 / CAP-D-SOR-LEDGER: S0 source-only Plan admits
     `context.unixTimeSeconds` → `env.ledger().timestamp()` and
     `context.blockHeight` → `env.ledger().sequence()` (u32 widened to u64).
@@ -1764,6 +1935,7 @@ unsafe def run : IO Unit := do
   testInvariantFailClosed
   testCallFailClosed
   testCryptoSha256Admitted
+  testCryptoSha256BytesAdmitted
   testLedgerContextReadAdmitted
   testContextReadStayFailClosed
   testEnvReadNativeStayFailClosed

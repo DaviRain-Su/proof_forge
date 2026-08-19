@@ -40,6 +40,8 @@
   CAP-5 `pf.crypto.sha256` UInt256→UInt256 via Tolk `slice.bitsHash()` /
   TVM `SHA256U` over the Semantic 32-byte LE image (`string_hash` /
   keccak256 / siblings stay fail closed).
+  CAP-X-BYTES `pf.crypto.sha256Bytes` Bytes N→UInt256 (`1 ≤ N ≤ 127`,
+  one-cell 8N-bit `bitsHash`/`SHA256U`; N=128 and siblings stay FC).
 
   Registered in Tests/Shards/Targets. Not @ton/sandbox runtime (TON-3).
   Not formal D4.
@@ -484,6 +486,224 @@ private unsafe def testCryptoSha256Admitted
     "has no Ton host binding"
     "ecdsaRecoverSecp256k1"
   IO.println "  ✓ pf.crypto.sha256 → bitsHash/SHA256U; keccak256/siblings stay FC"
+
+/-- CAP-X-BYTES: exact `pf.crypto.sha256Bytes(Bytes N) -> UInt256` with
+    `N ≤ 127` (1023-bit TVM cell / one-slice SHA256U). Independent Plan
+    node `.sha256Bytes`. `string_hash` / `HASHCU` / `HASHBU` never emit.
+    Legacy UInt256 `.sha256` leaf is unchanged. -/
+private unsafe def testCryptoSha256BytesAdmitted
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let expectPlanFc (programName pathLabel moduleName body needle : String)
+      (also : String := "") : IO Unit := do
+    let src := wrapProgram programName body
+    let compiled ← compileSource session src moduleName pathLabel
+    match planTon compiled with
+    | .error e =>
+        if e.render.contains needle then
+          unless also.isEmpty do
+            expect (e.render.contains also)
+              s!"{programName} Plan FC must contain '{also}', got: {e.render}"
+        else if e.render.contains "effect.synchronous-call" then
+          match engineeringPlanFromCompiled compiled with
+          | .error e2 =>
+              expect (e2.render.contains needle)
+                s!"{programName} Plan FC must contain '{needle}', got: {e2.render}"
+              unless also.isEmpty do
+                expect (e2.render.contains also)
+                  s!"{programName} Plan FC must contain '{also}', got: {e2.render}"
+          | .ok _ =>
+              throw <| IO.userError
+                s!"{programName} must Plan fail closed after resolver sync-call decline"
+        else
+          throw <| IO.userError
+            s!"{programName} Plan FC must contain '{needle}', got: {e.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"{programName} must Plan fail closed (no Ton crypto host)"
+  let hasSha256BytesStmt (s : Statement) : Bool :=
+    match s with
+    | .store op =>
+        match op.value with
+        | .sha256Bytes _ => true
+        | _ => false
+    | .returnValue (.sha256Bytes _) => true
+    | _ => false
+  -- Positive: Bytes 4 state → dedicated Plan node + bitsHash, not string_hash.
+  -- Small N keeps c4 `__layout`+fields well under 1023 bits (hash cell is
+  -- independent: 8*4 = 32).
+  let src := wrapProgram "Sha256BytesTon" <|
+    "  state data : Bytes 4\n" ++
+    "  state last : UInt256\n\n" ++
+    "  init() do\n" ++
+    "    data[0] := 0\n" ++
+    "    data[1] := 0\n" ++
+    "    data[2] := 0\n" ++
+    "    data[3] := 0\n" ++
+    "    last := 0\n\n" ++
+    "  entry probe() : UInt256 do\n" ++
+    "    let h : UInt256 := call pf.crypto.sha256Bytes(data)\n" ++
+    "    last := h\n" ++
+    "    return last\n\n" ++
+    "  view get() : UInt256 do\n" ++
+    "    return last\n"
+  let compiled ← compileSource session src "Examples.Sha256BytesTon" "<ton-sha256-bytes>"
+  let plan ← liftResult <| planTon compiled
+  let some probe := plan.entries.find? (·.name == "probe") |
+    throw <| IO.userError "Sha256BytesTon: missing probe"
+  expect (probe.body.any hasSha256BytesStmt)
+    "Sha256BytesTon: plan must contain Expr.sha256Bytes"
+  expect (!probe.body.any fun s =>
+      match s with
+      | .store op =>
+          match op.value with
+          | .sha256 _ => true
+          | _ => false
+      | .returnValue (.sha256 _) => true
+      | _ => false)
+    "Sha256BytesTon: must not reuse the UInt256 Expr.sha256 node"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e =>
+      throw <| IO.userError s!"Sha256BytesTon plan must validate: {e.render}"
+  let ir ← liftResult <| irTon compiled
+  let some probeIR := ir.methods.find? (·.name == "probe") |
+    throw <| IO.userError "Sha256BytesTon: missing IR probe"
+  expect (probeIR.operations.any fun
+      | .sha256Bytes _ _ => true
+      | _ => false)
+    "Sha256BytesTon IR must carry Operation.sha256Bytes"
+  expect (!probeIR.operations.any fun
+      | .sha256 _ _ => true
+      | _ => false)
+    "Sha256BytesTon IR must not reuse Operation.sha256"
+  let files ← liftResult <| filesTon compiled
+  let tolk ← findFile files "Sha256BytesTon.tolk"
+  expect (tolk.contains "bitsHash()")
+    "Sha256BytesTon Tolk must call slice.bitsHash() (TVM SHA256U)"
+  expect (tolk.contains "beginParse()")
+    "Sha256BytesTon Tolk must hash a slice built from the Bytes N image"
+  expect (tolk.contains "storeUint")
+    "Sha256BytesTon Tolk must store unsigned byte bits into the hash cell"
+  expect (!tolk.contains "string_hash")
+    "Sha256BytesTon Tolk must not emit FunC string_hash"
+  expect (!tolk.contains "HASHCU")
+    "Sha256BytesTon Tolk must not emit cell representation hash HASHCU"
+  expect (!tolk.contains "HASHBU")
+    "Sha256BytesTon Tolk must not emit slice representation hash HASHBU"
+  -- N=127 (8*127=1016 ≤ 1023) via state flatten (param flatten is
+  -- maxParams=64 and would mask the hash-cell bound).
+  let src127 := wrapProgram "Sha256BytesTon127" <|
+    "  state data : Bytes 127\n" ++
+    "  state last : UInt256\n\n" ++
+    "  init() do\n" ++
+    "    last := 0\n\n" ++
+    "  entry probe() : UInt256 do\n" ++
+    "    let h : UInt256 := call pf.crypto.sha256Bytes(data)\n" ++
+    "    last := h\n" ++
+    "    return last\n\n" ++
+    "  view get() : UInt256 do\n" ++
+    "    return last\n"
+  let compiled127 ← compileSource session src127 "Examples.Sha256BytesTon127"
+    "<ton-sha256-bytes-127>"
+  let plan127 ← liftResult <| planTon compiled127
+  let some probe127 := plan127.entries.find? (·.name == "probe") |
+    throw <| IO.userError "Sha256BytesTon127: missing probe"
+  expect (probe127.body.any hasSha256BytesStmt)
+    "Sha256BytesTon127: plan must contain Expr.sha256Bytes"
+  let files127 ← liftResult <| filesTon compiled127
+  let tolk127 ← findFile files127 "Sha256BytesTon127.tolk"
+  expect (tolk127.contains "bitsHash()")
+    "Sha256BytesTon127 Tolk must call slice.bitsHash()"
+  expect (!tolk127.contains "string_hash")
+    "Sha256BytesTon127 Tolk must not emit string_hash"
+  -- Integer argument stays at the shared-core Bytes gate (never a host CALL).
+  let intSrc := wrapProgram "Sha256BytesTonInt" <|
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry probe(x : UInt64) : UInt256 do\n" ++
+    "    let h : UInt256 := call pf.crypto.sha256Bytes(x)\n" ++
+    "    return h\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return pad\n"
+  match ← session.selectProgramV1 intSrc "<ton-sha256-bytes-int>"
+      "Examples.Sha256BytesTonInt" none with
+  | .error e =>
+      throw <| IO.userError
+        s!"Sha256BytesTonInt must load, got {e.render}"
+  | .ok validated =>
+      match Compiler.compileValidatedSourceV1 validated with
+      | .ok _ =>
+          throw <| IO.userError
+            "Sha256BytesTonInt must fail at Normalize (integer is not Bytes)"
+      | .error e =>
+          expect (e.render.contains "sha256Bytes" && e.render.contains "Bytes")
+            s!"Sha256BytesTonInt must cite sha256Bytes/Bytes, got {e.render}"
+  -- Zero args / two Bytes args / non-UInt256 result / N=128 / near-miss QN.
+  expectPlanFc "Sha256BytesTonZero" "<ton-sha256-bytes-zero>"
+    "Examples.Sha256BytesTonZero"
+    ("  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe() : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.sha256Bytes()\n" ++
+      "    last := h\n" ++
+      "    return last\n\n" ++
+      "  view get() : UInt256 do\n" ++
+      "    return last\n")
+    "pf.crypto.sha256Bytes requires exactly one Bytes N argument and UInt256 result"
+  expectPlanFc "Sha256BytesTonTwo" "<ton-sha256-bytes-two>"
+    "Examples.Sha256BytesTonTwo"
+    ("  state a : Bytes 4\n" ++
+      "  state b : Bytes 4\n" ++
+      "  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe() : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.sha256Bytes(a, b)\n" ++
+      "    last := h\n" ++
+      "    return last\n\n" ++
+      "  view get() : UInt256 do\n" ++
+      "    return last\n")
+    "pf.crypto.sha256Bytes requires exactly one Bytes N argument and UInt256 result"
+  expectPlanFc "Sha256BytesTonU64" "<ton-sha256-bytes-u64>"
+    "Examples.Sha256BytesTonU64"
+    ("  state data : Bytes 4\n" ++
+      "  state pad : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let h : UInt64 := call pf.crypto.sha256Bytes(data)\n" ++
+      "    return pad\n\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "pf.crypto.sha256Bytes requires exactly one Bytes N argument and UInt256 result"
+  expectPlanFc "Sha256BytesTon128" "<ton-sha256-bytes-128>"
+    "Examples.Sha256BytesTon128"
+    ("  state data : Bytes 128\n" ++
+      "  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe() : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.sha256Bytes(data)\n" ++
+      "    last := h\n" ++
+      "    return last\n\n" ++
+      "  view get() : UInt256 do\n" ++
+      "    return last\n")
+    "1023-bit TVM cell capacity" "N ≤ 127"
+  expectPlanFc "Sha256BytesTonNear" "<ton-sha256-bytes-near>"
+    "Examples.Sha256BytesTonNear"
+    ("  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.sha256Bytess(x)\n" ++
+      "    last := h\n" ++
+      "    return h\n\n" ++
+      "  view get() : UInt256 do\n" ++
+      "    return last\n")
+    "has no Ton host binding" "sha256Bytess"
+  IO.println "  ✓ pf.crypto.sha256Bytes → bitsHash/SHA256U; N=128/arity/siblings FC"
 
 /-- Schedule → Plan/IR/Tolk createMessage pins (destination hash stub, bounce,
     send mode, value=0, op encoding). Sync call remains FC (above). -/
@@ -2117,7 +2337,9 @@ private unsafe def testAggregateFailClosed
       | .ok _ =>
           throw <| IO.userError
             "Ton Array UInt64 9 view return must fail closed (cap-8)"
-  -- Map return stays fail closed with precise message.
+  -- Map UInt64 UInt64 view return is admitted as 24-leaf B-RET-MAP
+  -- (see testMapReturn). This boundary suite only pins the compile/plan
+  -- path so a later FC regression cannot hide behind an earlier throw.
   let mapSrc := wrapProgram "MapRet" <|
     "  state m : Map UInt64 UInt64\n\n" ++
     "  init() do\n" ++
@@ -2129,15 +2351,21 @@ private unsafe def testAggregateFailClosed
         let c ← compileSource session mapSrc "Examples.MapRet" "<ton-map-ret>"
         pure (some c)
       catch _ => pure none) with
-  | none => pure ()
+  | none => throw <| IO.userError "MapRet: Map UInt64 UInt64 view must compile"
   | some c =>
       match planTon c with
-      | .error (.planInvariant .ton msg) =>
-          expect (msg.contains "Map" || msg.contains "B-RET" ||
-              msg.contains "outside")
-            s!"MapRet FC message must cite Map/B-RET, got: {msg}"
-      | .error e => throw <| IO.userError s!"MapRet: unexpected {e.render}"
-      | .ok _ => throw <| IO.userError "MapRet: expected FC, got ok"
+      | .ok plan =>
+          let getMap ← findMethod plan "getMap"
+          match getMap.resultKind with
+          | .aggregate leaves =>
+              expect (leaves.size == 24)
+                s!"MapRet must have 24 leaves, got {leaves.size}"
+          | other =>
+              throw <| IO.userError
+                s!"MapRet resultKind must be .aggregate, got {repr other}"
+      | .error e =>
+          throw <| IO.userError
+            s!"MapRet: Map UInt64 UInt64 view must Plan, got {e.render}"
   -- Nested anonymous Option (Array …) remains fail closed (non-UInt64 payload).
   let nestedSrc := wrapProgram "NestedOptRet" <|
     "  state pad : UInt64\n\n" ++
@@ -3279,6 +3507,7 @@ unsafe def run : IO Unit := do
   testCallSyncFc session
   testResultBearingExternalCallFailClosed
   testCryptoSha256Admitted session
+  testCryptoSha256BytesAdmitted session
   testSchedulePlanAndTolk session
   testNarrowUInt8 session
   testNarrowUInt16UInt32 session

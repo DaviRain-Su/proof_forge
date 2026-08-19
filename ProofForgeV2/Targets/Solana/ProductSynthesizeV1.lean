@@ -68,7 +68,8 @@ def isFullBodyHybridIrTextV1 (irText : String) : Bool :=
 private def isCryptoHostSyscallCalleeV1 (callee : QualifiedName) : Bool :=
   let comps := callee.components.toArray
   comps == #["pf", "crypto", "sha256"] ||
-    comps == #["pf", "crypto", "keccak256"]
+    comps == #["pf", "crypto", "keccak256"] ||
+    comps == #["pf", "crypto", "sha256Bytes"]
 
 /-- Multi-block CFG, aggregate Index*/construct, or a Solana host syscall needs
     the full LowerSemantic body. -/

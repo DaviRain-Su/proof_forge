@@ -439,6 +439,22 @@ private partial def checkHandlerStatementsV1
             "unsupported Solana semantic shape: pf.crypto.keccak256 input must be UInt256"
         total ← addPlanExprNodes account params fns total input
         total := total + 1
+    | .sha256BytesHost inputLeaves _resultTemp =>
+        unless account.admitProductExternalCall do
+          throw <| .planInvariant .solana
+            "legacy Solana profiles do not support pf.crypto.sha256Bytes"
+        if isView then
+          throw <| .planInvariant .solana
+            "unsupported Solana plan shape: view/pureFn must not call pf.crypto.sha256Bytes"
+        unless 1 ≤ inputLeaves.size && inputLeaves.size ≤ maxSha256BytesLenV1 do
+          throw <| .planInvariant .solana
+            s!"unsupported Solana semantic shape: pf.crypto.sha256Bytes Bytes N={inputLeaves.size} exceeds Solana limit {maxSha256BytesLenV1} (maxParams flatten + sol_sha256 scratch budget)"
+        for leaf in inputLeaves do
+          unless exprIsUInt64CompatibleV1 fns leaf do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: pf.crypto.sha256Bytes input leaves must be UInt8 expressions"
+          total ← addPlanExprNodes account params fns total leaf
+        total := total + 1
     | .schedule .. =>
         throw <| .planInvariant .solana
           "legacy Solana profiles do not support scheduled workflows"

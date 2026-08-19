@@ -309,7 +309,8 @@ alpha-deletion-gate:
 # - no checkSupport def/call
 # - no selection+compiled materialize/emit product signatures
 # - sole ResolvedEngineeringBuildV1.mk in EngineeringBuildV1.lean
-# - sole CompiledSemanticV1.mk in Compiler/Pipeline.lean (finishCompiledSemanticV1)
+# - CompiledSemanticV1.mk only in Compiler/Pipeline.lean (finishCompiledSemanticV1
+#   mint + in-module certification theorem; exactly two sites)
 # Dual-arg sole public API authority is Lean Environment reflection in
 # Tests/Materialization/RequirementResolverV1.lean (run_cmd product gate +
 # synthetic probe self-test). This recipe builds that module so reflection
@@ -335,8 +336,24 @@ requirement-resolver-deletion-gate:
     # Sole mints (exact count + path whitelist).
     expect_one_match "$gate" 'ResolvedEngineeringBuildV1\.mk' 'EngineeringBuildV1.lean' \
       'ResolvedEngineeringBuildV1.mk'
-    expect_one_match "$gate" 'CompiledSemanticV1\.mk' 'Pipeline.lean' \
-      'CompiledSemanticV1.mk'
+    # CompiledSemanticV1.mk appears at exactly two sites, both inside the
+    # owning module: the finishCompiledSemanticV1 mint and the in-module
+    # compileValidatedSourceV1_eq_ok_of_stages certification theorem.
+    set +e
+    mk_hits="$(rg --glob '*.lean' -n --no-heading 'CompiledSemanticV1\.mk' ProofForgeV2 2>&1)"
+    mk_ec=$?
+    set -e
+    if [[ $mk_ec -ne 0 ]]; then
+      echo "$gate: CompiledSemanticV1.mk matches expected (rg exit $mk_ec)" >&2
+      printf '%s\n' "$mk_hits" >&2
+      exit 1
+    fi
+    mk_count="$(printf '%s\n' "$mk_hits" | /usr/bin/sed '/^$/d' | wc -l | tr -d ' ')"
+    if [[ "$mk_count" != "2" ]] || [[ "$(printf '%s\n' "$mk_hits" | grep -c 'Pipeline\.lean')" != "2" ]]; then
+      echo "$gate: CompiledSemanticV1.mk expected exactly two sites, both in Pipeline.lean" >&2
+      printf '%s\n' "$mk_hits" >&2
+      exit 1
+    fi
     # CompiledSemanticV1.mk must sit in the shared product/non-product finish gate.
     set +e
     mk_ctx="$(rg --glob '*.lean' -n --no-heading -C 12 'CompiledSemanticV1\.mk' ProofForgeV2/Compiler 2>&1)"

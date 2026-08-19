@@ -30,7 +30,10 @@ signedNumeric). No invariants/constants/events/call/schedule. CAP-3 admits
 `env.ledger()` reads on init/entry/view. CAP-4 admits exact
 `pf.crypto.sha256` (UInt256→UInt256 plumbing) as source-only
 `env.crypto().sha256` on init/entry; keccak256 and sibling QNs
-stay fail closed. Mixing UInt64/Int64, Int8/16/32, Bytes,
+stay fail closed. CAP-X-BYTES-SOR admits exact
+`pf.crypto.sha256Bytes(Bytes N) -> UInt256` (N=1..8 S0 flatten)
+as an independent Plan site / `Bytes::from_array` emission.
+Mixing UInt64/Int64, Int8/16/32, Bytes N>8,
 Array/Option/Map return/params, nonempty Map construct, UInt256
 state/param/result/arith (except CAP-4 sha256 plumbing), and
 `symbol_short!` keys longer than 9 bytes fail closed.

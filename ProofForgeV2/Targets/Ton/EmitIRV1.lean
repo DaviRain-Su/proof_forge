@@ -16,6 +16,9 @@ TON-owned TVM/Tolk recipe IR:
 * revert → `throw(error_code)`
 * CAP-5 `pf.crypto.sha256` → Tolk `slice.bitsHash()` (TVM `SHA256U`)
     over the Semantic UInt256 32-byte little-endian image; never `string_hash`
+* CAP-X-BYTES `pf.crypto.sha256Bytes` → same `bitsHash`/`SHA256U` over
+    N unsigned bytes packed into one cell (8N ≤ 1016 ≤ 1023); never
+    `string_hash` / `HASHCU` / `HASHBU`
 
 Not sandbox/mainnet runtime (TON-3). Not formal D4.
 -/
@@ -141,6 +144,11 @@ inductive Operation where
       via Tolk `slice.bitsHash()` (TVM `SHA256U`). `source` is the UInt256
       temp; `destination` receives the digest as uint256. -/
   | sha256 (destination source : Nat)
+  /-- CAP-X-BYTES: SHA-256 of N unsigned Bytes leaves via `bitsHash` /
+      `SHA256U`. `sources` are the per-byte temps in source order;
+      `destination` receives the digest as uint256. Independent of
+      `.sha256`. -/
+  | sha256Bytes (destination : Nat) (sources : Array Nat)
   deriving BEq, Inhabited, Repr
 
 structure MethodIR where
@@ -207,6 +215,17 @@ private partial def lowerExpr (next : Nat)
       let op := lowerExpr next paramAsTemp localEnv operand
       { operations := op.operations ++ #[.sha256 op.next op.value]
         value := op.next, next := op.next + 1 }
+  | .sha256Bytes bytes => Id.run do
+      let mut ops : Array Operation := #[]
+      let mut cur := next
+      let mut srcs : Array Nat := #[]
+      for b in bytes do
+        let lowered := lowerExpr cur paramAsTemp localEnv b
+        ops := ops ++ lowered.operations
+        srcs := srcs.push lowered.value
+        cur := lowered.next
+      ops := ops.push (.sha256Bytes cur srcs)
+      pure { operations := ops, value := cur, next := cur + 1 }
   | .stateLoad fieldIndex =>
       { operations := #[.loadState next fieldIndex], value := next, next := next + 1 }
   | .narrowStateLoad _ fieldIndex =>
@@ -758,6 +777,18 @@ private def emitSha256LeBitsHash (dest src : String) : String := Id.run do
   chain := chain ++ ".endCell().beginParse().bitsHash()"
   s!"val {dest} = {chain};\n"
 
+/-- CAP-X-BYTES: pack N unsigned Bytes leaves (each already a 0..255
+    uint8 temp) as 8N bits into one builder cell, then `bitsHash()` =
+    TVM `SHA256U`. Independent of the UInt256 LE-word emitter above.
+    Must not emit FunC `string_hash` or cell representation hash. -/
+private def emitSha256BytesBitsHash (dest : String) (srcs : Array String) : String :=
+  Id.run do
+    let mut chain := "beginCell()"
+    for src in srcs do
+      chain := chain ++ s!".storeUint({src}, 8)"
+    chain := chain ++ ".endCell().beginParse().bitsHash()"
+    s!"val {dest} = {chain};\n"
+
 private def int64RangeCheck (dst : String) : String :=
   -- signed Int64 range on int257
   s!"assert (-(1 << 63) <= {dst} && {dst} < (1 << 63)) throw {errOverflow};"
@@ -819,6 +850,10 @@ private partial def renderOps (plan : Plan) (method? : Option MethodIR)
     | .sha256 dest source =>
         -- CAP-5: SHA256U over the 32-byte LE image. See emitSha256LeBitsHash.
         out := out ++ pad ++ emitSha256LeBitsHash (tempName dest) (tempName source)
+    | .sha256Bytes dest sources =>
+        -- CAP-X-BYTES: SHA256U over N unsigned bytes. See emitSha256BytesBitsHash.
+        out := out ++ pad ++
+          emitSha256BytesBitsHash (tempName dest) (sources.map tempName)
     | .loadParam dest inputOffset =>
         let pname :=
           match method?, fn? with

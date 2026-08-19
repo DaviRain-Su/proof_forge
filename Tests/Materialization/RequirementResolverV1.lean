@@ -1449,6 +1449,23 @@ private def rgExpectOneContaining (pattern : String) (paths : Array String)
       throw <| IO.userError
         s!"{label}: expected exactly one match, got {lines.length}:\n{output.stdout}"
 
+/-- Run `rg` and require exactly `count` matches, each containing `mustContain`. -/
+private def rgExpectCountContaining (pattern : String) (paths : Array String)
+    (count : Nat) (mustContain : String) (label : String) : IO Unit := do
+  let args := #["--glob", "*.lean", "-n", "--no-heading", pattern] ++ paths
+  let output ← IO.Process.output { cmd := "rg", args }
+  unless output.exitCode == 0 do
+    throw <| IO.userError
+      s!"{label}: expected matches for '{pattern}', rg exit {output.exitCode}: {output.stderr}"
+  let lines := (output.stdout.splitOn "\n").filter (fun l => !l.isEmpty)
+  unless lines.length == count do
+    throw <| IO.userError
+      s!"{label}: expected exactly {count} matches, got {lines.length}:\n{output.stdout}"
+  for line in lines do
+    unless hasSubstr line mustContain do
+      throw <| IO.userError
+        s!"{label}: match must contain '{mustContain}', got: {line}"
+
 /-- Text-level deletion contract (no `just` re-entry — avoids recipe/suite cycles).
     Dual-arg sole API authority is the Lean Environment reflection gate below
     (`run_cmd`); just `requirement-resolver-deletion-gate` keeps the same
@@ -1471,8 +1488,11 @@ private def testDeletionContract : IO Unit := do
   rgExpectOneContaining ("ResolvedEngineeringBuildV1" ++ "\\.mk")
     #["ProofForgeV2"] "EngineeringBuildV1.lean"
     "sole mint ResolvedEngineeringBuild capability"
-  rgExpectOneContaining ("CompiledSemanticV1" ++ "\\.mk")
-    #["ProofForgeV2"] "Pipeline.lean"
+  -- The private ctor is named from exactly two sites, both inside the owning
+  -- module: the `finishCompiledSemanticV1` mint and the in-module
+  -- `compileValidatedSourceV1_eq_ok_of_stages` certification theorem.
+  rgExpectCountContaining ("CompiledSemanticV1" ++ "\\.mk")
+    #["ProofForgeV2"] 2 "Pipeline.lean"
     "sole mint CompiledSemantic carrier"
   -- S6: public residual resolve / validateResolved / makePlan closed.
   rgExpectEmpty ("^\\s*def " ++ "resolve\\b") #["ProofForgeV2/Targets/Common.lean"]
@@ -1505,9 +1525,11 @@ private unsafe def testCapabilityMintUniqueness : IO Unit := do
   rgExpectOneContaining ("ResolvedEngineeringBuildV1" ++ "\\.mk")
     #["ProofForgeV2"] "EngineeringBuildV1.lean"
     "sole mint capability constructor"
-  -- CompiledSemanticV1.mk sole mint in Compiler/Pipeline.lean (finishCompiledSemanticV1).
-  rgExpectOneContaining ("CompiledSemanticV1" ++ "\\.mk")
-    #["ProofForgeV2"] "Pipeline.lean"
+  -- CompiledSemanticV1.mk appears at exactly two sites, both inside the owning
+  -- module: the finishCompiledSemanticV1 mint and the in-module
+  -- compileValidatedSourceV1_eq_ok_of_stages certification theorem.
+  rgExpectCountContaining ("CompiledSemanticV1" ++ "\\.mk")
+    #["ProofForgeV2"] 2 "Pipeline.lean"
     "sole mint carrier constructor"
   -- Positive product path still mints via the sole API (not a second factory).
   let session ← Tests.Language.ParserSession.shared

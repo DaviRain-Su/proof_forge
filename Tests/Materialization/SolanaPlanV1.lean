@@ -1861,6 +1861,251 @@ private unsafe def testCryptoKeccak256Solana
       "    return last\n")
     "pf.crypto.keccak256 requires exactly one UInt256 argument and UInt256 result"
 
+/-- CAP-X-BYTES-SOL: exact `pf.crypto.sha256Bytes(Bytes N) -> UInt256` via a
+    dedicated Plan node (not `sha256Precompile`) and `sol_sha256` over one
+    slice of length N. N ≤ `maxSha256BytesLenV1` (64): Bytes flatten to N
+    UInt8 ABI leaves (`maxParams = 64`); emitter scratch is ceil(N/8) input
+    words + 4 digest words + 2 slice-descriptor words. Statement wire tag 17. -/
+private unsafe def testCryptoSha256BytesSolana
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "Sha256BytesSol" <|
+    "  state last : UInt256\n\n" ++
+    "  init() do\n" ++
+    "    last := 0\n\n" ++
+    "  entry probe(data : Bytes 4) : UInt256 do\n" ++
+    "    let h : UInt256 := call pf.crypto.sha256Bytes(data)\n" ++
+    "    last := h\n" ++
+    "    return h\n"
+  let compiled ← compileSource session src
+    "Examples.Sha256BytesSol" "<solana-sha256-bytes>"
+  let plan ← liftResult <| planSolana compiled
+  let mut hasDedicated := false
+  let mut dedicatedN := 0
+  let mut hasHashedResultCall := false
+  let mut hasLegacySha256 := false
+  for e in plan.entries do
+    for s in e.body do
+      match s with
+      | .sha256BytesHost leaves _ =>
+          hasDedicated := true
+          dedicatedN := leaves.size
+      | .sha256Precompile _ _ => hasLegacySha256 := true
+      | .externalCallResult callee _ _ =>
+          if callee == #["pf", "crypto", "sha256Bytes"] then
+            hasHashedResultCall := true
+      | .externalCall callee _ =>
+          if callee == #["pf", "crypto", "sha256Bytes"] then
+            hasHashedResultCall := true
+      | _ => pure ()
+  expect hasDedicated
+    "Sha256BytesSol: plan must contain dedicated sha256BytesHost statement"
+  expect (dedicatedN == 4)
+    s!"Sha256BytesSol: sha256BytesHost must carry 4 UInt8 leaves, got {dedicatedN}"
+  expect (!hasHashedResultCall)
+    "Sha256BytesSol: must not lower to externalCall(Result) for pf.crypto.sha256Bytes"
+  expect (!hasLegacySha256)
+    "Sha256BytesSol: must not reuse sha256Precompile for the Bytes QN"
+  expect (solanaSha256BytesHostStatementTagV1 == 17)
+    "Sha256BytesSol: PlanSchema statement tag must be 17"
+  let ir ← liftResult <| irSolana compiled
+  let mut hasIrDedicated := false
+  let mut irN := 0
+  for h in ir.handlers do
+    for op in h.operations do
+      match op with
+      | .sha256BytesSyscall _ inputs =>
+          hasIrDedicated := true
+          irN := inputs.size
+      | _ => pure ()
+  expect hasIrDedicated
+    "Sha256BytesSol: IR must contain dedicated sha256BytesSyscall"
+  expect (irN == 4)
+    s!"Sha256BytesSol: IR slice must list 4 input temps, got {irN}"
+  let asm ← liftResult <| emitSbpfAsmV1 ir
+  expect (asm.contains "sol_sha256")
+    "Sha256BytesSol: SBPF must call sol_sha256"
+  expect (asm.contains "call sol_sha256")
+    "Sha256BytesSol: SBPF must emit call sol_sha256"
+  expect (asm.contains "lddw r2, 1")
+    "Sha256BytesSol: SBPF must pass a single slice"
+  expect (asm.contains "lddw r1, 4")
+    "Sha256BytesSol: SBPF slice length must be N=4"
+
+  -- State-backed Bytes 32 (same leaf representation as param flatten).
+  let srcState := wrapProgram "Sha256BytesStateSol" <|
+    "  state data : Bytes 32\n\n" ++
+    "  init() do\n" ++
+    "    data[0] := 0\n\n" ++
+    "  entry hashIt() : UInt256 do\n" ++
+    "    let h : UInt256 := call pf.crypto.sha256Bytes(data)\n" ++
+    "    return h\n"
+  let compiledState ← compileSource session srcState
+    "Examples.Sha256BytesStateSol" "<solana-sha256-bytes-state>"
+  let planState ← liftResult <| planSolana compiledState
+  let mut stateN := 0
+  for e in planState.entries do
+    for s in e.body do
+      match s with
+      | .sha256BytesHost leaves _ => stateN := leaves.size
+      | _ => pure ()
+  expect (stateN == 32)
+    s!"Sha256BytesStateSol: state Bytes 32 must expand to 32 leaves, got {stateN}"
+  let irState ← liftResult <| irSolana compiledState
+  let asmState ← liftResult <| emitSbpfAsmV1 irState
+  expect (asmState.contains "call sol_sha256")
+    "Sha256BytesStateSol: SBPF must call sol_sha256"
+  expect (asmState.contains "lddw r1, 32")
+    "Sha256BytesStateSol: SBPF slice length must be N=32"
+
+  -- N = 64 is the honest ABI/scratch ceiling (maxParams flatten).
+  -- Solana Plan still requires a nonempty state table.
+  let srcMax := wrapProgram "Sha256BytesMaxSol" <|
+    "  state last : UInt256\n\n" ++
+    "  init() do\n" ++
+    "    last := 0\n\n" ++
+    "  entry hashMax(data : Bytes 64) : UInt256 do\n" ++
+    "    let h : UInt256 := call pf.crypto.sha256Bytes(data)\n" ++
+    "    last := h\n" ++
+    "    return h\n"
+  let compiledMax ← compileSource session srcMax
+    "Examples.Sha256BytesMaxSol" "<solana-sha256-bytes-max>"
+  let planMax ← liftResult <| planSolana compiledMax
+  let mut maxN := 0
+  for e in planMax.entries do
+    for s in e.body do
+      match s with
+      | .sha256BytesHost leaves _ => maxN := leaves.size
+      | _ => pure ()
+  expect (maxN == 64)
+    s!"Sha256BytesMaxSol: Bytes 64 must expand to 64 leaves, got {maxN}"
+  let irMax ← liftResult <| irSolana compiledMax
+  let asmMax ← liftResult <| emitSbpfAsmV1 irMax
+  expect (asmMax.contains "call sol_sha256")
+    "Sha256BytesMaxSol: SBPF must call sol_sha256"
+  expect (asmMax.contains "lddw r1, 64")
+    "Sha256BytesMaxSol: SBPF slice length must be N=64"
+
+  let expectCompileOrPlanFc (programName pathLabel moduleName body needle : String)
+      (also : String := "") : IO Unit := do
+    let negSrc := wrapProgram programName body
+    match ← session.selectProgramV1 negSrc pathLabel moduleName none with
+    | .error e =>
+        expect (e.render.contains needle)
+          s!"{programName} load FC must contain '{needle}', got: {e.render}"
+    | .ok source =>
+        match Compiler.compileValidatedSourceV1 source with
+        | .error e =>
+            expect (e.render.contains needle)
+              s!"{programName} compile FC must contain '{needle}', got: {e.render}"
+            unless also.isEmpty do
+              expect (e.render.contains also)
+                s!"{programName} compile FC must contain '{also}', got: {e.render}"
+        | .ok compiled =>
+            match planSolana compiled with
+            | .error e =>
+                expect (e.render.contains needle)
+                  s!"{programName} Plan FC must contain '{needle}', got: {e.render}"
+                unless also.isEmpty do
+                  expect (e.render.contains also)
+                    s!"{programName} Plan FC must contain '{also}', got: {e.render}"
+            | .ok _ =>
+                throw <| IO.userError
+                  s!"{programName} must fail closed (no empty-meta / hashed fallback)"
+
+  -- Integer argument is outside the Bytes-N ABI (Normalize or Plan).
+  expectCompileOrPlanFc "Sha256BytesSolU64" "<solana-sha256-bytes-u64>"
+    "Examples.Sha256BytesSolU64"
+    ("  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(x : UInt64) : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.sha256Bytes(x)\n" ++
+      "    last := h\n" ++
+      "    return h\n")
+    "pf.crypto.sha256Bytes"
+    "Bytes"
+  -- Zero arguments.
+  expectCompileOrPlanFc "Sha256BytesSolZero" "<solana-sha256-bytes-zero>"
+    "Examples.Sha256BytesSolZero"
+    ("  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe() : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.sha256Bytes()\n" ++
+      "    last := h\n" ++
+      "    return h\n")
+    "pf.crypto.sha256Bytes requires exactly one Bytes"
+  -- Two arguments.
+  expectCompileOrPlanFc "Sha256BytesSolTwo" "<solana-sha256-bytes-two>"
+    "Examples.Sha256BytesSolTwo"
+    ("  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(a : Bytes 4, b : Bytes 4) : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.sha256Bytes(a, b)\n" ++
+      "    last := h\n" ++
+      "    return h\n")
+    "pf.crypto.sha256Bytes requires exactly one Bytes"
+  -- Non-UInt256 result.
+  expectCompileOrPlanFc "Sha256BytesSolU64Res" "<solana-sha256-bytes-u64-res>"
+    "Examples.Sha256BytesSolU64Res"
+    ("  state last : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(data : Bytes 4) : UInt64 do\n" ++
+      "    let h : UInt64 := call pf.crypto.sha256Bytes(data)\n" ++
+      "    last := h\n" ++
+      "    return h\n")
+    "pf.crypto.sha256Bytes requires exactly one Bytes"
+    "UInt256 result"
+  -- Bytes 32 result (legacy sha256 negative sibling).
+  expectCompileOrPlanFc "Sha256BytesSolBytesRes" "<solana-sha256-bytes-bytes-res>"
+    "Examples.Sha256BytesSolBytesRes"
+    ("  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(data : Bytes 4) : UInt256 do\n" ++
+      "    let h : Bytes 32 := call pf.crypto.sha256Bytes(data)\n" ++
+      "    last := 0\n" ++
+      "    return last\n")
+    "pf.crypto.sha256Bytes requires exactly one Bytes"
+    "UInt256 result"
+  -- N = 65 exceeds the 64-leaf ABI/scratch ceiling (state path avoids maxParams).
+  expectCompileOrPlanFc "Sha256BytesSolOver" "<solana-sha256-bytes-over>"
+    "Examples.Sha256BytesSolOver"
+    ("  state data : Bytes 65\n\n" ++
+      "  init() do\n" ++
+      "    data[0] := 0\n\n" ++
+      "  entry hashIt() : UInt256 do\n" ++
+      "    return call pf.crypto.sha256Bytes(data)\n")
+    "pf.crypto.sha256Bytes"
+    "64"
+  -- view / policy-outside context (same as UInt256 leaf: view must not hash).
+  -- Shared-core EffectCheck emits PF-EFFECT-001 before Plan; Plan would also
+  -- reject view sha256Bytes if that gate were bypassed.
+  expectCompileOrPlanFc "Sha256BytesSolView" "<solana-sha256-bytes-view>"
+    "Examples.Sha256BytesSolView"
+    ("  state data : Bytes 4\n\n" ++
+      "  init() do\n" ++
+      "    data[0] := 0\n\n" ++
+      "  entry seed() : UInt256 do\n" ++
+      "    return 0\n\n" ++
+      "  view hashIt() : UInt256 do\n" ++
+      "    return call pf.crypto.sha256Bytes(data)\n")
+    "external.call.sync"
+  -- Approximate QN must not fall through (UInt256 arg so Normalize reaches Plan).
+  expectCompileOrPlanFc "Sha256BytesSolApprox" "<solana-sha256-bytes-approx>"
+    "Examples.Sha256BytesSolApprox"
+    ("  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.sha256Bytess(x)\n" ++
+      "    last := h\n" ++
+      "    return h\n")
+    "outside admitted Solana scope"
+    "sha256Bytess"
+
 private unsafe def testVoidEntryRejected
     (session : Language.Loader.ParserSession) : IO Unit := do
   let text := wrapProgram "VoidEntry" <|
@@ -4026,6 +4271,13 @@ unsafe def testBytesReturn : IO Unit := do
         s!"BytesRet getB resultKind must be .aggregate, got {repr other}"
   IO.println "  ✓ Bytes 2 view return 2×UInt8 leaves"
 
+unsafe def runCapXBytesSol : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  testCryptoSha256Solana session
+  testCryptoKeccak256Solana session
+  testCryptoSha256BytesSolana session
+  IO.println "Tests.Materialization.SolanaPlanV1 CAP-X-BYTES-SOL: ok"
+
 unsafe def run : IO Unit := do
   testNarrowIntAbi
   let session ← Tests.Language.ParserSession.shared
@@ -4057,6 +4309,7 @@ unsafe def run : IO Unit := do
   testExternalCallFailClosed session
   testCryptoSha256Solana session
   testCryptoKeccak256Solana session
+  testCryptoSha256BytesSolana session
   testVoidEntryRejected session
   testMultipleEvents session
   testIsolatedModZero session

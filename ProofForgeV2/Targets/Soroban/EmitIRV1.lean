@@ -48,6 +48,9 @@ inductive RExpr where
   | ledgerSequence
   /-- CAP-4: 32-byte `soroban_sdk::Bytes` from four Semantic UInt256 LE limbs. -/
   | bytesFromU64LimbsLe (l0 l1 l2 l3 : RExpr)
+  /-- CAP-X-BYTES-SOR: `soroban_sdk::Bytes` from N UInt64 low-8 leaves
+      (Semantic `Bytes N` valueBytes order). Independent of CAP-4 packing. -/
+  | bytesFromU64Low8 (leaves : Array RExpr)
   /-- CAP-4: `env.crypto().sha256(&bytes)`. -/
   | cryptoSha256 (bytes : RExpr)
   /-- CAP-4: one LE u64 limb of a `Hash<32>` / `BytesN<32>` digest. -/
@@ -150,6 +153,10 @@ private partial def lowerExpr
       unless limbIndex < 4 do
         planError "Soroban IR sha256 limb index must be 0..3"
       pure (.name s!"pf_sha256_{siteIndex}_l{limbIndex}")
+  | .sha256BytesLimb siteIndex limbIndex =>
+      unless limbIndex < 4 do
+        planError "Soroban IR sha256Bytes limb index must be 0..3"
+      pure (.name s!"pf_sha256b_{siteIndex}_l{limbIndex}")
   | .temp index =>
       pure (.name s!"pf_t{index}")
   | .arith op l r => do
@@ -273,6 +280,33 @@ private def emitSha256Sites
           (.u64LimbFromHashLe (.name digestName) limb))
   pure stmts
 
+/-- CAP-X-BYTES-SOR: emit each sha256Bytes site as Bytes←N low-8 leaves,
+    `env.crypto().sha256`, then four LE result limbs. Independent of CAP-4. -/
+private def emitSha256BytesSites
+    (plan : Plan) (params : Array String) (stateLocals : Array String)
+    (sites : Array Sha256BytesSite) :
+    CompileResult (Array RStatement) := do
+  let unsignedPlan := { plan with signedNumeric := false }
+  let mut stmts : Array RStatement := #[]
+  for i in [0:sites.size] do
+    let some site := sites[i]? |
+      planError "Soroban IR sha256Bytes site index out of range"
+    unless 1 ≤ site.byteLen && site.byteLen ≤ 8 && site.bytes.size == site.byteLen do
+      planError
+        s!"Soroban IR sha256Bytes site must carry 1..8 Bytes leaves (got {site.byteLen}/{site.bytes.size})"
+    let mut leaves : Array RExpr := #[]
+    for e in site.bytes do
+      leaves := leaves.push (← lowerExpr unsignedPlan params stateLocals e)
+    let bytesName := s!"pf_sha256b_{i}_bytes"
+    let digestName := s!"pf_sha256b_{i}_digest"
+    stmts := stmts.push (.letBind bytesName (.bytesFromU64Low8 leaves))
+    stmts := stmts.push (.letBind digestName (.cryptoSha256 (.name bytesName)))
+    for limb in [0:4] do
+      stmts := stmts.push
+        (.letBind s!"pf_sha256b_{i}_l{limb}"
+          (.u64LimbFromHashLe (.name digestName) limb))
+  pure stmts
+
 private partial def emitPlanStatements
     (plan : Plan) (params : Array String) (stateLocals : Array String)
     (stmts : Array Statement) : CompileResult (Array RStatement) := do
@@ -338,12 +372,13 @@ private def lower (plan : Plan) : CompileResult IR := do
       for p in init.params do
         fnParams := fnParams.push (p, numericTy)
       let shaStmts ← emitSha256Sites plan init.params #[] init.sha256Sites
+      let shaBStmts ← emitSha256BytesSites plan init.params #[] init.sha256BytesSites
       let storeStmts ← emitStores plan init.params #[] init.stores
       fns := fns.push {
         name := "init"
         params := fnParams
         returnType := none
-        body := shaStmts ++ storeStmts
+        body := shaStmts ++ shaBStmts ++ storeStmts
       }
   | none => pure ()
   -- Entries
@@ -364,7 +399,8 @@ private def lower (plan : Plan) : CompileResult IR := do
           stateLocals := stateLocals.push localName
       | none => pure ()
     let shaStmts ← emitSha256Sites plan ent.params stateLocals ent.sha256Sites
-    body := body ++ shaStmts
+    let shaBStmts ← emitSha256BytesSites plan ent.params stateLocals ent.sha256BytesSites
+    body := body ++ shaStmts ++ shaBStmts
     let checkStmts ← emitAssertChecks plan ent.params stateLocals ent.checks
     body := body ++ checkStmts
     if !ent.body.isEmpty then
@@ -484,6 +520,14 @@ private partial def renderExpr (signed : Bool) : RExpr → String
       "                l3[0], l3[1], l3[2], l3[3], l3[4], l3[5], l3[6], l3[7],\n" ++
       "            ])\n" ++
       "        }"
+  | .bytesFromU64Low8 leaves =>
+      -- S0 Bytes N: each leaf is a UInt64 holding one Semantic valueBytes
+      -- octet in the low 8 bits, source order. Truncation is the honesty
+      -- of the existing flatten (never a second encoding).
+      let elems :=
+        String.intercalate ", "
+          (leaves.map (fun e => s!"(({renderExpr signed e}) as u8)")).toList
+      s!"soroban_sdk::Bytes::from_array(&env, &[{elems}])"
   | .cryptoSha256 bytes =>
       -- Host returns Hash<32>; to_array() is the 32-byte digest, still
       -- Semantic-LE when split back into four u64 limbs.

@@ -218,14 +218,25 @@ def pfAssetsEnvReadQualifiedNamesV1 : Array String :=
 def isPfAssetsEnvReadQnV1 (qn : String) : Bool :=
   pfAssetsEnvReadQualifiedNamesV1.contains qn
 
+/-- Frozen CAP-X-BYTES qualified name: `pf.crypto.sha256Bytes(Bytes N) ->
+    UInt256` with `N ≤ maxTypeLengthV1`. Split from the legacy UInt256-word
+    QN (RPT-027 split-QN discipline); no same-QN arity overloading. -/
+def pfCryptoSha256BytesQnV1 : String := "pf.crypto.sha256Bytes"
+
 /-- Exact SYS-S5 host-syscall QNs. Like env-read, these are not platform
     `effect.synchronous-call` contributions: EVM precompile/opcode / Solana `sol_sha256`/`sol_keccak256` /
-    NEAR host `sha256` are dedicated bindings, not generic sync CPI/CALL. -/
+    NEAR host `sha256` are dedicated bindings, not generic sync CPI/CALL.
+    CAP-X-BYTES adds `pf.crypto.sha256Bytes` (Bytes-arity SHA-256; shared-core
+    admission only — exact `(Bytes N) -> UInt256` ABI stays target-owned). -/
 def isPfCryptoHostSyscallQnV1 (qn : String) : Bool :=
-  qn == "pf.crypto.sha256" || qn == "pf.crypto.keccak256"
+  qn == "pf.crypto.sha256" || qn == "pf.crypto.keccak256" ||
+    qn == pfCryptoSha256BytesQnV1
 
 def isPfCryptoSha256QnV1 (qn : String) : Bool :=
   qn == "pf.crypto.sha256"
+
+def isPfCryptoSha256BytesQnV1 (qn : String) : Bool :=
+  qn == pfCryptoSha256BytesQnV1
 
 /-- The two env-read catalog QNs as distinct family tags for typing/Normalize.
     `native` → `.nativeVaultBalance` (0 args); `token` → `.tokenVaultBalance`

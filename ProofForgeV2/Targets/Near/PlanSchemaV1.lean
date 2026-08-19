@@ -318,6 +318,13 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
       -- Tag 15 (ADR-0031 S5): exact UInt256 → UInt256 NEAR host keccak256.
       pure (((encodeU8 15).append (← encodeExpr input)).append
         (← encodeNatAsU32le resultTemp))
+  | .sha256BytesHost inputLeaves resultTemp =>
+      -- Tag 16 (CAP-X-BYTES-NEAR): exact Bytes N → UInt256 NEAR host SHA-256.
+      -- Appended after 15 so existing statement encodings stay byte-identical.
+      let mut out := (encodeU8 16).append (← encodeNatAsU32le inputLeaves.size)
+      for leaf in inputLeaves do
+        out := out.append (← encodeExpr leaf)
+      pure (out.append (← encodeNatAsU32le resultTemp))
 
 private def encodeParam (p : Param) : Except String ByteArray := do
   let mut out := ((((← encodeNatAsU32le p.sourceId).append (← encodeString p.name)).append

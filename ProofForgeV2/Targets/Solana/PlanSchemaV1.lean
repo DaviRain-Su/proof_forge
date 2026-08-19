@@ -294,6 +294,14 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
       let mut out := (encodeU8 16).append (← encodeExpr input)
       out := out.append (← encodeNatAsU32le resultTemp)
       pure out
+  -- CAP-X-BYTES-SOL: dedicated sha256Bytes host binding (tag 17).
+  -- Existing tags 0..16 remain byte-identical.
+  | .sha256BytesHost inputLeaves resultTemp => do
+      let mut out := encodeU8 (UInt8.ofNat solanaSha256BytesHostStatementTagV1)
+      out := out.append (← encodeNatAsU32le inputLeaves.size)
+      for leaf in inputLeaves do out := out.append (← encodeExpr leaf)
+      out := out.append (← encodeNatAsU32le resultTemp)
+      pure out
   -- Atomic aggregate multi-leaf store (tag 11): count + N × store payload.
   | .storeAggregate leaves => do
       let mut out := (encodeU8 11).append (← encodeNatAsU32le leaves.size)

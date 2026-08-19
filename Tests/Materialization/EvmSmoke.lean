@@ -4878,7 +4878,7 @@ private unsafe def testScheduleArgNarrowEvm : IO Unit := do
 
 /-- S5-EVM: `call pf.crypto.sha256` → SHA-256 precompile `0x02` via STATICCALL.
     UInt256→UInt256 only; dedicated Plan statement (not hashed AddressBearing). -/
-private unsafe def testCryptoSha256Evm : IO Unit := do
+unsafe def testCryptoSha256Evm : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let hashedPfCrypto :=
     (Targets.Evm.Keccak.keccak256Hex "pf.crypto".toUTF8).drop 24
@@ -4998,6 +4998,226 @@ private unsafe def testCryptoSha256Evm : IO Unit := do
       "    else\n" ++
       "      return 0\n")
     "pf.crypto.sha256 requires exactly one UInt256 argument and UInt256 result"
+
+/-- CAP-X-BYTES-EVM: `call pf.crypto.sha256Bytes(Bytes N) -> UInt256` via
+    precompile 0x02 over N memory bytes. Dedicated Plan node; N ≤ 64. -/
+unsafe def testCryptoSha256BytesEvm : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let hashedPfCrypto :=
+    (Targets.Evm.Keccak.keccak256Hex "pf.crypto".toUTF8).drop 24
+  let initBytes32 := Id.run do
+    let mut s := ""
+    for i in [0:32] do
+      s := s ++ s!"    data[{i}] := 0\n"
+    pure s
+  -- Positive: Bytes 32 state → dedicated node → CALL 0x02 with inlen=32.
+  let src :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Sha256BytesEvm where\n" ++
+    "  state data : Bytes 32\n" ++
+    "  init() do\n" ++
+    initBytes32 ++
+    "  entry probe() : UInt256 do\n" ++
+    "    let h : UInt256 := call pf.crypto.sha256Bytes(data)\n" ++
+    "    return h\n"
+  let cSrc ← match ← session.selectProgramV1
+      src "<evm-sha256-bytes>" "Tests.EvmSha256Bytes" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"Sha256BytesEvm select: {e.render}"
+  let compiled ← match Compiler.compileValidatedSourceV1 cSrc with
+    | .error e => throw <| IO.userError s!"Sha256BytesEvm must compile, got {e.render}"
+    | .ok c => pure c
+  let plan ← match planEvm compiled with
+    | .error e =>
+        throw <| IO.userError s!"Sha256BytesEvm must produce a plan, got {e.render}"
+    | .ok p => pure p
+  let mut hasDedicated := false
+  let mut dedicatedLen : Nat := 0
+  let mut hasWordSha256 := false
+  let mut hasHashedResultCall := false
+  for e in plan.entries do
+    for s in e.body do
+      match s with
+      | .sha256BytesPrecompile leaves _ =>
+          hasDedicated := true
+          dedicatedLen := leaves.size
+      | .sha256Precompile _ _ => hasWordSha256 := true
+      | .externalCallResult callee _ _ =>
+          if callee == #["pf", "crypto", "sha256Bytes"] then
+            hasHashedResultCall := true
+      | .externalCall callee _ _ =>
+          if callee == #["pf", "crypto", "sha256Bytes"] then
+            hasHashedResultCall := true
+      | _ => pure ()
+  expect hasDedicated
+    "Sha256BytesEvm: plan must contain dedicated sha256BytesPrecompile statement"
+  expect (dedicatedLen == 32)
+    s!"Sha256BytesEvm: dedicated node must carry 32 UInt8 leaves, got {dedicatedLen}"
+  expect (!hasWordSha256)
+    "Sha256BytesEvm: must not lower Bytes ABI to the one-word sha256Precompile"
+  expect (!hasHashedResultCall)
+    "Sha256BytesEvm: must not lower to hashed AddressBearing externalCall(Result)"
+  let files ← match materializeSelected TargetId.evm compiled with
+    | .error e => throw <| IO.userError s!"Sha256BytesEvm materialize: {e.render}"
+    | .ok output => pure (MaterializedArtifactsV1.filesOf output)
+  let some yulFile := files.find? (·.path == "Sha256BytesEvm.yul") |
+    throw <| IO.userError "Sha256BytesEvm: missing .yul"
+  let yul := yulFile.contents
+  expect (yul.contains "call(gas(), 0x02, 0, 0, 32,")
+    "Sha256BytesEvm: Yul must CALL SHA-256 precompile 0x02 with inlen=32"
+  expect (!yul.contains "staticcall(gas(), 0x2, 0, 32, 32, 32)")
+    "Sha256BytesEvm: must not reuse the one-word STATICCALL 32-byte input shape"
+  expect (!yul.contains hashedPfCrypto)
+    s!"Sha256BytesEvm: Yul must not contain hashed pf.crypto address {hashedPfCrypto}"
+
+  let expectPlanFc (programName pathLabel moduleName body needle : String) : IO Unit := do
+    let negSrc :=
+      "import ProofForgeV2\n" ++
+      "open ProofForgeV2.Language\n" ++
+      s!"program {programName} where\n" ++
+      body
+    let neg ← match ← session.selectProgramV1
+        negSrc pathLabel moduleName none with
+      | .ok v => pure v
+      | .error e => throw <| IO.userError s!"{programName} select: {e.render}"
+    match Compiler.compileValidatedSourceV1 neg with
+    | .error e => throw <| IO.userError s!"{programName} must compile, got {e.render}"
+    | .ok compiledNeg =>
+        match planEvm compiledNeg with
+        | .error e =>
+            expect (e.render.contains needle)
+              s!"{programName} Plan FC must contain '{needle}', got: {e.render}"
+        | .ok _ =>
+            throw <| IO.userError
+              s!"{programName} must Plan fail closed (no hashed CALL fallback)"
+
+  -- Integer argument is rejected at Normalize (shared-core Bytes-only gate).
+  let intSrc :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Sha256BytesIntEvm where\n" ++
+    "  entry probe(x : UInt256) : UInt256 do\n" ++
+    "    let h : UInt256 := call pf.crypto.sha256Bytes(x)\n" ++
+    "    return h\n"
+  let intSel ← match ← session.selectProgramV1
+      intSrc "<evm-sha256-bytes-int>" "Tests.EvmSha256BytesInt" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"Sha256BytesIntEvm select: {e.render}"
+  match Compiler.compileValidatedSourceV1 intSel with
+  | .error e =>
+      expect (e.render.contains "Bytes" || e.render.contains "pf.crypto.sha256Bytes")
+        s!"Sha256BytesIntEvm compile FC must mention Bytes/QN, got: {e.render}"
+  | .ok compiledInt =>
+      match planEvm compiledInt with
+      | .error e =>
+          expect (e.render.contains "pf.crypto.sha256Bytes")
+            s!"Sha256BytesIntEvm Plan FC must cite pf.crypto.sha256Bytes, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError "Sha256BytesIntEvm must fail closed on integer argument"
+
+  expectPlanFc "Sha256BytesZeroArgEvm" "<evm-sha256-bytes-0>" "Tests.EvmSha256Bytes0"
+    ("  state data : Bytes 2\n" ++
+      "  init() do\n" ++
+      "    data[0] := 0\n" ++
+      "    data[1] := 0\n" ++
+      "  entry probe() : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.sha256Bytes()\n" ++
+      "    return h\n")
+    "pf.crypto.sha256Bytes"
+  expectPlanFc "Sha256BytesTwoArgEvm" "<evm-sha256-bytes-2>" "Tests.EvmSha256Bytes2"
+    ("  state data : Bytes 2\n" ++
+      "  init() do\n" ++
+      "    data[0] := 0\n" ++
+      "    data[1] := 0\n" ++
+      "  entry probe() : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.sha256Bytes(data, data)\n" ++
+      "    return h\n")
+    "pf.crypto.sha256Bytes"
+  expectPlanFc "Sha256BytesU64ResEvm" "<evm-sha256-bytes-u64>" "Tests.EvmSha256BytesU64"
+    ("  state data : Bytes 2\n" ++
+      "  init() do\n" ++
+      "    data[0] := 0\n" ++
+      "    data[1] := 0\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let h : UInt64 := call pf.crypto.sha256Bytes(data)\n" ++
+      "    return h\n")
+    "pf.crypto.sha256Bytes"
+  let initBytes65 := Id.run do
+    let mut s := ""
+    for i in [0:65] do
+      s := s ++ s!"    data[{i}] := 0\n"
+    pure s
+  expectPlanFc "Sha256Bytes65Evm" "<evm-sha256-bytes-65>" "Tests.EvmSha256Bytes65"
+    ("  state data : Bytes 65\n" ++
+      "  init() do\n" ++
+      initBytes65 ++
+      "  entry probe() : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.sha256Bytes(data)\n" ++
+      "    return h\n")
+    "N ≤ 64"
+  -- View is banned at EffectCheck (same as generic sync call / existing sha256
+  -- leaf). Product compile fail-closes before Plan; ValidatePlan also rejects
+  -- a hand-built view body carrying the dedicated node.
+  let viewSrc :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Sha256BytesViewEvm where\n" ++
+    "  state data : Bytes 2\n" ++
+    "  init() do\n" ++
+    "    data[0] := 0\n" ++
+    "    data[1] := 0\n" ++
+    "  view probe() : UInt256 do\n" ++
+    "    let h : UInt256 := call pf.crypto.sha256Bytes(data)\n" ++
+    "    return h\n"
+  let viewSel ← match ← session.selectProgramV1
+      viewSrc "<evm-sha256-bytes-view>" "Tests.EvmSha256BytesView" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"Sha256BytesViewEvm select: {e.render}"
+  match Compiler.compileValidatedSourceV1 viewSel with
+  | .error e =>
+      expect (e.render.contains "view" || e.render.contains "PF-EFFECT-001")
+        s!"Sha256BytesViewEvm compile FC must mention view/effect, got: {e.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "Sha256BytesViewEvm must fail closed in a view context"
+  let viewPlan : Targets.Evm.Plan := {
+    objectName := "V"
+    runtimeObjectName := "__proof_forge_runtime"
+    storageLayout := #[
+      { sourceId := 0, name := "d0", slot := 0, byteWidth := 1 },
+      { sourceId := 1, name := "d1", slot := 1, byteWidth := 1 }
+    ]
+    events := #[]
+    errors := #[]
+    constructor := none
+    entries := #[{
+      name := "probe"
+      selector := Targets.Evm.Keccak.selector "probe" #[]
+      params := #[]
+      mutability := .view
+      body := #[
+        .sha256BytesPrecompile #[.storageLoad 0, .storageLoad 1] 0,
+        .returnValue (.temp 0)
+      ]
+      resultKind := .uint256
+    }]
+    fns := #[]
+  }
+  match Targets.Evm.validatePlan viewPlan with
+  | .error e =>
+      expect (e.render.contains "view")
+        s!"Sha256BytesViewEvm ValidatePlan must mention view, got: {e.render}"
+  | .ok () =>
+      throw <| IO.userError
+        "Sha256BytesViewEvm hand-built view plan must fail closed"
+  -- Near-miss QN must not fall through to hashed AddressBearing CALL.
+  expectPlanFc "Sha256BytessTypoEvm" "<evm-sha256-bytess>" "Tests.EvmSha256Bytess"
+    ("  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.sha256Bytess(x)\n" ++
+      "    return h\n")
+    "outside admitted EVM scope"
+  IO.println "  ✓ CAP-X-BYTES-EVM pf.crypto.sha256Bytes → CALL 0x02 inlen=N"
 
 /-- S5-EVM second leaf: `call pf.crypto.keccak256` → native `keccak256(0, 32)`.
     UInt256→UInt256 only; dedicated Plan statement (not hashed AddressBearing,
@@ -5897,6 +6117,7 @@ unsafe def run : IO Unit := do
   testScheduleArgWideEvm
   testScheduleArgNarrowEvm
   testCryptoSha256Evm
+  testCryptoSha256BytesEvm
   testCryptoKeccak256Evm
   testSha256CheckFixtureEvm
   testKeccak256CheckFixtureEvm

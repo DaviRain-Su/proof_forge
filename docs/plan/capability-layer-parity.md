@@ -3,7 +3,7 @@ id: PLAN-CAP-LAYER-PARITY
 title: 十二 target 同一能力层 — 设计
 status: draft
 owner: engineering
-updated: 2026-08-17
+updated: 2026-08-19
 normative: false
 ---
 
@@ -72,7 +72,13 @@ before the Plan key.
 | `sha256` | A `0x02` | A `sol_sha256` | A host | F (no host) | **A**（CAP-5 2026-08-16：Tolk `slice.bitsHash()`/TVM `SHA256U` over LE image；`string_hash` 永不发射） | **A**（CAP-4 2026-08-16：`env.crypto().sha256`，UInt256 LE-limb plumbing-only；keccak/siblings 仍名义 FC） | F (no direct) | F |
 | `keccak256` | A opcode | A `sol_keccak256` | A host | F | F (no keccak) | F | F | F |
 | `ecdsaRecoverSecp256k1` | A `0x01` | F | F | F | F | F | F | F |
+| `sha256Bytes`（Bytes N→UInt256） | **A**（N≤64，`0x02` over memory） | **A**（N≤64，`sol_sha256` 单 slice） | **A**（N≤64，host register bytes） | F (no host) | **A**（N≤127，`SHA256U` 单 cell bits） | **A**（N≤8，`env.crypto().sha256` S0 Bytes） | F (no direct) | F |
 | Bytes / Merkle / other verify | F | F | F | F | F | F | F | F |
+
+`sha256Bytes` QN 已于 2026-08-19 冻结并落地（CAP-X-BYTES，共享核 + 五叶；
+见 [`capability-layer-tasks.md`](capability-layer-tasks.md) Wave 4）。N 上限为
+各叶诚实预算（EVM/Solana/NEAR 64、TON 单 cell 127、Soroban S0 flatten 8），
+超限 named FC。无 host target（CW / ICP / XRPL / circuit class）永 F。
 
 ### 3.3 What is already “same layer”
 

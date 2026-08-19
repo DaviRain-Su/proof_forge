@@ -1724,6 +1724,35 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
           s!"{indent}if iszero({okName}) \{ revert(0, 0) }\n" ++
           s!"{indent}if lt(returndatasize(), 32) \{ revert(0, 0) }\n" ++
           s!"{indent}let t{resultTemp} := mload(32)\n"
+    | .sha256BytesPrecompile byteLeaves resultTemp =>
+        -- CAP-X-BYTES-EVM: N UInt8 leaves packed into memory at offsets
+        -- 0..N-1 (byte i at memory offset i). Scratch layout: input at 0,
+        -- 32-byte digest written at the next 32-byte word after the packed
+        -- input (aligned at 32). Uses CALL 0x02 with inlen=N, outlen=32.
+        -- Independent of the one-word sha256Precompile STATICCALL path.
+        let n := byteLeaves.size
+        -- Input occupies [0, N). Output sits on the next 32-byte word that
+        -- does not overlap the input (N≤32 → 32, matching the one-word leaf;
+        -- 33≤N≤64 → 64). No silent truncation.
+        let outOffset := ((n + 31) / 32) * 32
+        let mut packed := ""
+        for i in [0:n] do
+          let leaf := byteLeaves[i]!
+          let rendered := renderExpr indent paramPrefix next leaf
+          output := output ++ rendered.code
+          next := rendered.next
+          -- mstore writes a 32-byte BE word; place byte i at memory offset i
+          -- by shifting the UInt8 into the high byte of a word stored at i.
+          packed := packed ++
+            s!"{indent}mstore({i}, shl(248, and({rendered.value}, 0xff)))\n"
+        output := output ++ packed
+        let okName := s!"sha256BytesOk{next}"
+        next := next + 1
+        output := output ++
+          s!"{indent}let {okName} := call(gas(), 0x02, 0, 0, {n}, {outOffset}, 32)\n" ++
+          s!"{indent}if iszero({okName}) \{ revert(0, 0) }\n" ++
+          s!"{indent}if lt(returndatasize(), 32) \{ revert(0, 0) }\n" ++
+          s!"{indent}let t{resultTemp} := mload({outOffset})\n"
     | .keccak256Opcode input resultTemp =>
         -- ADR-0031 SYS-S5-EVM: exact one-word native keccak256 opcode.
         -- Scratch word 0 is the 32-byte input; the opcode returns the digest.
@@ -2336,6 +2365,8 @@ private partial def statementHelperNeedsV1 : Statement → PhaseHelperNeedsV1
   | .externalCall _ args _ | .schedule _ args _ | .externalCallResult _ args _ =>
       args.foldl (fun acc e => mergeHelperNeeds acc (exprHelperNeedsV1 e)) {}
   | .sha256Precompile input _ | .keccak256Opcode input _ => exprHelperNeedsV1 input
+  | .sha256BytesPrecompile byteLeaves _ =>
+      byteLeaves.foldl (fun acc e => mergeHelperNeeds acc (exprHelperNeedsV1 e)) {}
   | .ecdsaRecoverSecp256k1 hash v r s _ =>
       mergeHelperNeeds (exprHelperNeedsV1 hash)
         (mergeHelperNeeds (exprHelperNeedsV1 v)

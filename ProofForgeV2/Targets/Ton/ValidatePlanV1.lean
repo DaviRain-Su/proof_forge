@@ -33,8 +33,10 @@ private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) : Expr → Bool
   | .narrowSignedCheckedAdd .. | .narrowSignedCheckedSub ..
   | .narrowSignedCheckedMul .. | .narrowSignedCheckedDiv ..
   | .narrowSignedCheckedMod .. => false
-  -- CAP-5: sha256 result is UInt256, not a UInt64 event/schedule arg.
+  -- CAP-5 / CAP-X-BYTES: sha256 / sha256Bytes results are UInt256,
+  -- not a UInt64 event/schedule arg.
   | .sha256 _ => false
+  | .sha256Bytes _ => false
   | _ => true
 
 private partial def planExprNodes? (layout : StorageLayout) (params : Array Param)
@@ -67,6 +69,18 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
     -- B-CTX-OPEN: Tolk `blockchain.now()` leaf — arity 1 (mirrors EVM/NEAR).
     | .blockUnixTimeSeconds => some 1
     | .sha256 operand => unaryNodes operand
+    | .sha256Bytes bytes => Id.run do
+        let childDepth := depthLeft - 1
+        let mut available := nodeBudget - 1
+        let mut totalNodes : Nat := 1
+        let mut ok := true
+        for b in bytes do
+          match planExprNodes? layout params fns childDepth available b with
+          | none => ok := false
+          | some n =>
+              totalNodes := totalNodes + n
+              available := available - n
+        pure (if ok then some totalNodes else none)
     | .checkedAdd lhs rhs => binaryNodes lhs rhs
     | .checkedSub lhs rhs => binaryNodes lhs rhs
     | .checkedMul lhs rhs => binaryNodes lhs rhs

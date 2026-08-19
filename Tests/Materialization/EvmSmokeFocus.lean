@@ -8,3 +8,4 @@ unsafe def main : IO Unit := do
   Tests.Materialization.EvmSmoke.testBytesReturn
   Tests.Materialization.EvmSmoke.testPrincipalReturn
   Tests.Materialization.EvmSmoke.testStringReturn
+  Tests.Materialization.EvmSmoke.testCryptoSha256BytesEvm

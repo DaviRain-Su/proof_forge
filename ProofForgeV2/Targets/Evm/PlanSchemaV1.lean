@@ -410,6 +410,15 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
       let mut out := (encodeU8 21).append (← encodeExpr input)
       out := out.append (← encodeNatAsU32le resultTemp)
       pure out
+  -- Tag 24 (CAP-X-BYTES-EVM): exact
+  -- pf.crypto.sha256Bytes(Bytes N) -> UInt256 precompile binding.
+  -- Payload is N then N Expr leaves then resultTemp. Distinct from tag 21
+  -- (one-word sha256) and tags 22–23.
+  | .sha256BytesPrecompile byteLeaves resultTemp => do
+      let mut out := (encodeU8 24).append (← encodeNatAsU32le byteLeaves.size)
+      for leaf in byteLeaves do out := out.append (← encodeExpr leaf)
+      out := out.append (← encodeNatAsU32le resultTemp)
+      pure out
   -- Tag 22 (ADR-0031 SYS-S5-EVM): exact
   -- pf.crypto.keccak256(UInt256) -> UInt256 native opcode. Distinct from
   -- tag 21 (SHA-256 precompile) and from hashed AddressBearing CALL.

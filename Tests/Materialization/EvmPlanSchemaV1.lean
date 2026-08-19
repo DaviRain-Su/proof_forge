@@ -429,6 +429,65 @@ private unsafe def testStoreAtomicPlanDigest : IO Unit := do
   let cd ← liftExcept "cd" (engineeringEvmPlanDigestV1 stateCell)
   expect (cd.bytes.size == 32) "StateCell digest remains 32-byte sha256"
 
+/-- CAP-X-BYTES-EVM: statement tag 24 is distinct from tag 21 (one-word sha256)
+    and binds N + N Expr leaves + resultTemp. -/
+private def testSha256BytesPrecompileWireTag : IO Unit := do
+  let bytesPlan : Plan := {
+    objectName := "B"
+    runtimeObjectName := "__proof_forge_runtime"
+    storageLayout := #[{ sourceId := 0, name := "pad", slot := 0 }]
+    events := #[]
+    errors := #[]
+    constructor := none
+    entries := #[{
+      name := "probe"
+      selector := Targets.Evm.Keccak.selector "probe" #[]
+      params := #[]
+      mutability := .nonpayable
+      body := #[
+        .sha256BytesPrecompile #[.literal 1, .literal 2] 0,
+        .returnValue (.temp 0)
+      ]
+      resultKind := .uint256
+    }]
+    fns := #[]
+  }
+  match validatePlan bytesPlan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"sha256Bytes plan: {e.render}"
+  let encoded ← liftExcept "enc" (encodeEngineeringEvmPlanBytesV1 bytesPlan)
+  let wordPlan : Plan := {
+    bytesPlan with
+    entries := #[{
+      bytesPlan.entries[0]! with body := #[
+        .sha256Precompile (.literal 1) 0,
+        .returnValue (.temp 0)
+      ]
+    }]
+  }
+  match validatePlan wordPlan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"sha256 word plan: {e.render}"
+  let wordEnc ← liftExcept "wenc" (encodeEngineeringEvmPlanBytesV1 wordPlan)
+  expect (!(encoded == wordEnc))
+    "tag 24 sha256BytesPrecompile bytes must differ from tag 21 sha256Precompile"
+  let d1 ← liftExcept "d1" (engineeringEvmPlanDigestV1 bytesPlan)
+  let d2 ← liftExcept "d2" (engineeringEvmPlanDigestV1 bytesPlan)
+  expect (d1.bytes == d2.bytes) "sha256Bytes plan digest determinism"
+  -- Pin the closed statement tag: encodeU8 24 then u32le leaf-count 2.
+  let data := encoded.data
+  let mut foundTag24 := false
+  for i in [0:data.size] do
+    if i + 4 < data.size then
+      if data[i]! == (24 : UInt8) then
+        let n :=
+          data[i + 1]!.toNat + data[i + 2]!.toNat * 256 +
+          data[i + 3]!.toNat * 65536 + data[i + 4]!.toNat * 16777216
+        if n == 2 then foundTag24 := true
+  expect foundTag24
+    "encoded sha256BytesPrecompile plan must contain wire tag 24 with N=2"
+  IO.println "  ✓ CAP-X-BYTES-EVM PlanSchema tag 24 pin"
+
 unsafe def run : IO Unit := do
   testDomain
   testMinimalPlanDeterminism
@@ -440,6 +499,7 @@ unsafe def run : IO Unit := do
   testFieldPlanDigestDeterminism
   testArrayIndexPlanDigestDeterminism
   testStoreAtomicPlanDigest
+  testSha256BytesPrecompileWireTag
   IO.println "Tests.Materialization.EvmPlanSchemaV1: ok"
 
 end Tests.Materialization.EvmPlanSchemaV1

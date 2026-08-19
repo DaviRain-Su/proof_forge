@@ -223,8 +223,13 @@ private def stringInterfaceBoundarySourceTextV1 : String :=
   "import ProofForgeV2\n" ++
   "open ProofForgeV2.Language\n" ++
   "program StringInterfaceBoundary where\n" ++
+  -- A trivial UInt64 state keeps state-count/profile gates (e.g. NEAR) out of
+  -- the way so every target reaches its own event-field gate.
+  "  state pad : UInt64\n" ++
   "  event Note(message : String)\n" ++
   "  error Stop(reason : String)\n" ++
+  "  init() do\n" ++
+  "    pad := 0\n" ++
   "  entry emitNote() : UInt64 do\n" ++
   "    emit Note(\"hello\")\n" ++
   "    return 0\n" ++
@@ -441,9 +446,9 @@ private unsafe def testStringInterfaceMaterializationFailClosed : IO Unit := do
   for (target, kind, marker) in #[
       (TargetId.evm, TargetKind.evm, "fields must be public UInt64"),
       -- Sole rail solana-sbpf-cpi-elf-v1 / Escrow CPI IR fail-closed wording.
-      (TargetId.solana, TargetKind.solana, "only UInt64/UInt8"),
-      (TargetId.near, TargetKind.near, "only UInt8"),
-      (TargetId.noir, TargetKind.noir, "only UInt8"),
+      (TargetId.solana, TargetKind.solana, "fields must be public UInt64"),
+      (TargetId.near, TargetKind.near, "fields must be public UInt64"),
+      (TargetId.noir, TargetKind.noir, "fields must be public UInt64"),
       (TargetId.psy, TargetKind.psy, "emit does not accept aggregate arguments")] do
     match materializeSelected target compiled with
     | .error (.planInvariant actualKind message) =>
@@ -528,22 +533,18 @@ private unsafe def testIntForMaterializationFailClosed : IO Unit := do
       (TargetId.psy, TargetKind.psy, "loop header must carry one UInt64 parameter")] do
     expectMaterializePlanInvariantV1 "int-for" target kind compiled marker
   -- Extra six from probe; not opening signed for-loop / Int64 induction.
-  -- CosmWasm/TON share the public-UInt64 induction gate. Envelope-4 now
-  -- admit Int64 width, so Quint/Soroban/ICP/OpenVM fail on their shared
-  -- single-block CFG gate (which fires before the loopBounds gate for a
-  -- multi-block loop body).
+  -- CosmWasm/TON share the public-UInt64 induction gate. The T9c/INT64
+  -- waves opened envelope-4 Int64 bounded-for (`forLoop` + counted trap),
+  -- so Quint/Soroban/ICP/OpenVM now materialize the Int64 loop.
   for (target, kind, marker) in #[
       (TargetId.cosmwasm, TargetKind.cosmwasm, "loop induction must be public UInt64"),
-      (TargetId.ton, TargetKind.ton, "loop induction must be public UInt64"),
-      (TargetId.quint, TargetKind.quint,
-        "each callable must have exactly one block"),
-      (TargetId.soroban, TargetKind.soroban,
-        "each callable must have exactly one block"),
-      (TargetId.icp, TargetKind.icp,
-        "each callable must have exactly one block"),
-      (TargetId.openvm, TargetKind.openvm,
-        "each callable must have exactly one block")] do
+      (TargetId.ton, TargetKind.ton, "loop induction must be public UInt64")] do
     expectMaterializePlanInvariantV1 "int-for" target kind compiled marker
+  for target in [TargetId.quint, TargetId.soroban, TargetId.icp,
+      TargetId.openvm] do
+    let out ← liftResult <| materializeSelected target compiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"int-for: {target} must materialize the Int64 bounded-for"
 
 /-- N-ANON-RESULT opens only the shared Semantic/Reference result contract.
     None of the six target-owned ABIs may reinterpret an anonymous Array result
@@ -2328,24 +2329,27 @@ private unsafe def testCallScheduleSemanticPlans : IO Unit := do
     laterCompiled "ICP-2 Plan has no realized async shape"
 
 -- Fast regression for the retained-V1 target Plan seam and fail-closed tables.
+private unsafe def labeled (name : String) (t : IO Unit) : IO Unit := do
+  try t catch e => throw <| IO.userError s!"[{name}] {e}"
+
 set_option maxRecDepth 10000 in
 unsafe def runSemanticPlanLeafFast : IO Unit := do
-  testSemanticPlanSourceAuthority
-  testConstInvariantMaterializationBoundary
-  testStringInterfaceMaterializationFailClosed
-  testIntForMaterializationFailClosed
-  testAnonymousResultMaterializationFailClosed
-  testRichUInt64SemanticPlans
-  testGuardedStateCellSemanticPlans
-  testBoolPredicateSemanticPlans
-  testBranchingSemanticPlans
-  testEmitRevertSemanticPlans
-  testFnLocalCallSemanticPlans
-  testArithOpsSemanticPlans
-  testForLoopSemanticPlans
-  testShiftBitwiseLogicalSemanticPlans
-  testCallScheduleSemanticPlans
-  testNoirHugeFoldedShiftCount
+  labeled "testSemanticPlanSourceAuthority" testSemanticPlanSourceAuthority
+  labeled "testConstInvariant" testConstInvariantMaterializationBoundary
+  labeled "testStringInterface" testStringInterfaceMaterializationFailClosed
+  labeled "testIntFor" testIntForMaterializationFailClosed
+  labeled "testAnonymousResult" testAnonymousResultMaterializationFailClosed
+  labeled "testRichUInt64" testRichUInt64SemanticPlans
+  labeled "testGuardedStateCell" testGuardedStateCellSemanticPlans
+  labeled "testBoolPredicate" testBoolPredicateSemanticPlans
+  labeled "testBranching" testBranchingSemanticPlans
+  labeled "testEmitRevert" testEmitRevertSemanticPlans
+  labeled "testFnLocalCall" testFnLocalCallSemanticPlans
+  labeled "testArithOps" testArithOpsSemanticPlans
+  labeled "testForLoop" testForLoopSemanticPlans
+  labeled "testShiftBitwiseLogical" testShiftBitwiseLogicalSemanticPlans
+  labeled "testCallSchedule" testCallScheduleSemanticPlans
+  labeled "testNoirHugeFoldedShiftCount" testNoirHugeFoldedShiftCount
 
 /-- ProgramV1 BoolPredicate source text for the Bool-result leaf. -/
 private def repeatedByte (count : Nat) (value : UInt8) : ByteArray :=
@@ -4267,13 +4271,19 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"T10 principal return select: {e.render}"
   let prinRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 prinRetV1
-  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+  -- XRPL stays out: the bedrock slice requires at least one entry, so
+  -- view-only fixtures are outside the admitted XRPL product shape.
+  for target in [TargetId.evm, TargetId.near, TargetId.noir,
       TargetId.aleo, TargetId.psy, TargetId.quint, TargetId.cosmwasm,
-      TargetId.ton, TargetId.soroban, TargetId.icp, TargetId.openvm,
-      TargetId.xrpl] do
+      TargetId.ton, TargetId.soroban, TargetId.icp, TargetId.openvm] do
     let out ← liftResult <| materializeSelected target prinRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"T10: {target} Principal view return must materialize 9-leaf identity"
+  -- Solana's return-data emitter caps multi-leaf returns at 8 leaves, so the
+  -- 9-leaf Principal view return stays fail closed at the emitter (the
+  -- Plan-level 9-leaf layout pin lives in Tests/Materialization/SolanaPlanV1).
+  expectMaterializePlanInvariantV1 "T10" TargetId.solana TargetKind.solana
+    prinRetCompiled "setReturnDataMulti leaf count"
 
   -- B-RET-STR: String is the same 9-leaf wire identity as Principal
   -- (`u32le(len)||body` → `len+w0..w7`). Not UTF-8 ABI / not address.
@@ -4285,7 +4295,7 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     "  state label : String\n\n" ++
     "  init(initial : String) do\n" ++
     "    label := initial\n\n" ++
-    "  entry set(next : String) : Bool do\n" ++
+    "  entry setLabel(next : String) : Bool do\n" ++
     "    label := next\n" ++
     "    return true\n\n" ++
     "  entry eq(a : String, b : String) : Bool do\n" ++
@@ -4297,12 +4307,16 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     | .error e => throw <| IO.userError s!"StringBox select: {e.render}"
   let strBoxCompiled ← liftResult <| Compiler.compileValidatedSourceV1 strBoxV1
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
-      TargetId.aleo, TargetId.psy, TargetId.quint, TargetId.cosmwasm,
+      TargetId.psy, TargetId.quint, TargetId.cosmwasm,
       TargetId.ton, TargetId.soroban, TargetId.icp, TargetId.openvm,
       TargetId.xrpl] do
     let out ← liftResult <| materializeSelected target strBoxCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"B-RET-STR: {target} StringBox state/param/eq must materialize 9-leaf identity"
+  -- Aleo: the pure `eq` entry touches no state, which the Final-only
+  -- Instructions path rejects (ALEO-IR-4); the box stays off Aleo.
+  expectMaterializePlanInvariantV1 "B-RET-STR" TargetId.aleo TargetKind.aleo
+    strBoxCompiled "does not touch state"
   let strRetSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -4319,13 +4333,17 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"StringReturn select: {e.render}"
   let strRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 strRetV1
-  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+  -- XRPL stays out: the bedrock slice requires at least one entry, so
+  -- view-only fixtures are outside the admitted XRPL product shape.
+  for target in [TargetId.evm, TargetId.near, TargetId.noir,
       TargetId.aleo, TargetId.psy, TargetId.quint, TargetId.cosmwasm,
-      TargetId.ton, TargetId.soroban, TargetId.icp, TargetId.openvm,
-      TargetId.xrpl] do
+      TargetId.ton, TargetId.soroban, TargetId.icp, TargetId.openvm] do
     let out ← liftResult <| materializeSelected target strRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"B-RET-STR: {target} String view return must materialize 9-leaf identity"
+  -- Solana: same 8-leaf return-data emitter cap as Principal (9 leaves FC).
+  expectMaterializePlanInvariantV1 "B-RET-STR" TargetId.solana
+    TargetKind.solana strRetCompiled "setReturnDataMulti leaf count"
 
   -- N3 / NoirAggregate / H3 PsyAleoAggregate / L1 NearNamedAggregate / L2
   -- SolanaNamedAggregate: named Struct state + field assign product pin —
@@ -4488,10 +4506,11 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"MaybeViewRet select: {e.render}"
   let enumViewRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 enumViewRetV1
+  -- XRPL stays out: the bedrock slice requires at least one entry, so
+  -- view-only fixtures are outside the admitted XRPL product shape.
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
       TargetId.aleo, TargetId.psy, TargetId.cosmwasm, TargetId.ton,
-      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp,
-      TargetId.xrpl] do
+      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp] do
     let out ← liftResult <| materializeSelected target enumViewRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"MaybeViewRet: {target} must materialize named Enum view return"
@@ -4623,10 +4642,11 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"ArrViewRet select: {e.render}"
   let arrViewRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 arrViewRetV1
+  -- XRPL stays out: the bedrock slice requires at least one entry, so
+  -- view-only fixtures are outside the admitted XRPL product shape.
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
       TargetId.aleo, TargetId.psy, TargetId.cosmwasm, TargetId.ton,
-      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp,
-      TargetId.xrpl] do
+      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp] do
     let out ← liftResult <| materializeSelected target arrViewRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"ArrViewRet: {target} must materialize Array UInt64 2 view return"
@@ -4917,11 +4937,11 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "ArrStr" TargetId.evm TargetKind.evm
     arrStrCompiled "Array state element must be UInt8/16/32/64"
   expectMaterializePlanInvariantV1 "ArrStr" TargetId.solana TargetKind.solana
-    arrStrCompiled "not a fixed 32-byte pubkey"
+    arrStrCompiled "Array state element must be UInt64 or Int64"
   expectMaterializePlanInvariantV1 "ArrStr" TargetId.near TargetKind.near
     arrStrCompiled "not a NEAR account-id string"
   expectMaterializePlanInvariantV1 "ArrStr" TargetId.noir TargetKind.noir
-    arrStrCompiled "not a Field element"
+    arrStrCompiled "Array state element must be UInt64 or Int64"
   expectMaterializePlanInvariantV1 "ArrStr" TargetId.aleo TargetKind.aleo
     arrStrCompiled "Array state element must be UInt64"
   expectMaterializePlanInvariantV1 "ArrStr" TargetId.psy TargetKind.psy
@@ -5456,7 +5476,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   let mapRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 mapRetV1
   for target in [TargetId.near, TargetId.cosmwasm, TargetId.quint,
       TargetId.soroban, TargetId.openvm, TargetId.icp, TargetId.aleo,
-      TargetId.solana, TargetId.noir, TargetId.psy, TargetId.xrpl] do
+      TargetId.noir, TargetId.psy, TargetId.xrpl] do
     let out ← liftResult <| materializeSelected target mapRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"MapRetBox: {target} must materialize Map UInt64 return"
@@ -5464,6 +5484,10 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     mapRetCompiled "cannot return Map"
   expectMaterializePlanInvariantV1 "MapRetBox" TargetId.ton TargetKind.ton
     mapRetCompiled "entry 'peek' cannot return multi-leaf aggregate"
+  -- Solana: the 24-leaf Map entry return exceeds the 8-leaf return-data
+  -- emitter cap (same boundary as MapViewRet/Principal/String returns).
+  expectMaterializePlanInvariantV1 "MapRetBox" TargetId.solana
+    TargetKind.solana mapRetCompiled "setReturnDataMulti leaf count"
 
   -- MapViewRet: leftover honesty pin. TON view Map is already admitted
   -- (TonPlanV1.testMapReturn); the ring had no view box. EVM hashed Map
@@ -5484,15 +5508,20 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"MapViewRet select: {e.render}"
   let mapViewCompiled ← liftResult <| Compiler.compileValidatedSourceV1 mapViewV1
+  -- XRPL stays out: the bedrock slice requires at least one entry, so
+  -- view-only fixtures are outside the admitted XRPL product shape.
   for target in [TargetId.near, TargetId.cosmwasm, TargetId.quint,
       TargetId.soroban, TargetId.openvm, TargetId.icp, TargetId.aleo,
-      TargetId.solana, TargetId.noir, TargetId.psy, TargetId.xrpl,
-      TargetId.ton] do
+      TargetId.noir, TargetId.psy, TargetId.ton] do
     let out ← liftResult <| materializeSelected target mapViewCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"MapViewRet: {target} must materialize Map UInt64 view return"
   expectMaterializePlanInvariantV1 "MapViewRet" TargetId.evm TargetKind.evm
     mapViewCompiled "cannot return Map"
+  -- Solana's return-data emitter caps multi-leaf returns at 8 leaves, so the
+  -- 24-leaf Map view return stays fail closed there (not a Map-shape gate).
+  expectMaterializePlanInvariantV1 "MapViewRet" TargetId.solana
+    TargetKind.solana mapViewCompiled "setReturnDataMulti leaf count"
 
   -- MapOpt: Map UInt64 Option UInt64 state. All twelve targets stay named
   -- Map-value/pilot FC. Not opening Map-of-Option. MapMini / MapRetBox stay.
@@ -5829,11 +5858,11 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "MapStr" TargetId.evm TargetKind.evm
     mapStrCompiled "Map state value must be UInt64"
   expectMaterializePlanInvariantV1 "MapStr" TargetId.solana TargetKind.solana
-    mapStrCompiled "not a fixed 32-byte pubkey"
+    mapStrCompiled "Map state value must be UInt64"
   expectMaterializePlanInvariantV1 "MapStr" TargetId.near TargetKind.near
     mapStrCompiled "not a NEAR account-id string"
   expectMaterializePlanInvariantV1 "MapStr" TargetId.noir TargetKind.noir
-    mapStrCompiled "not a Field element"
+    mapStrCompiled "Map state admits only Map UInt64 UInt64"
   expectMaterializePlanInvariantV1 "MapStr" TargetId.aleo TargetKind.aleo
     mapStrCompiled "Map state admits only Map UInt64 UInt64"
   expectMaterializePlanInvariantV1 "MapStr" TargetId.psy TargetKind.psy
@@ -6595,13 +6624,85 @@ unsafe def runRemainingNeedles : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"BytesRetBox select: {e.render}"
   let bytesRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 bytesRetV1
+  -- XRPL stays out: the bedrock slice requires at least one entry, so
+  -- view-only fixtures are outside the admitted XRPL product shape.
   for target in [TargetId.evm, TargetId.solana, TargetId.near,
       TargetId.noir, TargetId.aleo, TargetId.psy, TargetId.cosmwasm,
       TargetId.ton, TargetId.quint, TargetId.soroban, TargetId.openvm,
-      TargetId.icp, TargetId.xrpl] do
+      TargetId.icp] do
     let out ← liftResult <| materializeSelected target bytesRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"BytesRetBox: {target} must materialize Bytes 4 return"
+
+  -- CAP-X-BYTES: exact `pf.crypto.sha256Bytes(Bytes N) -> UInt256` cross-target
+  -- needle. EVM (0x02 over memory, N≤64) / Solana (`sol_sha256` single slice,
+  -- N≤64) / NEAR (host register bytes, N≤64) / TON (`SHA256U` single-cell bits,
+  -- N≤127) admit the UInt256-returning probe; Soroban carries UInt256 only as
+  -- transient sha256 plumbing (no UInt256 state/return) and gets its own
+  -- UInt64-entry probe. Noir/Psy/Aleo/Quint/CosmWasm/OpenVM/ICP/XRPL keep
+  -- named no-host FC.
+  let sha256BytesProbeSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program Sha256BytesProbe where\n" ++
+    "  state data : Bytes 4\n\n" ++
+    "  init() do\n" ++
+    "    data[0] := 1\n\n" ++
+    "  entry probe() : UInt256 do\n" ++
+    "    return call pf.crypto.sha256Bytes(data)\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let sha256BytesV1 ← match ← session.selectProgramV1 sha256BytesProbeSource
+      "<targets-sha256-bytes>" "Examples.Sha256BytesProbe" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"Sha256BytesProbe select: {e.render}"
+  let sha256BytesCompiled ←
+    liftResult <| Compiler.compileValidatedSourceV1 sha256BytesV1
+  for target in [TargetId.evm, TargetId.solana, TargetId.near,
+      TargetId.ton] do
+    let out ← liftResult <| materializeSelected target sha256BytesCompiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"Sha256BytesProbe: {target} must materialize sha256Bytes"
+  for (target, kind, marker) in #[
+      (TargetId.noir, TargetKind.noir, "has no Noir host binding"),
+      (TargetId.aleo, TargetKind.aleo, "has no Aleo host binding"),
+      (TargetId.quint, TargetKind.quint, "has no Quint host binding"),
+      (TargetId.cosmwasm, TargetKind.cosmwasm, "has no CosmWasm host binding"),
+      (TargetId.openvm, TargetKind.openvm, "has no OpenVM host binding"),
+      (TargetId.icp, TargetKind.icp, "has no Icp host binding"),
+      (TargetId.xrpl, TargetKind.xrpl, "has no XRPL host binding")] do
+    expectMaterializePlanInvariantV1 "Sha256BytesProbe" target kind
+      sha256BytesCompiled marker
+  -- Psy: result-bearing external calls outside the DPN gadget catalog are
+  -- not admitted at all (sha256 has no SHA-2 host either way).
+  expectMaterializePlanInvariantV1 "Sha256BytesProbe" TargetId.psy
+    TargetKind.psy sha256BytesCompiled "result-bearing external call is not admitted"
+  -- Soroban probe: UInt256 stays transient sha256 plumbing; the entry returns
+  -- UInt64 and the digest is intentionally unused (S0 envelope).
+  let sha256BytesSorSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program Sha256BytesSorProbe where\n" ++
+    "  state pad : UInt64\n\n" ++
+    "  state data : Bytes 4\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "    data[0] := 1\n\n" ++
+    "  entry probe() : UInt64 do\n" ++
+    "    let h : UInt256 := call pf.crypto.sha256Bytes(data)\n" ++
+    "    return pad\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let sha256BytesSorV1 ← match ← session.selectProgramV1 sha256BytesSorSource
+      "<targets-sha256-bytes-sor>" "Examples.Sha256BytesSorProbe" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"Sha256BytesSorProbe select: {e.render}"
+  let sha256BytesSorCompiled ←
+    liftResult <| Compiler.compileValidatedSourceV1 sha256BytesSorV1
+  let sorOut ← liftResult <| materializeSelected TargetId.soroban
+    sha256BytesSorCompiled
+  expect (!(MaterializedArtifactsV1.filesOf sorOut).isEmpty)
+    "Sha256BytesSorProbe: soroban must materialize sha256Bytes"
 
   -- N-A4: Option state Normalize-admitted. All twelve materializers
   -- admit Option UInt64 state (Enum-shaped 2-leaf / tag+payload layout):
@@ -6696,10 +6797,11 @@ unsafe def runRemainingNeedles : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"OptViewRet select: {e.render}"
   let optViewRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 optViewRetV1
+  -- XRPL stays out: the bedrock slice requires at least one entry, so
+  -- view-only fixtures are outside the admitted XRPL product shape.
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
       TargetId.aleo, TargetId.psy, TargetId.cosmwasm, TargetId.ton,
-      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp,
-      TargetId.xrpl] do
+      TargetId.quint, TargetId.soroban, TargetId.openvm, TargetId.icp] do
     let out ← liftResult <| materializeSelected target optViewRetCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"OptViewRet: {target} must materialize Option UInt64 view return"
@@ -6982,11 +7084,11 @@ unsafe def runRemainingNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "OptStr" TargetId.evm TargetKind.evm
     optStrCompiled "Option state admits only UInt64 payload"
   expectMaterializePlanInvariantV1 "OptStr" TargetId.solana TargetKind.solana
-    optStrCompiled "not a fixed 32-byte pubkey"
+    optStrCompiled "element must be UInt64"
   expectMaterializePlanInvariantV1 "OptStr" TargetId.near TargetKind.near
     optStrCompiled "not a NEAR account-id string"
   expectMaterializePlanInvariantV1 "OptStr" TargetId.noir TargetKind.noir
-    optStrCompiled "not a Field element"
+    optStrCompiled "requires UInt64 payload"
   expectMaterializePlanInvariantV1 "OptStr" TargetId.aleo TargetKind.aleo
     optStrCompiled "Option state 'o' requires UInt64 payload"
   expectMaterializePlanInvariantV1 "OptStr" TargetId.psy TargetKind.psy

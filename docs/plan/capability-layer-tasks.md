@@ -3,7 +3,7 @@ id: PLAN-CAP-LAYER-TASKS
 title: 十二 target 同一能力层 — 任务拆分
 status: draft
 owner: engineering
-updated: 2026-08-17
+updated: 2026-08-19
 normative: false
 ---
 
@@ -67,12 +67,30 @@ CAP-7 / CAP-8 / CAP-9。owner 未拍 TIME/CALLER **yes** 之前禁止 Lower/Emit
 |---|---|
 | **CAP-X-NEW-TARGET** | No cairo/risc0/sp1/Move/Bitcoin this wave (RPT-025/026) |
 | **CAP-X-MERKLE** | [EXT-CRYPTO auto-open rejected](../../.agents/notes/rejected/architecture/2026-08-15-ext-crypto-auto-open.md) |
-| **CAP-X-BYTES** | Shared-core `sha256Bytes`; separate cutover |
 | **CAP-X-CW-SHA** | CosmWasm has no sha256 host — keep F |
 | **CAP-X-XRPL-SHA** | XRPL has no sha256 host — only `compute_sha512_half` (ADR-0052) |
 | **CAP-X-ICP-HEIGHT** | ICP has no block-height API — keep F |
 | **CAP-X-CIRCUIT** | Noir/OpenVM/Psy chain-anchored keys stay F |
 | **CAP-X-FORMAL** | [Goal ↛ formal](../../.agents/notes/implemented/process/2026-08-15-goal-must-not-close-formal.md) |
+
+## Wave 4 — CAP-X-BYTES：`pf.crypto.sha256Bytes` 共享核 + 五叶（active，2026-08-19 冻结）
+
+设计冻结：新 QN **`pf.crypto.sha256Bytes(Bytes N) -> UInt256`**（`N ≤ maxTypeLengthV1`；
+result 沿用 UInt256 digest 惯例；TON/Soroban 继续 LE image 纪律）。不开同 QN 多 arity、
+不开流式（CRYPTO-B2 永久 FC）、不开 Merkle。共享核只做「承认 Bytes 参数」：
+TypeCheck/EffectCheck/Wire 均无需改动（expected-type 钉 result；`externalCallSync`
+纪律与既有 sha256 相同，view 仍关；Bytes 参数 serializability 在 Wire 已闭合）；
+Reference 走 generic ExternalCall response cursor，不在 L1 机内算 hash。
+无 host 的八个 target（Noir/Psy/Aleo/Quint/CosmWasm/ICP/OpenVM/XRPL）保持引 QN 的命名 FC。
+
+| ID | Pri | Objective | Files (expected) | Done when | Not |
+|---|---|---|---|---|---|
+| **CAP-X-BYTES-CORE** | P1 | **done 2026-08-19**：共享核承认新 QN：`Core/RequirementIdsV1` 新 QN 常量 + `isPfCryptoHostSyscallQnV1` 纳入；`Semantic/NormalizeV1` 表达式 call 臂对 exact QN 放行 anonymous `Bytes N` 参数（其余 QN 仍 anonymous-integer/Principal 纪律）；`Typed/RequirementsInferV1` 经共享 predicate 自动走 env-read 纪律 | `Core/RequirementIdsV1.lean` · `Semantic/NormalizeV1.lean` · `Tests/Semantic/NormalizeSha256BytesV1.lean` | Loader→CheckV1→Normalize 正/负 + Bytes 4096/4097 边界（4097 在 source type surface 即 PF-SRC-INVALID）+ 老 `pf.crypto.sha256` UInt256 回归全过；Reference 走 generic response cursor（不算 hash）pin；八 target 命名 FC 不动 | 不改 TypeCheck/EffectCheck/Wire/Reference；不钉 UInt256 result（target-owned exact ABI）；statement 位置仍 generic FC |
+| **CAP-X-BYTES-EVM** | P2 | **done 2026-08-19**：EVM `sha256BytesPrecompile`，N ≤ 64 → precompile `0x02` over memory（逐叶 `mstore(i, shl(248, …))`，inlen=N，digest 在 ceil32(N)×32）；wire tag 24 | `Targets/Evm/{LowerSemantic,ValidatePlan,PlanSchema,EmitIR}V1.lean` · `EvmSmoke.lean`/`EvmPlanSchemaV1.lean` | focused suite 正/负过 | generic AddressBearing CALL；B-CALL-SEM |
+| **CAP-X-BYTES-SOL** | P2 | **done 2026-08-19**：Solana `sha256BytesHost`（statement tag 17）→ IR `sha256BytesSyscall` → SBPF 单 slice `sol_sha256`（N ≤ 64；`CpiDeriveV1` crypto 判定改委托共享 predicate） | `Targets/Solana/{LowerSemantic,ValidatePlan,PlanSchema,EmitIR,EmitSbpfAsm,ProductSynthesize,CpiDerive}V1.lean` · `SolanaPlanV1.lean` | focused suite 过 | CPI 面；Mollusk 独立门（本波未加 fixture） |
+| **CAP-X-BYTES-NEAR** | P2 | **done 2026-08-19**：NEAR `sha256BytesHost`（statement tag 16）→ host `sha256(N, ptr, register)` over register bytes（N ≤ 64）；HostModel 同现叶 `modelError`（不执行 host syscall） | `Targets/Near/{LowerSemantic,ValidatePlan,PlanSchema,EmitIR}V1.lean` · `NearHostModel.lean` | focused suite 过 | view-caller 等既有 FC 边界不变 |
+| **CAP-X-BYTES-TON** | P2 | **done 2026-08-19**：TON `Expr.sha256Bytes`（Expr tag 58）→ 独立 `beginCell().storeUint(b,8)×N.endCell().beginParse().bitsHash()`（N ≤ 127，单 cell 1023-bit 容量；`string_hash`/`HASHCU`/`HASHBU` 负针同覆盖新叶） | `Targets/Ton/{LowerSemantic,ValidatePlan,PlanSchema,EmitIR}V1.lean` · `TonPlanV1.lean` | focused suite 过 | keccak/其余 freeze 不变 |
+| **CAP-X-BYTES-SOR** | P2 | **done 2026-08-19**：Soroban S0 `Sha256BytesSite`/`sha256BytesLimb`（ctor tag 14）→ `Bytes::from_array` + `env.crypto().sha256`（N 1..8，S0 flatten 上限）；Finalize 仍 zero-tool | `Targets/Soroban/{LowerSemantic,ValidatePlan,EmitIR,PlanSchema}V1.lean` · `SorobanPlanV1.lean` | `.rs` 含 Bytes sha256；Finalize 仍 zero-tool | SOR-1 Wasm / stellar-cli |
 
 ## Suggested serial order（既有 CAP-D-* 已于 2026-08-16 全开；XRPL 仅 ADR）
 
@@ -84,6 +102,8 @@ CAP-0 (docs, done)
       → CAP-2 → CAP-1b → CAP-3 → CAP-4 → CAP-5
         (disjoint allowlists, parallel worktree OK; shared Targets.lean/docs serial)
   → CAP-D-XRPL-* (ADR-0052 proposed; SHA keep-FC; TIME/CALLER await owner)
+  → CAP-X-BYTES-CORE (done 2026-08-19)
+      → CAP-X-BYTES-{EVM,SOL,NEAR,TON,SOR} (done 2026-08-19)
   → stop（XRPL 叶另批；不要发明 CAP-7/8/9）
 ```
 

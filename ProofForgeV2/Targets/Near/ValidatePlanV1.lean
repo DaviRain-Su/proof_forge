@@ -426,6 +426,38 @@ private partial def checkMethodStatementsV1
             s!"method expression exceeds local limit {limits.maxMethodLocals}"
         methodTemps := methodTemps + 4
         localScope := localScope.push resultKey
+    | .sha256BytesHost inputLeaves resultTemp =>
+        if isView then
+          throw <| .planInvariant .near
+            "view method cannot invoke pf.crypto.sha256Bytes"
+        if isPureFn then
+          throw <| .planInvariant .near
+            "pureFn body cannot invoke pf.crypto.sha256Bytes"
+        if isInitializer then
+          throw <| .planInvariant .near
+            "initializer cannot invoke pf.crypto.sha256Bytes"
+        unless 1 ≤ inputLeaves.size && inputLeaves.size ≤ maxSha256BytesLenV1 do
+          throw <| .planInvariant .near
+            s!"pf.crypto.sha256Bytes Plan Bytes N must be in 1..{maxSha256BytesLenV1}"
+        for leaf in inputLeaves do
+          unless match leaf with
+            | .narrowParam 8 _ | .narrowStateLoad 8 _ | .literal _ => true
+            | _ => false
+          do
+            throw <| .planInvariant .near
+              "pf.crypto.sha256Bytes Plan input leaves must be UInt8 expressions"
+          total ← addPlanExprNodes limits layout params fns total leaf localScope
+          methodTemps ← addMethodExprTemps limits layout params fns methodTemps leaf localScope
+        let resultKey := sha256BindingKeyV1 resultTemp
+        if localScope.contains resultKey then
+          throw <| .planInvariant .near
+            "pf.crypto.sha256Bytes Plan result binding must be unique in its lexical scope"
+        total := total + 1
+        if methodTemps + 4 > limits.maxMethodLocals then
+          throw <| .planInvariant .near
+            s!"method expression exceeds local limit {limits.maxMethodLocals}"
+        methodTemps := methodTemps + 4
+        localScope := localScope.push resultKey
     | .keccak256Host input resultTemp =>
         if isView then
           throw <| .planInvariant .near

@@ -190,6 +190,12 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   | .blockUnixTimeSeconds => pure (encodeU8 51)
   -- CAP-5: sha256 of a UInt256 operand (tag 57 appended).
   | .sha256 operand => pure ((encodeU8 57).append (← encodeExpr operand))
+  -- CAP-X-BYTES: sha256 of Bytes N leaves (tag 58 appended; prior tags
+  -- byte-identical). Payload = u32le leaf count + N encoded Exprs.
+  | .sha256Bytes bytes => do
+      let mut out := (encodeU8 58).append (← encodeNatAsU32le bytes.size)
+      for b in bytes do out := out.append (← encodeExpr b)
+      pure out
 
 private partial def encodeStatement (stmt : Statement) : Except String ByteArray := do
   match stmt with

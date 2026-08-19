@@ -1,5 +1,6 @@
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Targets.Near
+import ProofForgeV2.Targets.EngineeringBuildV1
 import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Language.Loader
@@ -1098,6 +1099,10 @@ private partial def step (input : ByteArray) (deposit : Deposit)
       -- SYS-S5-NEAR: Plan/IR/WAT pins cover env.sha256; this interpreter does
       -- not execute the register-based host syscall (sandbox owns runtime).
       modelError "sha256Host is outside the NearHostModel interpreter"
+  | .sha256BytesHost _destination _inputTemps =>
+      -- CAP-X-BYTES-NEAR: same host sha256 register ABI; HostModel does not
+      -- execute the syscall (sandbox owns runtime).
+      modelError "sha256BytesHost is outside the NearHostModel interpreter"
   | .keccak256Host _destination _input =>
       -- SYS-S5-NEAR: Plan/IR/WAT pins cover env.keccak256; this interpreter
       -- does not execute the register-based host syscall.
@@ -1423,6 +1428,7 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
     | .promiseTransfer .. => "promiseTransfer"
     | .promiseTokenTransfer .. => "promiseTokenTransfer"
     | .sha256Host .. => "sha256Host"
+    | .sha256BytesHost .. => "sha256BytesHost"
     | .keccak256Host .. => "keccak256Host"
     | .revertError .. => "revertError"
     | .returnNone => "returnNone"
@@ -3759,9 +3765,8 @@ private unsafe def testAbiMultiWidthStateParam (session : Language.Loader.Parser
   expect (setFlagIR.operations.any fun op =>
       match op with | .narrowStoreState 8 _ _ => true | _ => false)
     "AbiMw setFlag IR must narrowStoreState 8"
-  let output ← liftResult <|
-    Targets.materializeResult capability
-  let files := MaterializedArtifactsV1.filesOf output
+  let files ← liftResult <|
+    Targets.Near.buildFromCapability capability
   let abi ← match files.find? (·.path.endsWith ".near-abi.json") with
     | some f => pure f.contents
     | none => throw <| IO.userError "AbiMw missing near-abi.json"
@@ -5283,6 +5288,231 @@ private unsafe def testCryptoSha256Near (session : Language.Loader.ParserSession
     "accumulator WAT must stay free of env sha256 import"
   expect ((accWat.contents.splitOn "pf_sha256").length == 1)
     "accumulator WAT must stay free of pf_sha256 call"
+
+/-- CAP-X-BYTES-NEAR: `call pf.crypto.sha256Bytes` Bytes N→UInt256 via host
+    `env.sha256` over N consecutive Bytes leaves. Dedicated Plan statement
+    independent of the UInt256 `.sha256Precompile` leaf. WAT must call
+    `pf_sha256` with `i64.const N`. View/init/pureFn, integer args, arity,
+    non-UInt256 result, N>64, and sibling QNs stay Plan fail closed. -/
+private unsafe def testCryptoSha256BytesNear (session : Language.Loader.ParserSession) :
+    IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program Sha256BytesNear where\n" ++
+    "  state last : UInt256\n\n" ++
+    "  init() do\n" ++
+    "    last := 0\n\n" ++
+    "  entry probe(data : Bytes 4) : UInt256 do\n" ++
+    "    let h : UInt256 := call pf.crypto.sha256Bytes(data)\n" ++
+    "    last := h\n" ++
+    "    return h\n\n" ++
+    "  view get() : UInt256 do\n" ++
+    "    return last\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<near-sha256-bytes>" "Examples.Sha256BytesNear" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  expect (plan.hostImports.contains .sha256)
+    "sha256-bytes-near: plan must import env.sha256"
+  expect (!plan.hostImports.contains .promiseBatchCreate)
+    "sha256-bytes-near: must not invent a promise batch (not async)"
+  let some probe := plan.entries.find? (·.name == "probe") |
+    throw <| IO.userError "sha256-bytes-near: missing probe"
+  let mut hasDedicated := false
+  let mut hasLegacy := false
+  for s in probe.body do
+    match s with
+    | .sha256BytesHost leaves _ =>
+        hasDedicated := true
+        expect (leaves.size == 4)
+          s!"sha256-bytes-near: Bytes 4 must lower 4 UInt8 leaves, got {leaves.size}"
+    | .sha256Precompile _ _ => hasLegacy := true
+    | _ => pure ()
+  expect hasDedicated
+    "sha256-bytes-near: plan must contain dedicated sha256BytesHost statement"
+  expect (!hasLegacy)
+    "sha256-bytes-near: must not lower to the UInt256 sha256Precompile leaf"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  expect (ir.imports.contains .sha256)
+    "sha256-bytes-near: IR must import sha256"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "sha256-bytes-near: missing .wat artifact"
+  expectContains wat.contents "(import \"env\" \"sha256\""
+    "sha256-bytes-near WAT must import env.sha256"
+  expectContains wat.contents "(call $pf_sha256"
+    "sha256-bytes-near WAT must call pf_sha256"
+  expectContains wat.contents "(call $pf_sha256 (i64.const 4)"
+    "sha256-bytes-near WAT must pass value_len=4"
+  expect (!wat.contents.contains "(call $pf_sha256 (i64.const 32)")
+    "sha256-bytes-near WAT must not use the UInt256 leaf's sha256 len=32"
+  expect ((wat.contents.splitOn "promise_batch_create").length == 1)
+    "sha256-bytes-near WAT must not invent promise_batch_create"
+
+  let expectClosed (programName pathLabel moduleName body needle : String)
+      (also : String := "") : IO Unit := do
+    let negText :=
+      "import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      s!"program {programName} where\n" ++
+      body ++
+      "end ProofForgeV2.Examples\n"
+    let negSource ← liftResult (← session.selectProgramV1
+      negText pathLabel moduleName none)
+    let checkNeedle (msg : String) : IO Unit := do
+      expect (msg.contains needle)
+        s!"{programName} FC must contain '{needle}', got: {msg}"
+      unless also.isEmpty do
+        expect (msg.contains also)
+          s!"{programName} FC must contain '{also}', got: {msg}"
+    match Compiler.compileValidatedSourceV1 negSource with
+    | .error e => checkNeedle e.render
+    | .ok negCompiled =>
+        match Targets.resolveEngineeringRequirementsV1 selection negCompiled with
+        | .error e => checkNeedle e.render
+        | .ok negCap =>
+            match Targets.Near.planFromCapability negCap with
+            | .error e => checkNeedle e.render
+            | .ok _ =>
+                throw <| IO.userError
+                  s!"{programName} must fail closed before a NEAR Plan"
+
+  -- Integer argument (legacy UInt256 ABI is a different QN).
+  expectClosed "Sha256BytesNearU256" "<near-sha256-bytes-u256>"
+    "Examples.Sha256BytesNearU256"
+    ("  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.sha256Bytes(x)\n" ++
+      "    last := h\n" ++
+      "    return h\n\n")
+    "pf.crypto.sha256Bytes"
+    "Bytes"
+  expectClosed "Sha256BytesNearU64" "<near-sha256-bytes-u64>"
+    "Examples.Sha256BytesNearU64"
+    ("  state last : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(x : UInt64) : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.sha256Bytes(x)\n" ++
+      "    last := 0\n" ++
+      "    return h\n\n")
+    "pf.crypto.sha256Bytes"
+    "Bytes"
+  -- Zero arguments.
+  expectClosed "Sha256BytesNearZeroArg" "<near-sha256-bytes-0arg>"
+    "Examples.Sha256BytesNearZeroArg"
+    ("  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe() : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.sha256Bytes()\n" ++
+      "    last := h\n" ++
+      "    return h\n\n")
+    "pf.crypto.sha256Bytes"
+  -- Two arguments.
+  expectClosed "Sha256BytesNearTwoArg" "<near-sha256-bytes-2arg>"
+    "Examples.Sha256BytesNearTwoArg"
+    ("  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(a : Bytes 4, b : Bytes 4) : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.sha256Bytes(a, b)\n" ++
+      "    last := h\n" ++
+      "    return h\n\n")
+    "pf.crypto.sha256Bytes"
+  -- Non-UInt256 result.
+  expectClosed "Sha256BytesNearU64Res" "<near-sha256-bytes-u64-res>"
+    "Examples.Sha256BytesNearU64Res"
+    ("  state last : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(data : Bytes 4) : UInt64 do\n" ++
+      "    let h : UInt64 := call pf.crypto.sha256Bytes(data)\n" ++
+      "    last := h\n" ++
+      "    return h\n\n")
+    "pf.crypto.sha256Bytes"
+    "UInt256"
+  -- Bytes N above the NEAR packing cap (64). Use state so param flatten
+  -- (`maxParams` = 64) cannot steal the diagnostic.
+  expectClosed "Sha256BytesNearOverCap" "<near-sha256-bytes-overcap>"
+    "Examples.Sha256BytesNearOverCap"
+    ("  state data : Bytes 65\n" ++
+      "  state dummy : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    dummy := 0\n\n" ++
+      "  entry probe() : UInt256 do\n" ++
+      "    return call pf.crypto.sha256Bytes(data)\n\n")
+    "pf.crypto.sha256Bytes"
+    "64"
+  -- View-caller: entry-only policy matches the UInt256 leaf.
+  expectClosed "Sha256BytesNearView" "<near-sha256-bytes-view>"
+    "Examples.Sha256BytesNearView"
+    ("  state data : Bytes 4\n\n" ++
+      "  init() do\n" ++
+      "    data[0] := 0\n" ++
+      "    data[1] := 0\n" ++
+      "    data[2] := 0\n" ++
+      "    data[3] := 0\n\n" ++
+      "  view probe() : UInt256 do\n" ++
+      "    return call pf.crypto.sha256Bytes(data)\n\n")
+    "PF-EFFECT-001"
+  -- Approximate QN: UInt256 argument so shared-core admits the call, then
+  -- NEAR Plan named-FC cites the QN (Bytes argument would fail earlier at
+  -- Normalize's integer-arg gate without the QN text).
+  expectClosed "Sha256BytesNearTypo" "<near-sha256-bytes-typo>"
+    "Examples.Sha256BytesNearTypo"
+    ("  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.sha256Bytess(x)\n" ++
+      "    last := h\n" ++
+      "    return h\n\n")
+    "outside admitted NEAR scope"
+    "sha256Bytess"
+
+  -- Exact packing-cap N=64 is admitted (WAT len=64).
+  let capText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program Sha256BytesNearCap where\n" ++
+    "  state last : UInt256\n\n" ++
+    "  init() do\n" ++
+    "    last := 0\n\n" ++
+    "  entry probe(data : Bytes 64) : UInt256 do\n" ++
+    "    let h : UInt256 := call pf.crypto.sha256Bytes(data)\n" ++
+    "    last := h\n" ++
+    "    return h\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let capSource ← liftResult (← session.selectProgramV1
+    capText "<near-sha256-bytes-cap>" "Examples.Sha256BytesNearCap" none)
+  let capCompiled ← liftResult <| Compiler.compileValidatedSourceV1 capSource
+  let capCap ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection capCompiled
+  let capPlan ← liftResult <| Targets.Near.planFromCapability capCap
+  let some capProbe := capPlan.entries.find? (·.name == "probe") |
+    throw <| IO.userError "sha256-bytes-cap: missing probe"
+  let mut capN := 0
+  for s in capProbe.body do
+    match s with
+    | .sha256BytesHost leaves _ => capN := leaves.size
+    | _ => pure ()
+  expect (capN == 64) s!"sha256-bytes-cap: Bytes 64 must lower 64 leaves, got {capN}"
+  let capFiles ← liftResult <| Targets.Near.buildFromCapability capCap
+  let some capWat := capFiles.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "sha256-bytes-cap: missing .wat"
+  expectContains capWat.contents "(call $pf_sha256 (i64.const 64)"
+    "sha256-bytes-cap WAT must pass value_len=64"
 
 /-- SYS-S5-NEAR: `call pf.crypto.keccak256` UInt256→UInt256 via host
     `keccak256`. Dedicated Plan/IR/WAT; other widths/QNs stay FC. -/
@@ -7141,6 +7371,7 @@ unsafe def run : IO Unit := do
   testMapTokenDualStoreVisibility session
   testNamedStructProductPath session
   testCryptoSha256Near session
+  testCryptoSha256BytesNear session
   testCryptoKeccak256Near session
   testContextReadTimestampNear session
   testContextReadBlockHeightNear session
