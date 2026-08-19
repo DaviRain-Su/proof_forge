@@ -49,7 +49,9 @@ Solana ADR-0048 D4 剩余证书（非 formal TASK-D5）：
 **Goal drain 已空（2026-08-15）**：[`.grok/next-wave-queue.md`](../.grok/next-wave-queue.md) 零 pending；
 [`prompt-next-wave.md`](../.grok/goals/prompt-next-wave.md) **已退役**，不要再 launch。
 全仓对账：[research/28-project-wide-honesty-audit.md](research/28-project-wide-honesty-audit.md)。
-**下一刀（工程，非 formal）**：**B-CALL-SEM** 决策包（人拍）。完善度队列
+**下一刀（工程，非 formal）**：**B-CALL-SEM** 残差（部署地址 / 外层账户 / CW
+`contract_addr`）。COMP-1-CALL-SEM-LAND 第一刀（inspect family tag）已部分落地，
+**不**把 B-CALL-SEM 标 closed。完善度队列
 [`plan/completeness-phased-roadmap.md`](plan/completeness-phased-roadmap.md) ·
 同一能力层设计 [`plan/capability-layer-parity.md`](plan/capability-layer-parity.md) ·
 任务拆分 [`plan/capability-layer-tasks.md`](plan/capability-layer-tasks.md)

@@ -26,9 +26,9 @@ split now tracked by ADR-0049 (proposed).
 5. **Noir response-witness contract.** Both keys admitted as witness-binding
    relation only; result-bearing FC until a response-witness contract exists.
 6. **NEAR sync scope.** Generic sync FC (Promise is async); sync key currently
-   spells pf.assets deposit + `transferAsync` only. Header comment in
-   `RequirementResolverV1.lean` ("NEAR declines only sync") is stale vs the
-   Phase C2 body and should be fixed with the next resolver touch.
+   spells pf.assets deposit + `transferAsync` only. Resolver header now matches
+   Phase C2 (2026-08-19 COMP-1-CALL-SEM-LAND). Inspect tag
+   `near-promise+pfassets-sync-scope`.
 7. **CosmWasm sync/async scope.** Generic sync FC; sync key = pf.assets bank
    only; async = same-tx SubMsg `reply_on=never` (not cross-tx);
    `contract_addr` static QN stub.

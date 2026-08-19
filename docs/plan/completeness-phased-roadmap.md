@@ -14,7 +14,9 @@ normative: false
 > **不是** 第四份平行 gap 清单：格子仍以
 > [`../research/12-target-coverage-matrix.md`](../research/12-target-coverage-matrix.md)
 > 为准；勾选只回写 [`../engineering-backlog.md`](../engineering-backlog.md) §12。  
-> **不是** 实现切片：本审查不改 `ProofForgeV2/**`，不关 formal，不静默扩 accepted PRD。
+> **不是** formal / accepted-PRD / SPEC 代签。2026-08-19 owner 继续指令后，
+> **COMP-1-CALL-SEM-LAND 第一刀**（inspect family tag + ExtFlow/LaterFlow xrpl 针）
+> 已部分落地；部署地址绑定仍 pending。ADR 仍 `proposed`。
 
 范围边界：[`../adr/0036-engineering-scope-and-evm-formal-lighthouse.md`](../adr/0036-engineering-scope-and-evm-formal-lighthouse.md)
 （工程 **13+0**，仍 `proposed`）。SPEC 分裂收口：
@@ -110,7 +112,7 @@ Capability 横切（2026-08-19）：`sha256Bytes` 五叶已开；`merkleVerifyKe
 
 | ID | 问题 | 推荐冻结 | 状态 |
 |---|---|---|---|
-| **COMP-0-CALL-SEM** | call/schedule「完成」是部署地址、hashed stub + 文档诚实、还是按族拆？ | **按族拆**。已是 AGENTS caveat：EVM 真实 CALL + hashed stub PARTIAL；schedule = 同笔 tx fire-and-forget；Solana product sync CPI、async FC；NEAR promise / CW SubMsg / TON message；Noir relation slot；Aleo 双拒。**禁止** resolver 支持键冒充跨平台 call 完成。部署地址绑定另 ADR，见 [`evm-call-addr-gap.md`](evm-call-addr-gap.md) | proposed / 等人拍 |
+| **COMP-0-CALL-SEM** | call/schedule「完成」是部署地址、hashed stub + 文档诚实、还是按族拆？ | **按族拆**。已是 AGENTS caveat：EVM 真实 CALL + hashed stub PARTIAL；schedule = 同笔 tx fire-and-forget；Solana product sync CPI、async FC；NEAR promise / CW SubMsg / TON message；Noir relation slot；Aleo 双拒。**禁止** resolver 支持键冒充跨平台 call 完成。部署地址绑定另 ADR，见 [`evm-call-addr-gap.md`](evm-call-addr-gap.md) | owner-directed 2026-08-19（按族拆诚实已开刀；ADR 仍 proposed） |
 | **COMP-0-NOIR-PROVE** | 是否推翻 C-4「不升格 prove」？ | **不推翻**。nargo compile-only 保持。Phase-1 DoD 字面（Noir witness/prove/verify）**仍未满足**；若长期保持 compile-only，须另开 PRD 修订，不得假装已满足 | proposed / 等人拍 |
 | **COMP-0-ADR-0036** | ADR-0036 `proposed` → `accepted`，并改 12+0 为 13+0？ | **工程事实改为 13+0**（本审查已改 ADR 正文计数；含 XRPL ADR-0049/0050）。**status 仍 `proposed`**。accepted PRD 仍四目标 | 计数已对齐；acceptance 等人拍 |
 | **COMP-0-SPEC-HONESTY** | semantic-core void-call 旧句 vs 产品 N-CALL-RET：改 SPEC 还是改叙事？ | **改 SPEC**，采纳已起草的 ADR-0051（typed return 一等；schedule 维持 void）。**accepted 前不得改 semantic-core** | ADR-0051 proposed；acceptance 等人拍 |
@@ -132,7 +134,7 @@ Capability 横切（2026-08-19）：`sha256Bytes` 五叶已开；`merkleVerifyKe
 | **COMP-1-SPEC-ALIGN** | ADR-0051 accepted 后修订 `semantic-core.md` + corpus 对齐；无新 Sem00x pin | COMP-0-SPEC-HONESTY owner 接受 | pending |
 | **COMP-1-NORMALIZE-RESIDUAL** | 嵌套穿透赋值；仍拒绝的构造器嵌套；Field/Principal 源字面量（开则十三叶同时 Lower 或命名 FC） | 无（可先做 FC 针） | pending |
 | **COMP-1-TYPEKEY-REST** | TypeKey 剩余 usage-closure → StructureV1 | 不关 TASK-D2-06 | pending |
-| **COMP-1-CALL-SEM-LAND** | 先改 resolver/文档/针，再按 COMP-0 做 EVM 部署地址、Solana 外层账户、CW `contract_addr` | COMP-0-CALL-SEM 人拍 | pending |
+| **COMP-1-CALL-SEM-LAND** | 先改 resolver/文档/针，再按 COMP-0 做 EVM 部署地址、Solana 外层账户、CW `contract_addr` | COMP-0-CALL-SEM 人拍 | **partial** — `callScheduleFamilyTagV1` + inspect `callScheduleHonesty` + ExtFlow/LaterFlow xrpl 针；地址/外层账户/`contract_addr` 仍 pending |
 | **COMP-1-SYS-CAP-L2** | 官方 program catalog：有 host 就 exact 一行一叶，无 host 就命名 FC | SYS-CAP S1–S4 已闭 | pending |
 | **COMP-1-COMMIT-ZK** | Psy/Noir Commit 设计钉；未冻 binding 前继续 FC | ADR-0041 已 proposed | pending |
 | **COMP-1-D3-E8** | evidence grade 语义冻结后再进 resolver | 先语义，再门禁 | pending |
@@ -217,5 +219,6 @@ Capability 横切（2026-08-19）：`sha256Bytes` 五叶已开；`merkleVerifyKe
 
 ## 9. 下一刀
 
-日常编码下一刀仍是 **B-CALL-SEM 决策包（人拍）**，不是本文件里的 pending 编码行。
-owner 盖章 COMP-0 四句之后，才能开 **一个** shared-core 或 **一个** 已拍板 leaf PR。
+日常编码下一刀仍是 **B-CALL-SEM 残差**（EVM 部署地址 / Solana 外层账户 / CW
+`contract_addr`），**不是**把 B-CALL-SEM 标 closed。COMP-1-CALL-SEM-LAND 第一刀
+（inspect family tag）已落地；其余 COMP-0 三句与 ADR 仍 proposed。

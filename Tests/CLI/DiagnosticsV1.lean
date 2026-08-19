@@ -515,6 +515,9 @@ private def testInspectDigests : IO Unit := do
     s!"inspect support claim: {stdout}"
   expect (containsSubstr stdout "buildIdentityDomain=pf.build-identity.engineering.v1")
     s!"inspect build identity domain: {stdout}"
+  expect (containsSubstr stdout
+      "callScheduleHonesty=evm-hashed-call+same-tx-schedule")
+    s!"inspect evm family tag: {stdout}"
   let (ec2, stdout2, _) ← runCli #["inspect", "evm"]
   expect (ec2 == 0 && stdout2 == stdout)
     "inspect must be deterministic"
@@ -529,6 +532,9 @@ private def testInspectDigests : IO Unit := do
     s!"inspect icp profile: {stdout3}"
   expect (containsSubstr stdout3 "supportClaimDigest=sha256:")
     s!"inspect icp support claim: {stdout3}"
+  expect (containsSubstr stdout3
+      "callScheduleHonesty=icp-async-advertise-plan-fc")
+    s!"inspect icp family tag: {stdout3}"
 
 private def testJsonSurface : IO Unit := do
   let (ec, stdout, stderr) ← runCli #["list-targets", "--json"]
@@ -547,6 +553,9 @@ private def testJsonSurface : IO Unit := do
     s!"inspect schema: {stdout2}"
   expect (containsSubstr stdout2 "\"registryRootDigest\":\"sha256:")
     s!"inspect json digest: {stdout2}"
+  expect (containsSubstr stdout2
+      "\"callScheduleHonesty\":\"evm-hashed-call+same-tx-schedule\"")
+    s!"inspect json family tag: {stdout2}"
   let (ec3, stdout3, stderr3) ← runCli #[
     "check", "Examples/StateCell.lean",
     "--module", "Examples.StateCell", "--json"

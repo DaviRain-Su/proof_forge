@@ -2275,7 +2275,7 @@ private unsafe def testCallScheduleSemanticPlans : IO Unit := do
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"ExtFlow: {target} must materialize"
   for target in [TargetId.solana, TargetId.psy, TargetId.aleo, TargetId.quint,
-      TargetId.soroban, TargetId.openvm] do
+      TargetId.soroban, TargetId.openvm, TargetId.xrpl] do
     match materializeSelected target compiled with
     | .error (.unsupportedRequirementV1 message) =>
         expect (message.contains "effect.asynchronous-workflow")
@@ -2309,7 +2309,8 @@ private unsafe def testCallScheduleSemanticPlans : IO Unit := do
   expectMaterializePlanInvariantV1 "ExtFlow" TargetId.cosmwasm TargetKind.cosmwasm
     compiled "call/sync external call is outside the CosmWasm MVP envelope"
   -- LaterFlow schedule-only from probe. EVM/NEAR/Noir/CW/TON admit.
-  -- Solana/Psy/Aleo/Quint/Soroban/OpenVM decline effect.asynchronous-workflow.
+  -- Solana/Psy/Aleo/Quint/Soroban/OpenVM/XRPL decline
+  -- effect.asynchronous-workflow.
   -- ICP advertises async at resolver only. Not opening schedule;
   -- existing LaterFlow Plan pins unchanged. B-CALL-SEM stays open.
   for target in [TargetId.evm, TargetId.near, TargetId.noir,
@@ -2318,7 +2319,7 @@ private unsafe def testCallScheduleSemanticPlans : IO Unit := do
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"LaterFlow: {target} must materialize"
   for target in [TargetId.solana, TargetId.psy, TargetId.aleo, TargetId.quint,
-      TargetId.soroban, TargetId.openvm] do
+      TargetId.soroban, TargetId.openvm, TargetId.xrpl] do
     match materializeSelected target laterCompiled with
     | .error (.unsupportedRequirementV1 message) =>
         expect (message.contains "effect.asynchronous-workflow")

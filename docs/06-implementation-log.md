@@ -12,6 +12,17 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-19 — COMP-1-CALL-SEM-LAND 第一刀（inspect family tag）
+
+- `RequirementResolverV1.callScheduleFamilyTagV1`：十三 `TargetKind` 闭表。
+- 产品 `inspect` / `inspect --json` 在 implemented 行露出 `callScheduleHonesty`；
+  `describeImplementedJoin` 三行与 SupportClaim digest **不变**。
+- ExtFlow / LaterFlow 解析针补 `xrpl`（首个 unsupported =
+  `effect.asynchronous-workflow`）。
+- NEAR resolver 头注释改为 pf.assets-scoped sync + Promise async。
+- **不是** B-CALL-SEM 闭合、不是 EVM 部署地址 / Solana 外层账户 / CW
+  `contract_addr`、不是 ADR-0036/0051 accepted、不是 formal 0/27。
+
 ## 2026-08-19 — 完善度审查落地为分阶段执行队列（文档，非编码）
 
 - 新增 `docs/plan/completeness-phased-roadmap.md`（`PLAN-COMPLETENESS-ROADMAP`）：

@@ -87,6 +87,28 @@ def toArray (index : StaticRequirementSupportIndexV1) :
 
 end StaticRequirementSupportIndexV1
 
+/-- B-CALL-SEM family-split tag (COMP-0 / COMP-1-CALL-SEM-LAND).
+
+    Resolver `effect.synchronous-call` / `effect.asynchronous-workflow` support
+    keys are **not** this string and are **not** a claim that cross-platform
+    call is complete. Product `inspect` may surface the tag; engineering
+    `SupportClaim` digest / requirement id lists do **not** include it.
+    Deployment-address binding is a later ADR (`docs/plan/evm-call-addr-gap.md`). -/
+def callScheduleFamilyTagV1 : TargetKind → String
+  | .evm => "evm-hashed-call+same-tx-schedule"
+  | .solana => "solana-cpi-sync-async-fc"
+  | .near => "near-promise+pfassets-sync-scope"
+  | .cosmwasm => "cw-submsg+pfassets-sync-scope"
+  | .noir => "noir-witness-binding"
+  | .ton => "ton-async-out-message"
+  | .icp => "icp-async-advertise-plan-fc"
+  | .psy => "psy-void-sync-async-fc"
+  | .quint => "quint-pfassets-sync-async-fc"
+  | .aleo => "aleo-dual-fc"
+  | .soroban => "soroban-dual-fc"
+  | .openvm => "openvm-dual-fc"
+  | .xrpl => "xrpl-dual-fc"
+
 /-- Non-capability inspection of a support match or request resolution outcome.
     Dependency-injected seams may return this — never a materialize capability. -/
 structure RequirementResolutionInspectionV1 where
@@ -368,9 +390,10 @@ private def mkImplementedRow
     SubMsg note below). EVM result-bearing sync calls read `RETURNDATA` as one
     UInt64 word behind a size/range guard (BL-28; wider result types stay fail
     closed; the callee address is a keccak-of-QN stub pending deployment
-    wiring). NEAR has no synchronous external calls but owns async workflow
-    promises, so it declines sync and supports `effect.asynchronous-workflow`;
-    Noir admits both call keys as a **witness-binding relation** (B-CALL-SEM
+    wiring). NEAR advertises `effect.synchronous-call` only for the pf.assets
+    catalog (deposit + `transferAsync`); generic non-catalog sync stays Plan
+    fail closed (Promise is async). `effect.asynchronous-workflow` stays for
+    schedule. Noir admits both call keys as a **witness-binding relation** (B-CALL-SEM
     honesty, 2026-08-04 review): call/schedule args become public-input slots
     asserted equal to the computed values, and the outcome is a `callStatus`
     witness — the circuit executes **no** external call and the proof does

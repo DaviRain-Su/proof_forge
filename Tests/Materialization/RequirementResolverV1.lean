@@ -1259,6 +1259,9 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
         "inspect includes registry root"
       expect (hasSubstr text "supportClaimDigest=sha256:")
         "inspect includes support claim"
+      expect (hasSubstr text
+          "callScheduleHonesty=evm-hashed-call+same-tx-schedule")
+        s!"inspect must surface EVM family tag next to keys, got {text}"
   | .error e => throw <| IO.userError e.render
   match ProofForgeV2.CLI.inspectTargetText "solana" with
   | .ok text =>
@@ -1271,12 +1274,18 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
       expect (hasSubstr text "effect.synchronous-call" &&
           !hasSubstr text "effect.asynchronous-workflow")
         "inspect default Solana support advertises sync (not async)"
+      expect (hasSubstr text
+          "callScheduleHonesty=solana-cpi-sync-async-fc")
+        s!"inspect must surface Solana family tag, got {text}"
   | .error e => throw <| IO.userError e.render
   match ProofForgeV2.CLI.inspectTargetText "solana" true with
   | .ok json =>
       expect (hasSubstr json
           "\"profiles\":[\"solana-sbpf-cpi-elf-v1\"]")
         s!"inspect Solana JSON profiles, got {json}"
+      expect (hasSubstr json
+          "\"callScheduleHonesty\":\"solana-cpi-sync-async-fc\"")
+        s!"inspect Solana JSON family tag, got {json}"
   | .error e => throw <| IO.userError e.render
   match ProofForgeV2.CLI.inspectTargetText "noir" with
   | .ok text =>
@@ -1285,6 +1294,25 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
         "noir inspect must not surface privateWitness"
       expect (!hasSubstr text "ProgramRequirement")
         "noir inspect uses S2 ids"
+      expect (hasSubstr text "callScheduleHonesty=noir-witness-binding")
+        s!"inspect must surface Noir witness-binding family tag, got {text}"
+  | .error e => throw <| IO.userError e.render
+  match ProofForgeV2.CLI.inspectTargetText "near" with
+  | .ok text =>
+      expect (hasSubstr text
+          "callScheduleHonesty=near-promise+pfassets-sync-scope")
+        s!"inspect must surface NEAR family tag, got {text}"
+  | .error e => throw <| IO.userError e.render
+  match ProofForgeV2.CLI.inspectTargetText "icp" with
+  | .ok text =>
+      expect (hasSubstr text
+          "callScheduleHonesty=icp-async-advertise-plan-fc")
+        s!"inspect must surface ICP advertise-then-Plan-FC family tag, got {text}"
+  | .error e => throw <| IO.userError e.render
+  match ProofForgeV2.CLI.inspectTargetText "xrpl" with
+  | .ok text =>
+      expect (hasSubstr text "callScheduleHonesty=xrpl-dual-fc")
+        s!"inspect must surface XRPL dual-FC family tag, got {text}"
   | .error e => throw <| IO.userError e.render
   -- Pure three-line helper remains exact for S2 wire-order + B2 pf-assets pin.
   match ProofForgeV2.CLI.describeTargetText "evm" with
@@ -1296,6 +1324,36 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
           s!"target=evm\nprofile=evm-yul-solc-0.8.34-v1\nrequirements=#[{expectedIds}]")
         s!"describe helper exact S2+pf-assets, got {text}"
   | .error e => throw <| IO.userError e.render
+
+/-- Pins the closed 13-kind family-split tag table. Resolver support still
+    does not mean cross-platform call complete. -/
+def testCallScheduleFamilyTags : IO Unit := do
+  assert! callScheduleFamilyTagV1 .evm ==
+    "evm-hashed-call+same-tx-schedule"
+  assert! callScheduleFamilyTagV1 .solana ==
+    "solana-cpi-sync-async-fc"
+  assert! callScheduleFamilyTagV1 .near ==
+    "near-promise+pfassets-sync-scope"
+  assert! callScheduleFamilyTagV1 .cosmwasm ==
+    "cw-submsg+pfassets-sync-scope"
+  assert! callScheduleFamilyTagV1 .noir ==
+    "noir-witness-binding"
+  assert! callScheduleFamilyTagV1 .ton ==
+    "ton-async-out-message"
+  assert! callScheduleFamilyTagV1 .icp ==
+    "icp-async-advertise-plan-fc"
+  assert! callScheduleFamilyTagV1 .psy ==
+    "psy-void-sync-async-fc"
+  assert! callScheduleFamilyTagV1 .quint ==
+    "quint-pfassets-sync-async-fc"
+  assert! callScheduleFamilyTagV1 .aleo ==
+    "aleo-dual-fc"
+  assert! callScheduleFamilyTagV1 .soroban ==
+    "soroban-dual-fc"
+  assert! callScheduleFamilyTagV1 .openvm ==
+    "openvm-dual-fc"
+  assert! callScheduleFamilyTagV1 .xrpl ==
+    "xrpl-dual-fc"
 
 private def testDescriptorParityNegatives : IO Unit := do
   -- describeImplementedJoin join-checks residual descriptor target/profile with
@@ -1640,6 +1698,7 @@ unsafe def run : IO Unit := do
   testEmptyRequirementsCapability
   testStateOnlySubsetCapability
   testCliEmitAndDescribe
+  testCallScheduleFamilyTags
   testDescriptorParityNegatives
   testRequestResolveNegativesOnInspection
   testBackendSupportDefense

@@ -1187,8 +1187,11 @@ def inspectRegistrationText
     | some descriptor =>
         let base ← describeImplementedJoin reg descriptor
         let claimDigest ← supportClaimDigestForRegistrationV1 registry reg
+        -- Family tag sits next to requirement ids so inspect cannot be read as
+        -- "support keys = platform call complete". Not part of SupportClaim.
         pure <|
           base ++
+          s!"\ncallScheduleHonesty={callScheduleFamilyTagV1 reg.kind}" ++
           s!"\nprofiles={formatProfileList reg.profiles}" ++
           s!"\nstatus=implemented" ++
           s!"\nmaturity={reg.maturityLabel}" ++
@@ -1235,6 +1238,7 @@ def inspectRegistrationJson
             ("defaultProfile", .string profile.toString),
             ("profiles", .array profiles),
             ("requirements", .array reqJson),
+            ("callScheduleHonesty", .string (callScheduleFamilyTagV1 reg.kind)),
             ("implemented", .bool true),
             ("maturity", .string reg.maturityLabel),
             ("registryRootDigest", .string rootDigest),
