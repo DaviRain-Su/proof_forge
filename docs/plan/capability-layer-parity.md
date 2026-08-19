@@ -18,12 +18,12 @@ normative: false
 
 ## 1. What “same layer” is
 
-The twelve materializers already share one product path
+The thirteen materializers already share one product path
 (`SemanticProgramV1` → capability Plan). They do **not** share hosts,
 failure models, or maturity labels. Forcing one `GenericWasmHostPlan` or
 one `ZkPlan` is the failure mode ADR-0036 / RPT-025 forbid.
 
-**Same layer** means one catalog row, twelve honest dispositions:
+**Same layer** means one catalog row, thirteen honest dispositions:
 
 ```text
 catalog QN / ContextRead key
@@ -89,9 +89,10 @@ Bool verify 结果（false，不 revert）；不声称 ICS-23/IBC/NS-2。无 hos
 ### 3.3 What is already “same layer”
 
 Named admit-or-FC for the six ContextRead keys and the three crypto QNs
-is largely **done** on all twelve targets. The holes are not missing
-diagnostics. They are **unbound honest hosts** on under-served
-state-class leaves.
+is largely **done** on all thirteen implemented targets (XRPL is the 13th
+and stays named F in this layer; not an extra admitted column — §3.4).
+The holes are not missing diagnostics. They are **unbound honest hosts**
+on under-served state-class leaves.
 
 ### 3.4 XRPL (13th materializer; named-FC)
 
@@ -103,7 +104,7 @@ ADR-0052 冻 TIME/CALLER 符号并拍 SHA keep-FC；六键 + `sha256` **全 F**�
 
 | Candidate | Why not this wave |
 |---|---|
-| cairo / risc0 / sp1 | RPT-026 design only; would steal the EVM formal + 12-target honesty budget |
+| cairo / risc0 / sp1 | RPT-026 design only; would steal the EVM formal + 13-target honesty budget |
 | aptos / sui | product `wontfix` |
 | Bitcoin Script / BitVM | UTXO predicate ≠ account Semantic (RPT-025 档 D) |
 | Fuel, Cardano, Stylus-as-EVM, ink! | no ADR, no catalog row |
@@ -134,7 +135,7 @@ sha256 host. That cell stays F. XRPL has **no** sha256 host
 
 ## 6. Non-goals
 
-- Same deployable / maturity / runtime gate on all twelve
+- Same deployable / maturity / runtime gate on all thirteen
 - `B-CALL-SEM` true callee addresses
 - TypeKey unused / rank structure gate
 - Goal flipping `TASK-*` / `TST-*`

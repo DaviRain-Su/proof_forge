@@ -3,7 +3,7 @@ id: RPT-010
 title: IBC 作为 ProofForge 程序的可行性研究
 status: draft
 owner: research
-updated: 2026-08-04
+updated: 2026-08-19
 normative: false
 ---
 
@@ -23,14 +23,14 @@ normative: false
 
 ## 2026-08-04 工程 follow-up
 
-本文最初的“当前状态/前置缺口”快照早于后续扩面。当前 registry 为 **12 targets = 9
-implemented materializers + 3 design-only**；EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/
-CosmWasm/TON 均有 target-owned Plan/IR/materialize 路径。sole Normalize/Reference 已接
+本文最初的“当前状态/前置缺口”快照早于后续扩面。当前 registry 为 **13 targets = 13
+implemented materializers + 0 design-only**（resolver **17** rows）；EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/
+CosmWasm/TON/Soroban/OpenVM/ICP/XRPL 均有 target-owned Plan/IR/materialize 路径。sole Normalize/Reference 已接
 aggregates、Array/Map/Bytes/Option、Principal、ContextRead/Commit 与 dense-Map 工程子集，
 各 target 覆盖非均匀；CosmWasm/TON 也已分别有 Wasm/BoC 工程制品与 runtime rungs。
 这些进展**没有**使完整 IBC 可实现：`extension.crypto`/IBC light-client catalog 仍不存在，
-packet/proof 的通用动态 Bytes/protobuf 面未闭合，ContextRead 在九 materializer Plan 仍 fail
-closed，call/schedule 平台语义债 `B-CALL-SEM`、authority/custody 与 protocol profile 也不完整。
+packet/proof 的通用动态 Bytes/protobuf 面未闭合，ContextRead 仍按 target 非均匀（2026-08-04 快照时九 implemented Plan 多为 fail closed），
+call/schedule 平台语义债 `B-CALL-SEM`、authority/custody 与 protocol profile 也不完整。
 下文的 2026-08-02 gap 文字按历史快照阅读；当前 op×target 事实以
 [`12-target-coverage-matrix.md`](12-target-coverage-matrix.md) 为准。
 
