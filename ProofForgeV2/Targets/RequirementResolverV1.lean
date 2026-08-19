@@ -93,7 +93,8 @@ end StaticRequirementSupportIndexV1
     keys are **not** this string and are **not** a claim that cross-platform
     call is complete. Product `inspect` may surface the tag; engineering
     `SupportClaim` digest / requirement id lists do **not** include it.
-    Deployment-address binding is a later ADR (`docs/plan/evm-call-addr-gap.md`). -/
+    Deployment-address binding is a later ADR (`docs/plan/evm-call-addr-gap.md`).
+    Address-shaped residuals use `callScheduleResidualV1` (inspect-only). -/
 def callScheduleFamilyTagV1 : TargetKind → String
   | .evm => "evm-hashed-call+same-tx-schedule"
   | .solana => "solana-cpi-sync-async-fc"
@@ -108,6 +109,20 @@ def callScheduleFamilyTagV1 : TargetKind → String
   | .soroban => "soroban-dual-fc"
   | .openvm => "openvm-dual-fc"
   | .xrpl => "xrpl-dual-fc"
+
+/-- Address-shaped residual tags for the three B-CALL-SEM gaps that still
+    need an owner ADR (COMP-1-CALL-SEM-LAND inspect residual).
+
+    `none` means this kind has no address-shaped residual on the inspect
+    surface (the family tag already covers dual-FC / witness / promise etc.).
+    Tags are inspect-only: they do **not** enter SupportClaim digest,
+    requirement id lists, or `describeImplementedJoin` three lines.
+    They do **not** implement binding. -/
+def callScheduleResidualV1 : TargetKind → Option String
+  | .evm => some "hashed-qn-no-deploy-bind"
+  | .solana => some "callee-identity-outer-account-open"
+  | .cosmwasm => some "contract-addr-qn-stub"
+  | _ => none
 
 /-- Non-capability inspection of a support match or request resolution outcome.
     Dependency-injected seams may return this — never a materialize capability. -/

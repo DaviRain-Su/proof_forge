@@ -811,6 +811,9 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       expect (hasSubstr text
           "callScheduleHonesty=evm-hashed-call+same-tx-schedule")
         s!"inspect evm family tag, got {text}"
+      expect (hasSubstr text
+          "callScheduleResidual=hashed-qn-no-deploy-bind")
+        s!"inspect evm address residual, got {text}"
   | .error e => throw <| IO.userError s!"inspect evm: {e.render}"
   match ProofForgeV2.CLI.inspectTargetText "aleo" with
   | .ok text =>
@@ -824,6 +827,8 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
         "aleo exposes only canonical Aleo Instructions"
       expect (hasSubstr text "callScheduleHonesty=aleo-dual-fc")
         s!"inspect aleo family tag, got {text}"
+      expect (!hasSubstr text "callScheduleResidual")
+        "inspect aleo has no address-shaped residual"
   | .error e => throw <| IO.userError s!"inspect aleo: {e.render}"
   match ProofForgeV2.CLI.inspectTargetText "psy" with
   | .ok text =>
@@ -834,6 +839,8 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
         "psy exposes only canonical DPN packages"
       expect (hasSubstr text "callScheduleHonesty=psy-void-sync-async-fc")
         s!"inspect psy family tag, got {text}"
+      expect (!hasSubstr text "callScheduleResidual")
+        "inspect psy has no address-shaped residual"
   | .error e => throw <| IO.userError s!"inspect psy: {e.render}"
   -- Legacy three-line helper remains for S2 exact-string join tests.
   match ProofForgeV2.CLI.describeTargetText "aleo" with

@@ -1168,6 +1168,18 @@ private def supportClaimDigestForRegistrationV1
           s!"no engineering support claim for target '{reg.targetId}' profile '{profile}'"
   digestWireCompile "supportClaim" (EngineeringSupportClaimV1.claimDigestOf claim)
 
+/-- Inspect-only residual line. Empty when the kind has no address-shaped gap. -/
+private def callScheduleResidualTextSuffixV1 (kind : TargetKind) : String :=
+  match callScheduleResidualV1 kind with
+  | some tag => s!"\ncallScheduleResidual={tag}"
+  | none => ""
+
+/-- Inspect JSON residual: string tag or `null`. Not a SupportClaim field. -/
+private def callScheduleResidualJsonV1 (kind : TargetKind) : PfJson :=
+  match callScheduleResidualV1 kind with
+  | some tag => .string tag
+  | none => .null
+
 /-- Product `inspect` human body — registry descriptor + identity chain summary.
 Covers former describe-target fields plus profiles, maturity, status, registry
 root digest, support-claim digest (implemented default profile), and the
@@ -1187,11 +1199,13 @@ def inspectRegistrationText
     | some descriptor =>
         let base ← describeImplementedJoin reg descriptor
         let claimDigest ← supportClaimDigestForRegistrationV1 registry reg
-        -- Family tag sits next to requirement ids so inspect cannot be read as
-        -- "support keys = platform call complete". Not part of SupportClaim.
+        -- Family tag + optional address residual sit next to requirement ids
+        -- so inspect cannot be read as "support keys = platform call complete".
+        -- Neither field is part of SupportClaim.
         pure <|
           base ++
           s!"\ncallScheduleHonesty={callScheduleFamilyTagV1 reg.kind}" ++
+          callScheduleResidualTextSuffixV1 reg.kind ++
           s!"\nprofiles={formatProfileList reg.profiles}" ++
           s!"\nstatus=implemented" ++
           s!"\nmaturity={reg.maturityLabel}" ++
@@ -1239,6 +1253,7 @@ def inspectRegistrationJson
             ("profiles", .array profiles),
             ("requirements", .array reqJson),
             ("callScheduleHonesty", .string (callScheduleFamilyTagV1 reg.kind)),
+            ("callScheduleResidual", callScheduleResidualJsonV1 reg.kind),
             ("implemented", .bool true),
             ("maturity", .string reg.maturityLabel),
             ("registryRootDigest", .string rootDigest),

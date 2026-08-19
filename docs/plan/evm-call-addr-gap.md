@@ -3,7 +3,7 @@ id: PLAN-EVM-CALL-ADDR-GAP
 title: EVM static-QN hashed address vs deployment-address binding
 status: draft
 owner: engineering
-updated: 2026-08-15
+updated: 2026-08-19
 normative: false
 ---
 
@@ -98,9 +98,12 @@ Do **not** treat Principal storage, `context.caller` / `context.self`
 1. **EVM-CALL-ADDR-PIN** — **done 2026-08-15**: CallGate / ScheduleGate
    Yul pin the exact last-20 hex via `Targets.Evm.Keccak`. No emitter
    change. Still not a deployment binding.
-2. **B-CALL-SEM binding** (decision, skip): versioned address table +
+2. **Inspect residual** — **done 2026-08-19**: product `inspect` /
+   `inspect --json` surfaces `callScheduleResidual=hashed-qn-no-deploy-bind`
+   (inspect-only; not SupportClaim). Still not a deployment binding.
+3. **B-CALL-SEM binding** (decision, skip): versioned address table +
    identity join. Do not start from Goal/drain.
-3. Sparse Solana 55-step certificates for initialize / increment / overflow
+4. Sparse Solana 55-step certificates for initialize / increment / overflow
    stay later and are not this EVM leaf.
 
 ## Non-claims

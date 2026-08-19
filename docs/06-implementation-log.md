@@ -12,6 +12,18 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-19 — COMP-1-CALL-SEM-LAND inspect residual 标签
+
+- `RequirementResolverV1.callScheduleResidualV1`：仅 evm / solana / cosmwasm
+  返回地址缺口标签（`hashed-qn-no-deploy-bind` /
+  `callee-identity-outer-account-open` / `contract-addr-qn-stub`）；其余十 kind
+  为 `none`。
+- 产品 `inspect` 在 human 仅当 `some` 时多一行 `callScheduleResidual=`；
+  `inspect --json` 对 implemented 行始终露出该字段（`string` 或 `null`）。
+- `describeImplementedJoin` 三行与 SupportClaim digest **不变**。
+- **不是** 部署地址 / 外层账户 / `contract_addr` 绑定，**不是** B-CALL-SEM
+  闭合，**不是** formal 0/27。
+
 ## 2026-08-19 — COMP-1-CALL-SEM-LAND 十三 kind inspect 表面针
 
 - `testInspectCallScheduleHonestySurface`：13 implemented target 的

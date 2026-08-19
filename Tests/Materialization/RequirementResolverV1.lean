@@ -1262,6 +1262,9 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
       expect (hasSubstr text
           "callScheduleHonesty=evm-hashed-call+same-tx-schedule")
         s!"inspect must surface EVM family tag next to keys, got {text}"
+      expect (hasSubstr text
+          "callScheduleResidual=hashed-qn-no-deploy-bind")
+        s!"inspect must surface EVM address residual, got {text}"
   | .error e => throw <| IO.userError e.render
   match ProofForgeV2.CLI.inspectTargetText "solana" with
   | .ok text =>
@@ -1277,6 +1280,9 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
       expect (hasSubstr text
           "callScheduleHonesty=solana-cpi-sync-async-fc")
         s!"inspect must surface Solana family tag, got {text}"
+      expect (hasSubstr text
+          "callScheduleResidual=callee-identity-outer-account-open")
+        s!"inspect must surface Solana address residual, got {text}"
   | .error e => throw <| IO.userError e.render
   match ProofForgeV2.CLI.inspectTargetText "solana" true with
   | .ok json =>
@@ -1286,6 +1292,9 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
       expect (hasSubstr json
           "\"callScheduleHonesty\":\"solana-cpi-sync-async-fc\"")
         s!"inspect Solana JSON family tag, got {json}"
+      expect (hasSubstr json
+          "\"callScheduleResidual\":\"callee-identity-outer-account-open\"")
+        s!"inspect Solana JSON address residual, got {json}"
   | .error e => throw <| IO.userError e.render
   match ProofForgeV2.CLI.inspectTargetText "noir" with
   | .ok text =>
@@ -1296,23 +1305,31 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
         "noir inspect uses S2 ids"
       expect (hasSubstr text "callScheduleHonesty=noir-witness-binding")
         s!"inspect must surface Noir witness-binding family tag, got {text}"
+      expect (!hasSubstr text "callScheduleResidual")
+        "Noir inspect has no address-shaped residual"
   | .error e => throw <| IO.userError e.render
   match ProofForgeV2.CLI.inspectTargetText "near" with
   | .ok text =>
       expect (hasSubstr text
           "callScheduleHonesty=near-promise+pfassets-sync-scope")
         s!"inspect must surface NEAR family tag, got {text}"
+      expect (!hasSubstr text "callScheduleResidual")
+        "NEAR inspect has no address-shaped residual"
   | .error e => throw <| IO.userError e.render
   match ProofForgeV2.CLI.inspectTargetText "icp" with
   | .ok text =>
       expect (hasSubstr text
           "callScheduleHonesty=icp-async-advertise-plan-fc")
         s!"inspect must surface ICP advertise-then-Plan-FC family tag, got {text}"
+      expect (!hasSubstr text "callScheduleResidual")
+        "ICP inspect has no address-shaped residual"
   | .error e => throw <| IO.userError e.render
   match ProofForgeV2.CLI.inspectTargetText "xrpl" with
   | .ok text =>
       expect (hasSubstr text "callScheduleHonesty=xrpl-dual-fc")
         s!"inspect must surface XRPL dual-FC family tag, got {text}"
+      expect (!hasSubstr text "callScheduleResidual")
+        "XRPL inspect has no address-shaped residual"
   | .error e => throw <| IO.userError e.render
   -- Pure three-line helper remains exact for S2 wire-order + B2 pf-assets pin.
   match ProofForgeV2.CLI.describeTargetText "evm" with
@@ -1355,40 +1372,77 @@ def testCallScheduleFamilyTags : IO Unit := do
   assert! callScheduleFamilyTagV1 .xrpl ==
     "xrpl-dual-fc"
 
+/-- Pins the closed address-residual table. `none` kinds stay inspect-silent
+    on the human residual line and JSON `null`. -/
+def testCallScheduleResiduals : IO Unit := do
+  assert! callScheduleResidualV1 .evm == some "hashed-qn-no-deploy-bind"
+  assert! callScheduleResidualV1 .solana ==
+    some "callee-identity-outer-account-open"
+  assert! callScheduleResidualV1 .cosmwasm == some "contract-addr-qn-stub"
+  assert! callScheduleResidualV1 .near == none
+  assert! callScheduleResidualV1 .noir == none
+  assert! callScheduleResidualV1 .ton == none
+  assert! callScheduleResidualV1 .icp == none
+  assert! callScheduleResidualV1 .psy == none
+  assert! callScheduleResidualV1 .quint == none
+  assert! callScheduleResidualV1 .aleo == none
+  assert! callScheduleResidualV1 .soroban == none
+  assert! callScheduleResidualV1 .openvm == none
+  assert! callScheduleResidualV1 .xrpl == none
+
 /-- Closed 13-kind inspect surface: every implemented target exposes its
-    family tag on human + JSON inspect; describe stays three lines. -/
+    family tag on human + JSON inspect; address residual is present only
+    for evm/solana/cosmwasm (JSON `null` otherwise); describe stays three
+    lines. -/
 def testInspectCallScheduleHonestySurface : IO Unit := do
-  let needles : Array (String × String) := #[
-    ("evm", "evm-hashed-call+same-tx-schedule"),
-    ("solana", "solana-cpi-sync-async-fc"),
-    ("near", "near-promise+pfassets-sync-scope"),
-    ("cosmwasm", "cw-submsg+pfassets-sync-scope"),
-    ("noir", "noir-witness-binding"),
-    ("ton", "ton-async-out-message"),
-    ("icp", "icp-async-advertise-plan-fc"),
-    ("psy", "psy-void-sync-async-fc"),
-    ("quint", "quint-pfassets-sync-async-fc"),
-    ("aleo", "aleo-dual-fc"),
-    ("soroban", "soroban-dual-fc"),
-    ("openvm", "openvm-dual-fc"),
-    ("xrpl", "xrpl-dual-fc")
+  let needles : Array (String × String × Option String) := #[
+    ("evm", "evm-hashed-call+same-tx-schedule", some "hashed-qn-no-deploy-bind"),
+    ("solana", "solana-cpi-sync-async-fc",
+      some "callee-identity-outer-account-open"),
+    ("near", "near-promise+pfassets-sync-scope", none),
+    ("cosmwasm", "cw-submsg+pfassets-sync-scope", some "contract-addr-qn-stub"),
+    ("noir", "noir-witness-binding", none),
+    ("ton", "ton-async-out-message", none),
+    ("icp", "icp-async-advertise-plan-fc", none),
+    ("psy", "psy-void-sync-async-fc", none),
+    ("quint", "quint-pfassets-sync-async-fc", none),
+    ("aleo", "aleo-dual-fc", none),
+    ("soroban", "soroban-dual-fc", none),
+    ("openvm", "openvm-dual-fc", none),
+    ("xrpl", "xrpl-dual-fc", none)
   ]
   expect (needles.size == 13) "inspect honesty surface covers all 13 kinds"
-  for pair in needles do
-    match ProofForgeV2.CLI.inspectTargetText pair.1 with
+  for (tid, family, residual) in needles do
+    match ProofForgeV2.CLI.inspectTargetText tid with
     | .ok text =>
-        expect (hasSubstr text s!"callScheduleHonesty={pair.2}")
-          s!"inspect {pair.1} family tag, got {text}"
+        expect (hasSubstr text s!"callScheduleHonesty={family}")
+          s!"inspect {tid} family tag, got {text}"
+        match residual with
+        | some tag =>
+            expect (hasSubstr text s!"callScheduleResidual={tag}")
+              s!"inspect {tid} residual tag, got {text}"
+        | none =>
+            expect (!hasSubstr text "callScheduleResidual")
+              s!"inspect {tid} must omit residual line, got {text}"
     | .error e => throw <| IO.userError e.render
-    match ProofForgeV2.CLI.inspectTargetText pair.1 true with
+    match ProofForgeV2.CLI.inspectTargetText tid true with
     | .ok json =>
-        expect (hasSubstr json s!"\"callScheduleHonesty\":\"{pair.2}\"")
-          s!"inspect {pair.1} JSON family tag, got {json}"
+        expect (hasSubstr json s!"\"callScheduleHonesty\":\"{family}\"")
+          s!"inspect {tid} JSON family tag, got {json}"
+        match residual with
+        | some tag =>
+            expect (hasSubstr json s!"\"callScheduleResidual\":\"{tag}\"")
+              s!"inspect {tid} JSON residual tag, got {json}"
+        | none =>
+            expect (hasSubstr json "\"callScheduleResidual\":null")
+              s!"inspect {tid} JSON residual null, got {json}"
     | .error e => throw <| IO.userError e.render
   match ProofForgeV2.CLI.describeTargetText "aleo" with
   | .ok text =>
       expect (!hasSubstr text "callScheduleHonesty")
         s!"describe must stay three-line without family tag, got {text}"
+      expect (!hasSubstr text "callScheduleResidual")
+        s!"describe must stay three-line without residual, got {text}"
   | .error e => throw <| IO.userError e.render
 
 private def testDescriptorParityNegatives : IO Unit := do
@@ -1735,6 +1789,7 @@ unsafe def run : IO Unit := do
   testStateOnlySubsetCapability
   testCliEmitAndDescribe
   testCallScheduleFamilyTags
+  testCallScheduleResiduals
   testInspectCallScheduleHonestySurface
   testDescriptorParityNegatives
   testRequestResolveNegativesOnInspection
