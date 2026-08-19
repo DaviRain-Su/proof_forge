@@ -3,7 +3,7 @@ id: PHASE-6
 title: 实现日志
 status: draft
 owner: engineering
-updated: 2026-08-18
+updated: 2026-08-19
 normative: false
 ---
 
@@ -11,6 +11,19 @@ normative: false
 
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
+
+## 2026-08-19 — 完善度审查落地为分阶段执行队列（文档，非编码）
+
+- 新增 `docs/plan/completeness-phased-roadmap.md`（`PLAN-COMPLETENESS-ROADMAP`）：
+  三条完成轴 + COMP-0…5 阶段指针。
+- `docs/engineering-backlog.md` 新增 §12 `COMP-*` 勾选真源（DOC-DEDUP：不另开
+  research gap 清单）。
+- ADR-0036 工程计数改为 **13+0（含 XRPL ADR-0049/0050）**；status 仍 `proposed`。
+- 阶段 0 四句推荐冻结写入队列（B-CALL-SEM 按族拆、Noir 保持 C-4、ADR-0036 不在
+  本切片 accepted、SPEC-honesty 沿用 ADR-0051）；owner 未盖章。
+- 控制面指针：AGENTS Next / RECOVERY / document-status / index / research README。
+- **不是** shared-core 实现、不是四目标 DoD 编码、不是 formal 0/27 关闭、
+  不是 `just ci` 代签 release。
 
 ## 2026-08-18 — CodecInvert 九字段工程闭合（transport invert）
 

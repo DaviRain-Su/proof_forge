@@ -3,7 +3,7 @@ id: DOC-STATUS
 title: 文档生命周期与权威索引
 status: proposed
 owner: architecture
-updated: 2026-08-17
+updated: 2026-08-19
 normative: true
 ---
 
@@ -38,7 +38,9 @@ ADR-0045 O0），opt-in `openvm-guest-elf-v1` 锁定 `cargo-openvm` 2.0.1 build/
 **Accepted PRD Phase 1 范围仍为四目标**（EVM/Solana/NEAR/Noir）；engineering
 leaves 的边界由 **ADR-0036**（现 13+0：含 Soroban ADR-0044、OpenVM ADR-0045/0046、ICP ADR-0047、XRPL ADR-0049/0050）固定为非
 accepted 扩面，formal lighthouse 为 EVM-first。
-日常缺口队列见 [`engineering-backlog.md`](engineering-backlog.md)。
+日常缺口队列见 [`engineering-backlog.md`](engineering-backlog.md)（完善度勾选 **§12**）。
+完善度分阶段指针（三条完成轴；非第四份 gap 清单）：
+[`plan/completeness-phased-roadmap.md`](plan/completeness-phased-roadmap.md)。
 同一能力层（既有 implemented leaf 的 catalog 对齐；XRPL 已为第 13 个 materializer，默认 source-only Q0 + opt-in WASM Q1）：
 [`plan/capability-layer-parity.md`](plan/capability-layer-parity.md) ·
 [`plan/capability-layer-tasks.md`](plan/capability-layer-tasks.md)。

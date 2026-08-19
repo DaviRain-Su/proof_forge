@@ -3,7 +3,7 @@ id: ADR-0036
 title: Engineering target scope and EVM-first formal lighthouse
 status: proposed
 owner: architecture
-updated: 2026-08-14
+updated: 2026-08-19
 normative: true
 ---
 
@@ -16,8 +16,8 @@ normative: true
 ## Context
 
 The accepted Phase 1 PRD names four product targets: EVM, Solana, NEAR and Noir. The
-engineering registry subsequently grew to twelve implemented materializers plus zero design-only
-targets (Soroban via ADR-0044; OpenVM via ADR-0045/0046; ICP via ADR-0047). That implementation fact was
+engineering registry subsequently grew to thirteen implemented materializers plus zero design-only
+targets (Soroban via ADR-0044; OpenVM via ADR-0045/0046; ICP via ADR-0047; XRPL via ADR-0049/0050). That implementation fact was
 repeatedly routed through a scope placeholder, but no document owned that identifier. The
 placeholder therefore became a dangling authority reference rather than a decision.
 
@@ -36,9 +36,11 @@ closed.
 1. **Accepted product scope remains explicit.** The accepted Phase 1 PRD continues to name EVM,
    Solana, NEAR and Noir until a separately reviewed PRD revision changes it. Engineering
    implementation does not silently amend accepted scope.
-2. **Engineering scope is 12 + 0.** EVM, Solana, NEAR, Noir, Aleo, Psy, Quint, CosmWasm, TON, Soroban (source-only S0), OpenVM (guest-source default + opt-in guest-elf), and ICP (`icp-wasm-candid-u64-v1`) are implemented materializer leaves.
+2. **Engineering scope is 13 + 0.** EVM, Solana, NEAR, Noir, Aleo, Psy, Quint, CosmWasm, TON, Soroban (source-only S0), OpenVM (guest-source default + opt-in guest-elf), ICP (`icp-wasm-candid-u64-v1`), and XRPL (Bedrock source-only Q0 + opt-in WASM Q1) are implemented materializer leaves.
    OpenVM default profile is guest-source only (ADR-0045): zero-tool finalize, no prove; opt-in
    `openvm-guest-elf-v1` (ADR-0046) may emit ELF/VmExe via locked cargo-openvm without prove.
+   XRPL default profile is Bedrock source-only (ADR-0049): zero-tool finalize, no AlphaNet; opt-in
+   `xrpl-bedrock-wasm-u64-v1` (ADR-0050) may emit a `.wasm` extra via ambient rustc without deploy.
    An implemented label means a target-owned Plan/IR/materializer exists; it is not a release,
    network, proof or formal claim.
 3. **The formal lighthouse is EVM-first.** Shared D2/D3 formal prerequisites are advanced in the
@@ -57,11 +59,12 @@ closed.
 
 ## Consequences
 
-- Current engineering users retain all twelve materializers and their existing honest maturity
+- Current engineering users retain all thirteen materializers and their existing honest maturity
   labels (Soroban S0 is source-only / non-deployable per ADR-0044; OpenVM maturity remains
   source-only even when the opt-in elf profile emits build extras per ADR-0046; ICP remains
-  source-only in the registry label even with host-optional PocketIC per ADR-0047).
-- Formal planning has one lighthouse instead of twelve competing target lanes.
+  source-only in the registry label even with host-optional PocketIC per ADR-0047; XRPL remains
+  source-only even when the opt-in wasm profile emits a `.wasm` extra per ADR-0049/0050).
+- Formal planning has one lighthouse instead of thirteen competing target lanes.
 - Accepted PRD prose is not silently rewritten by an engineering registry expansion.
 - The removed frontend supervisor is no longer carried as an open scope ambiguity.
 - A future target-scope expansion, alternate formal lighthouse or containment boundary requires a
@@ -70,8 +73,9 @@ closed.
 ## Non-claims
 
 EVM-first does not mean EVM formal tasks are complete. It does not close D1-D4, establish
-candidate-bound evidence, make any artifact deployable, or qualify a release host. The other eleven
+candidate-bound evidence, make any artifact deployable, or qualify a release host. The other twelve
 implemented materializers remain engineering surfaces with the maturity and fail-closed limits
 stated in their target dossiers. Soroban S0 source-only evidence does not promote Soroban to
 accepted Phase 1 or formal scope. OpenVM O0/O1 does not claim proof, VK, or
-`verifiable-workload` maturity.
+`verifiable-workload` maturity. XRPL Q0/Q1 does not claim AlphaNet, mainnet, or
+`B-CALL-SEM` alignment.

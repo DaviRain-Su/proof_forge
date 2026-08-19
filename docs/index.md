@@ -3,7 +3,7 @@ id: DOC-INDEX
 title: ProofForge V2 文档导航
 status: proposed
 owner: architecture
-updated: 2026-08-15
+updated: 2026-08-19
 normative: true
 ---
 
@@ -42,14 +42,18 @@ Soroban S1 缺口盘点（非 normative、不实现 SOR-1）：
 [`plan/soroban-s1-wasm-finalize-gap.md`](plan/soroban-s1-wasm-finalize-gap.md)。
 Solana ADR-0048 D4 剩余证书（非 formal TASK-D5）：
 [`plan/solana-adr-0048-next.md`](plan/solana-adr-0048-next.md)。
-**日常工程队列**（可勾选缺口）：[`engineering-backlog.md`](engineering-backlog.md)。
+**日常工程队列**（可勾选缺口）：[`engineering-backlog.md`](engineering-backlog.md)（完善度 **§12**）。
+完善度分阶段指针（三条完成轴；非第四份 gap 清单）：
+[`plan/completeness-phased-roadmap.md`](plan/completeness-phased-roadmap.md)。
 **Agent Notes**（why / why-not，非 ADR / 非 formal）：[`.agents/notes/README.md`](../.agents/notes/README.md)。
 **Goal drain 已空（2026-08-15）**：[`.grok/next-wave-queue.md`](../.grok/next-wave-queue.md) 零 pending；
 [`prompt-next-wave.md`](../.grok/goals/prompt-next-wave.md) **已退役**，不要再 launch。
 全仓对账：[research/28-project-wide-honesty-audit.md](research/28-project-wide-honesty-audit.md)。
-**下一刀（工程，非 formal）**：同一能力层设计 [`plan/capability-layer-parity.md`](plan/capability-layer-parity.md) ·
+**下一刀（工程，非 formal）**：**B-CALL-SEM** 决策包（人拍）。完善度队列
+[`plan/completeness-phased-roadmap.md`](plan/completeness-phased-roadmap.md) ·
+同一能力层设计 [`plan/capability-layer-parity.md`](plan/capability-layer-parity.md) ·
 任务拆分 [`plan/capability-layer-tasks.md`](plan/capability-layer-tasks.md)
-（先加深已实现 leaf 的 catalog 行，不新开 TargetId）。
+（CAP waves 已闭；先加深已实现 leaf 的 catalog 行，不新开 TargetId）。
 旧 [`prompt-master-queue.md`](../.grok/goals/prompt-master-queue.md) 仍为历史/退役队列。
 宽度/ABI 专项：[`roadmap-t8.md`](roadmap-t8.md)。
 Op×target 格子：[`research/12-target-coverage-matrix.md`](research/12-target-coverage-matrix.md)。
