@@ -808,6 +808,9 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
         "inspect must not surface residual alpha privateWitness"
       expect (!hasSubstr text "ProgramRequirement")
         "inspect uses S2 request identities, not alpha Repr"
+      expect (hasSubstr text
+          "callScheduleHonesty=evm-hashed-call+same-tx-schedule")
+        s!"inspect evm family tag, got {text}"
   | .error e => throw <| IO.userError s!"inspect evm: {e.render}"
   match ProofForgeV2.CLI.inspectTargetText "aleo" with
   | .ok text =>
@@ -819,6 +822,8 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       expect (hasSubstr text "status=implemented") "aleo is implemented"
       expect (hasSubstr text "maturity=instructions-only")
         "aleo exposes only canonical Aleo Instructions"
+      expect (hasSubstr text "callScheduleHonesty=aleo-dual-fc")
+        s!"inspect aleo family tag, got {text}"
   | .error e => throw <| IO.userError s!"inspect aleo: {e.render}"
   match ProofForgeV2.CLI.inspectTargetText "psy" with
   | .ok text =>
@@ -827,6 +832,8 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       expect (hasSubstr text "status=implemented") "psy is implemented"
       expect (hasSubstr text "maturity=dpn-only")
         "psy exposes only canonical DPN packages"
+      expect (hasSubstr text "callScheduleHonesty=psy-void-sync-async-fc")
+        s!"inspect psy family tag, got {text}"
   | .error e => throw <| IO.userError s!"inspect psy: {e.render}"
   -- Legacy three-line helper remains for S2 exact-string join tests.
   match ProofForgeV2.CLI.describeTargetText "aleo" with

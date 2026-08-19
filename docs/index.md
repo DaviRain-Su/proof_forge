@@ -51,7 +51,7 @@ Solana ADR-0048 D4 剩余证书（非 formal TASK-D5）：
 全仓对账：[research/28-project-wide-honesty-audit.md](research/28-project-wide-honesty-audit.md)。
 **下一刀（工程，非 formal）**：能力层 waves 已全闭合（2026-08-19：CAP-1a…5 /
 CAP-X-BYTES / CAP-X-MERKLE / 诚实边界波）。COMP-1-CALL-SEM-LAND 第一刀
-（inspect family tag）已部分落地，**不**把 B-CALL-SEM 标 closed。
+（十三 kind inspect family-tag 表面针）已部分落地，**不**把 B-CALL-SEM 标 closed。
 当前剩余人拍项 = B-CALL-SEM 残差（部署地址 / 外层账户 / CW `contract_addr`）/
 ADR-0051 / D3-E8 / QUINT-2 / SOR-1 / XRPL TIME/CALLER。
 完善度队列 [`plan/completeness-phased-roadmap.md`](plan/completeness-phased-roadmap.md) ·

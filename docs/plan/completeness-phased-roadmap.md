@@ -15,7 +15,7 @@ normative: false
 > [`../research/12-target-coverage-matrix.md`](../research/12-target-coverage-matrix.md)
 > 为准；勾选只回写 [`../engineering-backlog.md`](../engineering-backlog.md) §12。  
 > **不是** formal / accepted-PRD / SPEC 代签。2026-08-19 owner 继续指令后，
-> **COMP-1-CALL-SEM-LAND 第一刀**（inspect family tag + ExtFlow/LaterFlow xrpl 针）
+> **COMP-1-CALL-SEM-LAND 第一刀**（十三 kind inspect family-tag 表面针 + ExtFlow/LaterFlow xrpl 针）
 > 已部分落地；部署地址绑定仍 pending。ADR 仍 `proposed`。
 
 范围边界：[`../adr/0036-engineering-scope-and-evm-formal-lighthouse.md`](../adr/0036-engineering-scope-and-evm-formal-lighthouse.md)
@@ -134,7 +134,7 @@ Capability 横切（2026-08-19）：`sha256Bytes` 五叶已开；`merkleVerifyKe
 | **COMP-1-SPEC-ALIGN** | ADR-0051 accepted 后修订 `semantic-core.md` + corpus 对齐；无新 Sem00x pin | COMP-0-SPEC-HONESTY owner 接受 | pending |
 | **COMP-1-NORMALIZE-RESIDUAL** | 嵌套穿透赋值；仍拒绝的构造器嵌套；Field/Principal 源字面量（开则十三叶同时 Lower 或命名 FC） | 无（可先做 FC 针） | pending |
 | **COMP-1-TYPEKEY-REST** | TypeKey 剩余 usage-closure → StructureV1 | 不关 TASK-D2-06 | pending |
-| **COMP-1-CALL-SEM-LAND** | 先改 resolver/文档/针，再按 COMP-0 做 EVM 部署地址、Solana 外层账户、CW `contract_addr` | COMP-0-CALL-SEM 人拍 | **partial** — `callScheduleFamilyTagV1` + inspect `callScheduleHonesty` + ExtFlow/LaterFlow xrpl 针；地址/外层账户/`contract_addr` 仍 pending |
+| **COMP-1-CALL-SEM-LAND** | 先改 resolver/文档/针，再按 COMP-0 做 EVM 部署地址、Solana 外层账户、CW `contract_addr` | COMP-0-CALL-SEM 人拍 | **partial** — 十三 kind inspect 表面针（human+JSON）+ ExtFlow/LaterFlow xrpl 针；地址/外层账户/`contract_addr` 仍 pending |
 | **COMP-1-SYS-CAP-L2** | 官方 program catalog：有 host 就 exact 一行一叶，无 host 就命名 FC | SYS-CAP S1–S4 已闭 | pending |
 | **COMP-1-COMMIT-ZK** | Psy/Noir Commit 设计钉；未冻 binding 前继续 FC | ADR-0041 已 proposed | pending |
 | **COMP-1-D3-E8** | evidence grade 语义冻结后再进 resolver | 先语义，再门禁 | pending |

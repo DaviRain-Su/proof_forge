@@ -12,6 +12,13 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-19 — COMP-1-CALL-SEM-LAND 十三 kind inspect 表面针
+
+- `testInspectCallScheduleHonestySurface`：13 implemented target 的
+  human + JSON `callScheduleHonesty` 闭表针；`describe` 仍无该字段。
+- BuildSelection `inspect evm/aleo/psy` 与 CLI `inspect aleo/cosmwasm` 补针。
+- **不是** B-CALL-SEM 闭合、不是部署地址绑定、不是 formal 0/27。
+
 ## 2026-08-19 — COMP-1-CALL-SEM-LAND 第一刀（inspect family tag）
 
 - `RequirementResolverV1.callScheduleFamilyTagV1`：十三 `TargetKind` 闭表。

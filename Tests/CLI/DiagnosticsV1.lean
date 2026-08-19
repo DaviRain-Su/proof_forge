@@ -535,6 +535,17 @@ private def testInspectDigests : IO Unit := do
   expect (containsSubstr stdout3
       "callScheduleHonesty=icp-async-advertise-plan-fc")
     s!"inspect icp family tag: {stdout3}"
+  let (ec4, stdout4, stderr4) ← runCli #["inspect", "aleo"]
+  expect (ec4 == 0)
+    s!"inspect aleo must exit 0, got {ec4}\n{stderr4}"
+  expect (containsSubstr stdout4 "callScheduleHonesty=aleo-dual-fc")
+    s!"inspect aleo family tag: {stdout4}"
+  let (ec5, stdout5, stderr5) ← runCli #["inspect", "cosmwasm"]
+  expect (ec5 == 0)
+    s!"inspect cosmwasm must exit 0, got {ec5}\n{stderr5}"
+  expect (containsSubstr stdout5
+      "callScheduleHonesty=cw-submsg+pfassets-sync-scope")
+    s!"inspect cosmwasm family tag: {stdout5}"
 
 private def testJsonSurface : IO Unit := do
   let (ec, stdout, stderr) ← runCli #["list-targets", "--json"]

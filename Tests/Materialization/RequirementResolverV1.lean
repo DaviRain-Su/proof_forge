@@ -1355,6 +1355,42 @@ def testCallScheduleFamilyTags : IO Unit := do
   assert! callScheduleFamilyTagV1 .xrpl ==
     "xrpl-dual-fc"
 
+/-- Closed 13-kind inspect surface: every implemented target exposes its
+    family tag on human + JSON inspect; describe stays three lines. -/
+def testInspectCallScheduleHonestySurface : IO Unit := do
+  let needles : Array (String × String) := #[
+    ("evm", "evm-hashed-call+same-tx-schedule"),
+    ("solana", "solana-cpi-sync-async-fc"),
+    ("near", "near-promise+pfassets-sync-scope"),
+    ("cosmwasm", "cw-submsg+pfassets-sync-scope"),
+    ("noir", "noir-witness-binding"),
+    ("ton", "ton-async-out-message"),
+    ("icp", "icp-async-advertise-plan-fc"),
+    ("psy", "psy-void-sync-async-fc"),
+    ("quint", "quint-pfassets-sync-async-fc"),
+    ("aleo", "aleo-dual-fc"),
+    ("soroban", "soroban-dual-fc"),
+    ("openvm", "openvm-dual-fc"),
+    ("xrpl", "xrpl-dual-fc")
+  ]
+  expect (needles.size == 13) "inspect honesty surface covers all 13 kinds"
+  for pair in needles do
+    match ProofForgeV2.CLI.inspectTargetText pair.1 with
+    | .ok text =>
+        expect (hasSubstr text s!"callScheduleHonesty={pair.2}")
+          s!"inspect {pair.1} family tag, got {text}"
+    | .error e => throw <| IO.userError e.render
+    match ProofForgeV2.CLI.inspectTargetText pair.1 true with
+    | .ok json =>
+        expect (hasSubstr json s!"\"callScheduleHonesty\":\"{pair.2}\"")
+          s!"inspect {pair.1} JSON family tag, got {json}"
+    | .error e => throw <| IO.userError e.render
+  match ProofForgeV2.CLI.describeTargetText "aleo" with
+  | .ok text =>
+      expect (!hasSubstr text "callScheduleHonesty")
+        s!"describe must stay three-line without family tag, got {text}"
+  | .error e => throw <| IO.userError e.render
+
 private def testDescriptorParityNegatives : IO Unit := do
   -- describeImplementedJoin join-checks residual descriptor target/profile with
   -- the same equality predicates as Registry.resolveEngineeringRequirementsV1
@@ -1699,6 +1735,7 @@ unsafe def run : IO Unit := do
   testStateOnlySubsetCapability
   testCliEmitAndDescribe
   testCallScheduleFamilyTags
+  testInspectCallScheduleHonestySurface
   testDescriptorParityNegatives
   testRequestResolveNegativesOnInspection
   testBackendSupportDefense
