@@ -814,6 +814,12 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       expect (hasSubstr text
           "callScheduleResidual=hashed-qn-no-deploy-bind")
         s!"inspect evm address residual, got {text}"
+      expect (hasSubstr text
+          "attachedValueHonesty=evm-callvalue+view-reads-zero")
+        s!"inspect evm attachedValue family tag, got {text}"
+      expect (hasSubstr text
+          "attachedValueResidual=constructor-fc")
+        s!"inspect evm attachedValue residual, got {text}"
   | .error e => throw <| IO.userError s!"inspect evm: {e.render}"
   match ProofForgeV2.CLI.inspectTargetText "aleo" with
   | .ok text =>
@@ -829,6 +835,11 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
         s!"inspect aleo family tag, got {text}"
       expect (!hasSubstr text "callScheduleResidual")
         "inspect aleo has no address-shaped residual"
+      expect (hasSubstr text
+          "attachedValueHonesty=aleo-no-host-fc")
+        s!"inspect aleo attachedValue family tag, got {text}"
+      expect (!hasSubstr text "attachedValueResidual")
+        "inspect aleo has no attachedValue callable residual"
   | .error e => throw <| IO.userError s!"inspect aleo: {e.render}"
   match ProofForgeV2.CLI.inspectTargetText "psy" with
   | .ok text =>
@@ -841,6 +852,11 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
         s!"inspect psy family tag, got {text}"
       expect (!hasSubstr text "callScheduleResidual")
         "inspect psy has no address-shaped residual"
+      expect (hasSubstr text
+          "attachedValueHonesty=psy-no-host-fc")
+        s!"inspect psy attachedValue family tag, got {text}"
+      expect (!hasSubstr text "attachedValueResidual")
+        "inspect psy has no attachedValue callable residual"
   | .error e => throw <| IO.userError s!"inspect psy: {e.render}"
   -- Legacy three-line helper remains for S2 exact-string join tests.
   match ProofForgeV2.CLI.describeTargetText "aleo" with

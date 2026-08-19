@@ -3,7 +3,7 @@ id: PLAN-EVM-FORMAL-D2-06-TYPEKEY-USAGE
 title: EVM formal lighthouse — TASK-D2-06 TypeKey usage / rank inventory
 status: draft
 owner: engineering
-updated: 2026-08-14
+updated: 2026-08-19
 normative: false
 ---
 
@@ -98,8 +98,10 @@ Normalize no longer force-interns unused UInt64 envelope types (StructureV1
 rejects any residual unused anonymous). SimpleClosure is Bool-only. Still
 **not** formal TASK-D2-06 / TST-SEM-001.
 
-**Next engineering (outside this TypeKey plan):** `B-CALL-SEM` decision pack
-(human) or `CAP-X-BYTES` shared-core cutover — not formal TASK closeout.
+**Next engineering (outside this TypeKey plan):** `B-CALL-SEM` residual
+binding (human) or SYS-CAP-L2 official-program leaves (host-backed only).
+SPEC anonymous rank bytes stay product-decision blocked. Not formal TASK
+closeout.
 
 **History:** byte-form pin 2026-08-14; Stage A/B/C rank cutover 2026-08-17;
 Stage D usage-closure StructureV1 wiring 2026-08-17.

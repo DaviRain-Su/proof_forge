@@ -124,6 +124,41 @@ def callScheduleResidualV1 : TargetKind → Option String
   | .cosmwasm => some "contract-addr-qn-stub"
   | _ => none
 
+/-- SYS-S4 `context.attachedValue` family-split tag (COMP-1-SYS-CAP-L2 honesty).
+
+    Resolver `context.attached-value` support is **not** this string and is
+    **not** a claim that every callable kind can read attached value.
+    Product `inspect` may surface the tag; engineering `SupportClaim` digest /
+    requirement id lists do **not** include it. Official-program L2 catalog
+    leaves are a later slice. Callable-kind residuals use
+    `attachedValueResidualV1` (inspect-only). -/
+def attachedValueFamilyTagV1 : TargetKind → String
+  | .evm => "evm-callvalue+view-reads-zero"
+  | .near => "near-attached-deposit-entry-view-fc"
+  | .cosmwasm => "cw-funds-execute-query-fc"
+  | .solana => "solana-no-host-fc"
+  | .noir => "noir-no-host-fc"
+  | .ton => "ton-no-host-fc"
+  | .icp => "icp-no-host-fc"
+  | .psy => "psy-no-host-fc"
+  | .quint => "quint-no-host-fc"
+  | .aleo => "aleo-no-host-fc"
+  | .soroban => "soroban-no-host-fc"
+  | .openvm => "openvm-no-host-fc"
+  | .xrpl => "xrpl-no-host-fc"
+
+/-- Callable-kind residual tags for SYS-S4 attachedValue (inspect-only).
+
+    `none` means this kind has no extra callable residual on the inspect
+    surface (the family tag already covers no-host named FC).
+    Tags do **not** enter SupportClaim digest, requirement id lists, or
+    `describeImplementedJoin`. They do **not** open a host. -/
+def attachedValueResidualV1 : TargetKind → Option String
+  | .evm => some "constructor-fc"
+  | .near => some "view-purefn-fc"
+  | .cosmwasm => some "query-view-fc"
+  | _ => none
+
 /-- Non-capability inspection of a support match or request resolution outcome.
     Dependency-injected seams may return this — never a materialize capability. -/
 structure RequirementResolutionInspectionV1 where

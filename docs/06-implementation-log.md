@@ -12,6 +12,20 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-19 — COMP-1-SYS-CAP-L2 attachedValue inspect 诚实表面
+
+- `RequirementResolverV1.attachedValueFamilyTagV1`：十三 `TargetKind` 闭表
+  （EVM CALLVALUE / NEAR deposit-entry / CW funds-execute / 其余 no-host FC）。
+- `attachedValueResidualV1`：仅 evm=`constructor-fc`、near=`view-purefn-fc`、
+  cosmwasm=`query-view-fc`；其余 `none`。
+- 产品 `inspect` / `inspect --json` 在 implemented 行露出
+  `attachedValueHonesty` 与 optional `attachedValueResidual`
+  （JSON 无 residual 为 `null`）。`describe` 三行与 SupportClaim digest **不变**。
+- `Targets.lean` S4 入口针补 `xrpl`；新增 view/query 矩阵（仅 EVM admit，
+  NEAR/CW/其余十二叶 FC）。
+- **不是** 官方 program catalog 新叶、**不是** 开 NEAR view / CW query host、
+  **不是** formal 0/27。
+
 ## 2026-08-19 — COMP-1-NORMALIZE-RESIDUAL fail-closed 针
 
 - CheckV1：Field/Principal 源整数字面量（return + Field state assign）与

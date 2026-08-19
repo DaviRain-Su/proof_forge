@@ -521,6 +521,12 @@ private def testInspectDigests : IO Unit := do
   expect (containsSubstr stdout
       "callScheduleResidual=hashed-qn-no-deploy-bind")
     s!"inspect evm address residual: {stdout}"
+  expect (containsSubstr stdout
+      "attachedValueHonesty=evm-callvalue+view-reads-zero")
+    s!"inspect evm attachedValue family tag: {stdout}"
+  expect (containsSubstr stdout
+      "attachedValueResidual=constructor-fc")
+    s!"inspect evm attachedValue residual: {stdout}"
   let (ec2, stdout2, _) ← runCli #["inspect", "evm"]
   expect (ec2 == 0 && stdout2 == stdout)
     "inspect must be deterministic"
@@ -540,6 +546,11 @@ private def testInspectDigests : IO Unit := do
     s!"inspect icp family tag: {stdout3}"
   expect (!containsSubstr stdout3 "callScheduleResidual")
     s!"inspect icp has no address residual: {stdout3}"
+  expect (containsSubstr stdout3
+      "attachedValueHonesty=icp-no-host-fc")
+    s!"inspect icp attachedValue family tag: {stdout3}"
+  expect (!containsSubstr stdout3 "attachedValueResidual")
+    s!"inspect icp has no attachedValue residual: {stdout3}"
   let (ec4, stdout4, stderr4) ← runCli #["inspect", "aleo"]
   expect (ec4 == 0)
     s!"inspect aleo must exit 0, got {ec4}\n{stderr4}"
@@ -547,6 +558,11 @@ private def testInspectDigests : IO Unit := do
     s!"inspect aleo family tag: {stdout4}"
   expect (!containsSubstr stdout4 "callScheduleResidual")
     s!"inspect aleo has no address residual: {stdout4}"
+  expect (containsSubstr stdout4
+      "attachedValueHonesty=aleo-no-host-fc")
+    s!"inspect aleo attachedValue family tag: {stdout4}"
+  expect (!containsSubstr stdout4 "attachedValueResidual")
+    s!"inspect aleo has no attachedValue residual: {stdout4}"
   let (ec5, stdout5, stderr5) ← runCli #["inspect", "cosmwasm"]
   expect (ec5 == 0)
     s!"inspect cosmwasm must exit 0, got {ec5}\n{stderr5}"
@@ -556,12 +572,32 @@ private def testInspectDigests : IO Unit := do
   expect (containsSubstr stdout5
       "callScheduleResidual=contract-addr-qn-stub")
     s!"inspect cosmwasm address residual: {stdout5}"
+  expect (containsSubstr stdout5
+      "attachedValueHonesty=cw-funds-execute-query-fc")
+    s!"inspect cosmwasm attachedValue family tag: {stdout5}"
+  expect (containsSubstr stdout5
+      "attachedValueResidual=query-view-fc")
+    s!"inspect cosmwasm attachedValue residual: {stdout5}"
   let (ec6, stdout6, stderr6) ← runCli #["inspect", "solana"]
   expect (ec6 == 0)
     s!"inspect solana must exit 0, got {ec6}\n{stderr6}"
   expect (containsSubstr stdout6
       "callScheduleResidual=callee-identity-outer-account-open")
     s!"inspect solana address residual: {stdout6}"
+  expect (containsSubstr stdout6
+      "attachedValueHonesty=solana-no-host-fc")
+    s!"inspect solana attachedValue family tag: {stdout6}"
+  expect (!containsSubstr stdout6 "attachedValueResidual")
+    s!"inspect solana has no attachedValue residual: {stdout6}"
+  let (ec7, stdout7, stderr7) ← runCli #["inspect", "near"]
+  expect (ec7 == 0)
+    s!"inspect near must exit 0, got {ec7}\n{stderr7}"
+  expect (containsSubstr stdout7
+      "attachedValueHonesty=near-attached-deposit-entry-view-fc")
+    s!"inspect near attachedValue family tag: {stdout7}"
+  expect (containsSubstr stdout7
+      "attachedValueResidual=view-purefn-fc")
+    s!"inspect near attachedValue residual: {stdout7}"
 
 private def testJsonSurface : IO Unit := do
   let (ec, stdout, stderr) ← runCli #["list-targets", "--json"]
@@ -586,6 +622,12 @@ private def testJsonSurface : IO Unit := do
   expect (containsSubstr stdout2
       "\"callScheduleResidual\":\"hashed-qn-no-deploy-bind\"")
     s!"inspect json evm residual: {stdout2}"
+  expect (containsSubstr stdout2
+      "\"attachedValueHonesty\":\"evm-callvalue+view-reads-zero\"")
+    s!"inspect json evm attachedValue family tag: {stdout2}"
+  expect (containsSubstr stdout2
+      "\"attachedValueResidual\":\"constructor-fc\"")
+    s!"inspect json evm attachedValue residual: {stdout2}"
   let (ec3, stdout3, stderr3) ← runCli #[
     "check", "Examples/StateCell.lean",
     "--module", "Examples.StateCell", "--json"

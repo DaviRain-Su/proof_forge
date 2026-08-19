@@ -7704,7 +7704,8 @@ unsafe def runRemainingNeedles : IO Unit := do
 
   -- ADR-0031 S4: context.attachedValue. EVM admits CALLVALUE; NEAR admits
   -- attached_deposit (entry/init; view FC); CosmWasm admits MessageInfo.funds
-  -- (execute/init; query FC). Other implemented targets stay Plan-fail-closed.
+  -- (execute/init; query FC). Other implemented targets stay Plan-fail-closed
+  -- (including XRPL — no host; COMP-1-SYS-CAP-L2 honesty).
   let attachedSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -7724,10 +7725,12 @@ unsafe def runRemainingNeedles : IO Unit := do
   let _ ← liftResult <| materializeSelected TargetId.evm attachedCompiled
   let _ ← liftResult <| materializeSelected TargetId.near attachedCompiled
   let _ ← liftResult <| materializeSelected TargetId.cosmwasm attachedCompiled
-  -- Quint/Soroban stay FC (no host); do not open attachedValue.
+  -- No-host targets stay FC; do not open attachedValue. XRPL was missing
+  -- from this loop until COMP-1-SYS-CAP-L2 honesty.
   for target in [TargetId.ton,
       TargetId.solana, TargetId.noir, TargetId.psy, TargetId.aleo,
-      TargetId.icp, TargetId.openvm, TargetId.quint, TargetId.soroban] do
+      TargetId.icp, TargetId.openvm, TargetId.quint, TargetId.soroban,
+      TargetId.xrpl] do
     match materializeSelected target attachedCompiled with
     | .ok _ =>
         throw <| IO.userError s!"S4 attached: {target} must decline ContextRead attachedValue"
@@ -7738,6 +7741,46 @@ unsafe def runRemainingNeedles : IO Unit := do
             (e.render).contains "unsupported" ||
             (e.render).contains "pilot")
           s!"S4 attached {target} message must cite ContextRead/attached boundary, got {e.render}"
+
+  -- SYS-S4 view/query residual: EVM view may read CALLVALUE (STATICCALL ⇒ 0);
+  -- NEAR view and CosmWasm query/view stay fail closed; no-host targets stay FC.
+  let attachedViewSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program CtxAttachedView where\n" ++
+    "  state public pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry collect() : UInt64 do\n" ++
+    "    return pad\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return context.attachedValue\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let attachedViewV1 ← match ← session.selectProgramV1 attachedViewSource
+      "<targets-s4-attached-view>" "Examples.CtxAttachedView" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"S4 attached-view select: {e.render}"
+  let attachedViewCompiled ← liftResult <|
+    Compiler.compileValidatedSourceV1 attachedViewV1
+  let _ ← liftResult <| materializeSelected TargetId.evm attachedViewCompiled
+  for target in [TargetId.near, TargetId.cosmwasm, TargetId.ton,
+      TargetId.solana, TargetId.noir, TargetId.psy, TargetId.aleo,
+      TargetId.icp, TargetId.openvm, TargetId.quint, TargetId.soroban,
+      TargetId.xrpl] do
+    match materializeSelected target attachedViewCompiled with
+    | .ok _ =>
+        throw <| IO.userError
+          s!"S4 attached-view: {target} must decline view/query ContextRead attachedValue"
+    | .error e =>
+        expect ((e.render).contains "ContextRead" ||
+            (e.render).contains "context" ||
+            (e.render).contains "attached" ||
+            (e.render).contains "view" ||
+            (e.render).contains "query" ||
+            (e.render).contains "unsupported" ||
+            (e.render).contains "pilot")
+          s!"S4 attached-view {target} message must cite view/query attached boundary, got {e.render}"
 
   -- ADR-0031 S1 / ADR-0030 E3: context.caller Principal ContextRead.
   -- EVM admits ADR-0025 encoding (CALLER → u32le(20)||addr20 leaves;

@@ -1265,6 +1265,12 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
       expect (hasSubstr text
           "callScheduleResidual=hashed-qn-no-deploy-bind")
         s!"inspect must surface EVM address residual, got {text}"
+      expect (hasSubstr text
+          "attachedValueHonesty=evm-callvalue+view-reads-zero")
+        s!"inspect must surface EVM attachedValue family tag, got {text}"
+      expect (hasSubstr text
+          "attachedValueResidual=constructor-fc")
+        s!"inspect must surface EVM attachedValue residual, got {text}"
   | .error e => throw <| IO.userError e.render
   match ProofForgeV2.CLI.inspectTargetText "solana" with
   | .ok text =>
@@ -1283,6 +1289,11 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
       expect (hasSubstr text
           "callScheduleResidual=callee-identity-outer-account-open")
         s!"inspect must surface Solana address residual, got {text}"
+      expect (hasSubstr text
+          "attachedValueHonesty=solana-no-host-fc")
+        s!"inspect must surface Solana attachedValue family tag, got {text}"
+      expect (!hasSubstr text "attachedValueResidual")
+        "Solana inspect has no attachedValue callable residual"
   | .error e => throw <| IO.userError e.render
   match ProofForgeV2.CLI.inspectTargetText "solana" true with
   | .ok json =>
@@ -1295,6 +1306,11 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
       expect (hasSubstr json
           "\"callScheduleResidual\":\"callee-identity-outer-account-open\"")
         s!"inspect Solana JSON address residual, got {json}"
+      expect (hasSubstr json
+          "\"attachedValueHonesty\":\"solana-no-host-fc\"")
+        s!"inspect Solana JSON attachedValue family tag, got {json}"
+      expect (hasSubstr json "\"attachedValueResidual\":null")
+        s!"inspect Solana JSON attachedValue residual null, got {json}"
   | .error e => throw <| IO.userError e.render
   match ProofForgeV2.CLI.inspectTargetText "noir" with
   | .ok text =>
@@ -1307,6 +1323,11 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
         s!"inspect must surface Noir witness-binding family tag, got {text}"
       expect (!hasSubstr text "callScheduleResidual")
         "Noir inspect has no address-shaped residual"
+      expect (hasSubstr text
+          "attachedValueHonesty=noir-no-host-fc")
+        s!"inspect must surface Noir attachedValue family tag, got {text}"
+      expect (!hasSubstr text "attachedValueResidual")
+        "Noir inspect has no attachedValue callable residual"
   | .error e => throw <| IO.userError e.render
   match ProofForgeV2.CLI.inspectTargetText "near" with
   | .ok text =>
@@ -1315,6 +1336,12 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
         s!"inspect must surface NEAR family tag, got {text}"
       expect (!hasSubstr text "callScheduleResidual")
         "NEAR inspect has no address-shaped residual"
+      expect (hasSubstr text
+          "attachedValueHonesty=near-attached-deposit-entry-view-fc")
+        s!"inspect must surface NEAR attachedValue family tag, got {text}"
+      expect (hasSubstr text
+          "attachedValueResidual=view-purefn-fc")
+        s!"inspect must surface NEAR attachedValue residual, got {text}"
   | .error e => throw <| IO.userError e.render
   match ProofForgeV2.CLI.inspectTargetText "icp" with
   | .ok text =>
@@ -1323,6 +1350,11 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
         s!"inspect must surface ICP advertise-then-Plan-FC family tag, got {text}"
       expect (!hasSubstr text "callScheduleResidual")
         "ICP inspect has no address-shaped residual"
+      expect (hasSubstr text
+          "attachedValueHonesty=icp-no-host-fc")
+        s!"inspect must surface ICP attachedValue family tag, got {text}"
+      expect (!hasSubstr text "attachedValueResidual")
+        "ICP inspect has no attachedValue callable residual"
   | .error e => throw <| IO.userError e.render
   match ProofForgeV2.CLI.inspectTargetText "xrpl" with
   | .ok text =>
@@ -1330,6 +1362,11 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
         s!"inspect must surface XRPL dual-FC family tag, got {text}"
       expect (!hasSubstr text "callScheduleResidual")
         "XRPL inspect has no address-shaped residual"
+      expect (hasSubstr text
+          "attachedValueHonesty=xrpl-no-host-fc")
+        s!"inspect must surface XRPL attachedValue family tag, got {text}"
+      expect (!hasSubstr text "attachedValueResidual")
+        "XRPL inspect has no attachedValue callable residual"
   | .error e => throw <| IO.userError e.render
   -- Pure three-line helper remains exact for S2 wire-order + B2 pf-assets pin.
   match ProofForgeV2.CLI.describeTargetText "evm" with
@@ -1390,6 +1427,43 @@ def testCallScheduleResiduals : IO Unit := do
   assert! callScheduleResidualV1 .openvm == none
   assert! callScheduleResidualV1 .xrpl == none
 
+/-- Pins the closed SYS-S4 attachedValue family-split tag table. Resolver
+    support still does not mean every callable can read attached value. -/
+def testAttachedValueFamilyTags : IO Unit := do
+  assert! attachedValueFamilyTagV1 .evm ==
+    "evm-callvalue+view-reads-zero"
+  assert! attachedValueFamilyTagV1 .near ==
+    "near-attached-deposit-entry-view-fc"
+  assert! attachedValueFamilyTagV1 .cosmwasm ==
+    "cw-funds-execute-query-fc"
+  assert! attachedValueFamilyTagV1 .solana == "solana-no-host-fc"
+  assert! attachedValueFamilyTagV1 .noir == "noir-no-host-fc"
+  assert! attachedValueFamilyTagV1 .ton == "ton-no-host-fc"
+  assert! attachedValueFamilyTagV1 .icp == "icp-no-host-fc"
+  assert! attachedValueFamilyTagV1 .psy == "psy-no-host-fc"
+  assert! attachedValueFamilyTagV1 .quint == "quint-no-host-fc"
+  assert! attachedValueFamilyTagV1 .aleo == "aleo-no-host-fc"
+  assert! attachedValueFamilyTagV1 .soroban == "soroban-no-host-fc"
+  assert! attachedValueFamilyTagV1 .openvm == "openvm-no-host-fc"
+  assert! attachedValueFamilyTagV1 .xrpl == "xrpl-no-host-fc"
+
+/-- Pins the closed SYS-S4 callable residual table. `none` kinds stay
+    inspect-silent on the human residual line and JSON `null`. -/
+def testAttachedValueResiduals : IO Unit := do
+  assert! attachedValueResidualV1 .evm == some "constructor-fc"
+  assert! attachedValueResidualV1 .near == some "view-purefn-fc"
+  assert! attachedValueResidualV1 .cosmwasm == some "query-view-fc"
+  assert! attachedValueResidualV1 .solana == none
+  assert! attachedValueResidualV1 .noir == none
+  assert! attachedValueResidualV1 .ton == none
+  assert! attachedValueResidualV1 .icp == none
+  assert! attachedValueResidualV1 .psy == none
+  assert! attachedValueResidualV1 .quint == none
+  assert! attachedValueResidualV1 .aleo == none
+  assert! attachedValueResidualV1 .soroban == none
+  assert! attachedValueResidualV1 .openvm == none
+  assert! attachedValueResidualV1 .xrpl == none
+
 /-- Closed 13-kind inspect surface: every implemented target exposes its
     family tag on human + JSON inspect; address residual is present only
     for evm/solana/cosmwasm (JSON `null` otherwise); describe stays three
@@ -1443,7 +1517,57 @@ def testInspectCallScheduleHonestySurface : IO Unit := do
         s!"describe must stay three-line without family tag, got {text}"
       expect (!hasSubstr text "callScheduleResidual")
         s!"describe must stay three-line without residual, got {text}"
+      expect (!hasSubstr text "attachedValueHonesty")
+        s!"describe must stay three-line without attachedValue family tag, got {text}"
+      expect (!hasSubstr text "attachedValueResidual")
+        s!"describe must stay three-line without attachedValue residual, got {text}"
   | .error e => throw <| IO.userError e.render
+
+/-- Closed 13-kind SYS-S4 inspect surface: every implemented target exposes
+    its attachedValue family tag; callable residual is present only for
+    evm/near/cosmwasm (JSON `null` otherwise). -/
+def testInspectAttachedValueHonestySurface : IO Unit := do
+  let needles : Array (String × String × Option String) := #[
+    ("evm", "evm-callvalue+view-reads-zero", some "constructor-fc"),
+    ("solana", "solana-no-host-fc", none),
+    ("near", "near-attached-deposit-entry-view-fc", some "view-purefn-fc"),
+    ("cosmwasm", "cw-funds-execute-query-fc", some "query-view-fc"),
+    ("noir", "noir-no-host-fc", none),
+    ("ton", "ton-no-host-fc", none),
+    ("icp", "icp-no-host-fc", none),
+    ("psy", "psy-no-host-fc", none),
+    ("quint", "quint-no-host-fc", none),
+    ("aleo", "aleo-no-host-fc", none),
+    ("soroban", "soroban-no-host-fc", none),
+    ("openvm", "openvm-no-host-fc", none),
+    ("xrpl", "xrpl-no-host-fc", none)
+  ]
+  expect (needles.size == 13) "inspect attachedValue surface covers all 13 kinds"
+  for (tid, family, residual) in needles do
+    match ProofForgeV2.CLI.inspectTargetText tid with
+    | .ok text =>
+        expect (hasSubstr text s!"attachedValueHonesty={family}")
+          s!"inspect {tid} attachedValue family tag, got {text}"
+        match residual with
+        | some tag =>
+            expect (hasSubstr text s!"attachedValueResidual={tag}")
+              s!"inspect {tid} attachedValue residual tag, got {text}"
+        | none =>
+            expect (!hasSubstr text "attachedValueResidual")
+              s!"inspect {tid} must omit attachedValue residual line, got {text}"
+    | .error e => throw <| IO.userError e.render
+    match ProofForgeV2.CLI.inspectTargetText tid true with
+    | .ok json =>
+        expect (hasSubstr json s!"\"attachedValueHonesty\":\"{family}\"")
+          s!"inspect {tid} JSON attachedValue family tag, got {json}"
+        match residual with
+        | some tag =>
+            expect (hasSubstr json s!"\"attachedValueResidual\":\"{tag}\"")
+              s!"inspect {tid} JSON attachedValue residual tag, got {json}"
+        | none =>
+            expect (hasSubstr json "\"attachedValueResidual\":null")
+              s!"inspect {tid} JSON attachedValue residual null, got {json}"
+    | .error e => throw <| IO.userError e.render
 
 private def testDescriptorParityNegatives : IO Unit := do
   -- describeImplementedJoin join-checks residual descriptor target/profile with
@@ -1791,6 +1915,9 @@ unsafe def run : IO Unit := do
   testCallScheduleFamilyTags
   testCallScheduleResiduals
   testInspectCallScheduleHonestySurface
+  testAttachedValueFamilyTags
+  testAttachedValueResiduals
+  testInspectAttachedValueHonestySurface
   testDescriptorParityNegatives
   testRequestResolveNegativesOnInspection
   testBackendSupportDefense
