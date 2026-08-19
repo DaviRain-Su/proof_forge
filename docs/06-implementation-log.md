@@ -17035,3 +17035,20 @@ normative: false
   `ProofForgeV2.Core.TargetIdentityV1`、`ProofForgeV2.Targets.TargetRegistryV1`、
   `ProofForgeV2.Targets.BuildSelectionV1`及相关materialization modules build成功。
   尚未闭合capability、Plan/IR、emitter equation、assembly SHA、unconditional `get`、ELF或SVM runtime。
+
+## 2026-08-18 — certify frozen Solana engineering capability
+
+- 唯一production requirement-support authority现对17-row frozen seed给出完整kernel equation：真实
+  validator/private constructor、exact Solana row lookup、registry-root digest与唯一bulk support-claim mint
+  逐段组合；digest始终保留为production SHA-256的符号结果，没有复制bytes或增加第二index/root/hash/claim。
+- `resolveEngineeringRequirementsV1_exists_of_stages`只组合既有resolver的真实阶段结果并返回其
+  existential capability；Solana专用定理固定target/profile静态基础设施，但仍要求调用者提供真实
+  compiled carrier validation与其retained requirements通过唯一`inspectResolveRequestsV1`的equation。
+  它不暴露private constructor，也不mint第二个selection/capability。
+- 真实StateCell source/compiler certificate现与frozen Solana selection、exact requirement resolution及
+  sole engineering resolver组合为source→compiled→selection→capability kernel certificate。StateCell只是
+  通用机制的回归实例；resolver/index/claim路径没有contract-name分支。
+- Verification：`ProofForgeV2.Targets.RequirementResolverV1`、
+  `ProofForgeV2.Targets.SupportClaimV1`与`ProofForgeV2.Targets.EngineeringBuildV1` kernel build成功；
+  StateCell完整production文件回归随本切片执行。准确边界提升到唯一engineering capability；尚未闭合
+  Solana Plan/IR、emitter exact equation、assembly SHA、unconditional `get`、ELF或SVM runtime。

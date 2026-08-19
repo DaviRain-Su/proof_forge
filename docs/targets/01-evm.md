@@ -3,7 +3,7 @@ id: TARGET-EVM
 title: EVM target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-16
+updated: 2026-08-19
 normative: true
 ---
 
@@ -116,6 +116,10 @@ deploy 默认 ctor `0` 或 `PF_EVM_INIT_ARGS`，再 view/mutate；`init`/`constr
   缺失/不匹配 fail closed）；Reference leg 从真实 Loader→Normalize 链取 digest，
   Anvil leg 从实际部署 artifact 的 `proof-forge.output.v1` manifest 读取。
   工程步骤（identity-bound differential 方向），**非** formal C-3 / TST closure。
+- **`pf.crypto.merkleVerifyKeccak256`（CAP-X-MERKLE-EVM-ANVIL，2026-08-19）**：EVM-only
+  unrolled OpenZeppelin sorted-pair `keccak256(0,64)` 链（statement tag 25，D∈1..8，
+  false-not-revert）。host-optional engineering Anvil companion
+  `scripts/evm_merkle_verify_anvil_smoke.sh` 挂 `evm_anvil_differential.sh`（非 formal/C-3）。
 
 **明确未闭合**：完整 SemanticProgramV1 表面；ContextRead 已开放版本化的 `unixTimeSeconds`、`caller` 与 **`blockHeight`（S2：`number()`）**，未知键仍 FC；Option/Array/Bytes **param** 已 flatten；Map param 仍 FC（hashed 1-slot）；Option Int64 / Array Int64 / Bytes N return 已开；非 UInt64/Int64 payload 与 nested Option 仍 fail-closed；Map Int64 return 与 Int64-key Map 仍 FC；static-QN callee 仍是 hashed-address stub，缺真实 deployment-address binding；formal Plan/IR/Build/Output identity 与 identity-bound Reference↔Anvil formal differential；G4 不是 formal TST closure，不得写成 D4 / formal TASK 完成；**不得**把 Cancun profile 写成 OZ compatibility 或 formal hardfork 闭合；**不得**把 ADR-0025/S1 写成 Ownable/OZ/ABI/formal 完成。
 

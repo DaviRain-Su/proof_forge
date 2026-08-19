@@ -81,24 +81,67 @@ export function loadTonAbi(name) {
   return JSON.parse(fs.readFileSync(p, 'utf8'));
 }
 
-/** c4 flat Storage: __layout:uint64 + field:uint64* (zeros = uninitialized). */
-export function emptyStorageData(fieldCount = 1) {
+/**
+ * Normalize c4 field bit-widths. Default remains historical uint64 slots.
+ * UInt256 state is a single 256-bit cell field (EmitIRV1 `uint256`).
+ */
+export function normalizeFieldBits(fieldCountOrBits = 1, fieldBits = 64) {
+  if (Array.isArray(fieldCountOrBits)) {
+    return fieldCountOrBits.map((n) => Number(n));
+  }
+  const count = Number(fieldCountOrBits);
+  if (Array.isArray(fieldBits)) {
+    if (fieldBits.length !== count) {
+      throw new Error(
+        `fieldBits length ${fieldBits.length} != fieldCount ${count}`,
+      );
+    }
+    return fieldBits.map((n) => Number(n));
+  }
+  return Array.from({ length: count }, () => Number(fieldBits));
+}
+
+/** c4 flat Storage: __layout:uint64 + exact-width fields (zeros = uninitialized). */
+export function emptyStorageData(fieldCount = 1, fieldBits = 64) {
+  const bits = normalizeFieldBits(fieldCount, fieldBits);
   let b = beginCell().storeUint(0, 64);
-  for (let i = 0; i < fieldCount; i++) {
-    b = b.storeUint(0, 64);
+  for (const w of bits) {
+    b = b.storeUint(0, w);
   }
   return b.endCell();
 }
 
 /**
- * Internal-message body: 32-bit op + 64-bit query_id + u64 params
- * (ton-internal-msg-v1 / EmitIRV1).
+ * Internal-message body: 32-bit op + 64-bit query_id + consecutive exact-width
+ * params (ton-internal-msg-v1 / EmitIRV1). Default remains u64.
+ *
+ * Bytes N is packed as N consecutive `storeUint(byte, 8)` (param `byteWidth=1`).
+ * Pass `{ bytes: Uint8Array|number[] }` or `{ kind: 'bytes', bytes }`.
+ * UInt256 uses `{ kind: 'uint256', value }` / `{ bits: 256, value }`.
  */
 export function buildBody(op, queryId, ...params) {
   let b = beginCell()
     .storeUint(BigInt(op), 32)
     .storeUint(BigInt(queryId), 64);
   for (const p of params) {
+    if (p && typeof p === 'object') {
+      const bytes = p.bytes ?? (p.kind === 'bytes' ? p.value : undefined);
+      if (bytes !== undefined) {
+        for (const byte of bytes) {
+          const n = Number(byte);
+          if (!Number.isInteger(n) || n < 0 || n > 255) {
+            throw new Error(`Bytes leaf must be 0..255, got ${byte}`);
+          }
+          b = b.storeUint(n, 8);
+        }
+        continue;
+      }
+      const bits = Number(p.bits ?? (p.kind === 'uint256' ? 256 : 0));
+      if (bits > 0) {
+        b = b.storeUint(BigInt(p.value), bits);
+        continue;
+      }
+    }
     b = b.storeUint(BigInt(p), 64);
   }
   return b.endCell();
@@ -144,12 +187,13 @@ export class PfContract {
 /**
  * Fresh Blockchain with fixed config/now/verbosity + funded treasury + open contract.
  * @param {string} name program stem under PROOF_FORGE_FIXTURES_DIR
- * @param {{ fieldCount?: number }} [opts]
+ * @param {{ fieldCount?: number, fieldBits?: number|number[] }} [opts]
  */
 export async function deployFresh(name, opts = {}) {
-  const fieldCount = opts.fieldCount ?? 1;
+  const fieldCount = opts.fieldCount ?? (Array.isArray(opts.fieldBits) ? opts.fieldBits.length : 1);
+  const fieldBits = opts.fieldBits ?? 64;
   const code = loadCode(name);
-  const data = emptyStorageData(fieldCount);
+  const data = emptyStorageData(fieldCount, fieldBits);
   const blockchain = await Blockchain.create({ config: 'default' });
   blockchain.now = FIXED_NOW;
   blockchain.verbosity = {
@@ -213,12 +257,13 @@ export function computeVm(description) {
 }
 
 /** Parse c4 flat Storage cell → { layout, fields: bigint[] }. */
-export function parseStorage(dataCell, fieldCount = 1) {
+export function parseStorage(dataCell, fieldCount = 1, fieldBits = 64) {
+  const bits = normalizeFieldBits(fieldCount, fieldBits);
   const s = dataCell.beginParse();
   const layout = s.loadUintBig(64);
   const fields = [];
-  for (let i = 0; i < fieldCount; i++) {
-    fields.push(s.loadUintBig(64));
+  for (const w of bits) {
+    fields.push(s.loadUintBig(w));
   }
   return { layout, fields };
 }

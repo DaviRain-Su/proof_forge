@@ -1197,6 +1197,26 @@ theorem parseSemVer_renderSemVerUnchecked (version : SemVer)
         subst hpre' hbuild'
         exact parseSemVerGeneral_core _ _ _
 
+/-- Kernel-checked parser certificate for the frozen `pf.assets` 1.1
+    extension version, derived from the general SemVer round-trip theorem. -/
+theorem parseSemVer_1_1_0 :
+    parseSemVer "1.1.0" = .ok { major := 1, minor := 1, patch := 0 } := by
+  simpa only [show
+      renderSemVerUnchecked ({ major := 1, minor := 1, patch := 0 } : SemVer) =
+        "1.1.0" by decide] using
+    (parseSemVer_renderSemVerUnchecked
+      ({ major := 1, minor := 1, patch := 0 } : SemVer) (by rfl))
+
+/-- Kernel-checked parser certificate for the frozen `pf.assets` 1.2
+    extension version, derived from the general SemVer round-trip theorem. -/
+theorem parseSemVer_1_2_0 :
+    parseSemVer "1.2.0" = .ok { major := 1, minor := 2, patch := 0 } := by
+  simpa only [show
+      renderSemVerUnchecked ({ major := 1, minor := 2, patch := 0 } : SemVer) =
+        "1.2.0" by decide] using
+    (parseSemVer_renderSemVerUnchecked
+      ({ major := 1, minor := 2, patch := 0 } : SemVer) (by rfl))
+
 theorem parseSemVer_of_renderSemVer_ok (version : SemVer) (s : String)
     (h : renderSemVer version = .ok s) :
     parseSemVer s = .ok version := by

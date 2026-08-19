@@ -26,9 +26,12 @@ open ProofForgeV2.Semantic.ReferenceV1
 open ProofForgeV2.Semantic.WireV1
 
 /-- SHA-256 of the exact production OptionState sBPF assembly emitted by the
-    pinned compiler/profile path. -/
+    pinned compiler/profile path. Updated 2026-08-19 for the multiword
+    return-packing fix in `EmitSbpfAsmV1` (the syscall pointer is now the
+    lowest stack address; previously the 16/32-byte return read frame garbage
+    above the limb block — caught by Mollusk execution, not by text pins). -/
 def optionStateProductionSbpfSha256V1 : String :=
-  "5245f26a8b6912aeab1e538b840dbed2b67833a6efdb6921ea734f0dfaa067b4"
+  "406e0595faacb9cae89ffd88719b73b6ff154bde10c1f6258ba4800014060540"
 
 /-- Fuel retained by the generic provider resolution for the production
     `peek(Some 77)` scenario. The real program halts before this bound. -/

@@ -5757,6 +5757,80 @@ private unsafe def testEcdsaRecoverCheckFixtureEvm : IO Unit := do
   expect (!yul.contains hashedPfCrypto)
     s!"EcdsaRecoverCheck: Yul must not contain hashed pf.crypto address {hashedPfCrypto}"
 
+/-- CAP-X-MERKLE-EVM-ANVIL companion fixture pin: inline twin of
+    Examples/MerkleVerifyCheck.lean (not imported by Examples.lean).
+    Plan `.merkleVerifyKeccak256` D=2 + unrolled keccak256(0, 64);
+    hashed `pf.crypto` address and SHA-256 STATICCALL absent. -/
+private unsafe def testMerkleVerifyCheckFixtureEvm : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let hashedPfCrypto :=
+    (Targets.Evm.Keccak.keccak256Hex "pf.crypto".toUTF8).drop 24
+  let src :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MerkleVerifyCheck where\n" ++
+    "  state last : UInt64\n" ++
+    "  init() do\n" ++
+    "    last := 0\n" ++
+    "  entry verify(root : UInt256, leaf : UInt256, s0 : UInt256, s1 : UInt256) : Bool do\n" ++
+    "    let ok : Bool := call pf.crypto.merkleVerifyKeccak256(root, leaf, s0, s1)\n" ++
+    "    if ok then\n" ++
+    "      last := 1\n" ++
+    "    else\n" ++
+    "      last := 0\n" ++
+    "    return ok\n" ++
+    "  view get() : Bool do\n" ++
+    "    return last == 1\n"
+  let cSrc ← match ← session.selectProgramV1
+      src "<evm-merkle-verify-check>" "Examples.MerkleVerifyCheck" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"MerkleVerifyCheck select: {e.render}"
+  let compiled ← match Compiler.compileValidatedSourceV1 cSrc with
+    | .error e => throw <| IO.userError s!"MerkleVerifyCheck must compile, got {e.render}"
+    | .ok c => pure c
+  let plan ← match planEvm compiled with
+    | .error e =>
+        throw <| IO.userError s!"MerkleVerifyCheck must produce a plan, got {e.render}"
+    | .ok p => pure p
+  let (hasDedicated, dedicatedD) : Bool × Nat := Id.run do
+    let mut found := false
+    let mut d : Nat := 0
+    for e in plan.entries do
+      for s in e.body do
+        match s with
+        | .merkleVerifyKeccak256 _ _ sibs _ =>
+            found := true
+            d := sibs.size
+        | _ => pure ()
+    pure (found, d)
+  expect hasDedicated
+    "MerkleVerifyCheck: plan must contain .merkleVerifyKeccak256"
+  expect (dedicatedD == 2)
+    s!"MerkleVerifyCheck: dedicated node must carry D=2 siblings, got {dedicatedD}"
+  let files ← match materializeSelected TargetId.evm compiled with
+    | .error e => throw <| IO.userError s!"MerkleVerifyCheck materialize: {e.render}"
+    | .ok output => pure (MaterializedArtifactsV1.filesOf output)
+  let some yulFile := files.find? (·.path == "MerkleVerifyCheck.yul") |
+    throw <| IO.userError "MerkleVerifyCheck: missing .yul"
+  let yul := yulFile.contents
+  let n := countSubstr yul "keccak256(0, 64)"
+  expect (n >= 2)
+    s!"MerkleVerifyCheck: Yul must emit >=2 keccak256(0, 64), got {n}"
+  expect (yul.contains "lt(")
+    "MerkleVerifyCheck: Yul must use lt for sorted-pair selection"
+  expect (yul.contains "mstore(0,")
+    "MerkleVerifyCheck: Yul must write min into scratch word 0"
+  expect (yul.contains "mstore(32,")
+    "MerkleVerifyCheck: Yul must write max into scratch word 32"
+  expect (yul.contains "mstore(64,")
+    "MerkleVerifyCheck: Yul must park computed in scratch word 64"
+  expect (yul.contains "eq(mload(64),")
+    "MerkleVerifyCheck: Yul must compare parked computed against root into Bool"
+  expect (!yul.contains "staticcall(gas(), 0x2")
+    "MerkleVerifyCheck: must not emit sha256Precompile STATICCALL"
+  expect (!yul.contains hashedPfCrypto)
+    s!"MerkleVerifyCheck: Yul must not contain hashed pf.crypto address {hashedPfCrypto}"
+
 /-- SYS-S5-EVM Anvil companion fixture pin: inline twin of Examples/Sha256Check.lean
     (not imported by Examples.lean). Plan `.sha256Precompile` + STATICCALL 0x2;
     hashed `pf.crypto` address absent. -/
@@ -6419,6 +6493,7 @@ unsafe def run : IO Unit := do
   testKeccak256CheckFixtureEvm
   testCryptoEcdsaRecoverEvm
   testEcdsaRecoverCheckFixtureEvm
+  testMerkleVerifyCheckFixtureEvm
   testContextReadTimestampEvm
   testAnonymousReturnFailClosedBoundaries
   testAggregateLeafCapFailClosed

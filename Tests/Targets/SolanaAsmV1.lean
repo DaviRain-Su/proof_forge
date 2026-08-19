@@ -1,7 +1,7 @@
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Targets.Solana
-import ProofForgeV2.Targets.Solana.SbpfStateCellProductionV1
+import ProofForgeV2.Targets.Solana.SbpfStateCellProductionSubjectsV1
 import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Language.Loader

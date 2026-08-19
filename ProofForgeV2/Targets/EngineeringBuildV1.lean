@@ -192,6 +192,174 @@ def resolveEngineeringRequirementsV1
   pure (ResolvedEngineeringBuildV1.mk selection compiled requested supportClaim
     none)
 
+/-- Compose successful results of every existing engineering-resolver stage.
+    This is a proof decomposition of the sole production resolver: it neither
+    constructs a second request resolver nor exposes the private capability
+    constructor to callers. -/
+theorem resolveEngineeringRequirementsV1_exists_of_stages
+    (selection : ResolvedBuildSelectionV1)
+    (compiled : CompiledSemanticV1)
+    (supportIndex : StaticRequirementSupportIndexV1)
+    (inspection : RequirementResolutionInspectionV1)
+    (data : SemanticProgramDataV1)
+    (descriptor : TargetDescriptor)
+    (registry : TargetRegistryV1)
+    (registration : TargetRegistrationDataV1)
+    (claims : Array EngineeringSupportClaimV1)
+    (supportClaim : EngineeringSupportClaimV1)
+    (hindex : initialStaticRequirementSupportIndexV1Result = .ok supportIndex)
+    (hinspection : inspectSupportWithSeedV1 (.ok supportIndex)
+      selection.targetId selection.codegenProfile = .ok inspection)
+    (hkind : (inspection.kind == selection.kind) = true)
+    (hdata : validateSemanticProgramV1
+      (CompiledSemanticV1.semanticV1Of compiled) = .ok data)
+    (hrequests : inspectResolveRequestsV1 inspection.supported
+      data.requirements = .ok ())
+    (hdescriptor : descriptorForKind? selection.kind = some descriptor)
+    (hdescriptorTarget : (descriptor.targetId == selection.targetId) = true)
+    (hdescriptorProfile :
+      DescriptorDataV1.acceptsCodegenProfile descriptor
+        selection.codegenProfile = true)
+    (hregistry : initialTargetRegistryV1Result = .ok registry)
+    (hregistration : findRegistrationV1 registry selection.targetId =
+      some registration)
+    (hregistrationKind : (registration.kind == selection.kind) = true)
+    (hdescriptorJoin : validateDescriptorAxesJoinV1 registration descriptor =
+      .ok ())
+    (hclaims : mintEngineeringSupportClaimsV1 registry supportIndex = .ok claims)
+    (hclaim : findEngineeringSupportClaimV1 claims selection.targetId
+      selection.codegenProfile = some supportClaim)
+    (hclaimTarget :
+      (EngineeringSupportClaimV1.targetIdOf supportClaim ==
+        selection.targetId) = true)
+    (hclaimProfile :
+      (EngineeringSupportClaimV1.codegenProfileOf supportClaim ==
+        selection.codegenProfile) = true)
+    (hclaimSupported :
+      (EngineeringSupportClaimV1.supportedOf supportClaim ==
+        inspection.supported) = true) :
+    ∃ capability,
+      resolveEngineeringRequirementsV1 selection compiled = .ok capability := by
+  unfold resolveEngineeringRequirementsV1
+  simp only [hindex, hinspection, hkind, ↓reduceIte,
+    hdata, hrequests, hdescriptor, hdescriptorTarget, hdescriptorProfile,
+    hregistry, hregistration, hregistrationKind, hdescriptorJoin, hclaims,
+    hclaim, hclaimTarget, hclaimProfile, hclaimSupported, Bind.bind, Except.bind,
+    Pure.pure, Except.pure]
+  exact ⟨_, rfl⟩
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+/-- A compiled semantic carrier whose retained requirements pass the exact
+    frozen Solana production support row can cross the sole engineering
+    capability resolver. Static registry, descriptor, claim-mint and identity
+    joins are replayed here; callers still supply the real compiler-validation
+    and exact request-resolution equations. -/
+theorem resolveEngineeringRequirementsV1_solana_sbpf_cpi_elf_exists
+    (selection : ResolvedBuildSelectionV1)
+    (compiled : CompiledSemanticV1)
+    (data : SemanticProgramDataV1)
+    (htarget : ResolvedBuildSelectionV1.targetIdOf selection = TargetId.solana)
+    (hprofile : ResolvedBuildSelectionV1.codegenProfileOf selection =
+      CodegenProfileId.solanaSbpfCpiElfV1)
+    (hkind : ResolvedBuildSelectionV1.kindOf selection = .solana)
+    (hdata : validateSemanticProgramV1
+      (CompiledSemanticV1.semanticV1Of compiled) = .ok data)
+    (hrequests : inspectResolveRequestsV1 initialSolanaSupportRowV1.supported
+      data.requirements = .ok ()) :
+    ∃ capability,
+      resolveEngineeringRequirementsV1 selection compiled = .ok capability := by
+  rcases initialStaticRequirementSupportIndexV1Result_exists with
+    ⟨supportIndex, hindex⟩
+  let inspection : RequirementResolutionInspectionV1 := {
+    targetId := initialSolanaSupportRowV1.targetId
+    codegenProfile := initialSolanaSupportRowV1.codegenProfile
+    kind := initialSolanaSupportRowV1.kind
+    supported := initialSolanaSupportRowV1.supported
+  }
+  rcases initialTargetRegistryV1Result_exists with ⟨registry, hregistry⟩
+  let descriptor := DescriptorDataV1.solana
+  let registration := solanaRegistrationRowV1
+  have htargetField : selection.targetId = TargetId.solana := by
+    exact htarget
+  have hprofileField : selection.codegenProfile =
+      CodegenProfileId.solanaSbpfCpiElfV1 := by
+    exact hprofile
+  have hkindField : selection.kind = .solana := by
+    exact hkind
+  have hinspection : inspectSupportWithSeedV1 (.ok supportIndex)
+      selection.targetId selection.codegenProfile = .ok inspection := by
+    have hstatic := inspectSupportWithSeedV1_initial_solana_eq_ok
+    rw [hindex] at hstatic
+    simpa only [inspection, htargetField, hprofileField] using hstatic
+  have hinspectionKind : (inspection.kind == selection.kind) = true := by
+    rw [hkindField]
+    rfl
+  have hdescriptor : descriptorForKind? selection.kind = some descriptor := by
+    rw [hkindField]
+    rfl
+  have hdescriptorTarget :
+      (descriptor.targetId == selection.targetId) = true := by
+    rw [htargetField]
+    rfl
+  have hdescriptorProfile :
+      DescriptorDataV1.acceptsCodegenProfile descriptor
+        selection.codegenProfile = true := by
+    rw [hprofileField]
+    rfl
+  have hregistration : findRegistrationV1 registry selection.targetId =
+      some registration := by
+    rw [htargetField]
+    have hseed : registrationWithSeedV1 initialTargetRegistryV1Result
+        TargetId.solana = .ok (some registration) := by
+      unfold registrationWithSeedV1
+      rw [initialTargetRegistryV1Result_eq_ok]
+      simp only [Bind.bind, Except.bind,
+        findRegistrationV1_initial_solana_eq_some, Pure.pure, Except.pure,
+        registration]
+    rw [hregistry] at hseed
+    simp only [registrationWithSeedV1, Bind.bind, Except.bind, Pure.pure,
+      Except.pure] at hseed
+    injection hseed
+  have hregistrationKind : (registration.kind == selection.kind) = true := by
+    rw [hkindField]
+    rfl
+  have hdescriptorJoin : validateDescriptorAxesJoinV1 registration descriptor =
+      .ok () := by
+    rfl
+  rcases mintEngineeringSupportClaimsV1_initial_exists registry supportIndex
+      hregistry hindex with
+    ⟨claims, supportClaim, hclaims, hclaimStatic, hclaimTargetEq,
+      hclaimProfileEq, hclaimSupportedEq⟩
+  have hclaim : findEngineeringSupportClaimV1 claims selection.targetId
+      selection.codegenProfile = some supportClaim := by
+    simpa only [htargetField, hprofileField] using hclaimStatic
+  have hclaimTarget :
+      (EngineeringSupportClaimV1.targetIdOf supportClaim ==
+        selection.targetId) = true := by
+    rw [hclaimTargetEq, htargetField]
+    rw [TargetId.beq_eq_toString]
+    rfl
+  have hclaimProfile :
+      (EngineeringSupportClaimV1.codegenProfileOf supportClaim ==
+        selection.codegenProfile) = true := by
+    rw [hclaimProfileEq, hprofileField]
+    rw [CodegenProfileId.beq_eq_toString]
+    rfl
+  have hclaimSupported :
+      (EngineeringSupportClaimV1.supportedOf supportClaim ==
+        inspection.supported) = true := by
+    rw [hclaimSupportedEq]
+    unfold inspection
+    exact initialSolanaSupportRowV1_supported_beq_self
+  exact resolveEngineeringRequirementsV1_exists_of_stages selection compiled
+    supportIndex inspection data descriptor registry registration claims
+    supportClaim hindex hinspection hinspectionKind hdata
+    (by simpa only [inspection] using hrequests) hdescriptor
+    hdescriptorTarget hdescriptorProfile hregistry hregistration
+    hregistrationKind hdescriptorJoin hclaims hclaim hclaimTarget
+    hclaimProfile hclaimSupported
+
 /-- Enrich an already-resolved NEAR capability with invariant-erasure authority.
     This is not a second `(selection, compiled)` capability mint: requirements,
     support claim, selection and compiled carrier are retained unchanged. The

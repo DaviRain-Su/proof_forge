@@ -18,6 +18,8 @@ Suites:
   unixtimecheck — Examples/UnixTimeCheck: context.unixTimeSeconds ↔ block_timestamp
   bytesret — fixtures/BytesRet: anonymous Bytes 4 return (4×u8 tight)
   sha256check — Examples/Sha256Check: pf.crypto.sha256 ↔ env.sha256 known vectors
+  sha256bytescheck — Examples/Sha256BytesCheck: pf.crypto.sha256Bytes ↔ env.sha256
+                      over Bytes 4 (01 02 03 04; not the UInt256 word leaf)
   keccak256check — Examples/Keccak256Check: pf.crypto.keccak256 ↔ env.keccak256 known vectors
 
 Env (set by scripts/near_runtime_test.sh):
@@ -28,7 +30,7 @@ Env (set by scripts/near_runtime_test.sh):
                        verifiedvault | tipjarasync | tokenjarasync | envreadjar | envreadbalanceu128 | wideshiftprobe |
                        negative_corpus | callercheck | posetransform | blockheightcheck |
                        selfidentitycheck | constanswer | unixtimecheck | bytesret |
-                       sha256check | keccak256check | single
+                       sha256check | sha256bytescheck | keccak256check | single
 
 Honesty: engineering sandbox differential only — not testnet/mainnet,
 not formal Stage-0 / hermetic / Reference↔sandbox closure.
@@ -36,6 +38,7 @@ not formal Stage-0 / hermetic / Reference↔sandbox closure.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import subprocess
 import sys
@@ -893,8 +896,12 @@ def suite_unixtimecheck(client: NearClient, wasm: Path) -> None:
 def suite_sha256check(client: NearClient, wasm: Path) -> None:
     """ADR-0031 SYS-S5-NEAR: pf.crypto.sha256 → env.sha256 known vectors.
 
-    Hashes the UInt256 little-endian 32-byte word. Zero matches the EVM
-    precompile vector; one does not (EVM hashes the big-endian word).
+    Hashes the UInt256 little-endian 32-byte word. The returned UInt256 is
+    the LE image of the raw digest bytes (same convention as Solana's
+    Mollusk-verified `set_return_data`). NOTE: the integer value differs
+    from EVM, whose word is the big-endian digest integer — that
+    cross-target integer-level discrepancy is recorded as an owner decision
+    item (docs/engineering-backlog.md), not silently "fixed" here.
     """
     print("=== suite: Sha256Check (pf.crypto.sha256 / env.sha256) ===")
     client.deploy(wasm)
@@ -908,13 +915,13 @@ def suite_sha256check(client: NearClient, wasm: Path) -> None:
         bytes.fromhex(
             "66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925"
         ),
-        "big",
+        "little",
     )
     expected_one = int.from_bytes(
         bytes.fromhex(
             "01d0fabd251fcbbe2b93b4b927b26ad2a1a99077152e45ded1e678afa45dbec5"
         ),
-        "big",
+        "little",
     )
 
     res = client.call("hashWord", NearClient.encode_u256_le(0))
@@ -941,6 +948,56 @@ def suite_sha256check(client: NearClient, wasm: Path) -> None:
         raise AssertionError(f"get() after hashWord(1) expected {expected_one:#x}, got {stored:#x}")
     print("sha256check: hashWord(1) LE known vector + store ok")
     print("suite Sha256Check: PASS")
+
+
+def suite_sha256bytescheck(client: NearClient, wasm: Path) -> None:
+    """CAP-X-BYTES-NEAR-RT: pf.crypto.sha256Bytes → env.sha256 over Bytes 4.
+
+    Input ABI matches BytesRet: each UInt8 occupies an 8-byte LE slot
+    (exactInputLen=32). Host sha256 hashes the four raw bytes, not a
+    32-byte UInt256 word (Sha256Check). Oracle is hashlib.sha256.
+    """
+    print("=== suite: Sha256BytesCheck (pf.crypto.sha256Bytes / env.sha256) ===")
+    client.deploy(wasm)
+    client.call("init", b"")
+    got = client.view("get")
+    if len(got) < 32 or NearClient.decode_u256_le(got) != 0:
+        raise AssertionError(f"after init(): get() expected 0, got {got!r}")
+    print("sha256bytescheck: init() → get()==0 ok")
+
+    # Distinct from Sha256Check's UInt256 zero-word vector.
+    payload = bytes([0x01, 0x02, 0x03, 0x04])
+    digest = hashlib.sha256(payload).digest()
+    expected = int.from_bytes(digest, "little")
+    args = b"".join(NearClient.encode_u64_le(b) for b in payload)
+
+    res = client.call("hashBytes", args)
+    sv = NearClient.success_value_bytes(res)
+    if sv is None or len(sv) < 32:
+        raise AssertionError(
+            f"hashBytes(01 02 03 04) SuccessValue expected 32 LE bytes, got {sv!r}"
+        )
+    if sv[:32] != digest:
+        raise AssertionError(
+            f"hashBytes SuccessValue digest mismatch: expected {digest.hex()}, got {sv[:32].hex()}"
+        )
+    ret = NearClient.decode_u256_le(sv)
+    if ret != expected:
+        raise AssertionError(
+            f"hashBytes(01 02 03 04) expected {expected:#x}, got {ret:#x}"
+        )
+    stored_raw = client.view("get")
+    if stored_raw[:32] != digest:
+        raise AssertionError(
+            f"get() after hashBytes digest mismatch: expected {digest.hex()}, got {stored_raw[:32].hex()}"
+        )
+    stored = NearClient.decode_u256_le(stored_raw)
+    if stored != expected:
+        raise AssertionError(
+            f"get() after hashBytes expected {expected:#x}, got {stored:#x}"
+        )
+    print("sha256bytescheck: hashBytes(01 02 03 04) SHA-256 + store ok")
+    print("suite Sha256BytesCheck: PASS")
 
 
 def suite_keccak256check(client: NearClient, wasm: Path) -> None:
@@ -1500,6 +1557,11 @@ def main(argv: list[str]) -> int:
         elif suite == "sha256check":
             wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_SHA256CHECK_WASM"))
             suite_sha256check(client, wasm)
+        elif suite == "sha256bytescheck":
+            wasm = Path(
+                os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_SHA256BYTESCHECK_WASM")
+            )
+            suite_sha256bytescheck(client, wasm)
         elif suite == "keccak256check":
             wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_KECCAK256CHECK_WASM"))
             suite_keccak256check(client, wasm)

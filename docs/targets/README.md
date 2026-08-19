@@ -3,7 +3,7 @@ id: TARGET-INDEX
 title: Target 研究与实现档案
 status: proposed
 owner: architecture
-updated: 2026-08-17
+updated: 2026-08-19
 normative: true
 ---
 
@@ -45,7 +45,7 @@ normative: true
 | `openvm` | zkVM | engineering implemented (scope ADR open) | `research` | default `openvm-guest-source-v1`（zero-tool）+ opt-in `openvm-guest-elf-v1`（locked `cargo-openvm` 2.0.1 build/transpile → RV32IM ELF + `.vmexe`）；shared retained-V1 Plan → controlled Rust guest + catalog；无 keygen/execute/prove/verify；**非** accepted Phase 1 | [OpenVM](08-openvm.md) · [ADR-0045](../adr/0045-openvm-guest-source-o0.md) · [ADR-0046](../adr/0046-openvm-guest-elf-o1.md) |
 | `aleo` | ZK application chain | engineering implemented (scope ADR open) | `specified` | sole `aleo-instructions-v1`；retained-V1 Plan → canonical Aleo Instructions `.aleo` + query descriptor；zero-tool finalization；无 VM/prove/deploy/network query；**非** accepted Phase 1 范围 | [Aleo](09-aleo.md) · [ADR-0035](../adr/0035-direct-native-artifact-materializers.md) |
 | `psy` | ZK application chain | engineering implemented (scope ADR open) | `specified` | sole `psy-dpn-v1`；retained-V1 Plan → canonical `.dpn.json`；zero-tool finalization；无 DPN runtime/proof/UPS/network/deploy；**非** accepted Phase 1 范围 | [Psy DPN](10-psy.md) · [ADR-0035](../adr/0035-direct-native-artifact-materializers.md) |
-| `ton` | TVM Stack-Account | engineering implemented (scope ADR open) | `research` | retained-V1 Plan/IR → Tolk + real BoC；UInt8/16/32/128 与 Int8/16/32/64、named state、bounded view aggregate/Array/Option return；async schedule→`createMessage`（hash dest/value=0/fixed mode，PARTIAL），sync call FC；`@ton/sandbox` 10/10；registry label `source-only`；**非** 主网/formal；**非** accepted Phase 1 范围 | [TON](11-ton.md) · [family](family-tvm-stack-account.md) |
+| `ton` | TVM Stack-Account | engineering implemented (scope ADR open) | `research` | retained-V1 Plan/IR → Tolk + real BoC；UInt8/16/32/128 与 Int8/16/32/64、named state、bounded view aggregate/Array/Option return；async schedule→`createMessage`（hash dest/value=0/fixed mode，PARTIAL），sync call FC；`@ton/sandbox` 16/16；registry label `source-only`；**非** 主网/formal；**非** accepted Phase 1 范围 | [TON](11-ton.md) · [family](family-tvm-stack-account.md) |
 | `quint` | executable specification / model | engineering implemented (scope ADR open) | `research` | retained-V1 Q0 Plan/IR → `.qnt` + **zero-tool** finalize；profile `quint-source-u64-model-v1`；resolver 6-key（Q0 四键 + `effect.synchronous-call` + `extension.pf-assets`，sync 仅 pf.assets vault 模型；schedule/event 仍 FC）；完整 UInt64 域；失败=显式 outcome+business-state stutter；zero-param Bool invariant→`val`；本机 Quint 0.32 typecheck/run 仅 host observation，非 locked gate；ITF/MBT/verify 未声称；不可部署、非 accepted Phase 1/formal D3/D4 | [Quint](12-quint.md) · [ADR-0026](../adr/0026-quint-target-integration.md) |
 | `cairo` | zkVM (Cairo VM) | research (ADR-0017) | `research` | dossier + RPT-026 Plan/Q0；**无** materializer；Starknet syscall Q0 FC；非 accepted 扩面 | [Cairo](13-cairo.md) · [RPT-026](../research/26-zkvm-trio-cairo-risc0-sp1-design.md) |
 | `risc0` | zkVM (RISC-V) | research (ADR-0017) | `research` | dossier + RPT-026；OpenVM 后第二叶候选 A；无 materializer | [RISC Zero](14-risc0.md) · [RPT-026](../research/26-zkvm-trio-cairo-risc0-sp1-design.md) |
@@ -60,8 +60,8 @@ normative: true
 > design-only**。十三个 materializer：`evm` / `solana` / `near` / `noir` / `aleo` /
 > `psy` / `quint` / `cosmwasm` / `ton` / `soroban` / `openvm` / `icp` / `xrpl`。
 > 其中 **accepted PRD Phase 1** 仍仅前四；其余 engineering leaves（含 Soroban S0、
-> OpenVM O0/O1、ICP、XRPL Q0）由 ADR-0036/0044/0045/0046/0047/0049 固定为非 accepted
-> 扩面，formal lighthouse=EVM-first。
+> OpenVM O0/O1、ICP、XRPL Q0）由 **proposed** ADR-0036 与 ADR-0044/0045/0046/0047/0049/0050
+> 主张收口为非 accepted 扩面，formal lighthouse=EVM-first。ADR-0036 仍 `proposed`，不得写成 accepted。
 > Registry maturity 标签（如 CosmWasm `wasm-validated-alpha`、TON/Quint/Soroban/OpenVM/XRPL> `source-only`）不变；compile / mock / sandbox / 模型检查不得写成 formal 或 hermetic 完成。
 > **cairo/risc0/sp1 未进 registry 枚举**（仅 dossier/research）。`xrpl` 不得与
 > OpenVM guest 或 EVM 侧链混 Plan。

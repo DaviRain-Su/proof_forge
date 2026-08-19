@@ -17,6 +17,9 @@
 #   ConstAnswer: scalar const table (ANSWER=42) via Op.Constant
 #   UnixTimeCheck: context.unixTimeSeconds ↔ block_timestamp ns÷10^9
 #   BytesRet: anonymous Bytes 4 return (4×u8 tight value_return)
+#   Sha256Check: pf.crypto.sha256 UInt256 word ↔ env.sha256
+#   Sha256BytesCheck: pf.crypto.sha256Bytes Bytes 4 ↔ env.sha256 (N≤64)
+#   Keccak256Check: pf.crypto.keccak256 UInt256 word ↔ env.keccak256
 #
 # Not testnet, not mainnet, not formal Stage-0 / hermetic release evidence /
 # Reference↔sandbox formal differential (main agent decides just recipe wiring).
@@ -175,6 +178,7 @@ programs=(
   "Examples/UnixTimeCheck.lean:Examples.UnixTimeCheck:UnixTimeCheck"
   "runtime-tests/near/fixtures/BytesRet.lean:Examples.BytesRet:BytesRet"
   "Examples/Sha256Check.lean:Examples.Sha256Check:Sha256Check"
+  "Examples/Sha256BytesCheck.lean:Examples.Sha256BytesCheck:Sha256BytesCheck"
   "Examples/Keccak256Check.lean:Examples.Keccak256Check:Keccak256Check"
   )
 
@@ -288,6 +292,7 @@ constanswer_wasm="$out_dir/ConstAnswer/ConstAnswer.wasm"
 unixtimecheck_wasm="$out_dir/UnixTimeCheck/UnixTimeCheck.wasm"
 bytesret_wasm="$out_dir/BytesRet/BytesRet.wasm"
 sha256check_wasm="$out_dir/Sha256Check/Sha256Check.wasm"
+sha256bytescheck_wasm="$out_dir/Sha256BytesCheck/Sha256BytesCheck.wasm"
 keccak256check_wasm="$out_dir/Keccak256Check/Keccak256Check.wasm"
 [[ -f "$state_cell_wasm" ]] || die "missing $state_cell_wasm"
 [[ -f "$pairret_wasm" ]] || die "missing $pairret_wasm"
@@ -309,6 +314,7 @@ keccak256check_wasm="$out_dir/Keccak256Check/Keccak256Check.wasm"
 [[ -f "$unixtimecheck_wasm" ]] || die "missing $unixtimecheck_wasm"
 [[ -f "$bytesret_wasm" ]] || die "missing $bytesret_wasm"
 [[ -f "$sha256check_wasm" ]] || die "missing $sha256check_wasm"
+[[ -f "$sha256bytescheck_wasm" ]] || die "missing $sha256bytescheck_wasm"
 [[ -f "$keccak256check_wasm" ]] || die "missing $keccak256check_wasm"
 
 # --- sandbox helpers --------------------------------------------------------
@@ -500,8 +506,11 @@ run_suite bytesret "$bytesret_wasm" || die "BytesRet suite failed"
 echo "near-runtime-test: running Sha256Check suite against near-sandbox"
 run_suite sha256check "$sha256check_wasm" || die "Sha256Check suite failed"
 
+echo "near-runtime-test: running Sha256BytesCheck suite against near-sandbox"
+run_suite sha256bytescheck "$sha256bytescheck_wasm" || die "Sha256BytesCheck suite failed"
+
 echo "near-runtime-test: running Keccak256Check suite against near-sandbox"
 run_suite keccak256check "$keccak256check_wasm" || die "Keccak256Check suite failed"
 
-echo "near-runtime-test: PASS (StateCell + negative corpus + PairRet + ArrayRet + OptionRet + OptionState + VerifiedVaultPF + TipJarAsync + TokenJarAsync + EnvReadJar + EnvReadBalanceU128 + WideShiftProbe + CallerCheck + PoseTransform + BlockHeightCheck + AttachedValueCheck + SelfIdentityCheck + ConstAnswer + UnixTimeCheck + BytesRet + Sha256Check + Keccak256Check engineering sandbox differential)"
+echo "near-runtime-test: PASS (StateCell + negative corpus + PairRet + ArrayRet + OptionRet + OptionState + VerifiedVaultPF + TipJarAsync + TokenJarAsync + EnvReadJar + EnvReadBalanceU128 + WideShiftProbe + CallerCheck + PoseTransform + BlockHeightCheck + AttachedValueCheck + SelfIdentityCheck + ConstAnswer + UnixTimeCheck + BytesRet + Sha256Check + Sha256BytesCheck + Keccak256Check engineering sandbox differential)"
 exit 0

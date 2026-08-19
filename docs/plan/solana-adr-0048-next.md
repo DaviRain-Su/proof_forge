@@ -393,6 +393,22 @@ second codegen.
     second private selection; no registry/profile data or resolver was copied.
     This closes frozen registry/profile selection. Capability, Plan, IR, exact
     emitter equation, SHA trace and unconditional `get` remain open.
+34. **SOL-0048-D5-SOLANA-ENGINEERING-CAPABILITY-CERTIFICATE** — **done
+    2026-08-18**: made the sole 17-row production requirement-support index
+    kernel-replayable through its real validator/private constructor, then
+    retained the unique engineering registry-root digest and bulk-minted
+    support claims without copying digest bytes. Exact frozen Solana support
+    lookup and claim lookup now compose with the existing selection and the
+    retained compiler requirements through the sole
+    `resolveEngineeringRequirementsV1`; a generic all-stage theorem exposes
+    only an existential result of that resolver, not its private constructor.
+    The real StateCell source/compiler certificate now crosses the exact
+    Solana selection and capability equations. StateCell remains a regression
+    witness: neither requirement resolution nor capability minting branches on
+    its contract name. No second support index, resolver, claim mint, registry
+    digest, selection or capability was introduced. This closes the capability
+    boundary. Plan, IR, exact emitter equation, SHA trace and unconditional
+    `get` remain open.
 
 D4's four pinned sparse certificates and all four concrete D5 compositions are
 complete, and the generic seam now has a second real contract/HandlerIR shape
@@ -422,10 +438,9 @@ Next formalization slices, in order:
    carrier certificate and sole compiler identity mint are now also discharged.
    Production semantic revalidation, Reference admission, the generic
    all-stage preparation replay theorem, frozen registry creation and the sole
-   `resolveBuildSelectionV1` are also discharged. Next feed that exact selection
-   and compiled identity through the sole capability resolver before
-   totalizing/replaying
-   `LowerSemanticV1`, `EmitIRV1` and `validateIR`,
+   `resolveBuildSelectionV1`, frozen support index/support claims and the sole
+   `resolveEngineeringRequirementsV1` are also discharged. Next
+   totalize/replay `LowerSemanticV1`, `EmitIRV1` and `validateIR`,
    and discharge the StateCell exact post-validation emission equation. Keep
    traversal contract-independent and do not add a proof-only compiler, emitter
    or copied assembly.

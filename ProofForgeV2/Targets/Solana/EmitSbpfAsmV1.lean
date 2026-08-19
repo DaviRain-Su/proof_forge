@@ -1556,27 +1556,32 @@ private def emitNarrowBitNot (b : AsmBuf) (tempBase dest source bitWidth : Nat) 
     let b := emit b "  and64 r1, r2"
     storeTemp b tempBase dest "r1"
 
-/-- Stash a little-endian integer of `byteLen` ∈ {1,2,4,8} at absolute temp
-    `retTemp` and call `sol_set_return_data`. UInt64/Int64 use full 8B stores;
-    UInt{8,16,32} use stxb/sth/stw so return-data length matches the ABI. -/
+/-- Stash a little-endian integer of `byteLen` ∈ {1,2,4,8,16,32} at absolute
+    temp `retTemp` and call `sol_set_return_data`. UInt64/Int64 use full 8B
+    stores; UInt{8,16,32} use stxb/sth/stw so return-data length matches the
+    ABI. Multiword (16/32) reverse-packs limbs so the syscall pointer is the
+    lowest stack address of a contiguous LE buffer (temps grow downward). -/
 private def emitSetReturnDataBytes (b : AsmBuf) (tempBase valueTemp retTemp byteLen : Nat) :
     AsmBuf :=
   Id.run do
-    let off := tempStackOff retTemp
     let mut b := b
+    let mut ptrTemp := retTemp
     if byteLen == 16 || byteLen == 32 then
-      -- Multiword: valueTemp is base of consecutive limbs; pack into retTemp..
       let nLimbs := byteLen / 8
+      -- Limb i occupies retTemp+(nLimbs-1-i): lowest address holds limb 0.
       for i in [:nLimbs] do
         b := loadTemp b "r1" tempBase (valueTemp + i)
-        b := storeTempAbs b (retTemp + i) "r1"
+        b := storeTempAbs b (retTemp + nLimbs - 1 - i) "r1"
+      ptrTemp := retTemp + nLimbs - 1
     else
+      let off := tempStackOff retTemp
       b := loadTemp b "r1" tempBase valueTemp
       b := match byteLen with
         | 1 => emit b s!"  stxb [r10 - {off}], r1"
         | 2 => emit b s!"  stxh [r10 - {off}], r1"
         | 4 => emit b s!"  stxw [r10 - {off}], r1"
         | _ => storeTempAbs b retTemp "r1"
+    let off := tempStackOff ptrTemp
     b := emit b "  mov64 r1, r10"
     b := emit b s!"  add64 r1, -{off}"
     b := emit b s!"  lddw r2, {byteLen}"
@@ -1594,7 +1599,8 @@ private def emitSetReturnDataBool (b : AsmBuf) (tempBase valueTemp retTemp : Nat
 
 /-- B-RET-ABI: pack N independent u64 leaf temps into a contiguous return-data
     buffer at absolute `retTemp..retTemp+N-1` and call `sol_set_return_data`
-    with length `N*8`. Leaves may be non-consecutive (CSE). -/
+    with length `N*8`. Leaves may be non-consecutive (CSE). Reverse-pack so
+    the syscall pointer is the lowest stack address (temps grow downward). -/
 private def emitSetReturnDataMulti (b : AsmBuf) (tempBase : Nat)
     (valueTemps : Array Nat) (retTemp : Nat) : AsmBuf :=
   Id.run do
@@ -1602,8 +1608,8 @@ private def emitSetReturnDataMulti (b : AsmBuf) (tempBase : Nat)
     let mut b := b
     for i in [:n] do
       b := loadTemp b "r1" tempBase valueTemps[i]!
-      b := storeTempAbs b (retTemp + i) "r1"
-    let off := tempStackOff retTemp
+      b := storeTempAbs b (retTemp + n - 1 - i) "r1"
+    let off := tempStackOff (retTemp + n - 1)
     b := emit b "  mov64 r1, r10"
     b := emit b s!"  add64 r1, -{off}"
     b := emit b s!"  lddw r2, {n * 8}"

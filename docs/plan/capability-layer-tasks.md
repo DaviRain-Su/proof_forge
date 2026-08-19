@@ -106,7 +106,7 @@ Reference 走 generic ExternalCall response cursor，不在 L1 机内算 hash。
   positional/indexed proof 属未来独立 QN。
 - **结果**：Bool（verify 语义，不 revert）。
 - **范围**：EVM-only；其余十二 target 命名 FC（引 QN）。明确**不**声称 ICS-23/IBC/桥/NS-2、
-  不声称 formal/Anvil differential。
+  不声称 formal differential。有 host-optional engineering Anvil companion（非 formal/C-3）。
 - **共享核**：`RequirementIdsV1` 新 QN 常量 + 纳入 `isPfCryptoHostSyscallQnV1`
   （merkle verify 是纯计算，不得贡献 `effect.synchronous-call`）；Normalize **零改动**
   （全 UInt256 参数过既有 anonymous-integer 门、Bool result 过既有 serializable 门）；

@@ -163,10 +163,10 @@ Resolve → Materialize。失败 **fail closed**，禁止降级或 legacy fallba
 同一 `StateCell` 语义；`--target` 只改变物化与制品编码。
 
 - **Accepted PRD Phase 1 范围（四目标）**：EVM / Solana / NEAR / Noir。工程 registry
-  扩大到 Aleo / Psy / Quint / CosmWasm / TON / Soroban / OpenVM / ICP 的范围边界由 **ADR-0036**（仍 `proposed`）主张收口，
-  **不得**把后五者静默读成 accepted Phase 1 范围扩张。
-- **Engineering registry（代码事实）**：**12 = 12 implemented + 0 design-only**。十二个
-  materializer：EVM、Solana、NEAR、Noir、Aleo、Psy、Quint、CosmWasm、TON、Soroban、OpenVM、ICP；design-only：无。
+  扩大到 Aleo / Psy / Quint / CosmWasm / TON / Soroban / OpenVM / ICP / XRPL 的范围边界由 **ADR-0036**（仍 `proposed`）主张收口，
+  **不得**把后九者静默读成 accepted Phase 1 范围扩张。
+- **Engineering registry（代码事实）**：**13 = 13 implemented + 0 design-only**。十三个
+  materializer：EVM、Solana、NEAR、Noir、Aleo、Psy、Quint、CosmWasm、TON、Soroban、OpenVM、ICP、XRPL；design-only：无。
 
   locked `wat2wasm` + `cosmwasm-check` + cosmwasm-vm mock；TON 工程面为 Tolk + real BoC +
   `@ton/sandbox`。
@@ -247,7 +247,7 @@ portable command，不 elaboration / 执行用户文件中的任意 Lean command
 | `psy` | ZK application chain | engineering implemented (scope ADR open) | sole `psy-dpn-v1`：target-owned Plan → canonical DPN `.dpn.json`；zero-tool、non-deployable；**无** DPN execution/local VM/proof/UPS/network/deploy |
 | `quint` | executable specification / model | engineering implemented (scope ADR open) | target-owned Q0 Plan/structured IR → `.qnt`；zero-tool finalize、`deployable=false`；host Quint 0.32 仅 optional observation，**非** Tool Lock / ITF / MBT / verify / formal |
 | `cosmwasm` | Wasm host | engineering implemented (scope ADR open) | Plan/IR→WAT；UInt8/16/32、named state、bounded aggregate/Array/Option return；Binary SubMsg PARTIAL；locked check + mock 28 tests + wasmd Docker rung-1；label=`wasm-validated-alpha`；**非** 主网/formal |
-| `ton` | TVM stack-account | engineering implemented (scope ADR open) | Plan/IR→Tolk + real BoC；UInt8/16/32、named/container state、bounded view returns；schedule `createMessage` PARTIAL；sandbox 10/10；label=`source-only`；**非** 主网/formal |
+| `ton` | TVM stack-account | engineering implemented (scope ADR open) | Plan/IR→Tolk + real BoC；UInt8/16/32、named/container state、bounded view returns；schedule `createMessage` PARTIAL；sandbox 16 it（新增 1 条本机未执行）；label=`source-only`；**非** 主网/formal |
 | Soroban / OpenVM / ICP | source-only / source-only / source-only | engineering implemented | ADR-0044 / ADR-0045–0046 / ADR-0047；非 formal/mainnet |
 
 详情：[`docs/targets/README.md`](docs/targets/README.md)。

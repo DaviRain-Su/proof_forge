@@ -54,7 +54,7 @@ B-CALL-SEM；NEAR verify 待人拍）。
 | `pf.crypto.sha256` UInt256→UInt256 | EVM（`0x02`）、Solana（`sol_sha256`）、NEAR（host）、TON（CAP-5：`bitsHash`/`SHA256U` over LE image）、Soroban（CAP-4：`env.crypto().sha256`，UInt256 LE-limb plumbing-only） | CosmWasm（无 host）、Noir、Aleo、Psy、Quint、ICP、OpenVM、XRPL（ADR-0052 keep-FC：仅 `compute_sha512_half`） |
 | `pf.crypto.keccak256` UInt256→UInt256 | EVM（opcode）、Solana（`sol_keccak256`）、NEAR（host） | TON（无 keccak）、Soroban、CosmWasm、Noir、Aleo、Quint、ICP、OpenVM、XRPL；Psy 的 `keccak256` 是 DPN gadget（UInt64 first-limb），UInt256 host ABI 仍 FC |
 | `pf.crypto.sha256Bytes` Bytes N→UInt256（CAP-X-BYTES，2026-08-19） | EVM（`0x02` over memory，N≤64）、Solana（`sol_sha256` 单 slice，N≤64）、NEAR（host register bytes，N≤64）、TON（`SHA256U` 单 cell bits，N≤127）、Soroban（S0 `env.crypto().sha256` over `Bytes::from_array`，N 1..8） | Noir、Psy、Aleo、Quint、CosmWasm、ICP、OpenVM、XRPL（命名 FC） |
-| `pf.crypto.merkleVerifyKeccak256` (root, leaf, s0…s_{D-1})→Bool（CAP-X-MERKLE，2026-08-19；D∈1..8，OpenZeppelin sorted-pair，false-not-revert） | EVM（unrolled `keccak256(0,64)` 链，statement tag 25） | 其余十二 target（按各自首道门命名 FC） |
+| `pf.crypto.merkleVerifyKeccak256` (root, leaf, s0…s_{D-1})→Bool（CAP-X-MERKLE，2026-08-19；D∈1..8，OpenZeppelin sorted-pair，false-not-revert） | EVM（unrolled `keccak256(0,64)` 链，statement tag 25；host-optional Anvil companion `evm_merkle_verify_anvil_smoke.sh`，非 formal/C-3） | 其余十二 target（按各自首道门命名 FC） |
 | `pf.crypto.ecdsaRecoverSecp256k1` 4×UInt256→UInt256 | EVM（precompile `0x01` STATICCALL + Anvil companion；失败短 returndata → 零地址字，对齐 Solidity `ecrecover`，不 auto-revert） | 其余十二 target |
 | Psy 平台 gadget：`hashNoPad`/`hashPad`/`hashTwoToOne`/`keccak256`、`pf.imt.*` | Psy（DPN gadget；**不计入** S5 sha256 完成度，不自动授权其它 target） | — |
 
@@ -88,7 +88,7 @@ Requirements 纪律（2026-08-19 起）：`sha256`/`keccak256`/`sha256Bytes`/`me
 | ID | 项 | 状态 |
 |---|---|---|
 | **CRYPTO-C1** | 冻结 QN | **done（变体）2026-08-19**：owner 拍板 keccak 族——`pf.crypto.merkleVerifyKeccak256`（定深 UInt256 sibling，非 `path: Array Bytes`；sha256 变体属未来独立 QN） |
-| **CRYPTO-C2** | EVM Merkle verify 叶 | **engineering done 2026-08-19**（CAP-X-MERKLE：unrolled sorted-pair keccak 链，D≤8，false-not-revert；gas 诚实注释；不声称 Anvil differential） |
+| **CRYPTO-C2** | EVM Merkle verify 叶 | **engineering done 2026-08-19**（CAP-X-MERKLE：unrolled sorted-pair keccak 链，D≤8，false-not-revert；gas 诚实注释；有 host-optional engineering Anvil companion，非 formal/C-3） |
 | **CRYPTO-C3** | Solana Merkle | 默认 FC（不变；无通用 syscall） |
 | **CRYPTO-C4** | NEAR Merkle | 默认 FC（不变） |
 | **CRYPTO-C5** | 电路 target Merkle | FC；约束路径 vs 见证路径必须分开声称（不变） |

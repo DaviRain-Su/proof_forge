@@ -82,7 +82,7 @@
 > Solana 已能把产品计划汇编为真实 sBPF ELF，并由 20-program/89-test Mollusk 工程 corpus 验证；
 > NEAR 有 locked `wat2wasm` 与 near-sandbox Counter overflow、聚合返回、Option state 工程路径；
 > Noir 与 Aleo 只有 compile-only 门，Psy 仍 source-only；Quint 是 zero-tool executable model；
-> CosmWasm 已有 Plan/IR/Wasm、mock 28 tests 与 wasmd rung-1；TON 已有 Tolk/BoC、schedule PARTIAL 与 sandbox 10/10。
+> CosmWasm 已有 Plan/IR/Wasm、mock 28 tests 与 wasmd rung-1；TON 已有 Tolk/BoC、schedule PARTIAL 与 sandbox 16/16。
 > 这些都是工程门，不是 formal、hermetic 或 release evidence；成熟度不人为升级。
 
 ---
@@ -126,15 +126,15 @@
 
 > 路线图分两块：
 > accepted Phase 1 范围仍是 EVM、Solana、NEAR、Noir 四个目标；
-> 工程 registry 则是 12 targets：12 implemented materializers 加 0 design-only。Aleo、Psy、Quint、CosmWasm、TON、Soroban、OpenVM、ICP 是 engineering leaves，不自动扩大 accepted scope
->（Soroban/ICP 已 implemented，见 ADR-0044/0047）。ADR-0036（仍 proposed）主张 accepted 4 / engineering 12+0 边界与 EVM-first formal lighthouse。OpenVM O0 为 guest-source only（无 prove；O1 ELF opt-in）。
+> 工程 registry 则是 13 targets：13 implemented materializers 加 0 design-only。Aleo、Psy、Quint、CosmWasm、TON、Soroban、OpenVM、ICP、XRPL 是 engineering leaves，不自动扩大 accepted scope
+>（Soroban/ICP/XRPL 已 implemented，见 ADR-0044/0047/0049/0050）。ADR-0036（仍 proposed）主张 accepted 4 / engineering 13+0 边界与 EVM-first formal lighthouse。OpenVM O0 为 guest-source only（无 prove；O1 ELF opt-in）。
 > 我们不会让不同平台共用一个虚假的通用 Plan，每个 materializer 都保持自己的 Plan 和 IR。
 
 ---
 
 ## 第 14 页 · Team & next steps（6:30–6:55）
 
-> 团队节奏上，当前产品恢复已形成单一 ProgramV1→Typed/Normalize→Semantic→十二个 target-owned materializer 纵切面；
+> 团队节奏上，当前产品恢复已形成单一 ProgramV1→Typed/Normalize→Semantic→十三个 target-owned materializer 纵切面；
 > 下一步继续闭合 B-CALL-SEM、B-OPT-STATE 等精确 residual；CosmWasm runtime/ABI design-exit 已冻结，TON schedule 仍以 hash destination/value=0 的 PARTIAL 语义推进；
 > formal D1–D4 qualification 与日常产品工程保持独立，仍按真实条件 pending；
 > 路线图和里程碑都已文档化，可检查、可追踪。

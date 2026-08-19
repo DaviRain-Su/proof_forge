@@ -213,37 +213,48 @@ structure RequirementResolutionInspectionV1 where
   supported : Array RequirementRequestV1
   deriving BEq
 
+private def containsString : List String → String → Bool
+  | [], _ => false
+  | value :: rest, wanted => value == wanted || containsString rest wanted
+
+private def findDuplicateStringLoop : List String → List String → Option String
+  | [], _ => none
+  | value :: rest, seen =>
+      if containsString seen value then
+        some value
+      else
+        findDuplicateStringLoop rest (value :: seen)
+
 private def findDuplicateString (values : Array String) : Option String :=
-  Id.run do
-    let mut seen : Array String := #[]
-    for v in values do
-      if seen.contains v then
-        return some v
-      seen := seen.push v
-    return none
+  findDuplicateStringLoop values.toList []
 
 /-- Canonical row key for uniqueness / order: `targetId\tcodegenProfile`. -/
 private def rowKey (row : StaticRequirementSupportRowV1) : String :=
   s!"{row.targetId.toString}\t{row.codegenProfile.toString}"
 
+private def isStrictlyAscendingAsciiList : List String → Bool
+  | [] | [_] => true
+  | left :: right :: rest =>
+      left < right && isStrictlyAscendingAsciiList (right :: rest)
+
 private def isStrictlyAscendingAscii (values : Array String) : Bool :=
-  Id.run do
-    let mut i : Nat := 0
-    while i + 1 < values.size do
-      let a := values[i]!
-      let b := values[i + 1]!
-      unless a < b do
-        return false
-      i := i + 1
-    return true
+  isStrictlyAscendingAsciiList values.toList
+
+private def buildS2CatalogRequests :
+    List String → CompileResult (List RequirementRequestV1)
+  | [] => .ok []
+  | id :: rest => do
+      let request ← match mkS2RequirementRequestV1 id with
+        | .ok value => pure value
+        | .error error =>
+            throw <| .registryInvalid
+              s!"engineering S2 request seed failed: {error}"
+      let requests ← buildS2CatalogRequests rest
+      pure (request :: requests)
 
 private def s2CatalogRequests : CompileResult (Array RequirementRequestV1) := do
-  let mut items : Array RequirementRequestV1 := #[]
-  for id in s2CatalogIdsWireOrderV1 do
-    match mkS2RequirementRequestV1 id with
-    | .ok req => items := items.push req
-    | .error e => throw <| .registryInvalid s!"engineering S2 request seed failed: {e}"
-  pure items
+  let items ← buildS2CatalogRequests s2CatalogIdsWireOrderV1.toList
+  pure items.toArray
 
 /-- Closed (extension wire id → admitted target+profile + exact seed) table.
     One extension id may admit multiple (target, profile) rows (ADR-0029:
@@ -306,6 +317,76 @@ private def closedExtensionAdvertiseTableV1 :
       expected := pfAssets }
   ]
 
+private def hasExtensionOwnerV1
+    (targetId : TargetId) (profile : CodegenProfileId) :
+    List ExtensionAdvertisePermitV1 → Bool
+  | [] => false
+  | permit :: rest =>
+      (permit.targetId == targetId && permit.profile == profile) ||
+        hasExtensionOwnerV1 targetId profile rest
+
+private def exactRequirementRequestEqV1
+    (left right : RequirementRequestV1) : Bool :=
+  decide (left.id = right.id) &&
+    decide (left.version = right.version) &&
+    decide (left.digest = right.digest) &&
+    left.predicates == right.predicates
+
+private def validateSupportedRequestItem
+    (label : String) (targetId : TargetId) (profile : CodegenProfileId)
+    (permits : List ExtensionAdvertisePermitV1)
+    (item : RequirementRequestV1) : CompileResult Unit := do
+  let matching := permits.filter (·.rowId == item.id)
+  if matching.isEmpty then
+    unless isS2CatalogIdV1 item.id do
+      throw <| .registryInvalid
+        s!"support row '{label}' unknown requirement id '{item.id}'"
+    unless item.version == s2RequirementVersionV1 do
+      throw <| .registryInvalid
+        s!"support row '{label}' requirement '{item.id}' version must be 1.0.0"
+    let expectedDigest ← match engineeringRequirementDigestV1 item.id with
+      | .ok digest => pure digest
+      | .error error =>
+          throw <| .registryInvalid
+            s!"support row '{label}' requirement '{item.id}' digest unavailable: {error}"
+    unless item.digest == expectedDigest do
+      throw <| .registryInvalid
+        s!"support row '{label}' requirement '{item.id}' digest mismatch"
+    unless item.predicates.isEmpty do
+      throw <| .registryInvalid
+        s!"support row '{label}' requirement '{item.id}' must have empty predicates"
+  else
+    unless hasExtensionOwnerV1 targetId profile matching do
+      throw <| .registryInvalid
+        s!"support row '{label}' cannot advertise extension '{item.id}'"
+    -- All permits for a given rowId share the exact seed.
+    let some permit := matching.head? |
+      throw <| .registryInvalid
+        s!"support row '{label}' extension '{item.id}' permit table empty"
+    unless exactRequirementRequestEqV1 item permit.expected do
+      throw <| .registryInvalid
+        s!"support row '{label}' extension '{item.id}' row mismatch"
+
+private def validateSupportedRequestItems
+    (label : String) (targetId : TargetId) (profile : CodegenProfileId)
+    (permits : List ExtensionAdvertisePermitV1) :
+    List RequirementRequestV1 → CompileResult Unit
+  | [] => .ok ()
+  | item :: rest => do
+      validateSupportedRequestItem label targetId profile permits item
+      validateSupportedRequestItems label targetId profile permits rest
+
+private def validateOwnedExtensionPermits
+    (label : String) (targetId : TargetId) (profile : CodegenProfileId)
+    (ids : List String) : List ExtensionAdvertisePermitV1 → CompileResult Unit
+  | [] => .ok ()
+  | permit :: rest => do
+      if targetId == permit.targetId && profile == permit.profile then
+        unless containsString ids permit.rowId do
+          throw <| .registryInvalid
+            s!"support row '{label}' must carry the exact extension '{permit.rowId}'"
+      validateOwnedExtensionPermits label targetId profile ids rest
+
 /-- Validate one supported-requirements array: unique ids, exact S2
     catalog rows (any subset — per-target capability gates), plus closed
     extension advertise rows from `closedExtensionAdvertiseTableV1`
@@ -322,52 +403,11 @@ private def validateSupportedRequests
     throw <| .registryInvalid
       s!"support requirements for '{label}' must be in SPEC wire order"
   let permits ← closedExtensionAdvertiseTableV1
-  let mut i : Nat := 0
-  while i < supported.size do
-    match supported[i]? with
-    | some item =>
-        let matching := permits.filter (·.rowId == item.id)
-        if matching.isEmpty then
-          unless isS2CatalogIdV1 item.id do
-            throw <| .registryInvalid
-              s!"support row '{label}' unknown requirement id '{item.id}'"
-          unless item.version == s2RequirementVersionV1 do
-            throw <| .registryInvalid
-              s!"support row '{label}' requirement '{item.id}' version must be 1.0.0"
-          let expectedDigest ← match engineeringRequirementDigestV1 item.id with
-            | .ok d => pure d
-            | .error e =>
-                throw <| .registryInvalid
-                  s!"support row '{label}' requirement '{item.id}' digest unavailable: {e}"
-          unless item.digest == expectedDigest do
-            throw <| .registryInvalid
-              s!"support row '{label}' requirement '{item.id}' digest mismatch"
-          unless item.predicates.isEmpty do
-            throw <| .registryInvalid
-              s!"support row '{label}' requirement '{item.id}' must have empty predicates"
-        else
-          unless matching.any (fun p =>
-              p.targetId == targetId && p.profile == profile) do
-            throw <| .registryInvalid
-              s!"support row '{label}' cannot advertise extension '{item.id}'"
-          -- All permits for a given rowId share the exact seed.
-          let some permit0 := matching[0]? |
-            throw <| .registryInvalid
-              s!"support row '{label}' extension '{item.id}' permit table empty"
-          unless item == permit0.expected do
-            throw <| .registryInvalid
-              s!"support row '{label}' extension '{item.id}' row mismatch"
-    | none =>
-        throw <| .registryInvalid
-          s!"support row '{label}' requirement index out of range"
-    i := i + 1
+  validateSupportedRequestItems label targetId profile permits.toList
+    supported.toList
   -- Each permit that owns this (target, profile) must be present exactly
   -- (seed content already checked above when present).
-  for permit in permits do
-    if targetId == permit.targetId && profile == permit.profile then
-      unless ids.contains permit.rowId do
-        throw <| .registryInvalid
-          s!"support row '{label}' must carry the exact extension '{permit.rowId}'"
+  validateOwnedExtensionPermits label targetId profile ids.toList permits.toList
 
 /-- Implemented (targetId, profile, kind) triple carrier (avoids nested Prod). -/
 private structure ImplementedPairV1 where
@@ -375,25 +415,62 @@ private structure ImplementedPairV1 where
   codegenProfile : CodegenProfileId
   kind : TargetKind
 
+private def implementedPairsForProfiles
+    (reg : TargetRegistrationDataV1) :
+    List CodegenProfileId → List ImplementedPairV1
+  | [] => []
+  | profile :: rest =>
+      {
+        targetId := reg.targetId
+        codegenProfile := profile
+        kind := reg.kind
+      } :: implementedPairsForProfiles reg rest
+
+private def collectImplementedPairs :
+    List TargetRegistrationDataV1 → List ImplementedPairV1
+  | [] => []
+  | reg :: rest =>
+      let tail := collectImplementedPairs rest
+      if reg.implemented then
+        implementedPairsForProfiles reg reg.profiles.toList ++ tail
+      else
+        tail
+
 /-- Exact implemented (target,profile) pairs from frozen TargetRegistryV1, in
     canonical (targetId, codegenProfile) ASCII order. -/
 private def expectedImplementedPairs
     (regs : Array TargetRegistrationDataV1) :
     CompileResult (Array ImplementedPairV1) := do
-  let mut pairs : Array ImplementedPairV1 := #[]
-  for reg in regs do
-    if reg.implemented then
-      for p in reg.profiles do
-        pairs := pairs.push {
-          targetId := reg.targetId
-          codegenProfile := p
-          kind := reg.kind
-        }
+  let pairs := collectImplementedPairs regs.toList
   let keys := pairs.map (fun t => s!"{t.targetId.toString}\t{t.codegenProfile.toString}")
-  unless isStrictlyAscendingAscii keys do
+  unless isStrictlyAscendingAsciiList keys do
     throw <| .registryInvalid
       "implemented build-selection pairs are not in canonical (target,profile) order"
-  pure pairs
+  pure pairs.toArray
+
+private def validateSupportRowsAgainstExpected
+    (index : Nat) :
+    List StaticRequirementSupportRowV1 → List ImplementedPairV1 →
+      CompileResult Unit
+  | [], [] => .ok ()
+  | row :: rows, expected :: expecteds => do
+      unless row.targetId == expected.targetId do
+        throw <| .registryInvalid
+          s!"support row {index} targetId diverges from implemented pair '{expected.targetId}'"
+      unless row.codegenProfile == expected.codegenProfile do
+        throw <| .registryInvalid
+          s!"support row {index} profile diverges from implemented pair '{expected.codegenProfile}'"
+      unless row.kind == expected.kind do
+        throw <| .registryInvalid
+          s!"support row {index} kind diverges from implemented pair '{expected.kind}'"
+      unless row.kind.toString == row.targetId.toString do
+        throw <| .registryInvalid
+          s!"support row '{rowKey row}' kind does not match targetId"
+      validateSupportedRequests (rowKey row) row.targetId row.codegenProfile
+        row.supported
+      validateSupportRowsAgainstExpected (index + 1) rows expecteds
+  | _, _ =>
+      throw <| .registryInvalid "support row index out of range"
 
 /-- Validate and construct a static requirement support index. Seed error first
     when the caller binds a failed `CompileResult`; this function never panics. -/
@@ -415,30 +492,32 @@ def createStaticRequirementSupportIndexV1
   unless rows.size == expected.size do
     throw <| .registryInvalid
       s!"support index must cover exactly {expected.size} implemented profiles, got {rows.size}"
-  let mut i : Nat := 0
-  while i < rows.size do
-    match rows[i]?, expected[i]? with
-    | some row, some exp =>
-        unless row.targetId == exp.targetId do
-          throw <| .registryInvalid
-            s!"support row {i} targetId diverges from implemented pair '{exp.targetId}'"
-        unless row.codegenProfile == exp.codegenProfile do
-          throw <| .registryInvalid
-            s!"support row {i} profile diverges from implemented pair '{exp.codegenProfile}'"
-        unless row.kind == exp.kind do
-          throw <| .registryInvalid
-            s!"support row {i} kind diverges from implemented pair '{exp.kind}'"
-        unless row.kind.toString == row.targetId.toString do
-          throw <| .registryInvalid
-            s!"support row '{rowKey row}' kind does not match targetId"
-        validateSupportedRequests (rowKey row) row.targetId row.codegenProfile
-          row.supported
-    | _, _ =>
-        throw <| .registryInvalid "support row index out of range"
-    i := i + 1
+  validateSupportRowsAgainstExpected 0 rows.toList expected.toList
   pure (StaticRequirementSupportIndexV1.mk rows)
 
-private def mkImplementedRow
+/-- Replay the ordered phases of the sole support-index validator and retain
+    its private-constructor result. This theorem does not replace any runtime
+    check; it lets frozen-index certificates prove each phase separately. -/
+private theorem createStaticRequirementSupportIndexV1_eq_ok_of_stages
+    (rows : Array StaticRequirementSupportRowV1)
+    (registrations : Array TargetRegistrationDataV1)
+    (expected : Array ImplementedPairV1)
+    (hnonempty : rows.isEmpty = false)
+    (hunique : findDuplicateString (rows.map rowKey) = none)
+    (hordered : isStrictlyAscendingAscii (rows.map rowKey) = true)
+    (hregistrations : productRegistrations = .ok registrations)
+    (hexpected : expectedImplementedPairs registrations = .ok expected)
+    (hsize : rows.size = expected.size)
+    (hrows : validateSupportRowsAgainstExpected 0 rows.toList expected.toList =
+      .ok ()) :
+    createStaticRequirementSupportIndexV1 rows =
+      .ok (StaticRequirementSupportIndexV1.mk rows) := by
+  simp only [createStaticRequirementSupportIndexV1, hnonempty, Bool.false_eq_true,
+    ↓reduceIte, hunique, hordered, hregistrations, hexpected, hsize,
+    hrows, Bind.bind, Pure.pure, Except.bind, Except.pure]
+  simp
+
+@[reducible] def mkImplementedRow
     (kind : TargetKind) (profile : CodegenProfileId)
     (supported : Array RequirementRequestV1) : StaticRequirementSupportRowV1 :=
   {
@@ -447,6 +526,41 @@ private def mkImplementedRow
     kind
     supported
   }
+
+@[reducible] def filterRequirementRequestsList
+    (keep : RequirementRequestV1 → Bool) :
+    List RequirementRequestV1 → List RequirementRequestV1
+  | [] => []
+  | request :: rest =>
+      if keep request then
+        request :: filterRequirementRequestsList keep rest
+      else
+        filterRequirementRequestsList keep rest
+
+@[reducible] def filterRequirementRequests
+    (requests : Array RequirementRequestV1)
+    (keep : RequirementRequestV1 → Bool) : Array RequirementRequestV1 :=
+  (filterRequirementRequestsList keep requests.toList).toArray
+
+@[reducible] def insertRequirementRequestV1
+    (request : RequirementRequestV1) :
+    List RequirementRequestV1 → List RequirementRequestV1
+  | [] => [request]
+  | current :: rest =>
+      if request.id < current.id then
+        request :: current :: rest
+      else
+        current :: insertRequirementRequestV1 request rest
+
+@[reducible] def sortRequirementRequestsListV1 :
+    List RequirementRequestV1 → List RequirementRequestV1
+  | [] => []
+  | request :: rest =>
+      insertRequirementRequestV1 request (sortRequirementRequestsListV1 rest)
+
+@[reducible] def sortRequirementRequestsV1
+    (requests : Array RequirementRequestV1) : Array RequirementRequestV1 :=
+  (sortRequirementRequestsListV1 requests.toList).toArray
 
 /-- Shipped seventeen-row seed body (canonical targetId order: aleo, cosmwasm,
     evm×2, icp, near, noir×2, openvm×2, psy, quint, solana, soroban, ton, xrpl×2). Aleo
@@ -522,26 +636,19 @@ private def mkImplementedRow
     for inter-canister continuations while concrete Plan shapes may still fail
     closed. Message-local rollback must not be read as cross-await transaction
     atomicity. -/
-private def initialSupportRowsResult : CompileResult (Array StaticRequirementSupportRowV1) := do
-  let catalogRequests ← s2CatalogRequests
+def buildInitialSupportRowsV1
+    (catalogRequests : Array RequirementRequestV1)
+    (solanaExtensionRow : RequirementRequestV1)
+    (pfAssetsRow : RequirementRequestV1) :
+    Array StaticRequirementSupportRowV1 :=
   -- Capability filters reference closed S2 id spellings from RequirementIdsV1
   -- (not bare literals). s2CatalogIdsWireOrderV1 stays RequirementsV1 public.
-  let solanaExtensionRow ← match solanaCpiAccountsExtensionRequirementV1 with
-    | .ok row => pure row
-    | .error e =>
-        throw <| .registryInvalid
-          s!"Solana CPI extension requirement seed failed: {e}"
-  let pfAssetsRow ← match pfAssetsExtensionRequirementV1 with
-    | .ok row => pure row
-    | .error e =>
-        throw <| .registryInvalid
-          s!"pf.assets extension requirement seed failed: {e}"
-  let withoutSync := catalogRequests.filter fun r =>
+  let withoutSync := filterRequirementRequests catalogRequests fun r =>
     r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectSyncCallIdV1
   -- ADR-0047: ICP declines sync call and portable emit; keeps async workflow.
-  let icpRequests := withoutSync.filter fun r =>
+  let icpRequests := filterRequirementRequests withoutSync fun r =>
     r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectEventIdV1
-  let aleoRequests := catalogRequests.filter fun r =>
+  let aleoRequests := filterRequirementRequests catalogRequests fun r =>
     r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectEventIdV1 &&
       r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
       r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectSyncCallIdV1
@@ -549,7 +656,7 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
   -- (`InvokeExternalContractFunctionSync`) and `DPNEventRecord` events, but
   -- has no admitted deferred operation. Schedule remains fail closed and
   -- effect.asynchronous-workflow is declined (never alias sync semantics).
-  let psyRequests := catalogRequests.filter fun r =>
+  let psyRequests := filterRequirementRequests catalogRequests fun r =>
     r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1
   -- CosmWasm MVP+CW-4+C1:
   -- * async admitted via SubMsg reply_on=never (same-tx dispatch, whole-tx
@@ -558,41 +665,34 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
   --   only (BankMsg::Send error-propagating SubMsg + info.funds exact check).
   --   Non-catalog sync call stays Plan fail closed; token/async QNs FC.
   let cosmwasmRequests :=
-    (catalogRequests.push pfAssetsRow).qsort fun a b => a.id < b.id
+    sortRequirementRequestsV1 (catalogRequests.push pfAssetsRow)
   -- Quint Q0 is an executable state-model projection, not a deployment target.
   -- It models persistent state, Bool, checked arithmetic, explicit rollback,
   -- and (ADR-0029 Phase A5) sync pf.assets native vault ops. Event/async
   -- workflow stay fail closed on the S2 matrix; non-catalog / async / token
   -- QNs fail closed at Quint Plan/lowering.
-  let quintBaseRequests := catalogRequests.filter fun r =>
+  let quintBaseRequests := filterRequirementRequests catalogRequests fun r =>
     r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectEventIdV1 &&
       r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1
-  -- Legacy Solana profiles decline both call families. The old transitional
-  -- CPI / log marker was neither exact CPI nor scheduling and is not a
-  -- supported effect; the versioned CPI profile owns the product contract.
-  -- Filter only the two call keys so expanded catalog entries stay intact.
-  let withoutCallFamilies := catalogRequests.filter fun r =>
-    r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
-      r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectSyncCallIdV1
   -- #125: exact CPI profile admits sync call + extension; still excludes async.
-  let withoutAsync := catalogRequests.filter fun r =>
+  let withoutAsync := filterRequirementRequests catalogRequests fun r =>
     r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1
   -- #125 + ADR-0029 B1: CPI profile = S2 sans async + solana.cpi.accounts + pf.assets.
   let solanaCpiRequests :=
-    ((withoutAsync.push solanaExtensionRow).push pfAssetsRow).qsort
-      fun a b => a.id < b.id
+    sortRequirementRequestsV1
+      ((withoutAsync.push solanaExtensionRow).push pfAssetsRow)
   -- Phase A5: exact extension.pf-assets + effect.synchronous-call on Quint.
   let quintRequests :=
-    (quintBaseRequests.push pfAssetsRow).qsort fun a b => a.id < b.id
+    sortRequirementRequestsV1 (quintBaseRequests.push pfAssetsRow)
   -- ADR-0044 Soroban S0: honest 4-key only (rollback/state/bool/checked-arith).
   -- Event/sync/async/pf.assets stay declined until auth-tree/TTL Plan fields exist.
-  let sorobanRequests := catalogRequests.filter fun r =>
+  let sorobanRequests := filterRequirementRequests catalogRequests fun r =>
     r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectEventIdV1 &&
       r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
       r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectSyncCallIdV1
   -- Phase B2: all EVM profiles carry full S2 seven keys + exact extension.pf-assets.
   let evmRequests :=
-    (catalogRequests.push pfAssetsRow).qsort fun a b => a.id < b.id
+    sortRequirementRequestsV1 (catalogRequests.push pfAssetsRow)
   -- ADR-0029 Phase C2: NEAR advertises exact extension.pf-assets plus
   -- effect.synchronous-call. The sync-call key covers only the pf.assets
   -- catalog (native deposit via attached_deposit exact check and
@@ -601,23 +701,23 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
   -- refused (Promise is async). effect.asynchronous-workflow stays for
   -- schedule.
   let nearRequests :=
-    (catalogRequests.push pfAssetsRow).qsort fun a b => a.id < b.id
+    sortRequirementRequestsV1 (catalogRequests.push pfAssetsRow)
   -- ADR-0045 OpenVM O0: admit only state.persistent, failure.atomic-rollback,
   -- value.bool, value.checked-arithmetic. Decline all effect.* and
   -- extension.pf-assets — no call/schedule/ContextRead/Commit/events on the
   -- O0 controlled Rust guest source template.
-  let openvmRequests := catalogRequests.filter fun r =>
+  let openvmRequests := filterRequirementRequests catalogRequests fun r =>
     r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectEventIdV1 &&
       r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
       r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectSyncCallIdV1
   -- ADR-0049 XRPL Q0: honest 4-key only (rollback/state/bool/checked-arith).
   -- Event/sync/async/pf.assets stay declined until ContractCall/emit Plan
   -- fields exist. Not Hooks, not EVM sidechain, not AlphaNet deployable.
-  let xrplRequests := catalogRequests.filter fun r =>
+  let xrplRequests := filterRequirementRequests catalogRequests fun r =>
     r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectEventIdV1 &&
       r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
       r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectSyncCallIdV1
-  pure #[
+  #[
     mkImplementedRow .aleo CodegenProfileId.aleoInstructionsV1 aleoRequests,
     mkImplementedRow .cosmwasm CodegenProfileId.cosmwasmWasmU64V1 cosmwasmRequests,
     -- AddressBearing: full seven keys — static QN call/schedule Plan open.
@@ -652,6 +752,204 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
     mkImplementedRow .xrpl CodegenProfileId.xrplBedrockWasmU64V1 xrplRequests
   ]
 
+private def initialSupportRowsResult :
+    CompileResult (Array StaticRequirementSupportRowV1) := do
+  let catalogRequests ← s2CatalogRequests
+  let solanaExtensionRow ← match solanaCpiAccountsExtensionRequirementV1 with
+    | .ok row => pure row
+    | .error error =>
+        throw <| .registryInvalid
+          s!"Solana CPI extension requirement seed failed: {error}"
+  let pfAssetsRow ← match pfAssetsExtensionRequirementV1 with
+    | .ok row => pure row
+    | .error error =>
+        throw <| .registryInvalid
+          s!"pf.assets extension requirement seed failed: {error}"
+  pure (buildInitialSupportRowsV1 catalogRequests solanaExtensionRow pfAssetsRow)
+
+private theorem exceptToOptionGetSuccessV1 {ε α : Type}
+    (result : Except ε α) (success : result.toOption.isSome = true) :
+    result = .ok (result.toOption.get success) := by
+  cases result with
+  | error _ => simp [Except.toOption] at success
+  | ok _ => rfl
+
+@[reducible] def initialS2RequestV1
+    (id : String) (digestBytes : ByteArray) : RequirementRequestV1 :=
+  {
+    id
+    version := s2RequirementVersionV1
+    digest := { algorithm := .sha256, bytes := digestBytes }
+    predicates := #[]
+  }
+
+/-- Exact transparent witness produced by the closed S2 request constructor.
+    Digest bytes are referenced from the sole RequirementsV1 definitions, not
+    copied into this certificate. -/
+@[reducible] def initialS2CatalogRequestsV1 : Array RequirementRequestV1 := #[
+  initialS2RequestV1 ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1
+    s2EffectAsyncWorkflowDigestBytesV1,
+  initialS2RequestV1 ProofForgeV2.Core.RequirementIdsV1.s2EffectEventIdV1
+    s2EffectEventDigestBytesV1,
+  initialS2RequestV1 ProofForgeV2.Core.RequirementIdsV1.s2EffectSyncCallIdV1
+    s2EffectSyncCallDigestBytesV1,
+  initialS2RequestV1 ProofForgeV2.Core.RequirementIdsV1.s2FailureAtomicRollbackIdV1
+    s2FailureAtomicRollbackDigestBytesV1,
+  initialS2RequestV1 ProofForgeV2.Core.RequirementIdsV1.s2StatePersistentIdV1
+    s2StatePersistentDigestBytesV1,
+  initialS2RequestV1 ProofForgeV2.Core.RequirementIdsV1.s2ValueBoolIdV1
+    s2ValueBoolDigestBytesV1,
+  initialS2RequestV1 ProofForgeV2.Core.RequirementIdsV1.s2ValueCheckedArithmeticIdV1
+    s2ValueCheckedArithmeticDigestBytesV1
+]
+
+private theorem initialS2CatalogRequestsSuccessV1 :
+    s2CatalogRequests = .ok initialS2CatalogRequestsV1 := by
+  rfl
+
+private theorem solanaCpiExtensionDigestSomeV1 :
+    (ProofForgeV2.Core.Common.parseDigest
+      ProofForgeV2.Core.RequirementIdsV1.solanaCpiAccountsExtensionDigestV1).toOption.isSome =
+      true := by
+  simp [ProofForgeV2.Core.RequirementIdsV1.solanaCpiAccountsExtensionDigestV1,
+    ProofForgeV2.Core.Common.parseDigest]
+  decide
+
+private def initialSolanaCpiExtensionDigestV1 :
+    ProofForgeV2.Core.Common.Digest :=
+  (ProofForgeV2.Core.Common.parseDigest
+    ProofForgeV2.Core.RequirementIdsV1.solanaCpiAccountsExtensionDigestV1).toOption.get
+      solanaCpiExtensionDigestSomeV1
+
+private theorem solanaCpiExtensionDigestSuccessV1 :
+    ProofForgeV2.Core.Common.parseDigest
+      ProofForgeV2.Core.RequirementIdsV1.solanaCpiAccountsExtensionDigestV1 =
+      .ok initialSolanaCpiExtensionDigestV1 :=
+  exceptToOptionGetSuccessV1 _ solanaCpiExtensionDigestSomeV1
+
+@[reducible] def initialSolanaCpiExtensionRequirementV1 : RequirementRequestV1 := {
+  id := solanaCpiAccountsExtensionRequirementIdV1
+  version := ProofForgeV2.Core.Common.s2CatalogSemVerCoreV1
+  digest := initialSolanaCpiExtensionDigestV1
+  predicates := #[]
+}
+
+private theorem solanaCpiExtensionRequirementSuccessV1 :
+    solanaCpiAccountsExtensionRequirementV1 =
+      .ok initialSolanaCpiExtensionRequirementV1 := by
+  simp only [solanaCpiAccountsExtensionRequirementV1,
+    ProofForgeV2.Core.RequirementIdsV1.solanaCpiAccountsExtensionVersionV1,
+    ProofForgeV2.Core.Common.parseSemVer_1_0_0,
+    solanaCpiExtensionDigestSuccessV1, Bind.bind, Except.bind,
+    initialSolanaCpiExtensionRequirementV1, Pure.pure, Except.pure]
+
+private theorem pfAssetsExtensionDigestSomeV1 :
+    (ProofForgeV2.Core.Common.parseDigest
+      ProofForgeV2.Core.RequirementIdsV1.pfAssetsExtensionDigestV1_1).toOption.isSome =
+      true := by
+  simp [
+    ProofForgeV2.Core.RequirementIdsV1.pfAssetsExtensionDigestV1_1,
+    ProofForgeV2.Core.Common.parseDigest]
+  decide
+
+private def initialPfAssetsExtensionDigestV1 :
+    ProofForgeV2.Core.Common.Digest :=
+  (ProofForgeV2.Core.Common.parseDigest
+    ProofForgeV2.Core.RequirementIdsV1.pfAssetsExtensionDigestV1_1).toOption.get
+      pfAssetsExtensionDigestSomeV1
+
+private theorem pfAssetsExtensionDigestSuccessV1 :
+    ProofForgeV2.Core.Common.parseDigest
+      ProofForgeV2.Core.RequirementIdsV1.pfAssetsExtensionDigestV1_1 =
+      .ok initialPfAssetsExtensionDigestV1 :=
+  exceptToOptionGetSuccessV1 _ pfAssetsExtensionDigestSomeV1
+
+@[reducible] def initialPfAssetsExtensionRequirementV1 : RequirementRequestV1 := {
+  id := pfAssetsExtensionRequirementIdV1
+  version := { major := 1, minor := 1, patch := 0 }
+  digest := initialPfAssetsExtensionDigestV1
+  predicates := #[]
+}
+
+private theorem pfAssetsExtensionRequirementSuccessV1 :
+    pfAssetsExtensionRequirementV1 = .ok initialPfAssetsExtensionRequirementV1 := by
+  simp only [pfAssetsExtensionRequirementV1, pfAssetsExtensionRequirementV1_1,
+    ProofForgeV2.Core.RequirementIdsV1.pfAssetsExtensionVersionV1_1,
+    ProofForgeV2.Core.Common.parseSemVer_1_1_0,
+    pfAssetsExtensionDigestSuccessV1, Bind.bind, Except.bind,
+    initialPfAssetsExtensionRequirementV1, Pure.pure, Except.pure]
+
+/-- Frozen support-row source data consumed by the sole validated static index.
+    Public for downstream claim/capability certificates; this is not a resolved
+    build capability and cannot bypass `createStaticRequirementSupportIndexV1`. -/
+def initialSupportRowsV1 : Array StaticRequirementSupportRowV1 :=
+  buildInitialSupportRowsV1 initialS2CatalogRequestsV1
+    initialSolanaCpiExtensionRequirementV1 initialPfAssetsExtensionRequirementV1
+
+/-- Frozen Solana production-profile support source row. This is a projection
+    of the sole validated index seed, not a resolved capability. -/
+def initialSolanaSupportRowV1 : StaticRequirementSupportRowV1 :=
+  initialSupportRowsV1[12]'(by
+    unfold initialSupportRowsV1 buildInitialSupportRowsV1
+    decide)
+
+/-- Exact frozen Solana support contents in canonical request-wire order.
+    Downstream certificates consume this proposition instead of unfolding the
+    index seed or copying requirement/digest bytes. -/
+theorem initialSolanaSupportRowV1_supported_eq :
+    initialSolanaSupportRowV1.supported = #[
+      initialS2RequestV1
+        ProofForgeV2.Core.RequirementIdsV1.s2EffectEventIdV1
+        s2EffectEventDigestBytesV1,
+      initialS2RequestV1
+        ProofForgeV2.Core.RequirementIdsV1.s2EffectSyncCallIdV1
+        s2EffectSyncCallDigestBytesV1,
+      initialPfAssetsExtensionRequirementV1,
+      initialSolanaCpiExtensionRequirementV1,
+      initialS2RequestV1
+        ProofForgeV2.Core.RequirementIdsV1.s2FailureAtomicRollbackIdV1
+        s2FailureAtomicRollbackDigestBytesV1,
+      initialS2RequestV1
+        ProofForgeV2.Core.RequirementIdsV1.s2StatePersistentIdV1
+        s2StatePersistentDigestBytesV1,
+      initialS2RequestV1
+        ProofForgeV2.Core.RequirementIdsV1.s2ValueBoolIdV1
+        s2ValueBoolDigestBytesV1,
+      initialS2RequestV1
+        ProofForgeV2.Core.RequirementIdsV1.s2ValueCheckedArithmeticIdV1
+        s2ValueCheckedArithmeticDigestBytesV1
+    ] := by
+  rfl
+
+/-- The exact frozen Solana support array passes the same derived BEq used by
+    the production claim/index join. Kept at the seed owner so private parsed
+    extension-digest witnesses do not need to be exposed downstream. -/
+theorem initialSolanaSupportRowV1_supported_beq_self :
+    (initialSolanaSupportRowV1.supported ==
+      initialSolanaSupportRowV1.supported) = true := by
+  letI : ReflBEq RequirementPredicateV1 := {
+    rfl := by
+      intro predicate
+      cases predicate <;>
+        change instBEqRequirementPredicateV1.beq _ _ = true <;>
+        simp [instBEqRequirementPredicateV1.beq]
+  }
+  letI : ReflBEq RequirementRequestV1 := {
+    rfl := by
+      intro request
+      cases request
+      change instBEqRequirementRequestV1.beq _ _ = true
+      simp [instBEqRequirementRequestV1.beq]
+  }
+  exact Array.isEqv_self_beq initialSolanaSupportRowV1.supported
+
+private theorem initialSupportRowsSuccessV1 :
+    initialSupportRowsResult = .ok initialSupportRowsV1 := by
+  simp only [initialSupportRowsResult, initialS2CatalogRequestsSuccessV1,
+    solanaCpiExtensionRequirementSuccessV1,
+    pfAssetsExtensionRequirementSuccessV1, Bind.bind, Pure.pure, Except.bind,
+    Except.pure, initialSupportRowsV1]
+
 /-- Frozen product seed as `CompileResult`. Binders surface seed errors first —
     never panic or empty success. -/
 def initialStaticRequirementSupportIndexV1Result :
@@ -659,11 +957,231 @@ def initialStaticRequirementSupportIndexV1Result :
   let rows ← initialSupportRowsResult
   createStaticRequirementSupportIndexV1 rows
 
+private def initialExpectedImplementedPairsV1 : Array ImplementedPairV1 :=
+  (collectImplementedPairs initialCanonicalRegistrationRowsV1.toList).toArray
+
+private theorem productRegistrationsV1_eq_canonical :
+    productRegistrations = .ok initialCanonicalRegistrationRowsV1 := by
+  simp only [productRegistrations, registrationsWithSeedV1,
+    initialTargetRegistryV1Result_eq_canonical, Bind.bind, Except.bind,
+    TargetRegistryV1.registrationsOf, Pure.pure, Except.pure]
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem initialExpectedImplementedPairsSuccessV1 :
+    expectedImplementedPairs initialCanonicalRegistrationRowsV1 =
+      .ok initialExpectedImplementedPairsV1 := by
+  unfold expectedImplementedPairs
+  have hordered : isStrictlyAscendingAsciiList
+      ((collectImplementedPairs initialCanonicalRegistrationRowsV1.toList).map
+        (fun item =>
+          s!"{item.targetId.toString}\t{item.codegenProfile.toString}")) = true := by
+    unfold initialCanonicalRegistrationRowsV1 aleoRegistrationRowV1
+      cosmwasmRegistrationRowV1 evmRegistrationRowV1 icpRegistrationRowV1
+      nearRegistrationRowV1 noirRegistrationRowV1 openvmRegistrationRowV1
+      psyRegistrationRowV1 quintRegistrationRowV1 solanaRegistrationRowV1
+      sorobanRegistrationRowV1 tonRegistrationRowV1 xrplRegistrationRowV1
+      registrationRowV1
+    decide
+  simp only [hordered, ↓reduceIte, Pure.pure, Except.pure,
+    initialExpectedImplementedPairsV1]
+  rfl
+
+private theorem exceptUnitSuccessV1 {ε : Type}
+    (result : Except ε Unit) (success : result.toOption.isSome = true) :
+    result = .ok () := by
+  simpa using exceptToOptionGetSuccessV1 result success
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem initialSupportRowsResult_unique :
+    (match initialSupportRowsResult with
+      | .error _ => false
+      | .ok rows => (findDuplicateString (rows.map rowKey)).isNone) = true := by
+  unfold initialSupportRowsResult
+  rw [initialS2CatalogRequestsSuccessV1,
+    solanaCpiExtensionRequirementSuccessV1,
+    pfAssetsExtensionRequirementSuccessV1]
+  dsimp only [Bind.bind, Except.bind, Pure.pure, Except.pure]
+  unfold buildInitialSupportRowsV1 mkImplementedRow rowKey
+  simp (config := { zeta := true }) <;> decide
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem initialSupportRowsV1_nonempty :
+    initialSupportRowsV1.isEmpty = false := by
+  decide
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem initialSupportRowsV1_unique :
+    findDuplicateString (initialSupportRowsV1.map rowKey) = none := by
+  have success := initialSupportRowsResult_unique
+  rw [initialSupportRowsSuccessV1] at success
+  cases duplicate : findDuplicateString (initialSupportRowsV1.map rowKey) with
+  | none => rfl
+  | some _ => simp [duplicate] at success
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem initialSupportRowsResult_ordered :
+    (match initialSupportRowsResult with
+      | .error _ => false
+      | .ok rows => isStrictlyAscendingAscii (rows.map rowKey)) = true := by
+  unfold initialSupportRowsResult
+  rw [initialS2CatalogRequestsSuccessV1,
+    solanaCpiExtensionRequirementSuccessV1,
+    pfAssetsExtensionRequirementSuccessV1]
+  dsimp only [Bind.bind, Except.bind, Pure.pure, Except.pure]
+  unfold buildInitialSupportRowsV1 mkImplementedRow rowKey
+  simp (config := { zeta := true }) <;> decide
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem initialSupportRowsV1_ordered :
+    isStrictlyAscendingAscii (initialSupportRowsV1.map rowKey) = true := by
+  have success := initialSupportRowsResult_ordered
+  rw [initialSupportRowsSuccessV1] at success
+  exact success
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem initialSupportRowsV1_size :
+    initialSupportRowsV1.size = initialExpectedImplementedPairsV1.size := by
+  decide
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem initialSupportRowsResult_valid :
+    (match initialSupportRowsResult with
+      | .error _ => false
+      | .ok rows =>
+          (validateSupportRowsAgainstExpected 0 rows.toList
+            initialExpectedImplementedPairsV1.toList).toOption.isSome) = true := by
+  unfold initialExpectedImplementedPairsV1 initialCanonicalRegistrationRowsV1
+    aleoRegistrationRowV1 cosmwasmRegistrationRowV1 evmRegistrationRowV1
+    icpRegistrationRowV1 nearRegistrationRowV1 noirRegistrationRowV1
+    openvmRegistrationRowV1 psyRegistrationRowV1 quintRegistrationRowV1
+    solanaRegistrationRowV1 sorobanRegistrationRowV1 tonRegistrationRowV1
+    xrplRegistrationRowV1 registrationRowV1
+  unfold initialSupportRowsResult
+  rw [initialS2CatalogRequestsSuccessV1,
+    solanaCpiExtensionRequirementSuccessV1,
+    pfAssetsExtensionRequirementSuccessV1]
+  dsimp only [Bind.bind, Except.bind, Pure.pure, Except.pure]
+  unfold buildInitialSupportRowsV1
+  simp (config := { zeta := true }) [mkImplementedRow,
+    filterRequirementRequests, filterRequirementRequestsList,
+    sortRequirementRequestsV1, sortRequirementRequestsListV1,
+    insertRequirementRequestV1, initialS2CatalogRequestsV1,
+    initialS2RequestV1, initialSolanaCpiExtensionRequirementV1,
+    initialPfAssetsExtensionRequirementV1, validateSupportRowsAgainstExpected,
+    validateSupportedRequests, validateSupportedRequestItems,
+    validateSupportedRequestItem, validateOwnedExtensionPermits,
+    closedExtensionAdvertiseTableV1, hasExtensionOwnerV1,
+    exactRequirementRequestEqV1,
+    solanaCpiExtensionRequirementSuccessV1,
+    pfAssetsExtensionRequirementSuccessV1, findDuplicateString,
+    findDuplicateStringLoop, containsString, isStrictlyAscendingAscii,
+    isStrictlyAscendingAsciiList, rowKey, collectImplementedPairs,
+    implementedPairsForProfiles,
+    ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1,
+    ProofForgeV2.Core.RequirementIdsV1.s2EffectEventIdV1,
+    ProofForgeV2.Core.RequirementIdsV1.s2EffectSyncCallIdV1,
+    ProofForgeV2.Core.RequirementIdsV1.s2FailureAtomicRollbackIdV1,
+    ProofForgeV2.Core.RequirementIdsV1.s2StatePersistentIdV1,
+    ProofForgeV2.Core.RequirementIdsV1.s2ValueBoolIdV1,
+    ProofForgeV2.Core.RequirementIdsV1.s2ValueCheckedArithmeticIdV1,
+    solanaCpiAccountsExtensionRequirementIdV1,
+    pfAssetsExtensionRequirementIdV1,
+    ProofForgeV2.Core.RequirementIdsV1.wireExtensionSolanaCpiAccountsIdV1,
+    ProofForgeV2.Core.RequirementIdsV1.wireExtensionPfAssetsIdV1,
+    expectedImplementedOfKindV1, TargetId.beq_eq_toString, TargetId.ofKind,
+    TargetId.toString, TargetId.aleo, TargetId.cosmwasm, TargetId.evm,
+    TargetId.icp, TargetId.near, TargetId.noir, TargetId.openvm, TargetId.psy,
+    TargetId.quint, TargetId.solana, TargetId.soroban, TargetId.ton,
+    TargetId.xrpl, CodegenProfileId.beq_eq_toString,
+    CodegenProfileId.toString, CodegenProfileId.aleoInstructionsV1,
+    CodegenProfileId.cosmwasmWasmU64V1,
+    CodegenProfileId.evmYulSolc0834CancunV1,
+    CodegenProfileId.evmYulSolc0834V1,
+    CodegenProfileId.icpWasmCandidU64V1,
+    CodegenProfileId.nearWasmRawU64V1, CodegenProfileId.noirNargoAcirV1,
+    CodegenProfileId.noirSourceU64RelationsV1,
+    CodegenProfileId.openvmGuestElfV1, CodegenProfileId.openvmGuestSourceV1,
+    CodegenProfileId.psyDpnV1, CodegenProfileId.quintSourceU64ModelV1,
+    CodegenProfileId.solanaSbpfCpiElfV1,
+    CodegenProfileId.sorobanSourceU64V1, CodegenProfileId.tonTolkBocV1,
+    CodegenProfileId.xrplBedrockSourceU64V1,
+    CodegenProfileId.xrplBedrockWasmU64V1, s2RequirementVersionV1] <;> decide
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+private theorem initialSupportRowsV1_valid :
+    validateSupportRowsAgainstExpected 0 initialSupportRowsV1.toList
+      initialExpectedImplementedPairsV1.toList = .ok () := by
+  apply exceptUnitSuccessV1
+  have success := initialSupportRowsResult_valid
+  rw [initialSupportRowsSuccessV1] at success
+  exact success
+
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+/-- Exact frozen-index equation for downstream kernel replay. The value remains
+    the result of the sole production validator/private mint; this proposition
+    does not introduce a second static index constructor path. -/
+theorem initialStaticRequirementSupportIndexV1Result_eq_ok :
+    initialStaticRequirementSupportIndexV1Result =
+      .ok (StaticRequirementSupportIndexV1.mk initialSupportRowsV1) := by
+  unfold initialStaticRequirementSupportIndexV1Result
+  rw [initialSupportRowsSuccessV1]
+  dsimp only [Bind.bind, Except.bind]
+  exact createStaticRequirementSupportIndexV1_eq_ok_of_stages
+    initialSupportRowsV1 initialCanonicalRegistrationRowsV1
+    initialExpectedImplementedPairsV1 initialSupportRowsV1_nonempty
+    initialSupportRowsV1_unique initialSupportRowsV1_ordered
+    productRegistrationsV1_eq_canonical initialExpectedImplementedPairsSuccessV1
+    initialSupportRowsV1_size initialSupportRowsV1_valid
+
+/-- The frozen engineering support index succeeds through the sole production
+    validator and private mint. The witness is exposed only propositionally. -/
+theorem initialStaticRequirementSupportIndexV1Result_exists :
+    ∃ index, initialStaticRequirementSupportIndexV1Result = .ok index := by
+  exact ⟨StaticRequirementSupportIndexV1.mk initialSupportRowsV1,
+    initialStaticRequirementSupportIndexV1Result_eq_ok⟩
+
 private def findRow
     (index : StaticRequirementSupportIndexV1)
     (targetId : TargetId) (profile : CodegenProfileId) :
     Option StaticRequirementSupportRowV1 :=
   index.rows.find? (fun r => r.targetId == targetId && r.codegenProfile == profile)
+
+private theorem findRow_initial_solana_eq_some :
+    findRow (StaticRequirementSupportIndexV1.mk initialSupportRowsV1)
+      TargetId.solana CodegenProfileId.solanaSbpfCpiElfV1 =
+        some initialSolanaSupportRowV1 := by
+  unfold findRow
+  rw [Array.find?_eq_some_iff_getElem]
+  refine ⟨?_, ⟨12, ?_, ?_, ?_⟩⟩
+  · rfl
+  · unfold initialSupportRowsV1 buildInitialSupportRowsV1
+    decide
+  · rfl
+  · intro j hj
+    have hrowsSize : initialSupportRowsV1.size = 17 := by
+      unfold initialSupportRowsV1 buildInitialSupportRowsV1
+      rfl
+    have hjRows : j < initialSupportRowsV1.size := by
+      rw [hrowsSize]
+      omega
+    have hjCases :
+        j = 0 ∨ j = 1 ∨ j = 2 ∨ j = 3 ∨ j = 4 ∨ j = 5 ∨
+        j = 6 ∨ j = 7 ∨ j = 8 ∨ j = 9 ∨ j = 10 ∨ j = 11 := by
+      omega
+    rcases hjCases with rfl | rfl | rfl | rfl | rfl | rfl |
+      rfl | rfl | rfl | rfl | rfl | rfl <;>
+    unfold initialSupportRowsV1 buildInitialSupportRowsV1
+    all_goals rfl
 
 /-- DI: full rows over an arbitrary seed Result (seed error first). -/
 def supportRowsWithSeedV1
@@ -693,6 +1211,22 @@ def inspectSupportWithSeedV1
         kind := row.kind
         supported := row.supported
       }
+
+/-- The frozen Solana production support row replays through the existing
+    support inspection seam. The result is the exact row projected from the
+    sole validated static index; this theorem does not mint a capability. -/
+theorem inspectSupportWithSeedV1_initial_solana_eq_ok :
+    inspectSupportWithSeedV1 initialStaticRequirementSupportIndexV1Result
+      TargetId.solana CodegenProfileId.solanaSbpfCpiElfV1 = .ok {
+        targetId := initialSolanaSupportRowV1.targetId
+        codegenProfile := initialSolanaSupportRowV1.codegenProfile
+        kind := initialSolanaSupportRowV1.kind
+        supported := initialSolanaSupportRowV1.supported
+      } := by
+  unfold inspectSupportWithSeedV1
+  rw [initialStaticRequirementSupportIndexV1Result_eq_ok]
+  simp only [Bind.bind, Except.bind, findRow_initial_solana_eq_some,
+    Pure.pure, Except.pure]
 
 /-- Product support inspection for a resolved selection (rows only). -/
 def inspectSupportForSelectionV1 (selection : ResolvedBuildSelectionV1) :
@@ -870,6 +1404,60 @@ def inspectResolveRequestsV1
         throw <| .unsupportedRequirementV1
           s!"no exact engineering support for requirement '{item.id}'"
   pure ()
+
+/-- Any semantic program retaining exactly the persistent-state, atomic
+    rollback, and checked-arithmetic S2 rows crosses the frozen Solana support
+    row. The caller proves only its generated requirement items; all resolver
+    control flow and support data remain owned and replayed here. -/
+theorem inspectResolveRequestsV1_initial_solana_state_checked_eq_ok
+    (requested : ProgramRequirementsV1)
+    (hitems : requested.items = #[
+      initialS2RequestV1
+        ProofForgeV2.Core.RequirementIdsV1.s2FailureAtomicRollbackIdV1
+        s2FailureAtomicRollbackDigestBytesV1,
+      initialS2RequestV1
+        ProofForgeV2.Core.RequirementIdsV1.s2StatePersistentIdV1
+        s2StatePersistentDigestBytesV1,
+      initialS2RequestV1
+        ProofForgeV2.Core.RequirementIdsV1.s2ValueCheckedArithmeticIdV1
+        s2ValueCheckedArithmeticDigestBytesV1
+    ]) :
+    inspectResolveRequestsV1 initialSolanaSupportRowV1.supported requested =
+      .ok () := by
+  cases requested with
+  | mk items =>
+      change items = _ at hitems
+      subst items
+      rw [initialSolanaSupportRowV1_supported_eq]
+      simp (config := { zeta := true }) [inspectResolveRequestsV1, countReqIds,
+        requestSupportedExact, closedExtensionAdvertiseTableV1,
+        solanaCpiExtensionRequirementSuccessV1,
+        pfAssetsExtensionRequirementSuccessV1, isStrictlyAscendingAscii,
+        isStrictlyAscendingAsciiList, initialS2RequestV1,
+        initialSolanaCpiExtensionRequirementV1,
+        initialPfAssetsExtensionRequirementV1, s2RequirementVersionV1,
+        ProofForgeV2.Core.RequirementIdsV1.s2EffectEventIdV1,
+        ProofForgeV2.Core.RequirementIdsV1.s2EffectSyncCallIdV1,
+        ProofForgeV2.Core.RequirementIdsV1.s2FailureAtomicRollbackIdV1,
+        ProofForgeV2.Core.RequirementIdsV1.s2StatePersistentIdV1,
+        ProofForgeV2.Core.RequirementIdsV1.s2ValueBoolIdV1,
+        ProofForgeV2.Core.RequirementIdsV1.s2ValueCheckedArithmeticIdV1,
+        unixTimeSecondsContextRequirementIdV1, callerContextRequirementIdV1,
+        blockHeightContextRequirementIdV1, chainIdContextRequirementIdV1,
+        selfContextRequirementIdV1, attachedValueContextRequirementIdV1,
+        commitmentDisclosureRequirementIdV1,
+        solanaCpiAccountsExtensionRequirementIdV1,
+        pfAssetsExtensionRequirementIdV1,
+        ProofForgeV2.Core.RequirementIdsV1.wireContextUnixTimeSecondsIdV1,
+        ProofForgeV2.Core.RequirementIdsV1.wireContextCallerIdV1,
+        ProofForgeV2.Core.RequirementIdsV1.wireContextBlockHeightIdV1,
+        ProofForgeV2.Core.RequirementIdsV1.wireContextChainIdIdV1,
+        ProofForgeV2.Core.RequirementIdsV1.wireContextSelfIdV1,
+        ProofForgeV2.Core.RequirementIdsV1.wireContextAttachedValueIdV1,
+        ProofForgeV2.Core.RequirementIdsV1.wireCommitmentDisclosureIdV1,
+        ProofForgeV2.Core.RequirementIdsV1.wireExtensionSolanaCpiAccountsIdV1,
+        ProofForgeV2.Core.RequirementIdsV1.wireExtensionPfAssetsIdV1]
+      rfl
 
 /-- DI request-resolution inspection over a seed + selection identity.
     Returns inspection on success; never a capability. -/
