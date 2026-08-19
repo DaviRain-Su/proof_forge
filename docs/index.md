@@ -48,7 +48,7 @@ Solana ADR-0048 D4 剩余证书（非 formal TASK-D5）：
 [`prompt-next-wave.md`](../.grok/goals/prompt-next-wave.md) **已退役**，不要再 launch。
 全仓对账：[research/28-project-wide-honesty-audit.md](research/28-project-wide-honesty-audit.md)。
 **下一刀（工程，非 formal）**：能力层 waves 已全闭合（2026-08-19：CAP-1a…5 / CAP-X-BYTES / CAP-X-MERKLE / 诚实边界波）；
-当前剩余人拍项 = B-CALL-SEM 决策包 / ADR-0051 / D3-E8 / QUINT-2 / SOR-1 / XRPL TIME/CALLER；
+当前剩余人拍项已排进 [`plan/remaining-owner-waves.md`](plan/remaining-owner-waves.md)（B-CALL-SEM / ADR-0051 / ADR-0036 / D3-E8 / DOC-JUST-CONTROL / RES-1B / B-COMMIT-ZK / SOR-1 / QUINT-2 / XRPL TIME·CALLER / zkVM / formal D1–D4）；**不**自动接受 ADR，**不**开 XRPL 叶，**不**标 formal done。
 能力层设计 [`plan/capability-layer-parity.md`](plan/capability-layer-parity.md) ·
 任务拆分 [`plan/capability-layer-tasks.md`](plan/capability-layer-tasks.md)。
 旧 [`prompt-master-queue.md`](../.grok/goals/prompt-master-queue.md) 仍为历史/退役队列。
