@@ -53,29 +53,29 @@ No product-behavior change except honesty of status fields.
 Owner pick (2026-08-20): compile-time versioned opt-in table
 (`proof-forge.call-bind.v1` / `--bindings`). Not NetworkProfile / Anvil
 receipt. EVM = pre-placed 20-byte only (no CREATE/CREATE2). Empty-account
-void CALL stays until Wave 2a. `schedule` stays same-tx fire-and-forget.
+void CALL is Wave 2a (done: `extcodesize` fail closed). `schedule` stays same-tx fire-and-forget.
 Bool/Int/Bytes returndata stay fail closed. `pf.crypto.*` / `pf.assets`
 never consult the table.
 
 **Wave 1: parse only (done).** CLI accepts `--bindings`; table decodes.
 
-**Wave 2 (done this slice):** with `--bindings`, generic `call`/`schedule`
+**Wave 2 (done):** with `--bindings`, generic `call`/`schedule`
 on evm/solana/cosmwasm without a matching row fails closed. Table is
 explicit (never ambient). Solana nonempty `accounts` stays Wave 2b.
-Empty-account void CALL is Wave 2a (own semantic change). Inspect
-residuals clear only when that program’s generic calls all have rows
-(not this slice).
+
+**Wave 2a (done this slice):** generic void CALL reverts when
+`extcodesize==0`. `schedule` stays fire-and-forget; result-bearing
+CALL still uses `returndatasize`. Inspect residuals still not cleared.
 
 Open remainder: resolver support keys must not be read as
-“cross-platform call done.” Next coding: Wave 2a (empty-account
-void CALL) or Wave 2b (Solana nonempty accounts). Do not clear
-inspect residuals in this wave.
+“cross-platform call done.” Next coding: Wave 2b (Solana nonempty
+accounts). Do not clear inspect residuals in this wave.
 
 ### Decisions (inventory 2026-08-16 + evm-call-addr-gap §3)
 
 Recommended conservative honesty:
 
-1. **EVM callee binding** — keep hashed-QN stub honest; add a **versioned binding table** later (compile-time table / NetworkProfile / post-deploy receipt). Do not silently treat CREATE, CREATE2, and pre-placed Anvil addresses as interchangeable. Product `build` must not start consuming Anvil placement. Identity join (sourceHash / semanticHash / artifact vs code-at-address) is part of the same pick. Empty-account void CALL success stays until an explicit fail-closed pick.
+1. **EVM callee binding** — keep hashed-QN stub honest; add a **versioned binding table** later (compile-time table / NetworkProfile / post-deploy receipt). Do not silently treat CREATE, CREATE2, and pre-placed Anvil addresses as interchangeable. Product `build` must not start consuming Anvil placement. Identity join (sourceHash / semanticHash / artifact vs code-at-address) is part of the same pick. Empty-account void CALL is fail closed (Wave 2a `extcodesize`).
 2. **EVM `schedule` spelling** — same-tx fire-and-forget must not keep advertising `effect.asynchronous-workflow` without a distinct caveat.
 3. **EVM returndata residual** — Bool / Int / Bytes stay FC.
 4. **Solana product CPI** — next implementable leaf = callee identity / outer account ABI; async stays FC.

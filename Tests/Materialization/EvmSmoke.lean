@@ -1831,6 +1831,8 @@ private unsafe def testExternalCallGate : IO Unit := do
     (Targets.Evm.Keccak.keccak256Hex "Oracle".toUTF8).drop 24
   expect (callIr.yul.contains s!"call(gas(), 0x{oracleAddr},")
     s!"CallGate Yul must CALL the keccak last-20 of path \"Oracle\", got address needle 0x{oracleAddr}"
+  expect (callIr.yul.contains s!"if iszero(extcodesize(0x{oracleAddr}))")
+    "CallGate Yul Wave 2a must revert on empty-account void CALL"
   expect (callIr.yul.contains "if iszero(")
     "CallGate Yul must revert on CALL failure (sync external call)"
 
@@ -1871,6 +1873,8 @@ private unsafe def testExternalCallGate : IO Unit := do
     s!"ScheduleGate Yul must CALL the keccak last-20 of path \"Ledger\", got address needle 0x{ledgerAddr}"
   expect (scheduleIr.yul.contains "pop(")
     "ScheduleGate Yul must ignore CALL success (async schedule)"
+  expect (!scheduleIr.yul.contains "extcodesize")
+    "ScheduleGate must not gain Wave 2a extcodesize (still fire-and-forget)"
   pure ()
 
 /-- Walk Plan Expr trees for a narrow UInt8 checked-add. -/
@@ -4467,6 +4471,8 @@ private unsafe def testCallReturnEvm : IO Unit := do
   expect (yul.contains "returndatasize()") "CallRetEvm: Yul must guard returndatasize"
   expect (yul.contains "let t") "CallRetEvm: Yul must bind the returned word"
   expect (yul.contains "0xffffffffffffffff") "CallRetEvm: Yul must range-check UInt64"
+  expect (!yul.contains "extcodesize")
+    "CallRetEvm: result-bearing CALL must not use Wave 2a extcodesize"
   -- Bool result stays fail closed (wide admit does not open Bool).
   let boolSrc :=
     "import ProofForgeV2\n" ++

@@ -9,7 +9,8 @@
   table. Identity fields are join metadata only (do not change emit).
 
   Not SemanticProgramV1. Not NetworkProfile. Not formal / C-3.
-  Not Wave 2a empty-account EVM CALL.
+  Wave 2a empty-account void CALL lives in Evm.EmitIRV1 (not this table).
+  Not Wave 2b Solana nonempty accounts.
 -/
 import ProofForgeV2.Core.Canonical
 import ProofForgeV2.Core.Common

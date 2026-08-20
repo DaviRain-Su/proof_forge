@@ -18,7 +18,8 @@ proposed
 emit：有 `--bindings` 时 generic `call`/`schedule` 无匹配行 fail closed；
 无 flag 时 hashed QN / QN stub 不变。`pf.crypto.*` / `pf.assets` 不查表。
 Solana nonempty `accounts` 仍属 Wave 2b（本波 empty accounts → program id
-only）。Wave 2a 空账户 void CALL 另刀。
+only）。**Wave 2a（已接线）**：generic void CALL 在 `extcodesize==0` 时
+fail closed。`schedule` / result-bearing CALL / `pf.assets` 不改。
 
 不关闭 `B-CALL-SEM` 全表。不接受 ADR-0036 / 0051。不改
 `semantic-core.md`。不声称 formal / C-3 / Anvil lossless / CREATE / CREATE2。
@@ -33,8 +34,9 @@ inspect 已诚实标出三条地址残差（2026-08-19 COMP-1-CALL-SEM-LAND）�
 | solana | `callee-identity-outer-account-open` | product sync CPI；callee / 外层账户 ABI 仍开 |
 | cosmwasm | `contract-addr-qn-stub` | `SubMsg.contract_addr` = QN 字符串 stub |
 
-hashed stub 不是部署地址。空账户 EVM void `CALL` 今天会成功。ADR-0029 把
-portable 互通停在 NetworkProfile；本 ADR **不**走那条路。
+hashed stub 不是部署地址。空账户 EVM void `CALL` 在 Wave 2a 起 fail closed
+（`extcodesize`）。ADR-0029 把 portable 互通停在 NetworkProfile；本 ADR
+**不**走那条路。
 
 ## 决策（五句）
 
@@ -43,8 +45,10 @@ portable 互通停在 NetworkProfile；本 ADR **不**走那条路。
    `SemanticProgramV1`。
 2. **EVM 地址种类 = 预置 20 字节。** 人手填 / 测试夹具。本切片不做 CREATE /
    CREATE2 mint。三种地址不可互换。
-3. **空账户 void CALL 将在 Wave 2a 改成 fail closed。** Wave 1 不改 Yul。
-   这是语义变化，必须单独立测。
+3. **空账户 void CALL 在 Wave 2a 改成 fail closed。** generic void CALL 在
+   `extcodesize==0` 时 `revert(0,0)`，然后才做 `CALL`。`schedule` 仍
+   fire-and-forget；result-bearing 仍靠 `returndatasize`。这是语义变化，
+   已单独立测。
 4. **`schedule` 仍是同笔 tx fire-and-forget。** 本 ADR 不改 catalog 键
    `effect.asynchronous-workflow`（改键另批，与 ADR-0051 亲戚）。
 5. **Bool / Int / Bytes returndata 继续 fail closed。** 本切片只绑地址。
@@ -112,6 +116,7 @@ portable 互通停在 NetworkProfile；本 ADR **不**走那条路。
 
 Wave 2 落地后：CLI 认识 `--bindings`；表可解码、可查 QN；有表时三叶
 generic call/schedule 消费同一 `CallBindTableV1`（EVM Yul 地址、CW WAT
-`contract_addr`、Solana empty-meta program id）。无表行为不变。inspect
-residual 只在「该 program 全部 generic call 有行」时才清（本波不改
-inspect）。Solana nonempty accounts / Wave 2a 空账户 CALL 另刀。
+`contract_addr`、Solana empty-meta program id）。无表行为不变。
+Wave 2a：generic void CALL 空账户 fail closed。inspect residual 只在
+「该 program 全部 generic call 有行」时才清（本波不改 inspect）。
+Solana nonempty accounts 仍属 Wave 2b。

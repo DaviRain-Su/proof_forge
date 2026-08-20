@@ -106,7 +106,9 @@ wire whitelist，但任何显式 `--minimum-evidence` 请求都在 source open /
 `--target evm|solana|cosmwasm`；`check` 与其余十叶给该 flag 均为 usage / exit 2。
 文件必须是 PF-JCS `proof-forge.call-bind.v1`。**Wave 2** parse + 与 `--target`
 join 后把表显式传到三叶 emit：generic `call`/`schedule` 无匹配行 fail closed。
-无 `--bindings` 时行为与今天完全相同（hashed QN / QN stub）。不把产品
+无 `--bindings` 时行为与今天完全相同（hashed QN / QN stub）。**Wave 2a**：
+EVM generic void CALL 在 `extcodesize==0` 时 fail closed（与 `--bindings` 无关）。
+不把产品
 `build` 接到 Anvil / wasmd / 任何网络。
 
 `--resource-limit` 是 repeatable、逐 stage/field 的 lower-only override。CLI 名称固定映射到

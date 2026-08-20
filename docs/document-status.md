@@ -26,7 +26,7 @@ normative: true
 当前产品开发由根级 [`RECOVERY.md`](../RECOVERY.md) / [`AGENTS.md`](../AGENTS.md) 驱动：
 ProgramV1 → CheckV1/Normalize → `CompiledSemanticV1` → **十三个 materializer**
 （EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/CosmWasm/TON/Soroban/OpenVM/ICP/XRPL）capability Plan/IR 的**工程纵切面**。
-工程 registry **13 = 13 implemented + 0 design-only**（含 Soroban ADR-0044、OpenVM ADR-0045/0046、ICP ADR-0047、XRPL ADR-0049/0050；host 三键 ADR-0052 proposed、叶未开；ADR-0053 call-bind Wave 2 proposed、有表时三叶 generic call 无行 fail closed）。Quint 是
+工程 registry **13 = 13 implemented + 0 design-only**（含 Soroban ADR-0044、OpenVM ADR-0045/0046、ICP ADR-0047、XRPL ADR-0049/0050；host 三键 ADR-0052 proposed、叶未开；ADR-0053 call-bind Wave 2/2a proposed、有表时三叶 generic call 无行 fail closed，EVM 空账户 void CALL FC）。Quint 是
 zero-tool finalize 的 source-only `.qnt` executable-model target；OpenVM 默认
 `openvm-guest-source-v1` 是 zero-tool guest-source（受控 Rust 模板 + catalog；
 ADR-0045 O0），opt-in `openvm-guest-elf-v1` 锁定 `cargo-openvm` 2.0.1 build/transpile
