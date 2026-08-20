@@ -2178,8 +2178,10 @@ private def makeCallFnValueV1
     bitWidth := if isBool then 1 else 64
   }
 
-/-- Signature index for pureFn callables: CallableId → fnIndex, arity, result kind. -/
-private structure PureFnTableV1 where
+/-- Signature index for pureFn callables: CallableId → fnIndex, arity, result
+    kind. The production Plan-lowering context retains this table so staged
+    certificates can lower callables without rebuilding a second index. -/
+structure PureFnTableV1 where
   byCallableId : Array (Option Nat)
   paramCounts : Array Nat
   resultIsBool : Array Bool
@@ -4574,15 +4576,46 @@ private def makeInterfaceBindingV1 (label : String) (name : String)
         s!"unsupported Solana semantic shape: {label} '{name}' fields must be public UInt64"
   pure { name, fieldCount := fields.size }
 
-/-- Solana-private retained SemanticProgramV1 data → target-owned Plan pilot. -/
-private def makePlanFromSemanticDataV1
+/-- Values prepared once before the sole production callable-to-Plan pass.
+    This is a decomposition of `makePlanFromSemanticDataV1`, not an alternate
+    Plan representation or lowering path. -/
+structure PlanLoweringContextV1 where
+  types : PilotTypeClosureV1
+  typeDecls : Array TypeDeclV1
+  stateAccount : StateAccount
+  constants : Array ConstantV1
+  events : Array InterfaceBinding
+  errors : Array InterfaceBinding
+  pureFns : PureFnTableV1
+  programName : String
+  admitCallerRole : Bool
+
+/-- Source-order accumulator used by the production callable-to-Plan pass. -/
+structure PlanCallableLoweringStateV1 where
+  initializer : Option Handler
+  entries : Array Handler
+  fns : Array FnBinding
+
+/-- Initial accumulator for the sole production callable-to-Plan pass. -/
+def initialPlanCallableLoweringStateV1 : PlanCallableLoweringStateV1 := {
+  initializer := none
+  entries := #[]
+  fns := #[]
+}
+
+/-- Prepare the type/layout/interface/signature context consumed by the sole
+    production callable-to-Plan pass. Error order is the historical
+    `makePlanFromSemanticDataV1` order and remains fail closed. -/
+def preparePlanLoweringContextV1
     (source : SemanticProgramDataV1)
     (admitCallerRole : Bool := false)
-    (admitProductExternalCall : Bool := false) : CompileResult Plan := do
+    (admitProductExternalCall : Bool := false) :
+    CompileResult PlanLoweringContextV1 := do
   if !source.invariants.isEmpty then
     throw <| .planInvariant .solana
       "unsupported Solana semantic shape: constants/invariants are outside the current UInt64 pilot"
-  -- init+entries ≤ maxEntries+1; pureFns ≤ maxEntries (checked in buildPureFnTableV1).
+  -- init+entries ≤ maxEntries+1; pureFns ≤ maxEntries (checked in
+  -- `buildPureFnTableV1`).
   if source.callables.size > maxEntries + 1 + maxEntries then
     throw <| .planInvariant .solana
       s!"callable count exceeds Solana profile limit {maxEntries + 1 + maxEntries}"
@@ -4599,37 +4632,86 @@ private def makePlanFromSemanticDataV1
       admitProductExternalCall
   }
   let constants := source.constants
-    let events ← source.events.mapM (fun d => do
-    let u64Tid ← types.requireUInt64 solanaPlanErr "solana"
-    makeInterfaceBindingV1 "event" d.name d.fields u64Tid)
-  let errors ← source.errors.mapM (fun d => do
-    let u64Tid ← types.requireUInt64 solanaPlanErr "solana"
-    makeInterfaceBindingV1 "error" d.name d.fields u64Tid)
-  let pureFnTable ← buildPureFnTableV1 types source.callables
-  let components := source.qualifiedName.components.toArray
-  let programName := components.back!
-  let mut initializer : Option Handler := none
-  let mut entries : Array Handler := #[]
-  let mut fns : Array FnBinding := #[]
-  for callable in source.callables do
-    match callable.kind with
-    | .initializer =>
-        if initializer.isSome then
-          throw <| .planInvariant .solana "semantic program has multiple initializers"
-        initializer := some (← makeInitializerV1 types typeDecls stateAccount constants pureFnTable callable)
-    | .entry | .view =>
-        if entries.size >= maxEntries then
-          throw <| .planInvariant .solana s!"entry count exceeds profile limit {maxEntries}"
-        entries := entries.push (← makeEntryV1 types typeDecls stateAccount constants pureFnTable callable)
-    | .pureFn =>
-        fns := fns.push (← makePureFnV1 types typeDecls stateAccount constants pureFnTable callable)
-    | .invariant =>
+  let events ← source.events.mapM (fun declaration => do
+    let uint64TypeId ← types.requireUInt64 solanaPlanErr "solana"
+    makeInterfaceBindingV1 "event" declaration.name declaration.fields
+      uint64TypeId)
+  let errors ← source.errors.mapM (fun declaration => do
+    let uint64TypeId ← types.requireUInt64 solanaPlanErr "solana"
+    makeInterfaceBindingV1 "error" declaration.name declaration.fields
+      uint64TypeId)
+  let pureFns ← buildPureFnTableV1 types source.callables
+  let programName := source.qualifiedName.components.toArray.back!
+  pure {
+    types
+    typeDecls
+    stateAccount
+    constants
+    events
+    errors
+    pureFns
+    programName
+    admitCallerRole
+  }
+
+/-- Lower one Semantic callable with the exact production constructors and
+    append it to the source-order Plan accumulator. -/
+def lowerPlanCallableItemV1
+    (context : PlanLoweringContextV1)
+    (state : PlanCallableLoweringStateV1)
+    (callable : CallableV1) : CompileResult PlanCallableLoweringStateV1 := do
+  match callable.kind with
+  | .initializer =>
+      if state.initializer.isSome then
+        throw <| .planInvariant .solana "semantic program has multiple initializers"
+      let initializer ← makeInitializerV1 context.types context.typeDecls
+        context.stateAccount context.constants context.pureFns callable
+      pure { state with initializer := some initializer }
+  | .entry | .view =>
+      if state.entries.size >= maxEntries then
         throw <| .planInvariant .solana
-          "unsupported Solana semantic shape: invariants are outside the current UInt64 pilot"
-  let resolvedInitializer ← match initializer with
+          s!"entry count exceeds profile limit {maxEntries}"
+      let entry ← makeEntryV1 context.types context.typeDecls
+        context.stateAccount context.constants context.pureFns callable
+      pure { state with entries := state.entries.push entry }
+  | .pureFn =>
+      let fn ← makePureFnV1 context.types context.typeDecls
+        context.stateAccount context.constants context.pureFns callable
+      pure { state with fns := state.fns.push fn }
+  | .invariant =>
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: invariants are outside the current UInt64 pilot"
+
+/-- Structural source-list driver used by the production Plan lowerer. The
+    item boundary permits kernel proofs to compose one callable at a time. -/
+def lowerPlanCallableItemsV1
+    (context : PlanLoweringContextV1) :
+    List CallableV1 → PlanCallableLoweringStateV1 →
+      CompileResult PlanCallableLoweringStateV1
+  | [], state => .ok state
+  | callable :: callables, state => do
+      let next ← lowerPlanCallableItemV1 context state callable
+      lowerPlanCallableItemsV1 context callables next
+
+/-- Production callable-to-Plan pass over the exact Semantic callable order. -/
+def lowerPlanCallableBodiesV1
+    (context : PlanLoweringContextV1)
+    (callables : Array CallableV1) :
+    CompileResult PlanCallableLoweringStateV1 :=
+  lowerPlanCallableItemsV1 context callables.toList
+    initialPlanCallableLoweringStateV1
+
+/-- Finish the sole production Semantic-data → Plan pass after all callables
+    have been lowered. No Plan validation or target IR lowering occurs here. -/
+def finishPlanLoweringV1
+    (context : PlanLoweringContextV1)
+    (state : PlanCallableLoweringStateV1) : CompileResult Plan := do
+  let initializer ← match state.initializer with
     | some value => pure value
-    | none => throw <| .planInvariant .solana "state-account programs require an initializer"
-  let plan : Plan := {
+    | none =>
+        throw <| .planInvariant .solana
+          "state-account programs require an initializer"
+  pure {
     codegenProfile := descriptor.codegenProfile.toString
     instructionDiscriminatorDomain := discriminatorDomain
     instructionDiscriminatorBytes := discriminatorBytes
@@ -4638,16 +4720,82 @@ private def makePlanFromSemanticDataV1
     assertionFailedError
     loopBoundExceededError
     invalidShiftError
-    programName
-    stateAccount
-    requiresCallerRole := admitCallerRole
-    events
-    errors
-    fns
-    initializer := resolvedInitializer
-    entries
+    programName := context.programName
+    stateAccount := context.stateAccount
+    requiresCallerRole := context.admitCallerRole
+    events := context.events
+    errors := context.errors
+    fns := state.fns
+    initializer
+    entries := state.entries
   }
-  pure plan
+
+/-- Solana-private retained SemanticProgramV1 data → target-owned Plan pilot. -/
+private def makePlanFromSemanticDataV1
+    (source : SemanticProgramDataV1)
+    (admitCallerRole : Bool := false)
+    (admitProductExternalCall : Bool := false) : CompileResult Plan := do
+  let context ← preparePlanLoweringContextV1 source admitCallerRole
+    admitProductExternalCall
+  let callables ← lowerPlanCallableBodiesV1 context source.callables
+  finishPlanLoweringV1 context callables
+
+/-- Proof-producing decomposition of the sole production Semantic-data → Plan
+    lowerer. Every field retains an exact equation from a stage called by
+    `makePlanFromSemanticDataV1`; no expected Plan is accepted as input. -/
+structure CertifiedPlanLoweringV1
+    (source : SemanticProgramDataV1)
+    (admitCallerRole admitProductExternalCall : Bool) where
+  context : PlanLoweringContextV1
+  contextSuccess :
+    preparePlanLoweringContextV1 source admitCallerRole
+      admitProductExternalCall = .ok context
+  callables : PlanCallableLoweringStateV1
+  callablesSuccess :
+    lowerPlanCallableBodiesV1 context source.callables = .ok callables
+  plan : Plan
+  finishSuccess : finishPlanLoweringV1 context callables = .ok plan
+
+/-- Execute and retain the exact stages used by the sole production
+    Semantic-data → Plan lowerer. Unsupported input preserves the original
+    `CompileError`; this is not a proof-only compiler. -/
+def certifyPlanLoweringV1
+    (source : SemanticProgramDataV1)
+    (admitCallerRole admitProductExternalCall : Bool) :
+    CompileResult (CertifiedPlanLoweringV1 source admitCallerRole
+      admitProductExternalCall) :=
+  match contextSuccess : preparePlanLoweringContextV1 source admitCallerRole
+      admitProductExternalCall with
+  | .error compileError => .error compileError
+  | .ok context =>
+      match callablesSuccess :
+          lowerPlanCallableBodiesV1 context source.callables with
+      | .error compileError => .error compileError
+      | .ok callables =>
+          match finishSuccess : finishPlanLoweringV1 context callables with
+          | .error compileError => .error compileError
+          | .ok plan => .ok {
+              context
+              contextSuccess
+              callables
+              callablesSuccess
+              plan
+              finishSuccess
+            }
+
+/-- Compose retained production stage equations into the exact private
+    data-to-Plan result used by capability-gated materialization. -/
+theorem CertifiedPlanLoweringV1.makePlan_success
+    (certified : CertifiedPlanLoweringV1 source admitCallerRole
+      admitProductExternalCall) :
+    makePlanFromSemanticDataV1 source admitCallerRole
+      admitProductExternalCall = .ok certified.plan := by
+  unfold makePlanFromSemanticDataV1
+  rw [certified.contextSuccess]
+  dsimp only [Bind.bind, Except.bind]
+  rw [certified.callablesSuccess]
+  dsimp only [Bind.bind, Except.bind]
+  exact certified.finishSuccess
 
 private def makePlanFromSemanticV1
     (source : SemanticProgramV1)
@@ -4704,6 +4852,15 @@ def materializeFullBodyPlanForProductV1
     (admitCallerRole : Bool) : Bool :=
   (makePlanFromSemanticDataV1 data admitCallerRole true).toOption.isSome
 
+/-- A retained exact decomposition of the production product lowerer
+    discharges its public support premise. The Boolean remains only the public
+    decision surface; this theorem, not a runtime observation, is the proof. -/
+theorem CertifiedPlanLoweringV1.supportsFullBodyPlanData_eq_true
+    (certified : CertifiedPlanLoweringV1 source admitCallerRole true) :
+    supportsFullBodyPlanDataV1 source admitCallerRole = true := by
+  simp only [supportsFullBodyPlanDataV1, certified.makePlan_success,
+    Except.toOption, Option.isSome_some]
+
 /-- Compose exact capability identity, carrier decoding, and the sole
     data-to-Plan lowering result into a successful product Plan equation. The
     final premise is the public support predicate over that private lowering;
@@ -4746,5 +4903,30 @@ theorem materializeFullBodyPlanForProductV1_exists_of_stages
   simp only [hcompiled, hcarrier, makePlanFromSemanticV1, hdecode, Bind.bind,
     Except.bind]
   exact hplanSuccess
+
+/-- Strong staged form for proof-producing callers: exact capability and
+    carrier identities plus one retained production lowering certificate
+    replay to that certificate's Plan. No expected Plan enters the API. -/
+theorem materializeFullBodyPlanForProductV1_eq_ok_of_certified_stages
+    (capability : ResolvedEngineeringBuildV1)
+    (compiled : CompiledSemanticV1)
+    (carrier : SemanticProgramV1)
+    (data : SemanticProgramDataV1)
+    (admitCallerRole : Bool)
+    (certified : CertifiedPlanLoweringV1 data admitCallerRole true)
+    (hkind : ResolvedEngineeringBuildV1.kindOf capability = .solana)
+    (hprofile : ResolvedEngineeringBuildV1.codegenProfileOf capability =
+      CodegenProfileId.solanaSbpfCpiElfV1)
+    (hcompiled : ResolvedEngineeringBuildV1.compiledOf capability = compiled)
+    (hcarrier : CompiledSemanticV1.semanticV1Of compiled = carrier)
+    (hdecode : decodeSemanticProgramDataV1 carrier.canonicalBytes = .ok data) :
+    materializeFullBodyPlanForProductV1 capability admitCallerRole =
+      .ok certified.plan := by
+  unfold materializeFullBodyPlanForProductV1
+  rw [hkind]
+  rw [hprofile]
+  simp only [hcompiled, hcarrier, makePlanFromSemanticV1, hdecode, Bind.bind,
+    Except.bind]
+  exact certified.makePlan_success
 
 end ProofForgeV2.Targets.Solana

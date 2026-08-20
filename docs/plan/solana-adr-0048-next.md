@@ -420,10 +420,17 @@ second codegen.
     retains exact carrier decode and capability identity projections, but its
     concrete Plan-support premise is deliberately still open: a direct
     cross-module whole-lowering `decide` cannot unfold the private production
-    stages and is not accepted as a theorem. Close that premise with reusable
-    staged lowering equations, then totalize/replay the remaining
-    `ValidatePlanV1`/`EmitIRV1` recursive bodies. Do not copy an expected Plan or
-    make the private lowerers public merely to force reduction.
+    stages and is not accepted as a theorem. The sole Semantic-data → Plan
+    implementation now runs through reusable context preparation, one-callable
+    source-order accumulation and Plan finalization stages. One retained
+    `CertifiedPlanLoweringV1` composes exact equations for those same stages and
+    replays to the exact private lowering and capability-gated materializer; it
+    accepts no expected Plan and is not a second Plan representation or
+    lowering. Next decompose the context and callable internals only at coherent
+    production boundaries needed for StateCell stage equations, then
+    totalize/replay the remaining `ValidatePlanV1`/`EmitIRV1` recursive bodies.
+    Do not copy an expected Plan or make the private lowerers public merely to
+    force reduction.
 
 D4's four pinned sparse certificates and all four concrete D5 compositions are
 complete, and the generic seam now has a second real contract/HandlerIR shape
@@ -455,11 +462,13 @@ Next formalization slices, in order:
    all-stage preparation replay theorem, frozen registry creation and the sole
    `resolveBuildSelectionV1`, frozen support index/support claims and the sole
    `resolveEngineeringRequirementsV1` are also discharged. Next
-   finish the reusable StateCell Plan-support stage equations, then
-   totalize/replay the remaining `ValidatePlanV1`, `EmitIRV1` and `validateIR`
-   recursive bodies and discharge the StateCell exact post-validation emission
-   equation. Keep traversal contract-independent and do not add a proof-only
-   compiler, emitter or copied assembly.
+   finish the reusable StateCell Plan-support equations through the new exact
+   context/callable/finalization certificate, refining only the still-opaque
+   context and Handler stages as necessary. Then totalize/replay the remaining
+   `ValidatePlanV1`, `EmitIRV1` and `validateIR` recursive bodies and discharge
+   the StateCell exact post-validation emission equation. Keep traversal
+   contract-independent and do not add a proof-only compiler, emitter or copied
+   assembly.
 2. **SOL-0048-D5-GET-UNCONDITIONAL**: build the 103-block SHA trace directly
    over that exact emitter result, replay it through `resolveBoundSbpfArtifactV1`
    and preparation replay, then discharge the existing StateCell `get` gate.

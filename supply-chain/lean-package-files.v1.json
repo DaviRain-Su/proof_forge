@@ -1421,9 +1421,9 @@
       "sha256": "5824ca4ff1eb800eae3de6ef28c57e657b25aa034585f483ecb1b780dc27424c"
     },
     {
-      "bytes": 237248,
+      "bytes": 244999,
       "path": "ProofForgeV2/Targets/Solana/LowerSemanticV1.lean",
-      "sha256": "f7ca88f7c71ae8b2dd8b4bd47fb275174e70524e0567f7039148299b63a699be"
+      "sha256": "f1487e31909e2bc0b7346f92409ef7572b37e6103c84dcf4c8088f3a2aecf4e7"
     },
     {
       "bytes": 5257,
