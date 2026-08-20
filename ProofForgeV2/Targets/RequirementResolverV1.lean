@@ -56,14 +56,17 @@ import ProofForgeV2.Core.RequirementIdsV1
 import ProofForgeV2.Semantic.RequirementsV1
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Targets.BuildSelectionV1
+import ProofForgeV2.Targets.CallBindV1
 import ProofForgeV2.Targets.TargetRegistryV1
 
 namespace ProofForgeV2.Targets.RequirementResolverV1
 
 open ProofForgeV2
+open ProofForgeV2.Core.Common
 open ProofForgeV2.Semantic.RequirementsV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.BuildSelectionV1
+open ProofForgeV2.Targets.CallBindV1
 open ProofForgeV2.Targets.TargetRegistryV1
 
 /-- One static support row: implemented (target, profile) + exact S2 requests. -/
@@ -113,6 +116,9 @@ def callScheduleFamilyTagV1 : TargetKind → String
 /-- Address-shaped residual tags for the three B-CALL-SEM gaps that still
     need an owner ADR (COMP-1-CALL-SEM-LAND inspect residual).
 
+    Target-level `inspect <target>` always reports this table: there is no
+    program on that surface. Program-level clear lives in
+    `programCallScheduleResidualV1` (build only).
     `none` means this kind has no address-shaped residual on the inspect
     surface (the family tag already covers dual-FC / witness / promise etc.).
     Tags are inspect-only: they do **not** enter SupportClaim digest,
@@ -123,6 +129,83 @@ def callScheduleResidualV1 : TargetKind → Option String
   | .solana => some "callee-identity-outer-account-open"
   | .cosmwasm => some "contract-addr-qn-stub"
   | _ => none
+
+/-- ADR-0053: `pf.crypto.*` / `pf.assets` never consult the bind table. -/
+private def isCallBindExemptQnV1 (qn : String) : Bool :=
+  qn.startsWith "pf.crypto." || qn.startsWith "pf.assets."
+
+private def dottedCallBindQnV1 (name : Core.Common.QualifiedName) : String :=
+  String.intercalate "." name.components.toArray.toList
+
+/-- Generic `call`/`schedule` callees that the bind table must cover. -/
+private def collectGenericCallBindCalleesV1 (data : SemanticProgramDataV1) :
+    Array Core.Common.QualifiedName := Id.run do
+  let mut out : Array Core.Common.QualifiedName := #[]
+  for callable in data.callables do
+    for blk in callable.blocks do
+      for instr in blk.instructions do
+        match instr.op with
+        | .externalCall _ callee _ | .schedule _ callee _ =>
+            unless isCallBindExemptQnV1 (dottedCallBindQnV1 callee) do
+              out := out.push callee
+        | _ => pure ()
+  pure out
+
+private def rowCoversGenericCalleeV1
+    (kind : TargetKind) (table : CallBindTableV1)
+    (callee : Core.Common.QualifiedName) :
+    Bool :=
+  let comps := callee.components.toArray
+  match kind with
+  | .evm =>
+      match requireEvmAddressV1 table comps with
+      | .ok _ => true
+      | .error _ => false
+  | .solana =>
+      match requireSolanaProgramIdV1 table comps with
+      | .ok _ => true
+      | .error _ => false
+  | .cosmwasm =>
+      match requireCosmWasmAddressV1 table comps with
+      | .ok _ => true
+      | .error _ => false
+  | _ => false
+
+/-- Program-level address residual (build surface).
+
+    * No generic `call`/`schedule` → `none` (nothing to bind).
+    * Present table covering every generic QN:
+      - evm / cosmwasm → `none` (hashed QN / contract_addr stub closed);
+      - solana → keep `callee-identity-outer-account-open` (Wave 2b packs
+        compile-time AccountMeta; outer AccountInfo join stays open).
+    * Missing table or uncovered QN → target-level `callScheduleResidualV1`.
+    Does **not** change target `inspect`. Does **not** enter SupportClaim. -/
+def programCallScheduleResidualV1
+    (kind : TargetKind)
+    (program : SemanticProgramV1)
+    (bindings : Option CallBindTableV1) :
+    Except String (Option String) := do
+  let data ← match validateSemanticProgramV1 program with
+    | .ok d => pure d
+    | .error _ =>
+        throw "call-bind: compiled semantic failed structure validation"
+  let callees := collectGenericCallBindCalleesV1 data
+  if callees.isEmpty then
+    pure none
+  else
+    match bindings with
+    | none => pure (callScheduleResidualV1 kind)
+    | some table =>
+        let mut covered := true
+        for callee in callees do
+          unless rowCoversGenericCalleeV1 kind table callee do
+            covered := false
+        if covered then
+          match kind with
+          | .solana => pure (some "callee-identity-outer-account-open")
+          | _ => pure none
+        else
+          pure (callScheduleResidualV1 kind)
 
 /-- SYS-S4 `context.attachedValue` family-split tag (COMP-1-SYS-CAP-L2 honesty).
 

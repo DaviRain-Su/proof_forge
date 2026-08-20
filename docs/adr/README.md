@@ -71,4 +71,4 @@ ADR，并在旧 ADR frontmatter 中记录 `successor`，不得静默改写历史
 | [ADR-0050](0050-xrpl-bedrock-wasm-q1.md) | XRPL Bedrock opt-in WASM Q1：`xrpl-bedrock-wasm-u64-v1` 经 ambient rustc 产出 `.wasm` extra；默认 source 仍 zero-tool；无 AlphaNet/主网 | proposed |
 | [ADR-0051](0051-spec-honesty-external-call-return.md) | SPEC-honesty：external call typed return 收口（SPEC-SEM-001 `ExternalResponseV1` 升级 `returnValue?`；schedule 维持 void；accepted 后才修订 semantic-core 旧句；不关 formal TST） | proposed |
 | [ADR-0052](0052-xrpl-host-capability-keys.md) | XRPL host 三键：冻 `get_parent_ledger_time` / `get_account`；`sha256` keep-FC（无 host）；**不开叶** | proposed |
-| [ADR-0053](0053-call-bind-v1.md) | Call-bind v1：编译期 opt-in `proof-forge.call-bind.v1`；Wave 2 三叶 generic call 无行 fail closed；Wave 2a 空账户 void CALL FC；Wave 2b Solana 编译期 AccountMeta（非 outer join） | proposed |
+| [ADR-0053](0053-call-bind-v1.md) | Call-bind v1：编译期 opt-in `proof-forge.call-bind.v1`；Wave 2 三叶 generic call 无行 fail closed；Wave 2a 空账户 void CALL FC；Wave 2b Solana 编译期 AccountMeta（非 outer join）；Wave 2c build program-level residual | proposed |

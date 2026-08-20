@@ -259,6 +259,29 @@ def run : IO Unit := do
   | .ok text =>
       expect (hasSubstr text "\"minimumEvidenceRequested\":null")
         "build json must null requested when flag omitted"
+      expect (hasSubstr text "\"callScheduleResidual\":null")
+        "build json defaults program-level residual to null"
+
+  -- Wave 2c: program-level residual is optional on the build surface.
+  match renderBuildOkJsonV1 receipt #[] none (some "hashed-qn-no-deploy-bind") with
+  | .error e => throw <| IO.userError s!"render build json residual: {e.render}"
+  | .ok text =>
+      expect (hasSubstr text "\"callScheduleResidual\":\"hashed-qn-no-deploy-bind\"")
+        "build json must emit residual as a string"
+      match parsePfJcs text with
+      | .error e => throw <| IO.userError s!"build json residual PF-JCS: {e}"
+      | .ok _ => pure ()
+  match renderBuildOkJsonV1 receipt #[] none none with
+  | .error e => throw <| IO.userError s!"render build json residual-null: {e.render}"
+  | .ok text =>
+      expect (hasSubstr text "\"callScheduleResidual\":null")
+        "cleared residual must be JSON null"
+  let humanGap := renderBuildOkHumanV1 receipt (some "hashed-qn-no-deploy-bind")
+  expect (hasSubstr humanGap "callScheduleResidual=hashed-qn-no-deploy-bind")
+    "human build must print remaining residual"
+  let humanClear := renderBuildOkHumanV1 receipt none
+  expect (!hasSubstr humanClear "callScheduleResidual")
+    "human build omits residual when none"
 
   -- RES-1 pure wall enforce (shipped)
   match enforceWallMsLimitV1 "frontend" none 999999 with

@@ -437,6 +437,8 @@ private def testBuildStateCellSuccess : IO Unit := do
     s!"StateCell build success stdout missing, stdout={stdout}"
   expect (containsSubstr stdout "deployable=")
     s!"StateCell build must report deployable, stdout={stdout}"
+  expect (!containsSubstr stdout "callScheduleResidual")
+    s!"StateCell has no generic call; human build omits residual, stdout={stdout}"
   expect (!containsSubstr stderr "PF-")
     s!"StateCell build success must not print product diagnostic codes on stderr, got:\n{stderr}"
   expect (!containsSubstr stderr "uncaught exception")
@@ -741,6 +743,8 @@ private def testJsonSurface : IO Unit := do
     s!"build target: {stdout4}"
   expect (containsSubstr stdout4 "\"codegenProfile\":")
     s!"build profile field: {stdout4}"
+  expect (containsSubstr stdout4 "\"callScheduleResidual\":null")
+    s!"StateCell build json residual must be null: {stdout4}"
 
 private def testProfileSelection : IO Unit := do
   let outDir := FilePath.mk "build/v2/diagnostic-profile-sbpf-elf"

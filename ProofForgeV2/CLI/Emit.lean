@@ -1455,23 +1455,36 @@ def renderCheckOkJsonV1
       ("proofCertificationDigest", proofDigestJson)
     ]
 
-/-- Product build success human body (includes selected profile). -/
-def renderBuildOkHumanV1 (receipt : EmitReceiptV1) : String :=
-  s!"built target={receipt.target} profile={receipt.codegenProfile} deployable={receipt.deployable}"
+/-- Product build success human body (includes selected profile).
+    Program-level `callScheduleResidual` only when the address gap remains. -/
+def renderBuildOkHumanV1
+    (receipt : EmitReceiptV1)
+    (callScheduleResidual : Option String := none) : String :=
+  let base :=
+    s!"built target={receipt.target} profile={receipt.codegenProfile} deployable={receipt.deployable}"
+  match callScheduleResidual with
+  | some tag => base ++ s!"\ncallScheduleResidual={tag}"
+  | none => base
 
 /-- Product build success JSON (`proof-forge.cli.build.v1`).
 `minimumEvidence` stays null until profile effective minimum is wired (D3-E8).
 `minimumEvidenceRequested` mirrors the CLI flag; `minimumEvidenceEnforcement`
-labels parse-only honesty (see docs/plan/d3-e8-minimum-evidence.md). -/
+labels parse-only honesty (see docs/plan/d3-e8-minimum-evidence.md).
+`callScheduleResidual` is program-level (string or `null`); not SupportClaim. -/
 def renderBuildOkJsonV1
     (receipt : EmitReceiptV1)
     (resourceLimits : Array ResourceLimitOverrideV1 := #[])
-    (minimumEvidenceRequested : Option String := none) :
+    (minimumEvidenceRequested : Option String := none)
+    (callScheduleResidual : Option String := none) :
     CompileResult String :=
   let limitsJson := PfJson.array (resourceLimits.map renderResourceLimitJsonV1)
   let requestedJson :=
     match minimumEvidenceRequested with
     | some g => PfJson.string g
+    | none => PfJson.null
+  let residualJson :=
+    match callScheduleResidual with
+    | some tag => PfJson.string tag
     | none => PfJson.null
   renderCliJsonV1 <|
     PfJson.object #[
@@ -1482,7 +1495,8 @@ def renderBuildOkJsonV1
       ("resourceLimits", limitsJson),
       ("minimumEvidence", PfJson.null),
       ("minimumEvidenceRequested", requestedJson),
-      ("minimumEvidenceEnforcement", .string minimumEvidenceEnforcementWireV1)
+      ("minimumEvidenceEnforcement", .string minimumEvidenceEnforcementWireV1),
+      ("callScheduleResidual", residualJson)
     ]
 
 -- ---------------------------------------------------------------------------

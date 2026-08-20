@@ -67,13 +67,18 @@ explicit (never ambient).
 `schedule` stays fire-and-forget; result-bearing CALL still uses
 `returndatasize`.
 
-**Wave 2b (done this slice):** Solana nonempty `accounts` pack
+**Wave 2b (done):** Solana nonempty `accounts` pack
 compile-time AccountMetas (≤8). Not outer-instruction account join.
-Inspect residuals still not cleared.
+
+**Wave 2c (done this slice):** successful `build` reports
+program-level `callScheduleResidual`. No generic call → `null`.
+EVM/CW covered rows → `null`. Solana with generic call keeps
+`callee-identity-outer-account-open`. Target `inspect <target>`
+stays the closed kind table.
 
 Open remainder: resolver support keys must not be read as
-“cross-platform call done.” Next coding: inspect residual clear
-only when that program’s generic calls all have rows (own slice).
+“cross-platform call done.” Solana outer AccountInfo join and
+target inspect residual stay open.
 
 ### Decisions (inventory 2026-08-16 + evm-call-addr-gap §3)
 

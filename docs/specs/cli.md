@@ -106,7 +106,12 @@ support decision、manifest identity 或 exit 4 门禁；不得以成功 build �
 join 后把表显式传到三叶 emit：generic `call`/`schedule` 无匹配行 fail closed。
 无 `--bindings` 时行为与今天完全相同（hashed QN / QN stub）。**Wave 2a**：
 EVM generic void CALL 在 `extcodesize==0` 时 fail closed（与 `--bindings` 无关）。
-不把产品
+**Wave 2c**：成功 `build` JSON（`proof-forge.cli.build.v1`）带
+`callScheduleResidual: string | null`（program-level；无 generic call 或
+EVM/CW 全部 generic call 有精确行 → `null`；Solana 有 generic call 仍为
+`callee-identity-outer-account-open`）。human 仅在 residual 仍存在时多一行。
+target `inspect` 仍静态报告 kind 闭表；inspect-output / manifest / evidence
+不加该字段。不把产品
 `build` 接到 Anvil / wasmd / 任何网络。
 
 `--resource-limit` 是 repeatable、逐 stage/field 的 lower-only override。CLI 名称固定映射到
