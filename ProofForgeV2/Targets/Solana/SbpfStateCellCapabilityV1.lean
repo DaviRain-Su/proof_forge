@@ -65,6 +65,7 @@ theorem stateCellEngineeringCapabilityCertificateV1 :
           StateCell.Source.subjectV1 StateCell.bytes)
       (selection : ResolvedBuildSelectionV1)
       (compiled : CompiledSemanticV1)
+      (carrier : SemanticProgramV1)
       (capability : ResolvedEngineeringBuildV1),
       bindElaboratedSourceToCanonicalBytesV1
           StateCell.Source.subjectV1 StateCell.bytes = .ok binding ∧
@@ -72,13 +73,22 @@ theorem stateCellEngineeringCapabilityCertificateV1 :
         validateSemanticProgramV1
             (CompiledSemanticV1.semanticV1Of compiled) =
           .ok stateCellSemanticProgramDataV1 ∧
+        CompiledSemanticV1.semanticV1Of compiled = carrier ∧
+        decodeSemanticProgramDataV1 carrier.canonicalBytes =
+          .ok stateCellSemanticProgramDataV1 ∧
         resolveBuildSelectionV1 TargetId.solana
             (some CodegenProfileId.solanaSbpfCpiElfV1) = .ok selection ∧
+        ResolvedBuildSelectionV1.targetIdOf selection = TargetId.solana ∧
+        ResolvedBuildSelectionV1.codegenProfileOf selection =
+          CodegenProfileId.solanaSbpfCpiElfV1 ∧
+        ResolvedBuildSelectionV1.kindOf selection = .solana ∧
         resolveEngineeringRequirementsV1 selection compiled =
-          .ok capability := by
+          .ok capability ∧
+        ResolvedEngineeringBuildV1.selectionOf capability = selection ∧
+        ResolvedEngineeringBuildV1.compiledOf capability = compiled := by
   rcases stateCellCompiledSemanticCertificateV1 with
     ⟨binding, carrier, compiled, hbinding, _hnormalize, hcompiled,
-      hvalidate, hcompiledCarrier, _hname, _hsourceDigest,
+      hvalidate, hdecode, hcompiledCarrier, _hname, _hsourceDigest,
       _hsemanticDigest⟩
   have hcompiledValidation :
       validateSemanticProgramV1
@@ -90,8 +100,9 @@ theorem stateCellEngineeringCapabilityCertificateV1 :
   rcases resolveEngineeringRequirementsV1_solana_sbpf_cpi_elf_exists
       selection compiled stateCellSemanticProgramDataV1 htarget hprofile hkind
       hcompiledValidation stateCellSolanaRequirementResolutionSuccessV1 with
-    ⟨capability, hcapability⟩
-  exact ⟨binding, selection, compiled, capability, hbinding, hcompiled,
-    hcompiledValidation, hselection, hcapability⟩
+    ⟨capability, hcapability, hcapabilitySelection, hcapabilityCompiled⟩
+  exact ⟨binding, selection, compiled, carrier, capability, hbinding, hcompiled,
+    hcompiledValidation, hcompiledCarrier, hdecode, hselection, htarget,
+    hprofile, hkind, hcapability, hcapabilitySelection, hcapabilityCompiled⟩
 
 end ProofForgeV2.Targets.Solana

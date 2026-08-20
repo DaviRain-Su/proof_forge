@@ -47,6 +47,8 @@ theorem stateCellCanonicalCarrierCertificateV1 :
 theorem stateCellSemanticValidationSuccessV1 :
     ∃ bytes,
       encodeSemanticProgramDataV1 stateCellSemanticProgramDataV1 = .ok bytes ∧
+        decodeSemanticProgramDataV1 bytes =
+          .ok stateCellSemanticProgramDataV1 ∧
         validateSemanticProgramV1 ⟨bytes⟩ =
           .ok stateCellSemanticProgramDataV1 := by
   rcases stateCellSemanticEncodingSuccessV1 with ⟨bytes, hencode, _hsize⟩
@@ -54,7 +56,7 @@ theorem stateCellSemanticValidationSuccessV1 :
       decodeSemanticProgramDataV1 bytes = .ok stateCellSemanticProgramDataV1 :=
     decodeSemanticProgramDataV1_of_encode_ok_of_rootFieldInvert
       stateCellSemanticProgramDataV1 bytes hencode stateCellRootFieldInvertV1
-  exact ⟨bytes, hencode,
+  exact ⟨bytes, hencode, hdecode,
     validateSemanticProgramV1_eq_ok_of_encode_decode
       stateCellSemanticProgramDataV1 bytes hencode hdecode⟩
 
@@ -75,6 +77,8 @@ theorem stateCellCompiledSemanticCertificateV1 :
         compileValidatedSourceV1 binding.validated = .ok compiled ∧
         validateSemanticProgramV1 carrier =
           .ok stateCellSemanticProgramDataV1 ∧
+        decodeSemanticProgramDataV1 carrier.canonicalBytes =
+          .ok stateCellSemanticProgramDataV1 ∧
         CompiledSemanticV1.semanticV1Of compiled = carrier ∧
         CompiledSemanticV1.artifactProgramNameOf compiled = "StateCell" ∧
         CompiledSemanticV1.sourceDigestOf compiled = sha256Bytes
@@ -83,7 +87,7 @@ theorem stateCellCompiledSemanticCertificateV1 :
           sha256Bytes carrier.canonicalBytes := by
   rcases stateCellCanonicalSourceBindingV1 with ⟨binding, hbinding⟩
   rcases stateCellSemanticValidationSuccessV1 with
-    ⟨bytes, hencode, hvalidate⟩
+    ⟨bytes, hencode, hdecode, hvalidate⟩
   let carrier : SemanticProgramV1 := ⟨bytes⟩
   have hcarrier : encodeCarrierV1 stateCellSemanticProgramDataV1 = .ok carrier := by
     simpa only [carrier] using encodeCarrierV1_eq_ok_of_encode
@@ -121,7 +125,8 @@ theorem stateCellCompiledSemanticCertificateV1 :
     ⟨compiled, hcompile, hcompiledCarrier, hcompiledName,
       hcompiledSource, hcompiledSemantic⟩
   refine ⟨binding, carrier, compiled, hbinding, hnormalize, hcompile,
-    hvalidateCarrier, hcompiledCarrier, ?_, ?_, ?_⟩
+    hvalidateCarrier, ?_, hcompiledCarrier, ?_, ?_, ?_⟩
+  · simpa only [carrier] using hdecode
   · exact hcompiledName.trans (by rfl)
   · simpa only [sourceDigest] using hcompiledSource
   · simpa only [semanticDigest, carrier] using hcompiledSemantic
@@ -152,7 +157,7 @@ theorem stateCellProductionPreparationIngressCertificateV1 :
             (CompiledSemanticV1.semanticV1Of compiled) = .ok admitted := by
   rcases stateCellCompiledSemanticCertificateV1 with
     ⟨binding, carrier, compiled, hbinding, _hnormalize, hcompiled,
-      hvalidate, hcompiledCarrier, _hname, _hsourceDigest,
+      hvalidate, _hdecode, hcompiledCarrier, _hname, _hsourceDigest,
       _hsemanticDigest⟩
   have hcompiledValidation :
       validateSemanticProgramV1

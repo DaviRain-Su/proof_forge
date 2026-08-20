@@ -239,14 +239,16 @@ theorem resolveEngineeringRequirementsV1_exists_of_stages
       (EngineeringSupportClaimV1.supportedOf supportClaim ==
         inspection.supported) = true) :
     ∃ capability,
-      resolveEngineeringRequirementsV1 selection compiled = .ok capability := by
+      resolveEngineeringRequirementsV1 selection compiled = .ok capability ∧
+        ResolvedEngineeringBuildV1.selectionOf capability = selection ∧
+        ResolvedEngineeringBuildV1.compiledOf capability = compiled := by
   unfold resolveEngineeringRequirementsV1
   simp only [hindex, hinspection, hkind, ↓reduceIte,
     hdata, hrequests, hdescriptor, hdescriptorTarget, hdescriptorProfile,
     hregistry, hregistration, hregistrationKind, hdescriptorJoin, hclaims,
     hclaim, hclaimTarget, hclaimProfile, hclaimSupported, Bind.bind, Except.bind,
     Pure.pure, Except.pure]
-  exact ⟨_, rfl⟩
+  exact ⟨_, rfl, rfl, rfl⟩
 
 set_option maxHeartbeats 10000000 in
 set_option maxRecDepth 100000 in
@@ -268,7 +270,9 @@ theorem resolveEngineeringRequirementsV1_solana_sbpf_cpi_elf_exists
     (hrequests : inspectResolveRequestsV1 initialSolanaSupportRowV1.supported
       data.requirements = .ok ()) :
     ∃ capability,
-      resolveEngineeringRequirementsV1 selection compiled = .ok capability := by
+      resolveEngineeringRequirementsV1 selection compiled = .ok capability ∧
+        ResolvedEngineeringBuildV1.selectionOf capability = selection ∧
+        ResolvedEngineeringBuildV1.compiledOf capability = compiled := by
   rcases initialStaticRequirementSupportIndexV1Result_exists with
     ⟨supportIndex, hindex⟩
   let inspection : RequirementResolutionInspectionV1 := {

@@ -790,70 +790,88 @@ private def containerLeafLayoutV1
 
 /-- Flatten a type into ordered leaf (name, isInt) pairs under Solana N3 policy.
     Scalars: UInt64 / Int64 (and Principal as len+8 data words). Named Struct:
-    field preorder. Named Enum: tag (UInt64) + max-payload leaf slots. -/
-private partial def flattenTypeLeafSpecsV1
+    field preorder. Named Enum: tag (UInt64) + max-payload leaf slots.
+
+    The production traversal is explicitly bounded by the validated type table.
+    Exhaustion fails closed instead of relying on kernel-opaque `partial`
+    recursion. -/
+private def flattenTypeLeafSpecsWithFuelV1
+    (typeDecls : Array TypeDeclV1) (types : SolanaTypeClosureV1)
+    (fuel : Nat) (typeId : TypeIdV1) (namePrefix : String) :
+    CompileResult (Array (String × Bool)) := do
+  match fuel with
+  | 0 =>
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: aggregate type traversal exceeds the validated type-table bound"
+  | fuel + 1 =>
+      if types.isUInt64 typeId then
+        pure #[(namePrefix, false)]
+      else if types.int64TypeId == some typeId then
+        pure #[(namePrefix, true)]
+      else if types.isPrincipal typeId || types.isString typeId then
+        let names ← flattenPrincipalLeafSpecsV1 namePrefix
+        pure (names.map fun n => (n, false))
+      else if types.isNamedAggregate typeId then
+        match typeDecls[typeId.toNat]? with
+        | none =>
+            throw <| .planInvariant .solana
+              s!"unsupported Solana semantic shape: missing TypeDecl for aggregate {typeId}"
+        | some decl =>
+            match decl.shape with
+            | .struct fields => do
+                unless fields.size > 0 do
+                  throw <| .planInvariant .solana
+                    "unsupported Solana semantic shape: named Struct requires at least one field"
+                let mut out : Array (String × Bool) := #[]
+                for f in fields do
+                  let subName :=
+                    if namePrefix.isEmpty then f.name else namePrefix ++ "_" ++ f.name
+                  unless isIdentifier subName do
+                    throw <| .planInvariant .solana
+                      s!"state name '{subName}' is not a safe identifier"
+                  let sub ← flattenTypeLeafSpecsWithFuelV1 typeDecls types fuel
+                    f.typeId subName
+                  out := out ++ sub
+                pure out
+            | .enum variants => do
+                unless variants.size > 0 do
+                  throw <| .planInvariant .solana
+                    "unsupported Solana semantic shape: named Enum requires at least one variant"
+                let tagName :=
+                  if namePrefix.isEmpty then "tag" else namePrefix ++ "_tag"
+                unless isIdentifier tagName do
+                  throw <| .planInvariant .solana
+                    s!"state name '{tagName}' is not a safe identifier"
+                let mut maxPay : Nat := 0
+                for v in variants do
+                  let mut n : Nat := 0
+                  for pt in v.payloadTypes do
+                    let sub ← flattenTypeLeafSpecsWithFuelV1 typeDecls types fuel
+                      pt "tmp"
+                    n := n + sub.size
+                  if n > maxPay then maxPay := n
+                let mut out : Array (String × Bool) := #[(tagName, false)]
+                for i in [0:maxPay] do
+                  let pName :=
+                    if namePrefix.isEmpty then s!"p{i}" else namePrefix ++ "_p" ++ toString i
+                  unless isIdentifier pName do
+                    throw <| .planInvariant .solana
+                      s!"state name '{pName}' is not a safe identifier"
+                  out := out.push (pName, false)
+                pure out
+            | _ =>
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: named type must be Struct or Enum"
+      else
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: storage/param leaf must be UInt64, Int64, Principal, String, or named Struct/Enum"
+
+private def flattenTypeLeafSpecsV1
     (typeDecls : Array TypeDeclV1) (types : SolanaTypeClosureV1)
     (typeId : TypeIdV1) (namePrefix : String) :
-    CompileResult (Array (String × Bool)) := do
-  if types.isUInt64 typeId then
-    pure #[(namePrefix, false)]
-  else if types.int64TypeId == some typeId then
-    pure #[(namePrefix, true)]
-  else if types.isPrincipal typeId || types.isString typeId then
-    let names ← flattenPrincipalLeafSpecsV1 namePrefix
-    pure (names.map fun n => (n, false))
-  else if types.isNamedAggregate typeId then
-    match typeDecls[typeId.toNat]? with
-    | none =>
-        throw <| .planInvariant .solana
-          s!"unsupported Solana semantic shape: missing TypeDecl for aggregate {typeId}"
-    | some decl =>
-        match decl.shape with
-        | .struct fields => do
-            unless fields.size > 0 do
-              throw <| .planInvariant .solana
-                "unsupported Solana semantic shape: named Struct requires at least one field"
-            let mut out : Array (String × Bool) := #[]
-            for f in fields do
-              let subName :=
-                if namePrefix.isEmpty then f.name else namePrefix ++ "_" ++ f.name
-              unless isIdentifier subName do
-                throw <| .planInvariant .solana
-                  s!"state name '{subName}' is not a safe identifier"
-              let sub ← flattenTypeLeafSpecsV1 typeDecls types f.typeId subName
-              out := out ++ sub
-            pure out
-        | .enum variants => do
-            unless variants.size > 0 do
-              throw <| .planInvariant .solana
-                "unsupported Solana semantic shape: named Enum requires at least one variant"
-            let tagName :=
-              if namePrefix.isEmpty then "tag" else namePrefix ++ "_tag"
-            unless isIdentifier tagName do
-              throw <| .planInvariant .solana
-                s!"state name '{tagName}' is not a safe identifier"
-            let mut maxPay : Nat := 0
-            for v in variants do
-              let mut n : Nat := 0
-              for pt in v.payloadTypes do
-                let sub ← flattenTypeLeafSpecsV1 typeDecls types pt "tmp"
-                n := n + sub.size
-              if n > maxPay then maxPay := n
-            let mut out : Array (String × Bool) := #[(tagName, false)]
-            for i in [0:maxPay] do
-              let pName :=
-                if namePrefix.isEmpty then s!"p{i}" else namePrefix ++ "_p" ++ toString i
-              unless isIdentifier pName do
-                throw <| .planInvariant .solana
-                  s!"state name '{pName}' is not a safe identifier"
-              out := out.push (pName, false)
-            pure out
-        | _ =>
-            throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: named type must be Struct or Enum"
-  else
-    throw <| .planInvariant .solana
-      "unsupported Solana semantic shape: storage/param leaf must be UInt64, Int64, Principal, String, or named Struct/Enum"
+    CompileResult (Array (String × Bool)) :=
+  flattenTypeLeafSpecsWithFuelV1 typeDecls types (typeDecls.size + 1)
+    typeId namePrefix
 
 private def leafCountOfTypeV1
     (typeDecls : Array TypeDeclV1) (types : SolanaTypeClosureV1)
@@ -2209,6 +2227,63 @@ private def buildPureFnTableV1
     i := i + 1
   pure { byCallableId, paramCounts, resultIsBool, resultIsInt }
 
+/-- Fuel for the production segment-dependency walk. Each root is popped once;
+    dependencies are pushed only the first time their owner is visited. The
+    root count plus every dependency edge in the segment is therefore a closed
+    upper bound, with one extra step for the empty-stack observation. -/
+private def segmentDependencyWalkFuelV1
+    (values : Array LoweredValueV1) (segmentStart : Nat)
+    (roots : Array Nat) : Nat :=
+  roots.size + (values.extract segmentStart values.size).foldl
+    (fun fuel value => fuel + value.dependencies.size) 1
+
+/-- Total production dependency walk shared by scalar, aggregate, and
+    multi-root segment consumption. Exhaustion is fail-closed; no empty or
+    partial reachability result can be projected from an exhausted walk. -/
+private def visitSegmentDependenciesV1
+    (values : Array LoweredValueV1)
+    (blockEntry segmentStart : Nat)
+    (fuel : Nat)
+    (visited : Array Bool)
+    (stack : Array Nat)
+    (visitedCount : Nat) : CompileResult Nat := do
+  match fuel with
+  | 0 =>
+      if stack.isEmpty then
+        pure visitedCount
+      else
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: segment dependency walk exceeds its edge bound"
+  | fuel + 1 =>
+      match stack.back? with
+      | none => pure visitedCount
+      | some index =>
+          let stack := stack.pop
+          unless segmentStart ≤ index && index < values.size do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: sink references a stale ValueId"
+          let localIndex := index - segmentStart
+          if visited[localIndex]? == some false then
+            let visited := visited.set! localIndex true
+            let visitedCount := visitedCount + 1
+            let value := values[index]!
+            let mut stack := stack
+            for dependency in value.dependencies do
+              let dependencyIndex := dependency.toNat
+              if dependencyIndex >= segmentStart then
+                unless dependencyIndex < values.size do
+                  throw <| .planInvariant .solana
+                    "unsupported Solana semantic shape: expression crosses an effect boundary"
+                stack := stack.push dependencyIndex
+              else if dependencyIndex >= blockEntry then
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: expression crosses an effect boundary"
+            visitSegmentDependenciesV1 values blockEntry segmentStart fuel
+              visited stack visitedCount
+          else
+            visitSegmentDependenciesV1 values blockEntry segmentStart fuel
+              visited stack visitedCount
+
 /-- Consume a sink root. Two cases:
     1. Root is in the current segment → full segment DAG reachability (historical).
     2. Root is a prior pure leaf (empty deps; e.g. materialised CPI result /
@@ -2231,32 +2306,10 @@ private def consumeCurrentSegmentV1
   else
     let rootValue ← currentValueV1 values blockEntry segmentStart root
     let segmentCount := values.size - segmentStart
-    let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
-    let mut stack : Array Nat := #[]
-    -- Only walk in-block segment values; dominating SSA is already closed.
-    stack := stack.push root.toNat
-    let mut visitedCount := 0
-    while !stack.isEmpty do
-      let index := stack.back!
-      stack := stack.pop
-      unless segmentStart ≤ index && index < values.size do
-        throw <| .planInvariant .solana
-          "unsupported Solana semantic shape: sink references a stale ValueId"
-      let localIndex := index - segmentStart
-      if visited[localIndex]? == some false then
-        visited := visited.set! localIndex true
-        visitedCount := visitedCount + 1
-        let value := values[index]!
-        for dependency in value.dependencies do
-          let dependencyIndex := dependency.toNat
-          if dependencyIndex >= segmentStart then
-            unless dependencyIndex < values.size do
-              throw <| .planInvariant .solana
-                "unsupported Solana semantic shape: expression crosses an effect boundary"
-            stack := stack.push dependencyIndex
-          else if dependencyIndex >= blockEntry then
-            throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: expression crosses an effect boundary"
+    let roots := #[root.toNat]
+    let visitedCount ← visitSegmentDependenciesV1 values blockEntry segmentStart
+      (segmentDependencyWalkFuelV1 values segmentStart roots)
+      (Array.mk (List.replicate segmentCount false)) roots 0
     unless visitedCount == segmentCount do
       throw <| .planInvariant .solana
         "unsupported Solana semantic shape: dead or reordered value instructions"
@@ -2282,31 +2335,10 @@ private def consumeCurrentSegmentValueV1
   else
     let rootValue ← currentValueV1 values blockEntry segmentStart root
     let segmentCount := values.size - segmentStart
-    let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
-    let mut stack : Array Nat := #[]
-    stack := stack.push root.toNat
-    let mut visitedCount := 0
-    while !stack.isEmpty do
-      let index := stack.back!
-      stack := stack.pop
-      unless segmentStart ≤ index && index < values.size do
-        throw <| .planInvariant .solana
-          "unsupported Solana semantic shape: sink references a stale ValueId"
-      let localIndex := index - segmentStart
-      if visited[localIndex]? == some false then
-        visited := visited.set! localIndex true
-        visitedCount := visitedCount + 1
-        let value := values[index]!
-        for dependency in value.dependencies do
-          let dependencyIndex := dependency.toNat
-          if dependencyIndex >= segmentStart then
-            unless dependencyIndex < values.size do
-              throw <| .planInvariant .solana
-                "unsupported Solana semantic shape: expression crosses an effect boundary"
-            stack := stack.push dependencyIndex
-          else if dependencyIndex >= blockEntry then
-            throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: expression crosses an effect boundary"
+    let roots := #[root.toNat]
+    let visitedCount ← visitSegmentDependenciesV1 values blockEntry segmentStart
+      (segmentDependencyWalkFuelV1 values segmentStart roots)
+      (Array.mk (List.replicate segmentCount false)) roots 0
     unless visitedCount == segmentCount do
       throw <| .planInvariant .solana
         "unsupported Solana semantic shape: dead or reordered value instructions"
@@ -2322,33 +2354,13 @@ private def consumeSegmentRootsV1
   for root in roots do
     let _ ← currentValueV1 values blockEntry segmentStart root
   let segmentCount := values.size - segmentStart
-  let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
-  let mut stack : Array Nat := #[]
+  let mut rootIndices : Array Nat := #[]
   for root in roots do
     if root.toNat >= segmentStart then
-      stack := stack.push root.toNat
-  let mut visitedCount := 0
-  while !stack.isEmpty do
-    let index := stack.back!
-    stack := stack.pop
-    unless segmentStart <= index && index < values.size do
-      throw <| .planInvariant .solana
-        "unsupported Solana semantic shape: sink references a stale ValueId"
-    let localIndex := index - segmentStart
-    if visited[localIndex]? == some false then
-      visited := visited.set! localIndex true
-      visitedCount := visitedCount + 1
-      let value := values[index]!
-      for dependency in value.dependencies do
-        let dependencyIndex := dependency.toNat
-        if dependencyIndex >= segmentStart then
-          unless dependencyIndex < values.size do
-            throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: expression crosses an effect boundary"
-          stack := stack.push dependencyIndex
-        else if dependencyIndex >= blockEntry then
-          throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: expression crosses an effect boundary"
+      rootIndices := rootIndices.push root.toNat
+  let visitedCount ← visitSegmentDependenciesV1 values blockEntry segmentStart
+    (segmentDependencyWalkFuelV1 values segmentStart rootIndices)
+    (Array.mk (List.replicate segmentCount false)) rootIndices 0
   unless visitedCount == segmentCount do
     throw <| .planInvariant .solana
       "unsupported Solana semantic shape: dead or reordered value instructions"
@@ -3906,7 +3918,7 @@ mutual
     a jump back to the innermost header ends the body with a latch update.
     Nested loop headers expand recursively. Returns (statements, values, exit).
     Mutually recursive with `lowerForLoopV1`. -/
-private partial def emitRegionV1
+private def emitRegionV1
     (owner : String)
     (mode : SemanticCallableModeV1)
     (expectsBoolReturn : Bool)
@@ -3925,9 +3937,12 @@ private partial def emitRegionV1
     (start : Nat)
     (values0 : Array LoweredValueV1) :
     CompileResult (Array Statement × Array LoweredValueV1 × RegionExitV1) := do
-  if fuel == 0 then
-    throw <| .planInvariant .solana
-      "unsupported Solana semantic shape: CFG region exceeds block bound"
+  let remainingFuel ← match hfuel : fuel with
+    | 0 =>
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: CFG region exceeds block bound"
+    | remaining + 1 =>
+        pure (⟨remaining, by omega⟩ : { n // n < fuel })
   -- Starting directly on a loop header is only legal when the predecessor
   -- jump already expanded the loop; landing here otherwise is out of pilot.
   if isLoopHeaderV1 loopBounds start && !enclosingHeaders.contains start then
@@ -4023,10 +4038,10 @@ private partial def emitRegionV1
           readJumpArgExprV1 values blockEntry segmentStart freeAfter target.args[0]!
         let (loopStmt, values2, exitId) ←
           lowerForLoopV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account constants pureFns blocks
-            loopBounds enclosingHeaders freeAfter (fuel - 1) lb initial values1
+            loopBounds enclosingHeaders freeAfter remainingFuel.val lb initial values1
         let (rest, values3, exit) ←
           emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account constants pureFns blocks
-            loopBounds enclosingHeaders freeAfter (fuel - 1) exitId values2
+            loopBounds enclosingHeaders freeAfter remainingFuel.val exitId values2
         pure (instrs ++ #[loopStmt] ++ rest, values3, exit)
       else
         -- Forward join: pure dominating values may remain for successors.
@@ -4039,7 +4054,7 @@ private partial def emitRegionV1
       let cond ← consumeCurrentSegmentV1 values blockEntry segmentStart condId
       let (thenBody, values1, thenExit) ←
         emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account constants pureFns blocks
-          loopBounds enclosingHeaders freeAfter (fuel - 1) thenT.blockId.toNat values
+          loopBounds enclosingHeaders freeAfter remainingFuel.val thenT.blockId.toNat values
       match thenExit with
       | .latch _ =>
           throw <| .planInvariant .solana
@@ -4047,14 +4062,14 @@ private partial def emitRegionV1
       | .closed =>
           let (elseBody, values2, elseExit) ←
             emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account constants pureFns blocks
-              loopBounds enclosingHeaders freeAfter (fuel - 1) elseT.blockId.toNat values1
+              loopBounds enclosingHeaders freeAfter remainingFuel.val elseT.blockId.toNat values1
           match elseExit with
           | .closed =>
               pure (instrs ++ #[.ifThenElse cond thenBody elseBody], values2, .closed)
           | .join j =>
               let (rest, values3, exit) ←
                 emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account constants pureFns blocks
-                  loopBounds enclosingHeaders freeAfter (fuel - 1) j values2
+                  loopBounds enclosingHeaders freeAfter remainingFuel.val j values2
               pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, exit)
           | .latch _ =>
               throw <| .planInvariant .solana
@@ -4063,12 +4078,12 @@ private partial def emitRegionV1
           if elseT.blockId.toNat == j then
             let (rest, values2, exit) ←
               emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account constants pureFns blocks
-                loopBounds enclosingHeaders freeAfter (fuel - 1) j values1
+                loopBounds enclosingHeaders freeAfter remainingFuel.val j values1
             pure (instrs ++ #[.ifThenElse cond thenBody #[]] ++ rest, values2, exit)
           else
             let (elseBody, values2, elseExit) ←
               emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account constants pureFns blocks
-                loopBounds enclosingHeaders freeAfter (fuel - 1) elseT.blockId.toNat values1
+                loopBounds enclosingHeaders freeAfter remainingFuel.val elseT.blockId.toNat values1
             match elseExit with
             | .join j2 =>
                 unless j == j2 do
@@ -4076,12 +4091,12 @@ private partial def emitRegionV1
                     "unsupported Solana semantic shape: branch arms converge on divergent joins"
                 let (rest, values3, exit) ←
                   emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account constants pureFns blocks
-                    loopBounds enclosingHeaders freeAfter (fuel - 1) j values2
+                    loopBounds enclosingHeaders freeAfter remainingFuel.val j values2
                 pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, exit)
             | .closed =>
                 let (rest, values3, exit) ←
                   emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account constants pureFns blocks
-                    loopBounds enclosingHeaders freeAfter (fuel - 1) j values2
+                    loopBounds enclosingHeaders freeAfter remainingFuel.val j values2
                 pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, exit)
             | .latch _ =>
                 throw <| .planInvariant .solana
@@ -4112,7 +4127,7 @@ private partial def emitRegionV1
           let cond ← makeLeafWiseEqExprV1 scrutLeaves caseLeaves
           let (body, values1, armExit) ←
             emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account constants pureFns blocks
-              loopBounds enclosingHeaders armFree (fuel - 1)
+              loopBounds enclosingHeaders armFree remainingFuel.val
               switchCase.target.blockId.toNat valuesA
           caseArms := caseArms.push (cond, body)
           valuesA := values1
@@ -4128,7 +4143,7 @@ private partial def emitRegionV1
                 "unsupported Solana semantic shape: switch arm cannot be a loop latch"
         let (defaultBody, values2, defaultExit) ←
           emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account constants pureFns blocks
-            loopBounds enclosingHeaders armFree (fuel - 1)
+            loopBounds enclosingHeaders armFree remainingFuel.val
             defaultT.blockId.toNat valuesA
         match defaultExit, joinAcc with
         | .closed, _ => pure ()
@@ -4152,7 +4167,7 @@ private partial def emitRegionV1
         | some j =>
             let (rest, values3, exit) ←
               emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account constants pureFns blocks
-                loopBounds enclosingHeaders freeAfter (fuel - 1) j values2
+                loopBounds enclosingHeaders freeAfter remainingFuel.val j values2
             pure (instrs ++ nested ++ rest, values3, exit)
       else
         let scrut ← consumeCurrentSegmentV1 values blockEntry segmentStart scrutId
@@ -4164,7 +4179,7 @@ private partial def emitRegionV1
           let caseValue ← decodeSwitchCaseValueV1 scrutVal.isBool scrutVal.bitWidth switchCase.valueBytes
           let (body, values1, armExit) ←
             emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account constants pureFns blocks
-              loopBounds enclosingHeaders armFree (fuel - 1)
+              loopBounds enclosingHeaders armFree remainingFuel.val
               switchCase.target.blockId.toNat valuesA
           caseBodies := caseBodies.push (caseValue, body)
           valuesA := values1
@@ -4180,7 +4195,7 @@ private partial def emitRegionV1
                 "unsupported Solana semantic shape: switch arm cannot be a loop latch"
         let (defaultBody, values2, defaultExit) ←
           emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account constants pureFns blocks
-            loopBounds enclosingHeaders armFree (fuel - 1)
+            loopBounds enclosingHeaders armFree remainingFuel.val
             defaultT.blockId.toNat valuesA
         match defaultExit, joinAcc with
         | .closed, _ => pure ()
@@ -4198,7 +4213,7 @@ private partial def emitRegionV1
         | some j =>
             let (rest, values3, exit) ←
               emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account constants pureFns blocks
-                loopBounds enclosingHeaders freeAfter (fuel - 1) j values2
+                loopBounds enclosingHeaders freeAfter remainingFuel.val j values2
             pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest, values3, exit)
   | .revert errorId argIds =>
       let mut argExprs : Array Expr := #[]
@@ -4213,11 +4228,13 @@ private partial def emitRegionV1
   | .trap _ =>
       throw <| .planInvariant .solana
         "unsupported Solana semantic shape: trap terminators are outside the current pilot"
+termination_by fuel
+decreasing_by all_goals exact remainingFuel.property
 
 /-- Recover one bounded for-loop from its `loopBounds` entry: bind the header
     induction temp from `initial`, lower the header condition, walk the body
     until the latch back-edge, and return the exit block id (branch else). -/
-private partial def lowerForLoopV1
+private def lowerForLoopV1
     (owner : String)
     (mode : SemanticCallableModeV1)
     (expectsBoolReturn : Bool)
@@ -4237,9 +4254,12 @@ private partial def lowerForLoopV1
     (initial : Expr)
     (values0 : Array LoweredValueV1) :
     CompileResult (Statement × Array LoweredValueV1 × Nat) := do
-  if fuel == 0 then
-    throw <| .planInvariant .solana
-      "unsupported Solana semantic shape: CFG region exceeds block bound"
+  let remainingFuel ← match hfuel : fuel with
+    | 0 =>
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: CFG region exceeds block bound"
+    | remaining + 1 =>
+        pure (⟨remaining, by omega⟩ : { n // n < fuel })
   let headerId := lb.header.toNat
   let header ← match blocks[headerId]? with
     | some value => pure value
@@ -4290,7 +4310,7 @@ private partial def lowerForLoopV1
       let headers' := enclosingHeaders.push headerId
       let (bodyStmts, values1, bodyExit) ←
         emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth expectedAggregateLeaves types typeDecls account constants pureFns blocks
-          loopBounds headers' armReadables (fuel - 1) bodyId values
+          loopBounds headers' armReadables remainingFuel.val bodyId values
       match bodyExit with
       | .latch update =>
           pure (.forLoop varTemp initial cond update lb.maxIterations.toNat bodyStmts,
@@ -4301,6 +4321,8 @@ private partial def lowerForLoopV1
   | _ =>
       throw <| .planInvariant .solana
         "unsupported Solana semantic shape: loop header must terminate in a branch"
+termination_by fuel
+decreasing_by all_goals exact remainingFuel.property
 end
 
 private def lowerCallableV1
@@ -4553,7 +4575,6 @@ private def makeInterfaceBindingV1 (label : String) (name : String)
   pure { name, fieldCount := fields.size }
 
 /-- Solana-private retained SemanticProgramV1 data → target-owned Plan pilot. -/
-
 private def makePlanFromSemanticDataV1
     (source : SemanticProgramDataV1)
     (admitCallerRole : Bool := false)
@@ -4673,5 +4694,57 @@ def materializeFullBodyPlanForProductV1
     (ResolvedEngineeringBuildV1.compiledOf capability)
   -- Product full-body always admits void ExternalCall markers (P3-d).
   makePlanFromSemanticV1 source admitCallerRole true
+
+/-- Decidable support predicate for the sole product Semantic-data → Plan
+    implementation. It exposes no Plan and cannot bypass capability-gated
+    materialization; downstream contracts use it only to discharge the final
+    lowering premise of the composition theorem below. -/
+@[reducible] def supportsFullBodyPlanDataV1
+    (data : SemanticProgramDataV1)
+    (admitCallerRole : Bool) : Bool :=
+  (makePlanFromSemanticDataV1 data admitCallerRole true).toOption.isSome
+
+/-- Compose exact capability identity, carrier decoding, and the sole
+    data-to-Plan lowering result into a successful product Plan equation. The
+    final premise is the public support predicate over that private lowering;
+    this theorem does not expose a second lowering entry or construct a Plan. -/
+theorem materializeFullBodyPlanForProductV1_exists_of_stages
+    (capability : ResolvedEngineeringBuildV1)
+    (compiled : CompiledSemanticV1)
+    (carrier : SemanticProgramV1)
+    (data : SemanticProgramDataV1)
+    (admitCallerRole : Bool)
+    (hkind : ResolvedEngineeringBuildV1.kindOf capability = .solana)
+    (hprofile : ResolvedEngineeringBuildV1.codegenProfileOf capability =
+      CodegenProfileId.solanaSbpfCpiElfV1)
+    (hcompiled : ResolvedEngineeringBuildV1.compiledOf capability = compiled)
+    (hcarrier : CompiledSemanticV1.semanticV1Of compiled = carrier)
+    (hdecode : decodeSemanticProgramDataV1 carrier.canonicalBytes = .ok data)
+    (hplan : supportsFullBodyPlanDataV1 data admitCallerRole = true) :
+    ∃ plan,
+      materializeFullBodyPlanForProductV1 capability admitCallerRole =
+        .ok plan := by
+  let result := makePlanFromSemanticDataV1 data admitCallerRole true
+  have hresultSome : result.toOption.isSome = true := by
+    simpa only [supportsFullBodyPlanDataV1, result] using hplan
+  let plan := result.toOption.get hresultSome
+  have hplanSuccess : result = .ok plan := by
+    cases hresult : result with
+    | error error =>
+        have hfalse : False := by
+          rw [hresult] at hresultSome
+          change (none : Option Plan).isSome = true at hresultSome
+          rw [Option.isSome_none] at hresultSome
+          contradiction
+        exact hfalse.elim
+    | ok value =>
+        simp only [plan, hresult, Except.toOption, Option.get_some]
+  refine ⟨plan, ?_⟩
+  unfold materializeFullBodyPlanForProductV1
+  rw [hkind]
+  rw [hprofile]
+  simp only [hcompiled, hcarrier, makePlanFromSemanticV1, hdecode, Bind.bind,
+    Except.bind]
+  exact hplanSuccess
 
 end ProofForgeV2.Targets.Solana

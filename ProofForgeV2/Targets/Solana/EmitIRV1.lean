@@ -2453,6 +2453,44 @@ def fullBodyIrFromProductCapabilityV1
   validatePlan plan
   lower plan
 
+/-- Decidable support predicate for the sole Plan → IR lowering body. It
+    exposes no IR and does not bypass capability-gated product materialization. -/
+@[reducible] def supportsPlanLoweringV1 (plan : Plan) : Bool :=
+  (lower plan).toOption.isSome
+
+/-- Compose exact product Plan materialization, public Plan validation, and the
+    sole private Plan → IR lowering result. No expected IR or alternate lowering
+    entry is constructed by this theorem. -/
+theorem fullBodyIrFromProductCapabilityV1_exists_of_stages
+    (capability : ResolvedEngineeringBuildV1)
+    (admitCallerRole : Bool)
+    (plan : Plan)
+    (hplan : materializeFullBodyPlanForProductV1 capability admitCallerRole =
+      .ok plan)
+    (hvalidate : validatePlan plan = .ok ())
+    (hlower : supportsPlanLoweringV1 plan = true) :
+    ∃ ir,
+      fullBodyIrFromProductCapabilityV1 capability admitCallerRole = .ok ir := by
+  let result := lower plan
+  have hresultSome : result.toOption.isSome = true := by
+    simpa only [supportsPlanLoweringV1, result] using hlower
+  let ir := result.toOption.get hresultSome
+  have hirSuccess : result = .ok ir := by
+    cases hresult : result with
+    | error error =>
+        have hfalse : False := by
+          rw [hresult] at hresultSome
+          change (none : Option IR).isSome = true at hresultSome
+          rw [Option.isSome_none] at hresultSome
+          contradiction
+        exact hfalse.elim
+    | ok value =>
+        simp only [ir, hresult, Except.toOption, Option.get_some]
+  refine ⟨ir, ?_⟩
+  unfold fullBodyIrFromProductCapabilityV1
+  simp only [hplan, hvalidate, Bind.bind, Except.bind]
+  exact hirSuccess
+
 /-- P3-e: stamp multi-role system.transfer binding onto full-body IR (private mk).
     EmitSbpfAsm reads these fields to walk outer roles and emit AccountMetas.
     Keep `sourcePlan.stateAccount` identical so `validateIR` identity/layout bind holds. -/
