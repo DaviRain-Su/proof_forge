@@ -277,13 +277,15 @@ def validateFinalizedExtraPathsForPublishV1
     Not formal OutputSetV1 or memory/process containment. -/
 private def renderIntoStaging (capability : Targets.ResolvedEngineeringBuildV1)
     (compiled : CompiledSemanticV1) (artifacts : MaterializedArtifactsV1)
-    (publishedBytesLimit : UInt64) (stagingDir : FilePath) : IO EmitReceiptV1 := do
+    (publishedBytesLimit : UInt64) (stagingDir : FilePath)
+    (bindings : Option CallBindV1.CallBindTableV1 := none) : IO EmitReceiptV1 := do
   -- Dual-defense: compiled digests still gate before any disk write.
   let _ ← digestHexForOutputV1 "source" (CompiledSemanticV1.sourceDigestOf compiled)
   let _ ← digestHexForOutputV1 "semantic" (CompiledSemanticV1.semanticDigestOf compiled)
   for file in MaterializedArtifactsV1.filesOf artifacts do
     writeFileCreatingParent (stagingDir / file.path) file.contents
   let finalized ← Targets.finalizeMaterializedArtifactsV1 capability artifacts stagingDir
+    bindings
   let basePaths :=
     (MaterializedArtifactsV1.filesOf artifacts).map (·.path)
   -- Dual-defense: safety + uniqueness vs base + uniqueness among extras.
@@ -350,11 +352,13 @@ private def renderIntoStaging (capability : Targets.ResolvedEngineeringBuildV1)
     published-byte max, no wall overrides). Optional `wallStartedMs` enables
     RES-1 wall enforcement immediately before atomic rename so over-budget
     builds throw, clean staging, and never publish. Two-argument callers remain
-    compatible. -/
+    compatible. Optional `bindings` (ADR-0053 Wave 2) is explicit; default
+    `none` keeps hashed QN / QN stubs. -/
 def emitProgram (capability : Targets.ResolvedEngineeringBuildV1)
     (outputDir : FilePath)
     (resourceLimits : Array ResourceLimitOverrideV1 := #[])
-    (wallStartedMs : Option Nat := none) :
+    (wallStartedMs : Option Nat := none)
+    (bindings : Option CallBindV1.CallBindTableV1 := none) :
     IO EmitReceiptV1 := do
   let publishedBytesLimit := effectivePublishedBytesLimitV1 resourceLimits
   let compiled := Targets.ResolvedEngineeringBuildV1.compiledOf capability
@@ -365,7 +369,7 @@ def emitProgram (capability : Targets.ResolvedEngineeringBuildV1)
   unless validArtifactName programName do
     throw <| IO.userError s!"PF-OUTPUT-PATH: unsafe program artifact name '{programName}'"
   -- Target materializers emit only their canonical target-owned artifacts.
-  let artifacts ← Targets.materialize capability
+  let artifacts ← Targets.materialize capability bindings
   validateMaterializedCarrier compiled artifacts
   let name ← match outputDir.fileName with
     | some name => pure name
@@ -388,6 +392,7 @@ def emitProgram (capability : Targets.ResolvedEngineeringBuildV1)
   try
     let receipt ←
       renderIntoStaging capability compiled artifacts publishedBytesLimit staging
+        bindings
     -- RES-1: wall before rename. Over-budget throws; catch cleans staging so
     -- destination is never published. Stage/order of enforceAllWallMsLimitsV1
     -- is unchanged (frontend → compiler-core → external-tool → artifact-output).
@@ -422,8 +427,9 @@ RES-1 enforces wall clocks (build: pre-rename inside emitProgram; check:
 post-success path). The RES-1B output-only slice enforces
 `artifact-output.published-bytes` before publication. Product preflight rejects
 `memory-bytes` / `processes` / `protocol-bytes` / `stderr-bytes` (parsed, no
-in-process producer). ADR-0053 Wave 1: `--bindings` is build-only for
-evm|solana|cosmwasm; the table is parsed at product build and discarded.
+in-process producer). ADR-0053 Wave 2: `--bindings` is build-only for
+evm|solana|cosmwasm; the table is parsed at product build and threaded into
+emit (missing generic-call row fail closed). No flag keeps hashed QN / QN stubs.
 Structural ambient ProofBundle product flags remain deleted; product proof
 gating is the in-process inline certifier. -/
 structure BuildOptions where
@@ -438,8 +444,8 @@ structure BuildOptions where
   json : Bool := false
   resourceLimits : Array ResourceLimitOverrideV1 := #[]
   minimumEvidence : Option String := none
-  /-- ADR-0053 Wave 1: path only. Table is parsed at product build and
-      discarded (emit still uses hashed QN / QN stubs). -/
+  /-- ADR-0053 Wave 2: path only at parse; product build threads the decoded
+      table into emit. -/
   bindings : Option String := none
   deriving Repr
 
@@ -750,7 +756,7 @@ def validateBuildOptionsCliV1
       | .build =>
           unless isValidMinimumEvidenceGradeV1 grade do
             throw s!"unknown --minimum-evidence grade '{grade}'"
-  -- ADR-0053 Wave 1: --bindings is build-only; emit still ignores the table.
+  -- ADR-0053 Wave 2: --bindings is build-only; product emit consumes the table.
   match options.bindings with
   | none => pure ()
   | some _ =>
@@ -770,7 +776,7 @@ def validateBuildOptionsCliV1
 `--network` and any other unknown dashed option fail as usage errors.
 `--json` is a bare flag. Duplicate selection and common flags fail closed.
 D3-E5: `--resource-limit` (repeatable), `--minimum-evidence`.
-ADR-0053 Wave 1: `--bindings` (build-only; evm|solana|cosmwasm).
+ADR-0053 Wave 2: `--bindings` (build-only; evm|solana|cosmwasm).
 Legacy structural ambient ProofBundle product flags remain unknown options
 (inline certifier is the sole product proof gate). -/
 partial def parseBuildArgsExcept (args : List String) (options : BuildOptions := {}) :

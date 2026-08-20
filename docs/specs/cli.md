@@ -102,9 +102,9 @@ support decision、manifest identity 或 exit 4 门禁；不得以成功 build �
 
 `--bindings` 是 build-only、opt-in 的编译期对端绑定表路径（ADR-0053）。只接受
 `--target evm|solana|cosmwasm`；`check` 与其余十叶给该 flag 均为 usage / exit 2。
-文件必须是 PF-JCS `proof-forge.call-bind.v1`。**Wave 1** 只 parse + 与 `--target`
-join，然后丢弃表；产品 emit 仍走 hashed QN / QN stub。无 `--bindings` 时行为与
-今天完全相同。Wave 2 才把「无行 = fail closed」接到三叶 Lower/Emit。不把产品
+文件必须是 PF-JCS `proof-forge.call-bind.v1`。**Wave 2** parse + 与 `--target`
+join 后把表显式传到三叶 emit：generic `call`/`schedule` 无匹配行 fail closed。
+无 `--bindings` 时行为与今天完全相同（hashed QN / QN stub）。不把产品
 `build` 接到 Anvil / wasmd / 任何网络。
 
 `--resource-limit` 是 repeatable、逐 stage/field 的 lower-only override。CLI 名称固定映射到

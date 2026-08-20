@@ -13,10 +13,12 @@ normative: true
 
 proposed
 
-本 ADR 冻结 CALL-BIND 大切片的五句产品口径与表 schema。**Wave 1 只解析**
-`--bindings` 与 `proof-forge.call-bind.v1`；**不改** EVM / Solana / CosmWasm
-emit。无 `--bindings` 时产品行为与今天完全相同（hashed QN / QN stub 仍是
-隐式默认）。Wave 2 才把「无行 = fail closed」接到三叶 Lower/Emit。
+本 ADR 冻结 CALL-BIND 大切片的五句产品口径与表 schema。**Wave 1** 解析
+`--bindings` 与 `proof-forge.call-bind.v1`。**Wave 2** 把表显式接到三叶
+emit：有 `--bindings` 时 generic `call`/`schedule` 无匹配行 fail closed；
+无 flag 时 hashed QN / QN stub 不变。`pf.crypto.*` / `pf.assets` 不查表。
+Solana nonempty `accounts` 仍属 Wave 2b（本波 empty accounts → program id
+only）。Wave 2a 空账户 void CALL 另刀。
 
 不关闭 `B-CALL-SEM` 全表。不接受 ADR-0036 / 0051。不改
 `semantic-core.md`。不声称 formal / C-3 / Anvil lossless / CREATE / CREATE2。
@@ -51,10 +53,11 @@ portable 互通停在 NetworkProfile；本 ADR **不**走那条路。
 
 - `pf.crypto.*` 与 `pf.assets` **不走**这张表。
 - 无 `identity` 字段 = 只绑地址，**不得**写成已 join 链上代码。
-- Wave 1：无 `--bindings` = 今天的 stub 路径。有 flag = 解析并保留表，emit
-  仍走 stub（表对产品物化仍 inert）。
-- Wave 2：有 `--bindings` 时，三叶 generic `call`/`schedule` 无匹配行 →
-  fail closed；hashed / QN stub **不再当隐式默认**。
+- Wave 1：无 `--bindings` = 今天的 stub 路径。有 flag = 解析并保留表。
+- Wave 2（已接线）：有 `--bindings` 时，三叶 generic `call`/`schedule` 无匹配行 →
+  fail closed；hashed / QN stub **不再当隐式默认**。表经显式参数下传到
+  `emitProgram` / `materializeResult` / 三叶 `buildFromCapability`（从不进
+  capability、从不做 IO.Ref）。
 - 其余十叶（noir / near / ton / icp / quint / soroban / openvm / aleo / psy /
   xrpl）给了 `--bindings` → usage / fail closed（本表只服务三叶）。
 - `check` 不接受 `--bindings`。
@@ -107,6 +110,8 @@ portable 互通停在 NetworkProfile；本 ADR **不**走那条路。
 
 ## 后果
 
-Wave 1 落地后：CLI 认识 `--bindings`；表可解码、可查 QN；产品 emit 不变。
-Wave 2 三叶各自消费同一 `CallBindTableV1`。inspect residual 只在 Wave 2
-「该 program 全部 generic call 有行」时才清。
+Wave 2 落地后：CLI 认识 `--bindings`；表可解码、可查 QN；有表时三叶
+generic call/schedule 消费同一 `CallBindTableV1`（EVM Yul 地址、CW WAT
+`contract_addr`、Solana empty-meta program id）。无表行为不变。inspect
+residual 只在「该 program 全部 generic call 有行」时才清（本波不改
+inspect）。Solana nonempty accounts / Wave 2a 空账户 CALL 另刀。

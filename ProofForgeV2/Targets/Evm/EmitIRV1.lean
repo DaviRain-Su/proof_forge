@@ -1,5 +1,6 @@
 import ProofForgeV2.Targets.Evm.ValidatePlanV1
 import ProofForgeV2.Targets.Evm.ValidateIRV1
+import ProofForgeV2.Targets.CallBindV1
 
 /-!
 # Evm EmitIRV1 — Plan → IR (Yul + ABI) emission
@@ -16,6 +17,7 @@ open ProofForgeV2.Compiler
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.DescriptorDataV1
 open ProofForgeV2.Targets.EnvelopeV1
+open ProofForgeV2.Targets.CallBindV1
 
 structure IR where
   objectName : String
@@ -1436,11 +1438,65 @@ private def peelForCondV1 (indent paramPrefix : String) (next varTemp : Nat)
   | _ =>
       { code := "", cond := renderExprNested paramPrefix cond, next }
 
+/-- Hashed-QN stub: last 20 bytes of keccak256(UTF-8 target path). -/
+private def hashedEvmCalleeAddressHexV1 (callee : Array String) : String :=
+  let targetParts := callee.extract 0 (callee.size - 1)
+  let targetPath := String.intercalate "." targetParts.toList
+  ((Keccak.keccak256Hex targetPath.toUTF8).drop 24).copy
+
+/-- Wave 2: present table → exact 20-byte hex; absent table → hashed stub.
+    Missing/wrong-site row fail closed. `pf.crypto.*` / `pf.assets` never
+    reach this helper (dedicated Plan statements). -/
+private def resolveEvmCallAddressHexV1
+    (bindings : Option CallBindTableV1) (callee : Array String) :
+    CompileResult String :=
+  match bindings with
+  | none => pure (hashedEvmCalleeAddressHexV1 callee)
+  | some table =>
+      match requireEvmAddressV1 table callee with
+      | .ok bytes => pure (encodeLowerHexBytesV1 bytes)
+      | .error msg => throw <| .planInvariant .evm msg
+
+private partial def collectGenericCallCallevsV1 (body : Array Statement)
+    (acc : Array (Array String)) : Array (Array String) :=
+  body.foldl (fun acc stmt =>
+    match stmt with
+    | .externalCall callee _ _ => acc.push callee
+    | .externalCallResult callee _ _ => acc.push callee
+    | .schedule callee _ _ => acc.push callee
+    | .ifThenElse _ t e =>
+        collectGenericCallCallevsV1 e (collectGenericCallCallevsV1 t acc)
+    | .switchOn _ cases d =>
+        let acc := cases.foldl (fun acc (_, b) => collectGenericCallCallevsV1 b acc) acc
+        collectGenericCallCallevsV1 d acc
+    | .forLoop _ _ _ _ _ _ b => collectGenericCallCallevsV1 b acc
+    | _ => acc) acc
+
+/-- Fail closed before Yul render so nested if/switch/for calls are covered. -/
+private def requireEvmBindingsCoverPlanV1
+    (plan : Plan) (bindings : Option CallBindTableV1) : CompileResult Unit := do
+  match bindings with
+  | none => pure ()
+  | some table =>
+      let mut callees : Array (Array String) := #[]
+      match plan.constructor with
+      | some c =>
+          callees := collectGenericCallCallevsV1 c.body callees
+      | none => pure ()
+      for entry in plan.entries do
+        callees := collectGenericCallCallevsV1 entry.body callees
+      for fn in plan.fns do
+        callees := collectGenericCallCallevsV1 fn.body callees
+      for callee in callees do
+        let _ ← resolveEvmCallAddressHexV1 (some table) callee
+
 private partial def renderBody (indent paramPrefix : String) (next : Nat)
     (events : Array InterfaceBinding) (errors : Array InterfaceBinding)
     (returnVar : Option String)
     (body : Array Statement)
-    (omitFreshZeros : Bool := false) : RenderedBody := Id.run do
+    (omitFreshZeros : Bool := false)
+    (callAddr : Array String → String := fun callee => hashedEvmCalleeAddressHexV1 callee) :
+    RenderedBody := Id.run do
   let mut output := ""
   let mut next := next
   for statement in body do
@@ -1643,14 +1699,11 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
     | .externalCall callee args argBitWidths =>
         -- Static QualifiedName → fixed CALL address + selector (AddressBearing).
         -- Target path = all but last component (joined by "."); method = last.
-        -- Address = last 20 bytes of keccak256(UTF-8 target path).
-        -- Selector = first 4 bytes of the exact per-argument UInt ABI signature.
+        -- Address = Wave 2 bind table when present, else last 20 bytes of
+        -- keccak256(UTF-8 target path). Selector = first 4 bytes of the exact
+        -- per-argument UInt ABI signature.
         let method := callee[callee.size - 1]!
-        let targetParts := callee.extract 0 (callee.size - 1)
-        let targetPath := String.intercalate "." targetParts.toList
-        -- Address = last 20 bytes of keccak256(UTF-8 target path) as hex.
-        let addrHex := Keccak.keccak256Hex targetPath.toUTF8
-        let addr20 := addrHex.drop 24
+        let addr20 := callAddr callee
         let sel := Keccak.selector method (externalUIntAbiTypesV1 args argBitWidths)
         let padded := sel ++ String.ofList (List.replicate 56 '0')
         for index in [0:args.size] do
@@ -1671,10 +1724,7 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
         -- retains the complete word. Same static address/selector derivation
         -- and failure-revert discipline as the void path.
         let method := callee[callee.size - 1]!
-        let targetParts := callee.extract 0 (callee.size - 1)
-        let targetPath := String.intercalate "." targetParts.toList
-        let addrHex := Keccak.keccak256Hex targetPath.toUTF8
-        let addr20 := addrHex.drop 24
+        let addr20 := callAddr callee
         let sel := Keccak.selector method
           (externalUIntAbiTypesV1 args result.argBitWidths)
         let padded := sel ++ String.ofList (List.replicate 56 '0')
@@ -1831,10 +1881,7 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
     | .schedule callee args argBitWidths =>
         -- Fire-and-forget: same static address/selector, CALL success ignored.
         let method := callee[callee.size - 1]!
-        let targetParts := callee.extract 0 (callee.size - 1)
-        let targetPath := String.intercalate "." targetParts.toList
-        let addrHex := Keccak.keccak256Hex targetPath.toUTF8
-        let addr20 := addrHex.drop 24
+        let addr20 := callAddr callee
         let sel := Keccak.selector method (externalUIntAbiTypesV1 args argBitWidths)
         let padded := sel ++ String.ofList (List.replicate 56 '0')
         for index in [0:args.size] do
@@ -2096,13 +2143,13 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
         let rendered := renderExpr indent paramPrefix next condition
         output := output ++ rendered.code
         let thenRendered := renderBody (indent ++ "  ") paramPrefix rendered.next
-          events errors returnVar thenBody
+          events errors returnVar thenBody (callAddr := callAddr)
         output := output ++ s!"{indent}if {rendered.value} \{\n" ++
           thenRendered.code ++ s!"{indent}}\n"
         next := thenRendered.next
         if !elseBody.isEmpty then
           let elseRendered := renderBody (indent ++ "  ") paramPrefix next
-            events errors returnVar elseBody
+            events errors returnVar elseBody (callAddr := callAddr)
           output := output ++ s!"{indent}if iszero({rendered.value}) \{\n" ++
             elseRendered.code ++ s!"{indent}}\n"
           next := elseRendered.next
@@ -2115,7 +2162,7 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
         let mut guard : String := ""
         for (caseValue, caseBody) in cases do
           let caseRendered := renderBody (indent ++ "  ") paramPrefix next
-            events errors returnVar caseBody
+            events errors returnVar caseBody (callAddr := callAddr)
           output := output ++
             s!"{indent}if eq({scrutName}, {caseValue}) \{\n" ++
             caseRendered.code ++ s!"{indent}}\n"
@@ -2124,7 +2171,7 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
           guard := if guard.isEmpty then eqExpr else s!"or({guard}, {eqExpr})"
         if !defaultBody.isEmpty then
           let defaultRendered := renderBody (indent ++ "  ") paramPrefix next
-            events errors returnVar defaultBody
+            events errors returnVar defaultBody (callAddr := callAddr)
           output := output ++ s!"{indent}if iszero({guard}) \{\n" ++
             defaultRendered.code ++ s!"{indent}}\n"
           next := defaultRendered.next
@@ -2142,7 +2189,7 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
         next := peeled.next
         let updateNested := renderExprNested paramPrefix update
         let bodyR := renderBody (indent ++ "  ") paramPrefix next
-          events errors returnVar body
+          events errors returnVar body (callAddr := callAddr)
         let postIndent := indent ++ "  "
         let bound := toString maxIterations.toNat
         let tV := "t" ++ toString varTemp
@@ -2163,7 +2210,8 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
     Yul objects because each object is self-contained (FnCall goldens pin two
     copies). `emitFn` is retained for future phase-local emission; callers
     currently pass `fun _ => true`. -/
-private def renderFnDefs (indent : String) (plan : Plan) (emitFn : Nat → Bool) : String :=
+private def renderFnDefs (indent : String) (plan : Plan) (emitFn : Nat → Bool)
+    (callAddr : Array String → String) : String :=
   Id.run do
   if plan.fns.isEmpty then
     return ""
@@ -2175,14 +2223,15 @@ private def renderFnDefs (indent : String) (plan : Plan) (emitFn : Nat → Bool)
       for i in [0:fn.params.size] do
         if i > 0 then paramList := paramList ++ ", "
         paramList := paramList ++ s!"arg{i}"
-      let body := renderBody (indent ++ "  ") "arg" 0 plan.events plan.errors (some "r") fn.body
+      let body := renderBody (indent ++ "  ") "arg" 0 plan.events plan.errors (some "r")
+        fn.body (callAddr := callAddr)
       output := output ++
         s!"{indent}function pf_fn{index}({paramList}) -> r \{\n" ++
         body.code ++
         s!"{indent}}\n"
   return output
 
-private def renderConstructor (plan : Plan) : String := Id.run do
+private def renderConstructor (plan : Plan) (callAddr : Array String → String) : String := Id.run do
   let constructor := plan.constructor.getD { params := #[], stores := #[] }
   let argumentBytes := constructor.params.size * 32
   let mut output :=
@@ -2213,7 +2262,7 @@ private def renderConstructor (plan : Plan) : String := Id.run do
       renderStores "    " "ctor_arg" constructor.stores (omitFreshZeros := true)
     else
       (renderBody "    " "ctor_arg" 0 plan.events plan.errors none
-        constructor.body (omitFreshZeros := true)).code)
+        constructor.body (omitFreshZeros := true) (callAddr := callAddr)).code)
   return output ++
     s!"    datacopy(0, dataoffset(\"{plan.runtimeObjectName}\"), datasize(\"{plan.runtimeObjectName}\"))\n" ++
     s!"    return(0, datasize(\"{plan.runtimeObjectName}\"))\n"
@@ -2225,7 +2274,8 @@ private def renderConstructor (plan : Plan) : String := Id.run do
 private def planHasPayableEntry (plan : Plan) : Bool :=
   plan.entries.any (·.mutability == .payable)
 
-private def renderEntry (plan : Plan) (entry : Entry) (hasPayable : Bool) : String := Id.run do
+private def renderEntry (plan : Plan) (entry : Entry) (hasPayable : Bool)
+    (callAddr : Array String → String) : String := Id.run do
   let calldataBytes := 4 + entry.params.size * 32
   let mut output :=
     s!"      case 0x{entry.selector} \{\n" ++
@@ -2250,7 +2300,8 @@ private def renderEntry (plan : Plan) (entry : Entry) (hasPayable : Bool) : Stri
       output := output ++
         s!"        let arg{param.wordIndex} := and({raw}, {mask})\n"
   output := output ++
-    (renderBody "        " "arg" 0 plan.events plan.errors none entry.body).code
+    (renderBody "        " "arg" 0 plan.events plan.errors none entry.body
+      (callAddr := callAddr)).code
   return output ++ "      }\n"
 
 /-- Per-phase helper demand: which Yul helpers a constructor or runtime
@@ -2780,10 +2831,10 @@ private def cseMapLookupYulV1 (yul : String) : String := Id.run do
         out := out.push line
   return String.intercalate "\n" out.toList
 
-private def renderYul (plan : Plan) : String :=
+private def renderYul (plan : Plan) (callAddr : Array String → String) : String :=
   let hasPayable := planHasPayableEntry plan
   let entries := plan.entries.foldl
-    (fun output entry => output ++ renderEntry plan entry hasPayable) ""
+    (fun output entry => output ++ renderEntry plan entry hasPayable callAddr) ""
   -- Constructor phase: initializer body/stores + reachable pureFns only.
   let ctorSeed : Array Statement :=
     match plan.constructor with
@@ -2804,12 +2855,12 @@ private def renderYul (plan : Plan) : String :=
   -- from the constructor object copy.
   let allFnReach : Array Bool := Array.replicate plan.fns.size true
   let ctorNeeds := phaseHelperNeedsV1 plan ctorSeed ctorExtra allFnReach
-  let ctorFns := renderFnDefs "    " plan (fun _ => true)
+  let ctorFns := renderFnDefs "    " plan (fun _ => true) callAddr
   let mapHelpersCtor := renderMapHelpersForNeeds "    " ctorNeeds
   let runtimeSeed :=
     plan.entries.foldl (fun acc e => acc ++ e.body) #[]
   let runtimeNeeds := phaseHelperNeedsV1 plan runtimeSeed {} allFnReach
-  let runtimeFns := renderFnDefs "      " plan (fun _ => true)
+  let runtimeFns := renderFnDefs "      " plan (fun _ => true) callAddr
   let mapHelpersRuntime := renderMapHelpersForNeeds "      " runtimeNeeds
   -- Keep global callvalue guard when no entry is payable (byte-identical with
   -- historical Counter/Guarded goldens). Payable programs drop the global
@@ -2819,7 +2870,7 @@ private def renderYul (plan : Plan) : String :=
     else "      if callvalue() { revert(0, 0) }\n"
   cseMapLookupYulV1 (cseSloadU64YulV1 (
     s!"object \"{plan.objectName}\" \{\n  code \{\n" ++
-      renderConstructor plan ++
+      renderConstructor plan callAddr ++
       ctorFns ++
       mapHelpersCtor ++
       s!"  }\n  object \"{plan.runtimeObjectName}\" \{\n    code \{\n" ++
@@ -2906,11 +2957,20 @@ private def renderAbi (plan : Plan) : String :=
 def validateIR (ir : IR) : CompileResult Unit :=
   validateEvmTargetIRV1 ir.objectName ir.yul ir.abi
 
-private def lower (plan : Plan) : CompileResult IR := do
+private def lower (plan : Plan) (bindings : Option CallBindTableV1 := none) :
+    CompileResult IR := do
   validatePlan plan
+  requireEvmBindingsCoverPlanV1 plan bindings
+  let callAddr (callee : Array String) : String :=
+    match bindings with
+    | none => hashedEvmCalleeAddressHexV1 callee
+    | some table =>
+        match requireEvmAddressV1 table callee with
+        | .ok bytes => encodeLowerHexBytesV1 bytes
+        | .error _ => hashedEvmCalleeAddressHexV1 callee
   let ir : IR := {
     objectName := plan.objectName
-    yul := renderYul plan
+    yul := renderYul plan callAddr
     abi := renderAbi plan
   }
   validateIR ir
@@ -2928,16 +2988,20 @@ private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) := do
     `ResolvedEngineeringBuildV1`; returns typed TargetIR without emitting files.
     Not a residual Plan→IR bypass. Chain: materialize → validatePlan → render →
     validateIR. -/
-def irFromCapability (capability : ResolvedEngineeringBuildV1) : CompileResult IR := do
+def irFromCapability (capability : ResolvedEngineeringBuildV1)
+    (bindings : Option CallBindTableV1 := none) : CompileResult IR := do
   let plan ← materializePlanFromCapabilityV1 capability
-  lower plan
+  lower plan bindings
 
 /-- Capability-gated public materialize entry. Sole path from the retained
     SemanticProgramV1-native EVM Plan body to emitted files for this target.
-    Chain: irFromCapability (includes validateIR) → emitFromIR (re-checks IR). -/
-def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
+    Chain: irFromCapability (includes validateIR) → emitFromIR (re-checks IR).
+    ADR-0053 Wave 2: optional `bindings` is explicit; default `none` keeps
+    hashed-QN stubs. -/
+def buildFromCapability (capability : ResolvedEngineeringBuildV1)
+    (bindings : Option CallBindTableV1 := none) :
     CompileResult (Array OutputFile) := do
-  let ir ← irFromCapability capability
+  let ir ← irFromCapability capability bindings
   emitFromIR ir
 
 end ProofForgeV2.Targets.Evm

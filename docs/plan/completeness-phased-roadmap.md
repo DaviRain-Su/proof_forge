@@ -138,7 +138,7 @@ Capability 横切（2026-08-19）：`sha256Bytes` 五叶已开；`merkleVerifyKe
 | **COMP-1-SPEC-ALIGN** | ADR-0051 accepted 后修订 `semantic-core.md` + corpus 对齐；无新 Sem00x pin | COMP-0-SPEC-HONESTY owner 接受 | pending |
 | **COMP-1-NORMALIZE-RESIDUAL** | 嵌套穿透赋值；仍拒绝的构造器嵌套；Field/Principal 源字面量（开则十三叶同时 Lower 或命名 FC） | 无（可先做 FC 针） | **partial** — Field/Principal 源字面量 + Bytes 嵌套穿透产品 FC 针；Map 穿透已是 N-NEST-IDX；开字面量/Bytes 穿透另批 |
 | **COMP-1-TYPEKEY-REST** | TypeKey 剩余 usage-closure → StructureV1 | 不关 TASK-D2-06 | **partial** — Stage D 已接线；剩余 SPEC 匿名 rank 字节序（人拍）+ formal |
-| **COMP-1-CALL-SEM-LAND** | 先改 resolver/文档/针，再按 COMP-0 做 EVM 部署地址、Solana 外层账户、CW `contract_addr` | COMP-0-CALL-SEM 人拍 | **partial** — 十三 kind inspect 表面针（human+JSON）+ evm/solana/cosmwasm `callScheduleResidual` 地址缺口标签 + ExtFlow/LaterFlow xrpl 针；地址绑定仍 pending |
+| **COMP-1-CALL-SEM-LAND** | 先改 resolver/文档/针，再按 COMP-0 做 EVM 部署地址、Solana 外层账户、CW `contract_addr` | COMP-0-CALL-SEM 人拍 | **partial** — inspect 表面针 + residual 标签 + ADR-0053 Wave 2 三叶 emit（有表无行 FC）；inspect residual / Wave 2a 空账户 CALL / Wave 2b Solana accounts 仍 pending |
 | **COMP-1-SYS-CAP-L2** | 官方 program catalog：有 host 就 exact 一行一叶，无 host 就命名 FC | SYS-CAP S1–S4 已闭 | **partial** — attachedValue inspect + `cryptoHonesty` 十三 kind 闭表 + cw/xrpl/psy residual + ICP/TON `maturityResidual` + XRPL ContextRead/Commit 矩阵 + ecdsa 十二叶第一道门针；新官方叶仍 pending |
 | **COMP-1-COMMIT-ZK** | Psy/Noir Commit 设计钉；未冻 binding 前继续 FC | ADR-0041 已 proposed | pending |
 | **COMP-1-D3-E8** | evidence grade 语义冻结后再进 resolver | 先语义，再门禁 | pending |

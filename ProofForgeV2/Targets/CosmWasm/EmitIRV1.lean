@@ -1,4 +1,5 @@
 import ProofForgeV2.Targets.CosmWasm.ValidatePlanV1
+import ProofForgeV2.Targets.CallBindV1
 
 /-!
 # CosmWasm EmitIRV1 — Plan → IR → WAT emission
@@ -32,6 +33,7 @@ open ProofForgeV2.Compiler
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.DescriptorDataV1
 open ProofForgeV2.Targets.EnvelopeV1
+open ProofForgeV2.Targets.CallBindV1
 
 inductive Operation where
   | requireLayoutAbsent (marker : KeyRegion)
@@ -2997,10 +2999,58 @@ private def renderNarrowSignedCheckedDivMod (indent insn : String) (bitWidth des
     s!"{indent}(if (i64.lt_s (local.get $t{destination}) (i64.const {lo})) (then unreachable))\n" ++
     s!"{indent}(if (i64.gt_s (local.get $t{destination}) (i64.const {hi})) (then unreachable))\n"
 
+/-- Wave 2: present table → bound `contract_addr`; absent table → Plan QN stub.
+    IR still stores the QN stub so validateIR identity holds. -/
+private def resolveCosmWasmReceiverV1
+    (bindings : Option CallBindTableV1) (receiver method : String) :
+    CompileResult String :=
+  match bindings with
+  | none => pure receiver
+  | some table =>
+      let callee :=
+        if method.isEmpty then #[receiver]
+        else
+          let parts := (receiver.splitOn ".").toArray
+          if parts.back? == some method then parts
+          else parts.push method
+      match requireCosmWasmAddressV1 table callee with
+      | .ok addr => pure addr
+      | .error msg => throw <| .planInvariant .cosmwasm msg
+
+private partial def collectPromiseReceiversV1 (ops : Array Operation)
+    (acc : Array (String × String)) : Array (String × String) :=
+  ops.foldl (fun acc op =>
+    match op with
+    | .promiseAccount receiver method _ => acc.push (receiver, method)
+    | .ifRegion _ t e =>
+        collectPromiseReceiversV1 e (collectPromiseReceiversV1 t acc)
+    | .switchRegion _ cases d =>
+        let acc := cases.foldl (fun acc (_, b) => collectPromiseReceiversV1 b acc) acc
+        collectPromiseReceiversV1 d acc
+    | .forRegion _ _ _ _ cond _ body update _ =>
+        collectPromiseReceiversV1 update
+          (collectPromiseReceiversV1 body (collectPromiseReceiversV1 cond acc))
+    | _ => acc) acc
+
+private def requireCosmWasmBindingsCoverIRV1
+    (ir : IR) (bindings : Option CallBindTableV1) : CompileResult Unit := do
+  match bindings with
+  | none => pure ()
+  | some table =>
+      let mut recs : Array (String × String) := #[]
+      for method in ir.methods do
+        recs := collectPromiseReceiversV1 method.operations recs
+      for fn in ir.fns do
+        recs := collectPromiseReceiversV1 fn.operations recs
+      for (receiver, method) in recs do
+        let _ ← resolveCosmWasmReceiverV1 (some table) receiver method
+
 private partial def renderOperation (memory : MemoryLayout)
     (events : Array InterfaceBinding) (errors : Array InterfaceBinding)
     (fnNames : Array String)
-    (indent : String) : Operation → String
+    (indent : String)
+    (resolveReceiver : String → String → String := fun r _ => r) :
+    Operation → String
   | .requireLayoutAbsent marker =>
       s!"{indent}(if (call $pf_db_has (i32.const {marker.offset}) (i32.const {marker.length})) (then unreachable))\n"
   | .requireLayout marker value =>
@@ -3364,7 +3414,8 @@ private partial def renderOperation (memory : MemoryLayout)
       --   "msg":"<base64>","funds":[]}}},"reply_on":"never"}
       --
       -- Honesty:
-      -- * contract_addr = static QN join (receiver); NOT bech32 AccAddress.
+      -- * contract_addr = Wave 2 bind table when present, else static QN join
+      --   (receiver); NOT bech32 AccAddress.
       -- * msg = Binary (base64); inner JSON object key = method, fields a0..
       -- * gas_limit omitted (= None). payload omitted (serde default empty).
       -- * id=0 = cosmwasm_std::UNUSED_MSG_ID.
@@ -3375,10 +3426,11 @@ private partial def renderOperation (memory : MemoryLayout)
         let _ := errors
         let _ := fnNames
         let scratch := memory.inputOffset
+        let contractAddr := resolveReceiver receiver method
         -- Full shape comment (searchable in WAT; Binary msg, not nested object).
         let shapeHint :=
           "{\"id\":0,\"msg\":{\"wasm\":{\"execute\":{\"contract_addr\":\"" ++
-          receiver ++ "\",\"msg\":\"<base64>\",\"funds\":[]}}},\"reply_on\":\"never\"}"
+          contractAddr ++ "\",\"msg\":\"<base64>\",\"funds\":[]}}},\"reply_on\":\"never\"}"
         let binaryDoc :=
           "base64(UTF-8 of {\"" ++ method ++ "\":{\"a0\":N,...}})"
         let mut out :=
@@ -3414,7 +3466,7 @@ private partial def renderOperation (memory : MemoryLayout)
             t := t ++ s!"{indent}(call $pf_msg_byte (i32.const {bytes[i]!.toNat}))\n"
           pure t
         out := out ++ emitLit "{\"id\":0,\"msg\":{\"wasm\":{\"execute\":{\"contract_addr\":\""
-        out := out ++ emitLit receiver
+        out := out ++ emitLit contractAddr
         out := out ++ emitLit "\",\"msg\":\""
         -- Binary body: base64-encode scratch[0..inner_len) into msg buffer
         out := out ++
@@ -3546,9 +3598,11 @@ private partial def renderOperation (memory : MemoryLayout)
         pure out
   | .ifRegion condition thenOps elseOps =>
       let thenText := thenOps.foldl (fun o op =>
-        o ++ renderOperation memory events errors fnNames (indent ++ "  ") op) ""
+        o ++ renderOperation memory events errors fnNames (indent ++ "  ")
+          (resolveReceiver := resolveReceiver) op) ""
       let elseText := elseOps.foldl (fun o op =>
-        o ++ renderOperation memory events errors fnNames (indent ++ "  ") op) ""
+        o ++ renderOperation memory events errors fnNames (indent ++ "  ")
+          (resolveReceiver := resolveReceiver) op) ""
       let thenBody := if thenText.isEmpty then s!"{indent}  nop\n" else thenText
       let elseBody := if elseText.isEmpty then s!"{indent}  nop\n" else elseText
       s!"{indent}(if (i64.ne (local.get $t{condition}) (i64.const 0))\n" ++
@@ -3562,10 +3616,12 @@ private partial def renderOperation (memory : MemoryLayout)
         match remaining with
         | [] =>
             defaultOps.foldl (fun o op =>
-              o ++ renderOperation memory events errors fnNames indent op) ""
+              o ++ renderOperation memory events errors fnNames indent
+                (resolveReceiver := resolveReceiver) op) ""
         | (caseValue, caseOps) :: rest =>
             let caseText := caseOps.foldl (fun o op =>
-              o ++ renderOperation memory events errors fnNames (indent ++ "  ") op) ""
+              o ++ renderOperation memory events errors fnNames (indent ++ "  ")
+          (resolveReceiver := resolveReceiver) op) ""
             let elseText := renderCases (indent ++ "  ") rest
             let elseBody := if elseText.isEmpty then s!"{indent}  nop\n" else elseText
             let caseBody := if caseText.isEmpty then s!"{indent}    nop\n" else caseText
@@ -3578,11 +3634,14 @@ private partial def renderOperation (memory : MemoryLayout)
       renderCases indent cases.toList
   | .forRegion varTemp initial counterTemp maxIterations condOps condition bodyOps updateOps updateValue =>
       let condText := condOps.foldl (fun o op =>
-        o ++ renderOperation memory events errors fnNames (indent ++ "    ") op) ""
+        o ++ renderOperation memory events errors fnNames (indent ++ "    ")
+          (resolveReceiver := resolveReceiver) op) ""
       let bodyText := bodyOps.foldl (fun o op =>
-        o ++ renderOperation memory events errors fnNames (indent ++ "    ") op) ""
+        o ++ renderOperation memory events errors fnNames (indent ++ "    ")
+          (resolveReceiver := resolveReceiver) op) ""
       let updateText := updateOps.foldl (fun o op =>
-        o ++ renderOperation memory events errors fnNames (indent ++ "    ") op) ""
+        o ++ renderOperation memory events errors fnNames (indent ++ "    ")
+          (resolveReceiver := resolveReceiver) op) ""
       s!"{indent}(local.set $t{varTemp} (local.get $t{initial}))\n" ++
         s!"{indent}(local.set $t{counterTemp} (i64.const 0))\n" ++
         s!"{indent}(block $for_break_{varTemp}\n" ++
@@ -3719,7 +3778,8 @@ private partial def renderOperation (memory : MemoryLayout)
           s!"{indent})\n"
         pure out
 
-private def renderFn (ir : IR) (fn : FnIR) : String :=
+private def renderFn (ir : IR) (fn : FnIR)
+    (resolveReceiver : String → String → String) : String :=
   let fnNames := ir.fns.map (·.name)
   let params := String.intercalate "" <| (Array.range fn.paramCount).toList.map fun index =>
     s!" (param $t{index} i64)"
@@ -3730,20 +3790,23 @@ private def renderFn (ir : IR) (fn : FnIR) : String :=
         (List.range (fn.tempCount - fn.paramCount)).map fun i =>
           s!" (local $t{fn.paramCount + i} i64)"
   let operations := String.intercalate "" <| fn.operations.toList.map
-    (renderOperation ir.memory ir.sourcePlan.events ir.sourcePlan.errors fnNames "    ")
+    (renderOperation ir.memory ir.sourcePlan.events ir.sourcePlan.errors fnNames "    "
+      (resolveReceiver := resolveReceiver))
   s!"  (func $fn_{fn.name}{params} (result i64){extraLocals}{methodExtraScratchLocals fn.operations}\n" ++
     operations ++ "  )\n"
 
 /-- Render method body as an internal func `$m_<name>` used by entry dispatch.
     Params arrive in `$p0..` locals (filled by JSON parse at call site). -/
-private def renderMethodBody (ir : IR) (method : MethodIR) : String :=
+private def renderMethodBody (ir : IR) (method : MethodIR)
+    (resolveReceiver : String → String → String) : String :=
   let fnNames := ir.fns.map (·.name)
   let paramLocals := String.intercalate "" <| (Array.range method.params.size).toList.map fun i =>
     s!" (param $p{i} i64)"
   let temps := String.intercalate "" <| (Array.range method.tempCount).toList.map fun i =>
     s!" (local $t{i} i64)"
   let operations := String.intercalate "" <| method.operations.toList.map
-    (renderOperation ir.memory ir.sourcePlan.events ir.sourcePlan.errors fnNames "    ")
+    (renderOperation ir.memory ir.sourcePlan.events ir.sourcePlan.errors fnNames "    "
+      (resolveReceiver := resolveReceiver))
   -- Methods return i32 region ptr for ContractResult (via setReturnData globals + pf_ok_result)
   -- View: scalar → pf_query_ok(ret_val); aggregate (ret_kind=4) → pf_query_ok_agg.
   let epilogue :=
@@ -4159,13 +4222,16 @@ private def renderQuery (ir : IR) (methodNeedles paramNeedles : Array (String ×
         "    (return (call $pf_error_result (i32.const 0) (i32.const 0)))\n" ++
         "  )\n"
 
-private def renderWat (ir : IR) : Except CompileError String := do
+private def renderWat (ir : IR)
+    (resolveReceiver : String → String → String := fun r _ => r) :
+    Except CompileError String := do
   let keysEnd := ir.keys.foldl (fun acc key => max acc (key.offset + key.length)) 64
   let (dataSec, methodNeedles, paramNeedles) ← renderDataSectionV2 ir keysEnd
   let imports := String.intercalate "" <| ir.imports.toList.map renderImport
   let helpers := renderRuntimeHelpers ir.memory
-  let fns := String.intercalate "" <| ir.fns.toList.map (renderFn ir)
-  let methodBodies := String.intercalate "" <| ir.methods.toList.map (renderMethodBody ir)
+  let fns := String.intercalate "" <| ir.fns.toList.map (fun fn => renderFn ir fn resolveReceiver)
+  let methodBodies := String.intercalate "" <|
+    ir.methods.toList.map (fun m => renderMethodBody ir m resolveReceiver)
   let allocateExport :=
     "  (func (export \"allocate\") (param $size i32) (result i32)\n" ++
     "    (call $pf_allocate (local.get $size))\n" ++
@@ -4265,9 +4331,18 @@ private def renderAbi (plan : Plan) : String :=
     "  \"methods\": [\n    " ++ exports ++ "\n  ]\n" ++
     "}\n"
 
-private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) := do
+private def emitFromIR (ir : IR) (bindings : Option CallBindTableV1 := none) :
+    CompileResult (Array OutputFile) := do
   validateIR ir
-  let wat ← renderWat ir
+  requireCosmWasmBindingsCoverIRV1 ir bindings
+  let resolveReceiver (receiver method : String) : String :=
+    match bindings with
+    | none => receiver
+    | some table =>
+        match resolveCosmWasmReceiverV1 (some table) receiver method with
+        | .ok addr => addr
+        | .error _ => receiver
+  let wat ← renderWat ir resolveReceiver
   return #[
     {
       path := s!"{ir.name}.wat"
@@ -4286,10 +4361,11 @@ def irFromCapability (capability : ResolvedEngineeringBuildV1) : CompileResult I
   validatePlan plan
   lower plan
 
-def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
+def buildFromCapability (capability : ResolvedEngineeringBuildV1)
+    (bindings : Option CallBindTableV1 := none) :
     CompileResult (Array OutputFile) := do
   let ir ← irFromCapability capability
-  emitFromIR ir
+  emitFromIR ir bindings
 
 /-- Engineering Plan → IR (CW-4 schedule pin tests; not product capability path). -/
 def engineeringIrFromPlan (plan : Plan) : CompileResult IR := do
@@ -4297,8 +4373,10 @@ def engineeringIrFromPlan (plan : Plan) : CompileResult IR := do
   lower plan
 
 /-- Engineering Plan → WAT/ABI files (CW-4 schedule pin tests). -/
-def engineeringFilesFromPlan (plan : Plan) : CompileResult (Array OutputFile) := do
+def engineeringFilesFromPlan (plan : Plan)
+    (bindings : Option CallBindTableV1 := none) :
+    CompileResult (Array OutputFile) := do
   let ir ← engineeringIrFromPlan plan
-  emitFromIR ir
+  emitFromIR ir bindings
 
 end ProofForgeV2.Targets.CosmWasm

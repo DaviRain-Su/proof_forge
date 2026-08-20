@@ -57,18 +57,19 @@ void CALL stays until Wave 2a. `schedule` stays same-tx fire-and-forget.
 Bool/Int/Bytes returndata stay fail closed. `pf.crypto.*` / `pf.assets`
 never consult the table.
 
-**Wave 1 (this slice): parse only.** CLI accepts `--bindings`; table
-decodes; product emit still uses hashed QN / QN stubs. No `--bindings`
-keeps today’s behavior.
+**Wave 1: parse only (done).** CLI accepts `--bindings`; table decodes.
 
-**Wave 2 (next coding slice, not this commit):** with `--bindings`,
-generic `call`/`schedule` on evm/solana/cosmwasm without a matching row
-fails closed. Then empty-account void CALL fail-closed as its own
-semantic change. Inspect residuals clear only when that program’s
-generic calls all have rows.
+**Wave 2 (done this slice):** with `--bindings`, generic `call`/`schedule`
+on evm/solana/cosmwasm without a matching row fails closed. Table is
+explicit (never ambient). Solana nonempty `accounts` stays Wave 2b.
+Empty-account void CALL is Wave 2a (own semantic change). Inspect
+residuals clear only when that program’s generic calls all have rows
+(not this slice).
 
 Open remainder: resolver support keys must not be read as
-“cross-platform call done.” Code one leaf at a time after Wave 1.
+“cross-platform call done.” Next coding: Wave 2a (empty-account
+void CALL) or Wave 2b (Solana nonempty accounts). Do not clear
+inspect residuals in this wave.
 
 ### Decisions (inventory 2026-08-16 + evm-call-addr-gap §3)
 

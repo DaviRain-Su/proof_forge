@@ -5,6 +5,7 @@ import ProofForgeV2.Targets.Solana.ProductCpiRecipesV1
 import ProofForgeV2.Targets.Solana.ProductFrameV1
 import ProofForgeV2.Core.TargetIdentityV1
 import ProofForgeV2.Core.Common
+import ProofForgeV2.Targets.CallBindV1
 
 /-!
 # Solana EmitSbpfAsmV1 — typed IR → SBPF assembly (.s) text (S1b)
@@ -96,6 +97,7 @@ namespace ProofForgeV2.Targets.Solana
 open ProofForgeV2
 open ProofForgeV2.Compiler
 open ProofForgeV2.Targets.Solana.ProductCpiRecipesV1
+open ProofForgeV2.Targets.CallBindV1
 open ProofForgeV2.Targets.Solana.ProductFrameV1
 
 /-- P3-e multi-role emit options (system.transfer product sites). -/
@@ -1663,16 +1665,30 @@ private def programIdLimbLeV1 (hex64 : String) (limb : Nat) : CompileResult Nat 
       Still **empty AccountMeta** (multi-role walker deferred); data/program id
       match the System ABI so multi-role can reuse packing later.
     When `resultDest` is set, read 8B LE return data via `sol_get_return_data`. -/
+private def resolveBoundProgramIdHexV1
+    (bindings : Option CallBindTableV1) (callee : Array String)
+    (fallbackHex : String) : CompileResult String := do
+  if ProductCpiRecipesV1.isSystemTransferCalleeV1 callee then
+    pure ProductCpiRecipesV1.systemProgramIdHexV1
+  else
+    match bindings with
+    | none => pure fallbackHex
+    | some table =>
+        match requireSolanaProgramIdV1 table callee with
+        | .ok bytes => pure (encodeLowerHexBytesV1 bytes)
+        | .error msg =>
+            throw <| .planInvariant .solana msg
+
 private def emitCpiInvoke (b0 : AsmBuf) (tempBase : Nat)
     (callee : Array String) (programIdHex : String) (args : Array Nat)
-    (resultDest : Option Nat) (kindNote : String) : CompileResult AsmBuf := do
+    (resultDest : Option Nat) (kindNote : String)
+    (bindings : Option CallBindTableV1 := none) : CompileResult AsmBuf := do
   unless callee.size ≥ 2 do
     return ← asmError s!"S1b {kindNote} callee must have ≥2 components"
   let note := String.intercalate "." callee.toList
   let isSysXfer :=
     ProductCpiRecipesV1.isSystemTransferCalleeV1 callee
-  let pidHex :=
-    if isSysXfer then ProductCpiRecipesV1.systemProgramIdHexV1 else programIdHex
+  let pidHex ← resolveBoundProgramIdHexV1 bindings callee programIdHex
   unless pidHex.length == 64 do
     return ← asmError s!"S1b {kindNote} programIdHex must be 64 hex chars"
   if isSysXfer then
@@ -2246,7 +2262,8 @@ private def emitCpiInvokeTokenTransferMultiRole (b0 : AsmBuf) (tempBase : Nat)
 mutual
 /-- Emit a single Operation. `inlineCtx=none` is a handler body (syscalls + exit). -/
 private def emitOperation (fuel : Nat) (b : AsmBuf) (ir : IR) (tempBase : Nat)
-    (inlineCtx : Option InlineCtx) (inlineDepth : Nat) (op : Operation) :
+    (inlineCtx : Option InlineCtx) (inlineDepth : Nat) (op : Operation)
+    (bindings : Option CallBindTableV1 := none) :
     CompileResult AsmBuf := do
   match op with
   | .literal destination value =>
@@ -3150,6 +3167,7 @@ private def emitOperation (fuel : Nat) (b : AsmBuf) (ir : IR) (tempBase : Nat)
           emitCpiInvokeSystemTransferMultiRole b tempBase args site "product_mr_xfer"
       else
         emitCpiInvoke b tempBase callee programIdHex args none "product_external_call"
+          bindings
   | .schedule .. =>
       return ← asmError
         "legacy Solana profiles do not emit schedule stubs"
@@ -3157,16 +3175,18 @@ termination_by 2 * fuel
 
 /-- Emit a sequence of operations, threading the assembly buffer. -/
 private def emitOperations (fuel : Nat) (b0 : AsmBuf) (ir : IR) (tempBase : Nat)
-    (inlineCtx : Option InlineCtx) (inlineDepth : Nat) (ops : Array Operation) :
+    (inlineCtx : Option InlineCtx) (inlineDepth : Nat) (ops : Array Operation)
+    (bindings : Option CallBindTableV1 := none) :
     CompileResult AsmBuf := do
   let mut b := b0
   for op in ops do
-    b ← emitOperation fuel b ir tempBase inlineCtx inlineDepth op
+    b ← emitOperation fuel b ir tempBase inlineCtx inlineDepth op bindings
   pure b
 termination_by 2 * fuel + 1
 end
 
-private def emitHandlerBody (b0 : AsmBuf) (ir : IR) (handler : HandlerIR) :
+private def emitHandlerBody (b0 : AsmBuf) (ir : IR) (handler : HandlerIR)
+    (bindings : Option CallBindTableV1 := none) :
     CompileResult AsmBuf := do
   let errLab := s!"err_check_{asmLabel handler.name}"
   let bodyLab := s!"body_{asmLabel handler.name}"
@@ -3187,7 +3207,7 @@ private def emitHandlerBody (b0 : AsmBuf) (ir : IR) (handler : HandlerIR) :
   b := emitErrorExit b errLab 1
   b := emit b s!"{bodyLab}:"
   b ← emitOperations (maxPlanNodes + ir.fns.size + 1)
-    b ir tempBase none 0 handler.operations
+    b ir tempBase none 0 handler.operations bindings
   -- Fallthrough success after set_return_data (syscall does not halt).
   b := emit b "  lddw r0, 0"
   b := emit b "  exit"
@@ -3328,7 +3348,8 @@ private def emitMultiRoleWalkAndIxBase (b0 : AsmBuf) (roleCount : Nat)
     `validateIR ir = .ok ()`. Keeping this boundary explicit lets proof
     certificates replay emission without duplicating the emitter. Normal
     callers must use `emitSbpfAsmV1`, which performs validation first. -/
-def emitValidatedSbpfAsmV1 (ir : IR) : CompileResult String := do
+def emitValidatedSbpfAsmV1 (ir : IR)
+    (bindings : Option CallBindTableV1 := none) : CompileResult String := do
   unless ir.stateAccount.index == 0 do
     return ← asmError "S1b requires state account index 0"
   let admitCaller := ir.stateAccount.admitCallerRole
@@ -3396,7 +3417,7 @@ def emitValidatedSbpfAsmV1 (ir : IR) : CompileResult String := do
     b := { b with cursor := cursor0 }
     b := emit b s!"{lab}:"
     b := emit b s!"  ; handler {handler.name} (temps={cursor0})"
-    b ← emitHandlerBody b ir handler
+    b ← emitHandlerBody b ir handler bindings
     -- Frame budget: (cursorFinal+1)*8 ≤ 4096.
     let frameBytes := (b.cursor + 1) * 8
     unless frameBytes ≤ maxSbpfStackBytesV1 do
@@ -3405,10 +3426,43 @@ def emitValidatedSbpfAsmV1 (ir : IR) : CompileResult String := do
     b := emitBlank b
   pure b.text
 
-/-- Public S1b emitter: typed `IR` → default-dialect SBPF assembly text. -/
-def emitSbpfAsmV1 (ir : IR) : CompileResult String := do
+private partial def requireSolanaBindingsCoverOpsV1
+    (table : CallBindTableV1) (ops : Array Operation) : CompileResult Unit := do
+  for op in ops do
+    match op with
+    | .externalCall callee _ _ _ =>
+        unless ProductCpiRecipesV1.isSystemTransferCalleeV1 callee do
+          let qn := String.intercalate "." callee.toList
+          unless qn.startsWith "pf.crypto." || qn.startsWith "pf.assets." do
+            match requireSolanaProgramIdV1 table callee with
+            | .ok _ => pure ()
+            | .error msg => throw <| .planInvariant .solana msg
+    | .ifRegion _ t e =>
+        requireSolanaBindingsCoverOpsV1 table t
+        requireSolanaBindingsCoverOpsV1 table e
+    | .switchRegion _ cases d =>
+        for (_, b) in cases do
+          requireSolanaBindingsCoverOpsV1 table b
+        requireSolanaBindingsCoverOpsV1 table d
+    | .forRegion _ _ _ _ condOps _ bodyOps boundOps _ updateOps _ =>
+        requireSolanaBindingsCoverOpsV1 table condOps
+        requireSolanaBindingsCoverOpsV1 table bodyOps
+        requireSolanaBindingsCoverOpsV1 table boundOps
+        requireSolanaBindingsCoverOpsV1 table updateOps
+    | _ => pure ()
+
+/-- Public S1b emitter: typed `IR` → default-dialect SBPF assembly text.
+    ADR-0053 Wave 2: optional `bindings` rewrites generic-QN program ids in
+    empty-meta `sol_invoke` packing; IR itself stays hashed-stub identical. -/
+def emitSbpfAsmV1 (ir : IR) (bindings : Option CallBindTableV1 := none) :
+    CompileResult String := do
   validateIR ir
-  emitValidatedSbpfAsmV1 ir
+  match bindings with
+  | none => emitValidatedSbpfAsmV1 ir
+  | some table =>
+      for handler in ir.handlers do
+        requireSolanaBindingsCoverOpsV1 table handler.operations
+      emitValidatedSbpfAsmV1 ir bindings
 
 /-- Kernel-owned evidence for an exact result of the unique production S1b
     emitter. Both equations are propositions; no runtime boolean is promoted

@@ -28,7 +28,7 @@ zero-tool finalize（默认 profile；无 prove；ADR-0045）；opt-in `openvm-g
 XRPL Q0：Bedrock-shaped `{name}.rs` + zero-tool finalize（ADR-0049）；opt-in
 `xrpl-bedrock-wasm-u64-v1` 经 ambient rustc 产出 `.wasm` extra（ADR-0050；仍非 AlphaNet/主网）；
 host 三键 ADR-0052 proposed（TIME/CALLER 符号冻、SHA keep-FC；叶未开）；
-ADR-0053 proposed（call-bind v1 Wave 1：`--bindings` 只解析，三叶 emit 仍 stub）；
+ADR-0053 proposed（call-bind v1 Wave 2：有 `--bindings` 时三叶 generic call 无行 fail closed；空账户 CALL / Solana accounts 另刀）；
 CosmWasm：WAT + locked check + mock 28 tests +
 wasmd Docker rung-1；TON：Tolk/BoC + sandbox 16 it（新增 1 条本机未执行；schedule `createMessage` PARTIAL）。**Accepted PRD Phase 1 仍为四目标**
 （EVM/Solana/NEAR/Noir）；其余 engineering leaves 由 **ADR-0036**（仍 `proposed`；现 13+0）与 **ADR-0044/0045/0046/0047/0049/0050**
