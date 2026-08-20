@@ -121,6 +121,7 @@ import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Examples.Accumulator
 import ProofForgeV2.Examples.PrivateSum4
 import ProofForgeV2.Targets.BuildSelectionV1
+import ProofForgeV2.Targets.CallBindV1
 import ProofForgeV2.Targets.TargetRegistryV1
 import ProofForgeV2.Targets.BuildIdentityV1
 import ProofForgeV2.Targets.RegistryRootV1

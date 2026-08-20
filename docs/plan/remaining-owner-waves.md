@@ -48,10 +48,27 @@ No product-behavior change except honesty of status fields.
 
 ---
 
-## Wave 1 — B-CALL-SEM
+## Wave 1 — B-CALL-SEM / CALL-BIND
 
-Open. Resolver support keys must not be read as “cross-platform call done.”
-Decide the pack, then code one leaf at a time.
+Owner pick (2026-08-20): compile-time versioned opt-in table
+(`proof-forge.call-bind.v1` / `--bindings`). Not NetworkProfile / Anvil
+receipt. EVM = pre-placed 20-byte only (no CREATE/CREATE2). Empty-account
+void CALL stays until Wave 2a. `schedule` stays same-tx fire-and-forget.
+Bool/Int/Bytes returndata stay fail closed. `pf.crypto.*` / `pf.assets`
+never consult the table.
+
+**Wave 1 (this slice): parse only.** CLI accepts `--bindings`; table
+decodes; product emit still uses hashed QN / QN stubs. No `--bindings`
+keeps today’s behavior.
+
+**Wave 2 (next coding slice, not this commit):** with `--bindings`,
+generic `call`/`schedule` on evm/solana/cosmwasm without a matching row
+fails closed. Then empty-account void CALL fail-closed as its own
+semantic change. Inspect residuals clear only when that program’s
+generic calls all have rows.
+
+Open remainder: resolver support keys must not be read as
+“cross-platform call done.” Code one leaf at a time after Wave 1.
 
 ### Decisions (inventory 2026-08-16 + evm-call-addr-gap §3)
 

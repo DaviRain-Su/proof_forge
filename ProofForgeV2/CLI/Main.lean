@@ -9,6 +9,7 @@ import ProofForgeV2.Frontend.ProtocolV1
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Language.TheoremInventoryV1
 import ProofForgeV2.Targets.BuildSelectionV1
+import ProofForgeV2.Targets.CallBindV1
 
 namespace ProofForgeV2.CLI
 
@@ -26,6 +27,7 @@ open ProofForgeV2.Language.TheoremInventoryV1
 open ProofForgeV2.Source.OriginJoinV1
 open ProofForgeV2.Source.ValidatedSourceV1
 open ProofForgeV2.Targets.BuildSelectionV1
+open ProofForgeV2.Targets.CallBindV1
 open ProofForgeV2.Compiler
 
 private def usage : String :=
@@ -42,7 +44,7 @@ private def usage : String :=
   "  proof-forge-next inspect <output-dir> [--json]\n" ++
   "  proof-forge-next inspect --output-dir <dir> [--json]\n" ++
   "  proof-forge-next check <source.pf|.lean> --module <Lean.Name> [--root <dir>] [--program <Name>] [--target <target>] [--profile <id>] [--language-version <semver>] [--resource-limit <stage>.<field>=<n>]... [--json]\n" ++
-  "  proof-forge-next build <source.pf|.lean> --module <Lean.Name> --target <target> [-o <dir>] [--program <Name>] [--root <dir>] [--profile <id>] [--language-version <semver>] [--minimum-evidence <grade>] [--resource-limit <stage>.<field>=<n>]... [--json]\n" ++
+  "  proof-forge-next build <source.pf|.lean> --module <Lean.Name> --target <target> [-o <dir>] [--program <Name>] [--root <dir>] [--profile <id>] [--language-version <semver>] [--minimum-evidence <grade>] [--bindings <path>] [--resource-limit <stage>.<field>=<n>]... [--json]\n" ++
   "\n" ++
   "Notes:\n" ++
   "  version / --version prints engineering product identity (not formal Stage-0 release).\n" ++
@@ -50,6 +52,7 @@ private def usage : String :=
   "  build --network is not supported (no network registry).\n" ++
   "  --resource-limit is lower-only; check rejects external-tool/artifact-output; only wall-ms and build artifact-output.published-bytes are enforced in-process (RES-1 / output-only RES-1B); memory-bytes/processes/protocol-bytes/stderr-bytes are rejected at preflight (no in-process producer).\n" ++
   "  --minimum-evidence is build-only (specified|artifact_validated|local_runtime|network_or_proof_validated).\n" ++
+  "  --bindings is build-only (evm|solana|cosmwasm); Wave 1 parses proof-forge.call-bind.v1 and discards it (emit still uses hashed QN / QN stubs).\n" ++
   "  --json emits deterministic PF-JCS on stdout for list-targets/inspect/check/build;\n" ++
   "    version --json emits proof-forge.cli.version.v1;\n" ++
   "    doctor --json emits proof-forge.doctor.v1 (Tool Lock health + exact-set closure under PROOF_FORGE_TOOL_ROOT);\n" ++
@@ -311,6 +314,20 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
   -- and never reaches materialize/staging.
   if options.target.isNone then
     failUsage "--target is required"
+  -- ADR-0053 Wave 1: parse + target-join, then discard. Emit still uses stubs.
+  match options.bindings, options.target with
+  | none, _ => pure ()
+  | some bindingsPath, none => failUsage "--bindings requires --target"
+  | some bindingsPath, some target =>
+      match CallBindTargetV1.ofTargetId? target with
+      | none => failUsage "--bindings is only accepted with --target evm|solana|cosmwasm"
+      | some _ =>
+          let text ←
+            try IO.FS.readFile (FilePath.mk bindingsPath)
+            catch _ => failUsage s!"--bindings could not read '{bindingsPath}'"
+          match decodeCallBindTableForTargetV1 text target with
+          | .ok _table => pure ()
+          | .error msg => failUsage msg
   let _languageVersion ← resolveLanguageVersionForCli options.languageVersion
   let source ← match options.source with
     | some source => pure source

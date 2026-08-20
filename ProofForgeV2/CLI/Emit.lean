@@ -13,7 +13,8 @@
     check <source.pf|.lean> --module <Name> [--root] [--program] [--target]
       [--profile] [--language-version] [--json]
     build <source.pf|.lean> --module <Name> --target <t> [-o <dir>]
-      [--program] [--root] [--profile] [--language-version] [--json]
+      [--program] [--root] [--profile] [--language-version]
+      [--bindings <path>] [--json]
 
   Disambiguation for positional `inspect <arg>`:
     * If `<arg>` is a registered TargetId (frozen registry membership), treat as
@@ -58,6 +59,7 @@
 -/
 import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Targets.BuildSelectionV1
+import ProofForgeV2.Targets.CallBindV1
 import ProofForgeV2.Targets.TargetRegistryV1
 import ProofForgeV2.Targets.RequirementResolverV1
 import ProofForgeV2.Targets.RegistryRootV1
@@ -420,8 +422,10 @@ RES-1 enforces wall clocks (build: pre-rename inside emitProgram; check:
 post-success path). The RES-1B output-only slice enforces
 `artifact-output.published-bytes` before publication. Product preflight rejects
 `memory-bytes` / `processes` / `protocol-bytes` / `stderr-bytes` (parsed, no
-in-process producer). Structural ambient ProofBundle product flags remain
-deleted; product proof gating is the in-process inline certifier. -/
+in-process producer). ADR-0053 Wave 1: `--bindings` is build-only for
+evm|solana|cosmwasm; the table is parsed at product build and discarded.
+Structural ambient ProofBundle product flags remain deleted; product proof
+gating is the in-process inline certifier. -/
 structure BuildOptions where
   source : Option String := none
   target : Option TargetId := none
@@ -434,6 +438,9 @@ structure BuildOptions where
   json : Bool := false
   resourceLimits : Array ResourceLimitOverrideV1 := #[]
   minimumEvidence : Option String := none
+  /-- ADR-0053 Wave 1: path only. Table is parsed at product build and
+      discarded (emit still uses hashed QN / QN stubs). -/
+  bindings : Option String := none
   deriving Repr
 
 /-- Product-facing inline proof observation for check success output.
@@ -743,12 +750,27 @@ def validateBuildOptionsCliV1
       | .build =>
           unless isValidMinimumEvidenceGradeV1 grade do
             throw s!"unknown --minimum-evidence grade '{grade}'"
+  -- ADR-0053 Wave 1: --bindings is build-only; emit still ignores the table.
+  match options.bindings with
+  | none => pure ()
+  | some _ =>
+      match kind with
+      | .check => throw "--bindings is not accepted on check"
+      | .build =>
+          match options.target with
+          | none => throw "--bindings requires --target"
+          | some target =>
+              match ProofForgeV2.Targets.CallBindV1.CallBindTargetV1.ofTargetId? target with
+              | some _ => pure ()
+              | none =>
+                  throw "--bindings is only accepted with --target evm|solana|cosmwasm"
   pure options
 
 /-- Shared build/check argument parser (pure Except).
 `--network` and any other unknown dashed option fail as usage errors.
 `--json` is a bare flag. Duplicate selection and common flags fail closed.
 D3-E5: `--resource-limit` (repeatable), `--minimum-evidence`.
+ADR-0053 Wave 1: `--bindings` (build-only; evm|solana|cosmwasm).
 Legacy structural ambient ProofBundle product flags remain unknown options
 (inline certifier is the sole product proof gate). -/
 partial def parseBuildArgsExcept (args : List String) (options : BuildOptions := {}) :
@@ -788,6 +810,11 @@ partial def parseBuildArgsExcept (args : List String) (options : BuildOptions :=
       if options.minimumEvidence.isSome then throw "duplicate --minimum-evidence"
       if value.startsWith "-" then throw "missing --minimum-evidence value"
       parseBuildArgsExcept rest { options with minimumEvidence := some value }
+  | "--bindings" :: value :: rest =>
+      if options.bindings.isSome then throw "duplicate --bindings"
+      if value.startsWith "-" then throw "missing --bindings value"
+      parseBuildArgsExcept rest { options with bindings := some value }
+  | "--bindings" :: [] => throw "missing --bindings value"
   | value :: rest =>
       if value.startsWith "-" then
         throw s!"unknown option '{value}'"

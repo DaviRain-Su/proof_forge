@@ -137,6 +137,7 @@ import Tests.Language.SourceAstCanonicalRootDecodeV1
 import Tests.Language.FrontendParity
 import Tests.Language.Loader
 import Tests.Materialization.BuildSelectionV1
+import Tests.Materialization.CallBindV1
 import Tests.Materialization.TargetRegistryV1
 import Tests.Materialization.RequirementResolverV1
 import Tests.Materialization.IdentityChainV1
@@ -239,6 +240,7 @@ private unsafe def runSemanticTests : IO Unit := do
 
 private unsafe def runMaterializationAndProductTests : IO Unit := do
   Tests.Materialization.BuildSelectionV1.run
+  Tests.Materialization.CallBindV1.run
   Tests.Materialization.TargetRegistryV1.run
   Tests.Materialization.RequirementResolverV1.run
   Tests.Materialization.IdentityChainV1.run

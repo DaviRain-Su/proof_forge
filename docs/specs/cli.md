@@ -3,7 +3,7 @@ id: SPEC-CLI-001
 title: CLI 契约
 status: proposed
 owner: cli
-updated: 2026-08-10
+updated: 2026-08-20
 normative: true
 ---
 
@@ -52,6 +52,7 @@ proof-forge-next check <source> --module <lean-module-name> [--language-version 
   [--format human|json]
 proof-forge-next build <source> --module <lean-module-name> --target <id> [--profile <id>]
   [--language-version <semver>] [--minimum-evidence <grade>]
+  [--bindings <path>]
   [--program <qualified>] [--resource-limit <stage>.<field>=<n>]...
   --output <dir> [--force] [--format human|json]
 proof-forge-next inspect <output-dir> [--format human|json]
@@ -98,6 +99,13 @@ parse-only-not-enforced`；`minimumEvidence` 仍为 null）。**不参与** capa
 support decision、manifest identity 或 exit 4 门禁；不得以成功 build 暗示已达
 `artifact_validated` / `local_runtime` / `network_or_proof_validated`。接线计划见
 [`docs/plan/d3-e8-minimum-evidence.md`](../plan/d3-e8-minimum-evidence.md)。
+
+`--bindings` 是 build-only、opt-in 的编译期对端绑定表路径（ADR-0053）。只接受
+`--target evm|solana|cosmwasm`；`check` 与其余十叶给该 flag 均为 usage / exit 2。
+文件必须是 PF-JCS `proof-forge.call-bind.v1`。**Wave 1** 只 parse + 与 `--target`
+join，然后丢弃表；产品 emit 仍走 hashed QN / QN stub。无 `--bindings` 时行为与
+今天完全相同。Wave 2 才把「无行 = fail closed」接到三叶 Lower/Emit。不把产品
+`build` 接到 Anvil / wasmd / 任何网络。
 
 `--resource-limit` 是 repeatable、逐 stage/field 的 lower-only override。CLI 名称固定映射到
 SPEC-COMMON-001，不创建第二套 resource profile：

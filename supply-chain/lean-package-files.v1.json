@@ -1,14 +1,14 @@
 {
   "files": [
     {
-      "bytes": 6366,
+      "bytes": 6405,
       "path": "ProofForgeV2.lean",
-      "sha256": "51324919162e82e06a5ee536ef845b516987c81df73c3ced176bed7f31c19d1e"
+      "sha256": "0b43937457098dbb40093b26d3e2965a976017e19f709abdfd4b674e8de64fa8"
     },
     {
-      "bytes": 98319,
+      "bytes": 99641,
       "path": "ProofForgeV2/CLI/Emit.lean",
-      "sha256": "f4ad2cb6dbf44d7e2478fd5c4db0d933f4892e743cd7f314f25a2cc58890b040"
+      "sha256": "dcdac3072455fa2c006fdbb7fb2636446acf0637d685b5758e276f79339f84a1"
     },
     {
       "bytes": 368,
@@ -16,9 +16,9 @@
       "sha256": "f2ea59a97963f9d3fc26676fda1f4ea206164eca5f85612e38ea4a77dd1ea838"
     },
     {
-      "bytes": 35491,
+      "bytes": 36460,
       "path": "ProofForgeV2/CLI/Main.lean",
-      "sha256": "26fced6289b25b14590f92babe8d2bbb7bb4f9355c4de61a466a4291c69ea75c"
+      "sha256": "b7ca0208b33645148ccceae04767b6c886cfc56962a048aaba9058b01bfba8b1"
     },
     {
       "bytes": 2585,
@@ -899,6 +899,11 @@
       "bytes": 7347,
       "path": "ProofForgeV2/Targets/BuildSelectionV1.lean",
       "sha256": "cfa0cfb4085f28038cfb328091a355bdf3c10c48bc369a5fd43f3655c880e586"
+    },
+    {
+      "bytes": 12449,
+      "path": "ProofForgeV2/Targets/CallBindV1.lean",
+      "sha256": "41a6b1e9b293b5e3b9dba6e287fe5efa22147361abb219319a2557590b97f644"
     },
     {
       "bytes": 740,
