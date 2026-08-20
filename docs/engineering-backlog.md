@@ -524,7 +524,7 @@ Cairo / RISC0 / SP1 / Move / 比特币 **不进本队列**。
 优先序遵循产品判断：**EVM（最完善，formal lighthouse）→ Solana → NEAR → CosmWasm/Wasm**；
 Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 
-**Goal/workflow 入口（2026-08-19）**：next-wave Goal/workflow **已退役**（queue 零 pending）。**不要**再 `/goal @.grok/goals/prompt-next-wave.md` 或 `/workflow next-wave-runner`。能力层 waves（CAP-1a…5、CAP-X-BYTES、CAP-X-MERKLE）与诚实边界波均 **done（2026-08-19）**。日常工程下一刀 = **B-CALL-SEM 残差**（部署地址 / 外层账户 / CW `contract_addr`；十三 kind inspect 表面针已落地，**不**标 closed）。完善度分阶段队列见 [`plan/completeness-phased-roadmap.md`](plan/completeness-phased-roadmap.md) 与上文 **§12**。对账 `research/28-project-wide-honesty-audit.md`。Formal / 产品决策项仍不进 drain。
+**Goal/workflow 入口（2026-08-19）**：next-wave Goal/workflow **已退役**（queue 零 pending）。**不要**再 `/goal @.grok/goals/prompt-next-wave.md` 或 `/workflow next-wave-runner`。能力层 waves（CAP-1a…5、CAP-X-BYTES、CAP-X-MERKLE）与诚实边界波均 **done（2026-08-19）**。日常工程下一刀 = **B-CALL-SEM 残差**（部署地址 / 外层账户 / CW `contract_addr`；十三 kind inspect 表面针已落地，**不**标 closed）。剩余人拍项已排进 [`docs/plan/remaining-owner-waves.md`](plan/remaining-owner-waves.md)（Wave 0–8；**不**自动接受 ADR-0036/0051/0052，**不**开 XRPL TIME/CALLER 叶，**不**标 formal done）。完善度分阶段队列见 [`plan/completeness-phased-roadmap.md`](plan/completeness-phased-roadmap.md) 与上文 **§12**。能力层已闭，见 [`docs/plan/capability-layer-tasks.md`](plan/capability-layer-tasks.md)。对账 `research/28-project-wide-honesty-audit.md`。Formal / 产品决策项仍不进 drain。
 
 ```text
 1. EVM formal lighthouse（ADR-0036，仍 proposed；LH-1…28 + Track F **engineering-done**；**不要**把 TASK/TST 标 done）：

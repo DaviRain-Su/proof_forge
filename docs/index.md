@@ -57,8 +57,10 @@ attachedValue inspect/Targets 诚实表面、official `cryptoHonesty` 闭表、
 ICP/TON `maturityResidual`、XRPL ContextRead/Commit 矩阵针与 ecdsa
 十二叶第一道门针已部分落地，**不**把 B-CALL-SEM 标 closed，**不**开放
 Field/Principal 字面量，**不**开官方 program 新叶，**不**改 registry maturity 标签。
-当前剩余人拍项 = B-CALL-SEM 残差（部署地址 / 外层账户 / CW `contract_addr` 绑定）/
-ADR-0051 / D3-E8 / QUINT-2 / SOR-1 / XRPL TIME/CALLER。
+当前剩余人拍项已排进 [`plan/remaining-owner-waves.md`](plan/remaining-owner-waves.md)
+（B-CALL-SEM / ADR-0051 / ADR-0036 / D3-E8 / DOC-JUST-CONTROL / RES-1B /
+B-COMMIT-ZK / SOR-1 / QUINT-2 / XRPL TIME·CALLER / zkVM / formal D1–D4）；
+**不**自动接受 ADR，**不**开 XRPL 叶，**不**标 formal done。
 完善度队列 [`plan/completeness-phased-roadmap.md`](plan/completeness-phased-roadmap.md) ·
 能力层设计 [`plan/capability-layer-parity.md`](plan/capability-layer-parity.md) ·
 任务拆分 [`plan/capability-layer-tasks.md`](plan/capability-layer-tasks.md)。
