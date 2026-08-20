@@ -1,13 +1,15 @@
 /-
   ProofForgeV2.Targets.CallBindV1 — compile-time opt-in callee bind table
-  (ADR-0053 Wave 1).
+  (ADR-0053 Wave 1 parse + Wave 2 lookup).
 
   Parses `proof-forge.call-bind.v1` PF-JCS into a private-ctor table.
-  Does **not** change EVM / Solana / CosmWasm emit. Product Lower still
-  uses hashed QN / QN stubs until Wave 2. `pf.crypto.*` and `pf.assets`
-  never consult this table.
+  Wave 2: when a table is present, generic `call`/`schedule` on
+  evm/solana/cosmwasm must match a row or fail closed. Missing table keeps
+  hashed QN / QN stubs. `pf.crypto.*` and `pf.assets` never consult this
+  table. Identity fields are join metadata only (do not change emit).
 
   Not SemanticProgramV1. Not NetworkProfile. Not formal / C-3.
+  Not Wave 2a empty-account EVM CALL.
 -/
 import ProofForgeV2.Core.Canonical
 import ProofForgeV2.Core.Common
@@ -177,6 +179,17 @@ def decodeLowerHexBytesV1 (hex : String) (expectBytes : Nat) (allow0x : Bool)
     throw s!"{context} must be exactly {expectBytes} bytes"
   pure out
 
+private def lowerHexDigit (n : Nat) : Char :=
+  if n < 10 then Char.ofNat ('0'.toNat + n)
+  else Char.ofNat ('a'.toNat + n - 10)
+
+/-- Lowercase hex of exact bytes (no `0x`). Public so emitters can pin
+    Solana program-id / EVM address needles from the same table. -/
+def encodeLowerHexBytesV1 (bytes : ByteArray) : String :=
+  bytes.foldl (fun result byte =>
+    let value := byte.toNat
+    (result.push (lowerHexDigit (value / 16))).push (lowerHexDigit (value % 16))) ""
+
 private def parseCalleeDotted (value : String) : Except String QualifiedName := do
   let parts := (value.splitOn ".").toArray
   if parts.size < 2 then
@@ -312,11 +325,85 @@ def requireCompatibleTarget (table : CallBindTableV1) (buildTarget : TargetId) :
   unless table.target.toTargetId == buildTarget do
     throw s!"--bindings target '{table.target}' does not match --target '{buildTarget}'"
 
-/-- Parse + target join. Wave 1 product build discards the table after this. -/
+/-- Parse + target join. Product build keeps the table and threads it into
+    emit (Wave 2). -/
 def decodeCallBindTableForTargetV1 (input : String) (buildTarget : TargetId) :
     Except String CallBindTableV1 := do
   let table ← parseCallBindTableV1 input
   requireCompatibleTarget table buildTarget
   pure table
+
+/-- Exact QN from Plan callee components. Empty / malformed → none. -/
+def qualifiedNameOfComponents? (components : Array String) : Option QualifiedName :=
+  match parseQualifiedName components with
+  | .ok name => some name
+  | .error _ => none
+
+private def missingCalleeError (kind : String) (callee : Array String) : String :=
+  let qn := String.intercalate "." callee.toList
+  s!"call-bind: no {kind} row for callee '{qn}'"
+
+private def wrongSiteError (kind : String) (callee : Array String) : String :=
+  let qn := String.intercalate "." callee.toList
+  s!"call-bind: row for '{qn}' is not a {kind} site"
+
+/-- Wave 2 EVM lookup. Present table + missing/wrong-site row → error.
+    Caller must not invoke this when the table is absent. -/
+def requireEvmAddressV1 (table : CallBindTableV1) (callee : Array String) :
+    Except String ByteArray := do
+  let some name := qualifiedNameOfComponents? callee |
+    throw (missingCalleeError "evm" callee)
+  match findRow? table name with
+  | none => throw (missingCalleeError "evm" callee)
+  | some row =>
+      match row.site with
+      | .evm address =>
+          unless address.size == 20 do
+            throw "call-bind: evm address must be exactly 20 bytes"
+          pure address
+      | _ => throw (wrongSiteError "evm" callee)
+
+/-- Wave 2 Solana lookup. Nonempty `accounts` is Wave 2b (outer AccountMeta
+    ABI) and fail-closed here so a half-wired program-id is never claimed
+    complete. Empty accounts → program id only (empty-meta packing stays). -/
+def requireSolanaProgramIdV1 (table : CallBindTableV1) (callee : Array String) :
+    Except String ByteArray := do
+  let some name := qualifiedNameOfComponents? callee |
+    throw (missingCalleeError "solana" callee)
+  match findRow? table name with
+  | none => throw (missingCalleeError "solana" callee)
+  | some row =>
+      match row.site with
+      | .solana programId accounts =>
+          unless programId.size == 32 do
+            throw "call-bind: solana programId must be exactly 32 bytes"
+          unless accounts.isEmpty do
+            throw
+              "call-bind: solana accounts binding is not admitted in Wave 2 (empty accounts only; outer AccountMeta is Wave 2b)"
+          pure programId
+      | _ => throw (wrongSiteError "solana" callee)
+
+/-- Wave 2 CosmWasm lookup. Present table + missing/wrong-site → error. -/
+def requireCosmWasmAddressV1 (table : CallBindTableV1) (callee : Array String) :
+    Except String String := do
+  let some name := qualifiedNameOfComponents? callee |
+    throw (missingCalleeError "cosmwasm" callee)
+  match findRow? table name with
+  | none => throw (missingCalleeError "cosmwasm" callee)
+  | some row =>
+      match row.site with
+      | .cosmwasm contractAddr =>
+          unless 1 ≤ contractAddr.utf8ByteSize && contractAddr.utf8ByteSize ≤ 128 do
+            throw "call-bind: contractAddr must contain 1..128 UTF-8 bytes"
+          pure contractAddr
+      | _ => throw (wrongSiteError "cosmwasm" callee)
+
+/-- True when `qn` is a `pf.crypto.*` catalog call (never consults the table). -/
+def isPfCryptoBindExemptQnV1 (qn : String) : Bool :=
+  qn.startsWith "pf.crypto."
+
+/-- True when `qn` is a `pf.assets` catalog call (never consults the table). -/
+def isPfAssetsBindExemptQnV1 (qn : String) : Bool :=
+  qn.startsWith "pf.assets."
 
 end ProofForgeV2.Targets.CallBindV1

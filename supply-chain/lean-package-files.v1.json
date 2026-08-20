@@ -901,9 +901,9 @@
       "sha256": "cfa0cfb4085f28038cfb328091a355bdf3c10c48bc369a5fd43f3655c880e586"
     },
     {
-      "bytes": 12449,
+      "bytes": 16424,
       "path": "ProofForgeV2/Targets/CallBindV1.lean",
-      "sha256": "41a6b1e9b293b5e3b9dba6e287fe5efa22147361abb219319a2557590b97f644"
+      "sha256": "8151a2bcdd8578c970fdedd0695c157b182b43d1afcd7ddbaaa58bc45912c738"
     },
     {
       "bytes": 740,
