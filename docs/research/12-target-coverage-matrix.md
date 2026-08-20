@@ -3,7 +3,7 @@ id: RESEARCH-012
 title: Target Plan/IR/Emitter 覆盖缺口矩阵（工程轨道权威清单）
 status: draft
 owner: engineering
-updated: 2026-08-18
+updated: 2026-08-19
 normative: false
 ---
 
@@ -185,7 +185,7 @@ normative: false
 |---|---|---|---|---|
 | **N-A1** | String match-switch | **已闭合(EvmStringMatch + N-A1-COPY)**：十三家 Lower 将 `match String` desugar 为 9 叶 leaf-wise eq + nested ifThenElse（Plan `switchOn` 仍仅 UInt64 case）；catch-all fallthrough；非 String aggregate switch 与非 String pattern 仍 fail-closed。不是 UTF-8 ABI | 十三 materializer | EvmStringMatch ✅ + N-A1-COPY ✅ |
 | **N-A2** | 多臂同构造器 match 细化 | **已闭合(MultiArmCtor)**：Normalize 允许同外构造器多臂，子模式可区分时 first-match 嵌套 guard（nested ctor→VariantTag eq，nested lit→value eq；fallthrough→outer catch-all 或 trap.unreachable）；结构 pattern key 重复（bind≡wildcard、ctor by vIdx、lit by valueBytes）仍 fail-closed；TypeCheck 同源 duplicate pattern 诊断；六 target 经 sole Normalize 继承 | 全 target | MultiArmCtor ✅ |
-| **N-A3** | Map/Bytes 穿透元素赋值 | **已闭合(MapBytesAssign)**：TypeCheck/Normalize 单步 `m[k]:=v`/`b[i]:=u8` → IndexSet（load→set→store）；Reference 已有 Map/Bytes step。target 覆盖非均匀：EVM Map+Bytes、Solana Map、NEAR Map 与 fixed Bytes state、Noir Map、Aleo Map+Bytes 已部分 LOWERED，Psy 与其余组合按上表 FAIL-CLOSED；五个 Map-capable target 的 aggregate StateStore snapshot hazard 已修。**Map 整程序 Reference admission（2026-08-07）** 已切 per-canonical-value/helper Wire envelope（无 sampled packing/第二 runtime capacity；empty state default exact 4B；whole-step cumulative work 仍 residual）；**MiniAmm `Map Principal UInt64` Normalize→admit 已通**（runtime upsert 仍 Wire 实际 limits）；**嵌套穿透** `m[k].x:=v` 仍 fail-closed | 全 target Normalize；target 见 op 表 | MapBytesAssign + B-SOL-MAP-UPSERT ✅ |
+| **N-A3** | Map/Bytes 穿透元素赋值 | **已闭合(MapBytesAssign)**：TypeCheck/Normalize 单步 `m[k]:=v`/`b[i]:=u8` → IndexSet（load→set→store）；Reference 已有 Map/Bytes step。target 覆盖非均匀：EVM Map+Bytes、Solana Map、NEAR Map 与 fixed Bytes state、Noir Map、Aleo Map+Bytes 已部分 LOWERED，Psy 与其余组合按上表 FAIL-CLOSED；五个 Map-capable target 的 aggregate StateStore snapshot hazard 已修。**Map 整程序 Reference admission（2026-08-07）** 已切 per-canonical-value/helper Wire envelope（无 sampled packing/第二 runtime capacity；empty state default exact 4B；whole-step cumulative work 仍 residual）；**MiniAmm `Map Principal UInt64` Normalize→admit 已通**（runtime upsert 仍 Wire 实际 limits）；**Map 嵌套穿透** `m[k].x:=v` 已开（N-NEST-IDX）；**Bytes 嵌套穿透** 仍 TypeCheck FC（UInt8 叶） | 全 target Normalize；target 见 op 表 | MapBytesAssign + B-SOL-MAP-UPSERT ✅ |
 | **N-A4** | Option state | **shared 闭合**：Normalize+Reference default none；十三 materializer 均 Admit `Option UInt64` 2 叶 tag+payload state（T5 补 ICP：两个 extra i64 global，无 Candid `opt`）；**Option UInt64/Int64 param 已 flatten**（十三家 Focus `testOptionParam`：`o_tag`/`o_p0`）；Option-of-String / nested Option 仍 FC；**T8a** 已开 ICP Map UInt64 cap-8（24 i64 globals） | 全 target | OptionState ✅ + B-OPT-STATE ✅ + T5 |
 
 ### B 组：各 target 的 Plan/IR/emitter 覆盖缺口

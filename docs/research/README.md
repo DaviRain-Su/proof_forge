@@ -3,18 +3,20 @@ id: RESEARCH-INDEX
 title: 调研证据索引
 status: draft
 owner: research
-updated: 2026-08-15
+updated: 2026-08-19
 normative: false
 ---
 
 # 调研证据索引
 
 状态：`draft`
-更新日期：2026-08-15
+更新日期：2026-08-19
 
 本目录保存 ProofForge V2 的非规范性研究材料。研究结论不能越过已接受的 ADR、PRD、架构和技术规格；它们的作用是说明“为什么这样设计”，而不是暗中改变产品语义。
 
 **工程执行队列**不在本目录：见 [`../engineering-backlog.md`](../engineering-backlog.md)。
+**完善度分阶段指针**（非本目录新 RPT、非第四份 live gap 清单）：
+[`../plan/completeness-phased-roadmap.md`](../plan/completeness-phased-roadmap.md)；勾选回写 backlog §12。
 **11 + 12 + 13** 仍是特性/格子/Normalize 对账真源，缺口回写 backlog；**28** 是 2026-08-15 全仓诚实性对账（控制面×代码），用于校准 Next/Goal，**不是**第四份 live gap 清单。
 **01–09** 为早期设计研究（已被 ADR/SPEC 吸收），**10** 为长期北极星（IBC）。
 

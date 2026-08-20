@@ -3,7 +3,7 @@ id: PHASE-6
 title: 实现日志
 status: draft
 owner: engineering
-updated: 2026-08-18
+updated: 2026-08-19
 normative: false
 ---
 
@@ -11,6 +11,106 @@ normative: false
 
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
+
+## 2026-08-19 — COMP-1-SYS-CAP-L2 ecdsa 十二叶第一道门针
+
+- `Tests/Materialization/Targets.lean`：合法
+  `pf.crypto.ecdsaRecoverSecp256k1(h,v,r,s) -> UInt256` 探针。EVM 必须 materialize；
+  其余十二叶 `expectMaterializePlanInvariantV1` 钉各自 first gate（与
+  `merkleVerifyKeccak256` 同纪律：width / profile / 命名 QN）。
+- `Tests/Materialization/XrplPlanV1.lean`：补 ecdsa QN 命名 FC（此前仅 sha256/keccak）。
+- **不是** 十二叶 ecdsa host、**不是** Anvil 差分、**不是** formal 0/27。
+
+## 2026-08-19 — COMP-1-SYS-CAP-L2 maturityResidual + XRPL context 矩阵
+
+- `RequirementResolverV1.maturityResidualV1`：仅 icp=`deployable-wasm-vs-source-only-label`、
+  ton=`conditional-boc-deployable-vs-source-only-label`。**不**改
+  `expectedMaturityLabelOfKindV1`（ICP/TON 仍 `source-only`）。
+- 产品 `inspect` / `inspect --json` 在 implemented 行露出 optional
+  `maturityResidual`（JSON 无 residual 为 `null`）。`describe` 三行与
+  SupportClaim digest **不变**。
+- `Targets.lean` 补 XRPL unixTime / caller / blockHeight / chainId / self /
+  Commit fail-closed 针（named UInt64 用 host-binding 文案；Principal/Commit
+  用 `op is outside Q0`）。**不**开 XRPL TIME/CALLER 叶。
+- **不是** 新官方 program 叶、**不是** 改 maturity 标签、**不是** formal 0/27。
+
+## 2026-08-19 — COMP-1-SYS-CAP-L2 official crypto inspect 诚实表面
+
+- `RequirementResolverV1.cryptoCatalogFamilyTagV1`：十三 kind 闭表
+  （EVM 五 QN；Solana/NEAR sha256+keccak+sha256Bytes；TON/Soroban sha256 双
+  QN；Psy keccak gadget + sha256 FC；其余 `crypto-no-host-fc`）。
+- `cryptoCatalogResidualV1`：仅 cw=`no-sha256-host`、xrpl=`sha512-half-not-sha256`、
+  psy=`keccak-gadget-not-sha2`。
+- 产品 `inspect` / `inspect --json` 露出 `cryptoHonesty` 与 optional
+  `cryptoResidual`。`describe` 三行与 SupportClaim digest **不变**。
+- **不是** 新官方 program 叶、**不是** 开 CosmWasm/XRPL sha256 host、
+  **不是** formal 0/27。
+
+## 2026-08-19 — COMP-1-SYS-CAP-L2 attachedValue inspect 诚实表面
+
+- `RequirementResolverV1.attachedValueFamilyTagV1`：十三 `TargetKind` 闭表
+  （EVM CALLVALUE / NEAR deposit-entry / CW funds-execute / 其余 no-host FC）。
+- `attachedValueResidualV1`：仅 evm=`constructor-fc`、near=`view-purefn-fc`、
+  cosmwasm=`query-view-fc`；其余 `none`。
+- 产品 `inspect` / `inspect --json` 在 implemented 行露出
+  `attachedValueHonesty` 与 optional `attachedValueResidual`
+  （JSON 无 residual 为 `null`）。`describe` 三行与 SupportClaim digest **不变**。
+- `Targets.lean` S4 入口针补 `xrpl`；新增 view/query 矩阵（仅 EVM admit，
+  NEAR/CW/其余十二叶 FC）。
+- **不是** 官方 program catalog 新叶、**不是** 开 NEAR view / CW query host、
+  **不是** formal 0/27。
+
+## 2026-08-19 — COMP-1-NORMALIZE-RESIDUAL fail-closed 针
+
+- CheckV1：Field/Principal 源整数字面量（return + Field state assign）与
+  Bytes 嵌套穿透（`b[i].x` / `b[i][j]`）TypeCheck not-ok。
+- `CheckV1ProductGate`：产品 `compileValidatedSourceV1` 钉
+  `PF-SRC-INVALID: type mismatch: expected Field(bn254_fr)|Principal|struct type`.
+- Normalize 头与完善度审查 1.1：Map `m[k].x := v` 已开（N-NEST-IDX），不再写成仍拒。
+- **不是** 字面量/Bytes 穿透开放、**不是** 十三叶 Lower、**不是** formal 0/27。
+
+## 2026-08-19 — COMP-1-CALL-SEM-LAND inspect residual 标签
+
+- `RequirementResolverV1.callScheduleResidualV1`：仅 evm / solana / cosmwasm
+  返回地址缺口标签（`hashed-qn-no-deploy-bind` /
+  `callee-identity-outer-account-open` / `contract-addr-qn-stub`）；其余十 kind
+  为 `none`。
+- 产品 `inspect` 在 human 仅当 `some` 时多一行 `callScheduleResidual=`；
+  `inspect --json` 对 implemented 行始终露出该字段（`string` 或 `null`）。
+- `describeImplementedJoin` 三行与 SupportClaim digest **不变**。
+- **不是** 部署地址 / 外层账户 / `contract_addr` 绑定，**不是** B-CALL-SEM
+  闭合，**不是** formal 0/27。
+
+## 2026-08-19 — COMP-1-CALL-SEM-LAND 十三 kind inspect 表面针
+
+- `testInspectCallScheduleHonestySurface`：13 implemented target 的
+  human + JSON `callScheduleHonesty` 闭表针；`describe` 仍无该字段。
+- BuildSelection `inspect evm/aleo/psy` 与 CLI `inspect aleo/cosmwasm` 补针。
+- **不是** B-CALL-SEM 闭合、不是部署地址绑定、不是 formal 0/27。
+
+## 2026-08-19 — COMP-1-CALL-SEM-LAND 第一刀（inspect family tag）
+
+- `RequirementResolverV1.callScheduleFamilyTagV1`：十三 `TargetKind` 闭表。
+- 产品 `inspect` / `inspect --json` 在 implemented 行露出 `callScheduleHonesty`；
+  `describeImplementedJoin` 三行与 SupportClaim digest **不变**。
+- ExtFlow / LaterFlow 解析针补 `xrpl`（首个 unsupported =
+  `effect.asynchronous-workflow`）。
+- NEAR resolver 头注释改为 pf.assets-scoped sync + Promise async。
+- **不是** B-CALL-SEM 闭合、不是 EVM 部署地址 / Solana 外层账户 / CW
+  `contract_addr`、不是 ADR-0036/0051 accepted、不是 formal 0/27。
+
+## 2026-08-19 — 完善度审查落地为分阶段执行队列（文档，非编码）
+
+- 新增 `docs/plan/completeness-phased-roadmap.md`（`PLAN-COMPLETENESS-ROADMAP`）：
+  三条完成轴 + COMP-0…5 阶段指针。
+- `docs/engineering-backlog.md` 新增 §12 `COMP-*` 勾选真源（DOC-DEDUP：不另开
+  research gap 清单）。
+- ADR-0036 工程计数改为 **13+0（含 XRPL ADR-0049/0050）**；status 仍 `proposed`。
+- 阶段 0 四句推荐冻结写入队列（B-CALL-SEM 按族拆、Noir 保持 C-4、ADR-0036 不在
+  本切片 accepted、SPEC-honesty 沿用 ADR-0051）；owner 未盖章。
+- 控制面指针：AGENTS Next / RECOVERY / document-status / index / research README。
+- **不是** shared-core 实现、不是四目标 DoD 编码、不是 formal 0/27 关闭、
+  不是 `just ci` 代签 release。
 
 ## 2026-08-18 — CodecInvert 九字段工程闭合（transport invert）
 

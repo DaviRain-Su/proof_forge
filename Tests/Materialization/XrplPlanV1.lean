@@ -406,6 +406,9 @@ unsafe def testCryptoSha256StayFailClosed : IO Unit := do
     "    return count\n"
   expectPlanFc "Sha256" (cryptoBody "pf.crypto.sha256")
   expectPlanFc "Keccak256" (cryptoBody "pf.crypto.keccak256")
+  -- COMP-1-SYS-CAP-L2: ecdsa is EVM-only; XRPL names the QN (sha512-half ≠ ecdsa).
+  expectPlanFcMsg "EcdsaRecover" (cryptoBody "pf.crypto.ecdsaRecoverSecp256k1")
+    "ecdsaRecoverSecp256k1"
 
 unsafe def testContextReadStayFailClosed : IO Unit := do
   expectPlanFc "UnixTime" <|

@@ -1259,6 +1259,25 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
         "inspect includes registry root"
       expect (hasSubstr text "supportClaimDigest=sha256:")
         "inspect includes support claim"
+      expect (hasSubstr text
+          "callScheduleHonesty=evm-hashed-call+same-tx-schedule")
+        s!"inspect must surface EVM family tag next to keys, got {text}"
+      expect (hasSubstr text
+          "callScheduleResidual=hashed-qn-no-deploy-bind")
+        s!"inspect must surface EVM address residual, got {text}"
+      expect (hasSubstr text
+          "attachedValueHonesty=evm-callvalue+view-reads-zero")
+        s!"inspect must surface EVM attachedValue family tag, got {text}"
+      expect (hasSubstr text
+          "attachedValueResidual=constructor-fc")
+        s!"inspect must surface EVM attachedValue residual, got {text}"
+      expect (hasSubstr text
+          "cryptoHonesty=sha256+keccak+sha256Bytes+merkle+ecdsa")
+        s!"inspect must surface EVM crypto family tag, got {text}"
+      expect (!hasSubstr text "cryptoResidual")
+        "EVM inspect has no official-crypto residual"
+      expect (!hasSubstr text "maturityResidual")
+        "EVM inspect has no maturity residual (label and deployable agree)"
   | .error e => throw <| IO.userError e.render
   match ProofForgeV2.CLI.inspectTargetText "solana" with
   | .ok text =>
@@ -1271,12 +1290,34 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
       expect (hasSubstr text "effect.synchronous-call" &&
           !hasSubstr text "effect.asynchronous-workflow")
         "inspect default Solana support advertises sync (not async)"
+      expect (hasSubstr text
+          "callScheduleHonesty=solana-cpi-sync-async-fc")
+        s!"inspect must surface Solana family tag, got {text}"
+      expect (hasSubstr text
+          "callScheduleResidual=callee-identity-outer-account-open")
+        s!"inspect must surface Solana address residual, got {text}"
+      expect (hasSubstr text
+          "attachedValueHonesty=solana-no-host-fc")
+        s!"inspect must surface Solana attachedValue family tag, got {text}"
+      expect (!hasSubstr text "attachedValueResidual")
+        "Solana inspect has no attachedValue callable residual"
   | .error e => throw <| IO.userError e.render
   match ProofForgeV2.CLI.inspectTargetText "solana" true with
   | .ok json =>
       expect (hasSubstr json
           "\"profiles\":[\"solana-sbpf-cpi-elf-v1\"]")
         s!"inspect Solana JSON profiles, got {json}"
+      expect (hasSubstr json
+          "\"callScheduleHonesty\":\"solana-cpi-sync-async-fc\"")
+        s!"inspect Solana JSON family tag, got {json}"
+      expect (hasSubstr json
+          "\"callScheduleResidual\":\"callee-identity-outer-account-open\"")
+        s!"inspect Solana JSON address residual, got {json}"
+      expect (hasSubstr json
+          "\"attachedValueHonesty\":\"solana-no-host-fc\"")
+        s!"inspect Solana JSON attachedValue family tag, got {json}"
+      expect (hasSubstr json "\"attachedValueResidual\":null")
+        s!"inspect Solana JSON attachedValue residual null, got {json}"
   | .error e => throw <| IO.userError e.render
   match ProofForgeV2.CLI.inspectTargetText "noir" with
   | .ok text =>
@@ -1285,6 +1326,54 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
         "noir inspect must not surface privateWitness"
       expect (!hasSubstr text "ProgramRequirement")
         "noir inspect uses S2 ids"
+      expect (hasSubstr text "callScheduleHonesty=noir-witness-binding")
+        s!"inspect must surface Noir witness-binding family tag, got {text}"
+      expect (!hasSubstr text "callScheduleResidual")
+        "Noir inspect has no address-shaped residual"
+      expect (hasSubstr text
+          "attachedValueHonesty=noir-no-host-fc")
+        s!"inspect must surface Noir attachedValue family tag, got {text}"
+      expect (!hasSubstr text "attachedValueResidual")
+        "Noir inspect has no attachedValue callable residual"
+  | .error e => throw <| IO.userError e.render
+  match ProofForgeV2.CLI.inspectTargetText "near" with
+  | .ok text =>
+      expect (hasSubstr text
+          "callScheduleHonesty=near-promise+pfassets-sync-scope")
+        s!"inspect must surface NEAR family tag, got {text}"
+      expect (!hasSubstr text "callScheduleResidual")
+        "NEAR inspect has no address-shaped residual"
+      expect (hasSubstr text
+          "attachedValueHonesty=near-attached-deposit-entry-view-fc")
+        s!"inspect must surface NEAR attachedValue family tag, got {text}"
+      expect (hasSubstr text
+          "attachedValueResidual=view-purefn-fc")
+        s!"inspect must surface NEAR attachedValue residual, got {text}"
+  | .error e => throw <| IO.userError e.render
+  match ProofForgeV2.CLI.inspectTargetText "icp" with
+  | .ok text =>
+      expect (hasSubstr text
+          "callScheduleHonesty=icp-async-advertise-plan-fc")
+        s!"inspect must surface ICP advertise-then-Plan-FC family tag, got {text}"
+      expect (!hasSubstr text "callScheduleResidual")
+        "ICP inspect has no address-shaped residual"
+      expect (hasSubstr text
+          "attachedValueHonesty=icp-no-host-fc")
+        s!"inspect must surface ICP attachedValue family tag, got {text}"
+      expect (!hasSubstr text "attachedValueResidual")
+        "ICP inspect has no attachedValue callable residual"
+  | .error e => throw <| IO.userError e.render
+  match ProofForgeV2.CLI.inspectTargetText "xrpl" with
+  | .ok text =>
+      expect (hasSubstr text "callScheduleHonesty=xrpl-dual-fc")
+        s!"inspect must surface XRPL dual-FC family tag, got {text}"
+      expect (!hasSubstr text "callScheduleResidual")
+        "XRPL inspect has no address-shaped residual"
+      expect (hasSubstr text
+          "attachedValueHonesty=xrpl-no-host-fc")
+        s!"inspect must surface XRPL attachedValue family tag, got {text}"
+      expect (!hasSubstr text "attachedValueResidual")
+        "XRPL inspect has no attachedValue callable residual"
   | .error e => throw <| IO.userError e.render
   -- Pure three-line helper remains exact for S2 wire-order + B2 pf-assets pin.
   match ProofForgeV2.CLI.describeTargetText "evm" with
@@ -1296,6 +1385,343 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
           s!"target=evm\nprofile=evm-yul-solc-0.8.34-v1\nrequirements=#[{expectedIds}]")
         s!"describe helper exact S2+pf-assets, got {text}"
   | .error e => throw <| IO.userError e.render
+
+/-- Pins the closed 13-kind family-split tag table. Resolver support still
+    does not mean cross-platform call complete. -/
+def testCallScheduleFamilyTags : IO Unit := do
+  assert! callScheduleFamilyTagV1 .evm ==
+    "evm-hashed-call+same-tx-schedule"
+  assert! callScheduleFamilyTagV1 .solana ==
+    "solana-cpi-sync-async-fc"
+  assert! callScheduleFamilyTagV1 .near ==
+    "near-promise+pfassets-sync-scope"
+  assert! callScheduleFamilyTagV1 .cosmwasm ==
+    "cw-submsg+pfassets-sync-scope"
+  assert! callScheduleFamilyTagV1 .noir ==
+    "noir-witness-binding"
+  assert! callScheduleFamilyTagV1 .ton ==
+    "ton-async-out-message"
+  assert! callScheduleFamilyTagV1 .icp ==
+    "icp-async-advertise-plan-fc"
+  assert! callScheduleFamilyTagV1 .psy ==
+    "psy-void-sync-async-fc"
+  assert! callScheduleFamilyTagV1 .quint ==
+    "quint-pfassets-sync-async-fc"
+  assert! callScheduleFamilyTagV1 .aleo ==
+    "aleo-dual-fc"
+  assert! callScheduleFamilyTagV1 .soroban ==
+    "soroban-dual-fc"
+  assert! callScheduleFamilyTagV1 .openvm ==
+    "openvm-dual-fc"
+  assert! callScheduleFamilyTagV1 .xrpl ==
+    "xrpl-dual-fc"
+
+/-- Pins the closed address-residual table. `none` kinds stay inspect-silent
+    on the human residual line and JSON `null`. -/
+def testCallScheduleResiduals : IO Unit := do
+  assert! callScheduleResidualV1 .evm == some "hashed-qn-no-deploy-bind"
+  assert! callScheduleResidualV1 .solana ==
+    some "callee-identity-outer-account-open"
+  assert! callScheduleResidualV1 .cosmwasm == some "contract-addr-qn-stub"
+  assert! callScheduleResidualV1 .near == none
+  assert! callScheduleResidualV1 .noir == none
+  assert! callScheduleResidualV1 .ton == none
+  assert! callScheduleResidualV1 .icp == none
+  assert! callScheduleResidualV1 .psy == none
+  assert! callScheduleResidualV1 .quint == none
+  assert! callScheduleResidualV1 .aleo == none
+  assert! callScheduleResidualV1 .soroban == none
+  assert! callScheduleResidualV1 .openvm == none
+  assert! callScheduleResidualV1 .xrpl == none
+
+/-- Pins the closed SYS-S4 attachedValue family-split tag table. Resolver
+    support still does not mean every callable can read attached value. -/
+def testAttachedValueFamilyTags : IO Unit := do
+  assert! attachedValueFamilyTagV1 .evm ==
+    "evm-callvalue+view-reads-zero"
+  assert! attachedValueFamilyTagV1 .near ==
+    "near-attached-deposit-entry-view-fc"
+  assert! attachedValueFamilyTagV1 .cosmwasm ==
+    "cw-funds-execute-query-fc"
+  assert! attachedValueFamilyTagV1 .solana == "solana-no-host-fc"
+  assert! attachedValueFamilyTagV1 .noir == "noir-no-host-fc"
+  assert! attachedValueFamilyTagV1 .ton == "ton-no-host-fc"
+  assert! attachedValueFamilyTagV1 .icp == "icp-no-host-fc"
+  assert! attachedValueFamilyTagV1 .psy == "psy-no-host-fc"
+  assert! attachedValueFamilyTagV1 .quint == "quint-no-host-fc"
+  assert! attachedValueFamilyTagV1 .aleo == "aleo-no-host-fc"
+  assert! attachedValueFamilyTagV1 .soroban == "soroban-no-host-fc"
+  assert! attachedValueFamilyTagV1 .openvm == "openvm-no-host-fc"
+  assert! attachedValueFamilyTagV1 .xrpl == "xrpl-no-host-fc"
+
+/-- Pins the closed SYS-S4 callable residual table. `none` kinds stay
+    inspect-silent on the human residual line and JSON `null`. -/
+def testAttachedValueResiduals : IO Unit := do
+  assert! attachedValueResidualV1 .evm == some "constructor-fc"
+  assert! attachedValueResidualV1 .near == some "view-purefn-fc"
+  assert! attachedValueResidualV1 .cosmwasm == some "query-view-fc"
+  assert! attachedValueResidualV1 .solana == none
+  assert! attachedValueResidualV1 .noir == none
+  assert! attachedValueResidualV1 .ton == none
+  assert! attachedValueResidualV1 .icp == none
+  assert! attachedValueResidualV1 .psy == none
+  assert! attachedValueResidualV1 .quint == none
+  assert! attachedValueResidualV1 .aleo == none
+  assert! attachedValueResidualV1 .soroban == none
+  assert! attachedValueResidualV1 .openvm == none
+  assert! attachedValueResidualV1 .xrpl == none
+
+/-- Closed 13-kind inspect surface: every implemented target exposes its
+    family tag on human + JSON inspect; address residual is present only
+    for evm/solana/cosmwasm (JSON `null` otherwise); describe stays three
+    lines. -/
+def testInspectCallScheduleHonestySurface : IO Unit := do
+  let needles : Array (String × String × Option String) := #[
+    ("evm", "evm-hashed-call+same-tx-schedule", some "hashed-qn-no-deploy-bind"),
+    ("solana", "solana-cpi-sync-async-fc",
+      some "callee-identity-outer-account-open"),
+    ("near", "near-promise+pfassets-sync-scope", none),
+    ("cosmwasm", "cw-submsg+pfassets-sync-scope", some "contract-addr-qn-stub"),
+    ("noir", "noir-witness-binding", none),
+    ("ton", "ton-async-out-message", none),
+    ("icp", "icp-async-advertise-plan-fc", none),
+    ("psy", "psy-void-sync-async-fc", none),
+    ("quint", "quint-pfassets-sync-async-fc", none),
+    ("aleo", "aleo-dual-fc", none),
+    ("soroban", "soroban-dual-fc", none),
+    ("openvm", "openvm-dual-fc", none),
+    ("xrpl", "xrpl-dual-fc", none)
+  ]
+  expect (needles.size == 13) "inspect honesty surface covers all 13 kinds"
+  for (tid, family, residual) in needles do
+    match ProofForgeV2.CLI.inspectTargetText tid with
+    | .ok text =>
+        expect (hasSubstr text s!"callScheduleHonesty={family}")
+          s!"inspect {tid} family tag, got {text}"
+        match residual with
+        | some tag =>
+            expect (hasSubstr text s!"callScheduleResidual={tag}")
+              s!"inspect {tid} residual tag, got {text}"
+        | none =>
+            expect (!hasSubstr text "callScheduleResidual")
+              s!"inspect {tid} must omit residual line, got {text}"
+    | .error e => throw <| IO.userError e.render
+    match ProofForgeV2.CLI.inspectTargetText tid true with
+    | .ok json =>
+        expect (hasSubstr json s!"\"callScheduleHonesty\":\"{family}\"")
+          s!"inspect {tid} JSON family tag, got {json}"
+        match residual with
+        | some tag =>
+            expect (hasSubstr json s!"\"callScheduleResidual\":\"{tag}\"")
+              s!"inspect {tid} JSON residual tag, got {json}"
+        | none =>
+            expect (hasSubstr json "\"callScheduleResidual\":null")
+              s!"inspect {tid} JSON residual null, got {json}"
+    | .error e => throw <| IO.userError e.render
+  match ProofForgeV2.CLI.describeTargetText "aleo" with
+  | .ok text =>
+      expect (!hasSubstr text "callScheduleHonesty")
+        s!"describe must stay three-line without family tag, got {text}"
+      expect (!hasSubstr text "callScheduleResidual")
+        s!"describe must stay three-line without residual, got {text}"
+      expect (!hasSubstr text "attachedValueHonesty")
+        s!"describe must stay three-line without attachedValue family tag, got {text}"
+      expect (!hasSubstr text "attachedValueResidual")
+        s!"describe must stay three-line without attachedValue residual, got {text}"
+      expect (!hasSubstr text "cryptoHonesty")
+        s!"describe must stay three-line without crypto family tag, got {text}"
+      expect (!hasSubstr text "cryptoResidual")
+        s!"describe must stay three-line without crypto residual, got {text}"
+      expect (!hasSubstr text "maturityResidual")
+        s!"describe must stay three-line without maturity residual, got {text}"
+  | .error e => throw <| IO.userError e.render
+
+/-- Closed 13-kind SYS-S4 inspect surface: every implemented target exposes
+    its attachedValue family tag; callable residual is present only for
+    evm/near/cosmwasm (JSON `null` otherwise). -/
+def testInspectAttachedValueHonestySurface : IO Unit := do
+  let needles : Array (String × String × Option String) := #[
+    ("evm", "evm-callvalue+view-reads-zero", some "constructor-fc"),
+    ("solana", "solana-no-host-fc", none),
+    ("near", "near-attached-deposit-entry-view-fc", some "view-purefn-fc"),
+    ("cosmwasm", "cw-funds-execute-query-fc", some "query-view-fc"),
+    ("noir", "noir-no-host-fc", none),
+    ("ton", "ton-no-host-fc", none),
+    ("icp", "icp-no-host-fc", none),
+    ("psy", "psy-no-host-fc", none),
+    ("quint", "quint-no-host-fc", none),
+    ("aleo", "aleo-no-host-fc", none),
+    ("soroban", "soroban-no-host-fc", none),
+    ("openvm", "openvm-no-host-fc", none),
+    ("xrpl", "xrpl-no-host-fc", none)
+  ]
+  expect (needles.size == 13) "inspect attachedValue surface covers all 13 kinds"
+  for (tid, family, residual) in needles do
+    match ProofForgeV2.CLI.inspectTargetText tid with
+    | .ok text =>
+        expect (hasSubstr text s!"attachedValueHonesty={family}")
+          s!"inspect {tid} attachedValue family tag, got {text}"
+        match residual with
+        | some tag =>
+            expect (hasSubstr text s!"attachedValueResidual={tag}")
+              s!"inspect {tid} attachedValue residual tag, got {text}"
+        | none =>
+            expect (!hasSubstr text "attachedValueResidual")
+              s!"inspect {tid} must omit attachedValue residual line, got {text}"
+    | .error e => throw <| IO.userError e.render
+    match ProofForgeV2.CLI.inspectTargetText tid true with
+    | .ok json =>
+        expect (hasSubstr json s!"\"attachedValueHonesty\":\"{family}\"")
+          s!"inspect {tid} JSON attachedValue family tag, got {json}"
+        match residual with
+        | some tag =>
+            expect (hasSubstr json s!"\"attachedValueResidual\":\"{tag}\"")
+              s!"inspect {tid} JSON attachedValue residual tag, got {json}"
+        | none =>
+            expect (hasSubstr json "\"attachedValueResidual\":null")
+              s!"inspect {tid} JSON attachedValue residual null, got {json}"
+    | .error e => throw <| IO.userError e.render
+
+/-- Pins the closed official `pf.crypto.*` catalog family-split table. -/
+def testCryptoCatalogFamilyTags : IO Unit := do
+  assert! cryptoCatalogFamilyTagV1 .evm ==
+    "sha256+keccak+sha256Bytes+merkle+ecdsa"
+  assert! cryptoCatalogFamilyTagV1 .solana == "sha256+keccak+sha256Bytes"
+  assert! cryptoCatalogFamilyTagV1 .near == "sha256+keccak+sha256Bytes"
+  assert! cryptoCatalogFamilyTagV1 .ton == "sha256+sha256Bytes"
+  assert! cryptoCatalogFamilyTagV1 .soroban == "sha256+sha256Bytes"
+  assert! cryptoCatalogFamilyTagV1 .psy == "keccak-gadget-sha256-fc"
+  assert! cryptoCatalogFamilyTagV1 .noir == "crypto-no-host-fc"
+  assert! cryptoCatalogFamilyTagV1 .aleo == "crypto-no-host-fc"
+  assert! cryptoCatalogFamilyTagV1 .quint == "crypto-no-host-fc"
+  assert! cryptoCatalogFamilyTagV1 .cosmwasm == "crypto-no-host-fc"
+  assert! cryptoCatalogFamilyTagV1 .openvm == "crypto-no-host-fc"
+  assert! cryptoCatalogFamilyTagV1 .icp == "crypto-no-host-fc"
+  assert! cryptoCatalogFamilyTagV1 .xrpl == "crypto-no-host-fc"
+
+/-- Pins the closed keep-FC official-crypto residual table. -/
+def testCryptoCatalogResiduals : IO Unit := do
+  assert! cryptoCatalogResidualV1 .cosmwasm == some "no-sha256-host"
+  assert! cryptoCatalogResidualV1 .xrpl == some "sha512-half-not-sha256"
+  assert! cryptoCatalogResidualV1 .psy == some "keccak-gadget-not-sha2"
+  assert! cryptoCatalogResidualV1 .evm == none
+  assert! cryptoCatalogResidualV1 .solana == none
+  assert! cryptoCatalogResidualV1 .near == none
+  assert! cryptoCatalogResidualV1 .ton == none
+  assert! cryptoCatalogResidualV1 .soroban == none
+  assert! cryptoCatalogResidualV1 .noir == none
+  assert! cryptoCatalogResidualV1 .aleo == none
+  assert! cryptoCatalogResidualV1 .quint == none
+  assert! cryptoCatalogResidualV1 .openvm == none
+  assert! cryptoCatalogResidualV1 .icp == none
+
+/-- Closed 13-kind official-crypto inspect surface. Residual only for
+    cosmwasm/xrpl/psy (JSON `null` otherwise). -/
+def testInspectCryptoCatalogHonestySurface : IO Unit := do
+  let needles : Array (String × String × Option String) := #[
+    ("evm", "sha256+keccak+sha256Bytes+merkle+ecdsa", none),
+    ("solana", "sha256+keccak+sha256Bytes", none),
+    ("near", "sha256+keccak+sha256Bytes", none),
+    ("cosmwasm", "crypto-no-host-fc", some "no-sha256-host"),
+    ("noir", "crypto-no-host-fc", none),
+    ("ton", "sha256+sha256Bytes", none),
+    ("icp", "crypto-no-host-fc", none),
+    ("psy", "keccak-gadget-sha256-fc", some "keccak-gadget-not-sha2"),
+    ("quint", "crypto-no-host-fc", none),
+    ("aleo", "crypto-no-host-fc", none),
+    ("soroban", "sha256+sha256Bytes", none),
+    ("openvm", "crypto-no-host-fc", none),
+    ("xrpl", "crypto-no-host-fc", some "sha512-half-not-sha256")
+  ]
+  expect (needles.size == 13) "inspect crypto surface covers all 13 kinds"
+  for (tid, family, residual) in needles do
+    match ProofForgeV2.CLI.inspectTargetText tid with
+    | .ok text =>
+        expect (hasSubstr text s!"cryptoHonesty={family}")
+          s!"inspect {tid} crypto family tag, got {text}"
+        match residual with
+        | some tag =>
+            expect (hasSubstr text s!"cryptoResidual={tag}")
+              s!"inspect {tid} crypto residual tag, got {text}"
+        | none =>
+            expect (!hasSubstr text "cryptoResidual")
+              s!"inspect {tid} must omit crypto residual line, got {text}"
+    | .error e => throw <| IO.userError e.render
+    match ProofForgeV2.CLI.inspectTargetText tid true with
+    | .ok json =>
+        expect (hasSubstr json s!"\"cryptoHonesty\":\"{family}\"")
+          s!"inspect {tid} JSON crypto family tag, got {json}"
+        match residual with
+        | some tag =>
+            expect (hasSubstr json s!"\"cryptoResidual\":\"{tag}\"")
+              s!"inspect {tid} JSON crypto residual tag, got {json}"
+        | none =>
+            expect (hasSubstr json "\"cryptoResidual\":null")
+              s!"inspect {tid} JSON crypto residual null, got {json}"
+    | .error e => throw <| IO.userError e.render
+
+/-- Pins the closed inspect-only maturity residual table. Registry
+    maturityLabel stays source-only for ICP/TON; this tag names the
+    Finalize deployable=true crack without changing the label. -/
+def testMaturityResiduals : IO Unit := do
+  assert! maturityResidualV1 .icp == some "deployable-wasm-vs-source-only-label"
+  assert! maturityResidualV1 .ton ==
+    some "conditional-boc-deployable-vs-source-only-label"
+  assert! maturityResidualV1 .evm == none
+  assert! maturityResidualV1 .solana == none
+  assert! maturityResidualV1 .near == none
+  assert! maturityResidualV1 .noir == none
+  assert! maturityResidualV1 .aleo == none
+  assert! maturityResidualV1 .psy == none
+  assert! maturityResidualV1 .quint == none
+  assert! maturityResidualV1 .cosmwasm == none
+  assert! maturityResidualV1 .soroban == none
+  assert! maturityResidualV1 .openvm == none
+  assert! maturityResidualV1 .xrpl == none
+
+/-- Closed 13-kind inspect surface for the ICP/TON deployable≠label residual.
+    Human residual line only when `some`; JSON always (`null` otherwise).
+    describe stays three-line exact join. -/
+def testInspectMaturityResidualSurface : IO Unit := do
+  let needles : Array (String × Option String) := #[
+    ("evm", none),
+    ("solana", none),
+    ("near", none),
+    ("cosmwasm", none),
+    ("noir", none),
+    ("ton", some "conditional-boc-deployable-vs-source-only-label"),
+    ("icp", some "deployable-wasm-vs-source-only-label"),
+    ("psy", none),
+    ("quint", none),
+    ("aleo", none),
+    ("soroban", none),
+    ("openvm", none),
+    ("xrpl", none)
+  ]
+  expect (needles.size == 13) "inspect maturity residual surface covers all 13 kinds"
+  for (tid, residual) in needles do
+    match ProofForgeV2.CLI.inspectTargetText tid with
+    | .ok text =>
+        expect (hasSubstr text "maturity=")
+          s!"inspect {tid} still exposes registry maturityLabel, got {text}"
+        match residual with
+        | some tag =>
+            expect (hasSubstr text s!"maturityResidual={tag}")
+              s!"inspect {tid} maturity residual tag, got {text}"
+        | none =>
+            expect (!hasSubstr text "maturityResidual")
+              s!"inspect {tid} must omit maturity residual line, got {text}"
+    | .error e => throw <| IO.userError e.render
+    match ProofForgeV2.CLI.inspectTargetText tid true with
+    | .ok json =>
+        match residual with
+        | some tag =>
+            expect (hasSubstr json s!"\"maturityResidual\":\"{tag}\"")
+              s!"inspect {tid} JSON maturity residual tag, got {json}"
+        | none =>
+            expect (hasSubstr json "\"maturityResidual\":null")
+              s!"inspect {tid} JSON maturity residual null, got {json}"
+    | .error e => throw <| IO.userError e.render
 
 private def testDescriptorParityNegatives : IO Unit := do
   -- describeImplementedJoin join-checks residual descriptor target/profile with
@@ -1640,6 +2066,17 @@ unsafe def run : IO Unit := do
   testEmptyRequirementsCapability
   testStateOnlySubsetCapability
   testCliEmitAndDescribe
+  testCallScheduleFamilyTags
+  testCallScheduleResiduals
+  testInspectCallScheduleHonestySurface
+  testAttachedValueFamilyTags
+  testAttachedValueResiduals
+  testInspectAttachedValueHonestySurface
+  testCryptoCatalogFamilyTags
+  testCryptoCatalogResiduals
+  testInspectCryptoCatalogHonestySurface
+  testMaturityResiduals
+  testInspectMaturityResidualSurface
   testDescriptorParityNegatives
   testRequestResolveNegativesOnInspection
   testBackendSupportDefense

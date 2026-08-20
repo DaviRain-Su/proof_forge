@@ -515,6 +515,25 @@ private def testInspectDigests : IO Unit := do
     s!"inspect support claim: {stdout}"
   expect (containsSubstr stdout "buildIdentityDomain=pf.build-identity.engineering.v1")
     s!"inspect build identity domain: {stdout}"
+  expect (containsSubstr stdout
+      "callScheduleHonesty=evm-hashed-call+same-tx-schedule")
+    s!"inspect evm family tag: {stdout}"
+  expect (containsSubstr stdout
+      "callScheduleResidual=hashed-qn-no-deploy-bind")
+    s!"inspect evm address residual: {stdout}"
+  expect (containsSubstr stdout
+      "attachedValueHonesty=evm-callvalue+view-reads-zero")
+    s!"inspect evm attachedValue family tag: {stdout}"
+  expect (containsSubstr stdout
+      "attachedValueResidual=constructor-fc")
+    s!"inspect evm attachedValue residual: {stdout}"
+  expect (containsSubstr stdout
+      "cryptoHonesty=sha256+keccak+sha256Bytes+merkle+ecdsa")
+    s!"inspect evm crypto family tag: {stdout}"
+  expect (!containsSubstr stdout "cryptoResidual")
+    s!"inspect evm has no crypto residual: {stdout}"
+  expect (!containsSubstr stdout "maturityResidual")
+    s!"inspect evm has no maturity residual: {stdout}"
   let (ec2, stdout2, _) ← runCli #["inspect", "evm"]
   expect (ec2 == 0 && stdout2 == stdout)
     "inspect must be deterministic"
@@ -529,6 +548,117 @@ private def testInspectDigests : IO Unit := do
     s!"inspect icp profile: {stdout3}"
   expect (containsSubstr stdout3 "supportClaimDigest=sha256:")
     s!"inspect icp support claim: {stdout3}"
+  expect (containsSubstr stdout3
+      "callScheduleHonesty=icp-async-advertise-plan-fc")
+    s!"inspect icp family tag: {stdout3}"
+  expect (!containsSubstr stdout3 "callScheduleResidual")
+    s!"inspect icp has no address residual: {stdout3}"
+  expect (containsSubstr stdout3
+      "attachedValueHonesty=icp-no-host-fc")
+    s!"inspect icp attachedValue family tag: {stdout3}"
+  expect (!containsSubstr stdout3 "attachedValueResidual")
+    s!"inspect icp has no attachedValue residual: {stdout3}"
+  expect (containsSubstr stdout3
+      "cryptoHonesty=crypto-no-host-fc")
+    s!"inspect icp crypto family tag: {stdout3}"
+  expect (!containsSubstr stdout3 "cryptoResidual")
+    s!"inspect icp has no crypto residual: {stdout3}"
+  expect (containsSubstr stdout3
+      "maturityResidual=deployable-wasm-vs-source-only-label")
+    s!"inspect icp maturity residual: {stdout3}"
+  let (ec4, stdout4, stderr4) ← runCli #["inspect", "aleo"]
+  expect (ec4 == 0)
+    s!"inspect aleo must exit 0, got {ec4}\n{stderr4}"
+  expect (containsSubstr stdout4 "callScheduleHonesty=aleo-dual-fc")
+    s!"inspect aleo family tag: {stdout4}"
+  expect (!containsSubstr stdout4 "callScheduleResidual")
+    s!"inspect aleo has no address residual: {stdout4}"
+  expect (containsSubstr stdout4
+      "attachedValueHonesty=aleo-no-host-fc")
+    s!"inspect aleo attachedValue family tag: {stdout4}"
+  expect (!containsSubstr stdout4 "attachedValueResidual")
+    s!"inspect aleo has no attachedValue residual: {stdout4}"
+  expect (containsSubstr stdout4
+      "cryptoHonesty=crypto-no-host-fc")
+    s!"inspect aleo crypto family tag: {stdout4}"
+  expect (!containsSubstr stdout4 "cryptoResidual")
+    s!"inspect aleo has no crypto residual: {stdout4}"
+  expect (!containsSubstr stdout4 "maturityResidual")
+    s!"inspect aleo has no maturity residual: {stdout4}"
+  let (ec5, stdout5, stderr5) ← runCli #["inspect", "cosmwasm"]
+  expect (ec5 == 0)
+    s!"inspect cosmwasm must exit 0, got {ec5}\n{stderr5}"
+  expect (containsSubstr stdout5
+      "callScheduleHonesty=cw-submsg+pfassets-sync-scope")
+    s!"inspect cosmwasm family tag: {stdout5}"
+  expect (containsSubstr stdout5
+      "callScheduleResidual=contract-addr-qn-stub")
+    s!"inspect cosmwasm address residual: {stdout5}"
+  expect (containsSubstr stdout5
+      "attachedValueHonesty=cw-funds-execute-query-fc")
+    s!"inspect cosmwasm attachedValue family tag: {stdout5}"
+  expect (containsSubstr stdout5
+      "attachedValueResidual=query-view-fc")
+    s!"inspect cosmwasm attachedValue residual: {stdout5}"
+  expect (containsSubstr stdout5
+      "cryptoHonesty=crypto-no-host-fc")
+    s!"inspect cosmwasm crypto family tag: {stdout5}"
+  expect (containsSubstr stdout5
+      "cryptoResidual=no-sha256-host")
+    s!"inspect cosmwasm crypto residual: {stdout5}"
+  let (ec6, stdout6, stderr6) ← runCli #["inspect", "solana"]
+  expect (ec6 == 0)
+    s!"inspect solana must exit 0, got {ec6}\n{stderr6}"
+  expect (containsSubstr stdout6
+      "callScheduleResidual=callee-identity-outer-account-open")
+    s!"inspect solana address residual: {stdout6}"
+  expect (containsSubstr stdout6
+      "attachedValueHonesty=solana-no-host-fc")
+    s!"inspect solana attachedValue family tag: {stdout6}"
+  expect (!containsSubstr stdout6 "attachedValueResidual")
+    s!"inspect solana has no attachedValue residual: {stdout6}"
+  expect (containsSubstr stdout6
+      "cryptoHonesty=sha256+keccak+sha256Bytes")
+    s!"inspect solana crypto family tag: {stdout6}"
+  expect (!containsSubstr stdout6 "cryptoResidual")
+    s!"inspect solana has no crypto residual: {stdout6}"
+  expect (!containsSubstr stdout6 "maturityResidual")
+    s!"inspect solana has no maturity residual: {stdout6}"
+  let (ec7, stdout7, stderr7) ← runCli #["inspect", "near"]
+  expect (ec7 == 0)
+    s!"inspect near must exit 0, got {ec7}\n{stderr7}"
+  expect (containsSubstr stdout7
+      "attachedValueHonesty=near-attached-deposit-entry-view-fc")
+    s!"inspect near attachedValue family tag: {stdout7}"
+  expect (containsSubstr stdout7
+      "attachedValueResidual=view-purefn-fc")
+    s!"inspect near attachedValue residual: {stdout7}"
+  expect (containsSubstr stdout7
+      "cryptoHonesty=sha256+keccak+sha256Bytes")
+    s!"inspect near crypto family tag: {stdout7}"
+  expect (!containsSubstr stdout7 "cryptoResidual")
+    s!"inspect near has no crypto residual: {stdout7}"
+  expect (!containsSubstr stdout7 "maturityResidual")
+    s!"inspect near has no maturity residual: {stdout7}"
+  let (ec8, stdout8, stderr8) ← runCli #["inspect", "xrpl"]
+  expect (ec8 == 0)
+    s!"inspect xrpl must exit 0, got {ec8}\n{stderr8}"
+  expect (containsSubstr stdout8
+      "cryptoHonesty=crypto-no-host-fc")
+    s!"inspect xrpl crypto family tag: {stdout8}"
+  expect (containsSubstr stdout8
+      "cryptoResidual=sha512-half-not-sha256")
+    s!"inspect xrpl crypto residual: {stdout8}"
+  expect (!containsSubstr stdout8 "maturityResidual")
+    s!"inspect xrpl has no maturity residual: {stdout8}"
+  let (ec9, stdout9, stderr9) ← runCli #["inspect", "ton"]
+  expect (ec9 == 0)
+    s!"inspect ton must exit 0, got {ec9}\n{stderr9}"
+  expect (containsSubstr stdout9 "maturity=source-only")
+    s!"inspect ton maturity: {stdout9}"
+  expect (containsSubstr stdout9
+      "maturityResidual=conditional-boc-deployable-vs-source-only-label")
+    s!"inspect ton maturity residual: {stdout9}"
 
 private def testJsonSurface : IO Unit := do
   let (ec, stdout, stderr) ← runCli #["list-targets", "--json"]
@@ -547,6 +677,41 @@ private def testJsonSurface : IO Unit := do
     s!"inspect schema: {stdout2}"
   expect (containsSubstr stdout2 "\"registryRootDigest\":\"sha256:")
     s!"inspect json digest: {stdout2}"
+  expect (containsSubstr stdout2
+      "\"callScheduleHonesty\":\"evm-hashed-call+same-tx-schedule\"")
+    s!"inspect json family tag: {stdout2}"
+  expect (containsSubstr stdout2
+      "\"callScheduleResidual\":\"hashed-qn-no-deploy-bind\"")
+    s!"inspect json evm residual: {stdout2}"
+  expect (containsSubstr stdout2
+      "\"attachedValueHonesty\":\"evm-callvalue+view-reads-zero\"")
+    s!"inspect json evm attachedValue family tag: {stdout2}"
+  expect (containsSubstr stdout2
+      "\"attachedValueResidual\":\"constructor-fc\"")
+    s!"inspect json evm attachedValue residual: {stdout2}"
+  expect (containsSubstr stdout2
+      "\"cryptoHonesty\":\"sha256+keccak+sha256Bytes+merkle+ecdsa\"")
+    s!"inspect json evm crypto family tag: {stdout2}"
+  expect (containsSubstr stdout2
+      "\"cryptoResidual\":null")
+    s!"inspect json evm crypto residual null: {stdout2}"
+  expect (containsSubstr stdout2
+      "\"maturityResidual\":null")
+    s!"inspect json evm maturity residual null: {stdout2}"
+  let (ecIcp, stdoutIcp, stderrIcp) ← runCli #["inspect", "icp", "--json"]
+  expect (ecIcp == 0)
+    s!"inspect icp --json exit, got {ecIcp}\n{stderrIcp}"
+  expectCanonicalJson "inspect-icp" stdoutIcp
+  expect (containsSubstr stdoutIcp
+      "\"maturityResidual\":\"deployable-wasm-vs-source-only-label\"")
+    s!"inspect json icp maturity residual: {stdoutIcp}"
+  let (ecTon, stdoutTon, stderrTon) ← runCli #["inspect", "ton", "--json"]
+  expect (ecTon == 0)
+    s!"inspect ton --json exit, got {ecTon}\n{stderrTon}"
+  expectCanonicalJson "inspect-ton" stdoutTon
+  expect (containsSubstr stdoutTon
+      "\"maturityResidual\":\"conditional-boc-deployable-vs-source-only-label\"")
+    s!"inspect json ton maturity residual: {stdoutTon}"
   let (ec3, stdout3, stderr3) ← runCli #[
     "check", "Examples/StateCell.lean",
     "--module", "Examples.StateCell", "--json"

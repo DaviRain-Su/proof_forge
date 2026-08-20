@@ -16,22 +16,26 @@ split now tracked by ADR-0049 (proposed).
    20 bytes; empty-code `CALL` succeeds. Binding (mint authority, CREATE vs
    CREATE2 vs pre-placed, identity join to source/semantic hash) is parked on
    NetworkProfile/registry (`docs/plan/evm-call-addr-gap.md` §3; ADR-0029).
+   Inspect residual tag `hashed-qn-no-deploy-bind` (2026-08-19) is honesty
+   only — not binding.
 2. **EVM `schedule` spelling.** Same-tx synchronous fire-and-forget CALL with
    discarded outcome. Decide whether that may keep advertising
    `effect.asynchronous-workflow` or needs a distinct key/caveat.
 3. **EVM result-bearing ABI residual.** UInt8–256 returndata open; Bool / Int
    / Bytes returndata still FC.
 4. **Solana product sync residual.** Callee identity / outer account ABI
-   (backlog L513 area). Async stays FC.
+   (backlog L513 area). Async stays FC. Inspect residual tag
+   `callee-identity-outer-account-open` (2026-08-19) is honesty only.
 5. **Noir response-witness contract.** Both keys admitted as witness-binding
    relation only; result-bearing FC until a response-witness contract exists.
 6. **NEAR sync scope.** Generic sync FC (Promise is async); sync key currently
-   spells pf.assets deposit + `transferAsync` only. Header comment in
-   `RequirementResolverV1.lean` ("NEAR declines only sync") is stale vs the
-   Phase C2 body and should be fixed with the next resolver touch.
+   spells pf.assets deposit + `transferAsync` only. Resolver header now matches
+   Phase C2 (2026-08-19 COMP-1-CALL-SEM-LAND). Inspect tag
+   `near-promise+pfassets-sync-scope`.
 7. **CosmWasm sync/async scope.** Generic sync FC; sync key = pf.assets bank
    only; async = same-tx SubMsg `reply_on=never` (not cross-tx);
-   `contract_addr` static QN stub.
+   `contract_addr` static QN stub. Inspect residual tag
+   `contract-addr-qn-stub` (2026-08-19) is honesty only.
 8. **TON**: sync declined (pure-async actor); async = raw out-message PARTIAL.
 9. **ICP**: async advertised for inter-canister continuations while concrete
    Plan shapes may still FC; decide whether advertise-then-Plan-FC is the

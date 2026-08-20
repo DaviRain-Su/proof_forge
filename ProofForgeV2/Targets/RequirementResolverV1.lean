@@ -87,6 +87,123 @@ def toArray (index : StaticRequirementSupportIndexV1) :
 
 end StaticRequirementSupportIndexV1
 
+/-- B-CALL-SEM family-split tag (COMP-0 / COMP-1-CALL-SEM-LAND).
+
+    Resolver `effect.synchronous-call` / `effect.asynchronous-workflow` support
+    keys are **not** this string and are **not** a claim that cross-platform
+    call is complete. Product `inspect` may surface the tag; engineering
+    `SupportClaim` digest / requirement id lists do **not** include it.
+    Deployment-address binding is a later ADR (`docs/plan/evm-call-addr-gap.md`).
+    Address-shaped residuals use `callScheduleResidualV1` (inspect-only). -/
+def callScheduleFamilyTagV1 : TargetKind → String
+  | .evm => "evm-hashed-call+same-tx-schedule"
+  | .solana => "solana-cpi-sync-async-fc"
+  | .near => "near-promise+pfassets-sync-scope"
+  | .cosmwasm => "cw-submsg+pfassets-sync-scope"
+  | .noir => "noir-witness-binding"
+  | .ton => "ton-async-out-message"
+  | .icp => "icp-async-advertise-plan-fc"
+  | .psy => "psy-void-sync-async-fc"
+  | .quint => "quint-pfassets-sync-async-fc"
+  | .aleo => "aleo-dual-fc"
+  | .soroban => "soroban-dual-fc"
+  | .openvm => "openvm-dual-fc"
+  | .xrpl => "xrpl-dual-fc"
+
+/-- Address-shaped residual tags for the three B-CALL-SEM gaps that still
+    need an owner ADR (COMP-1-CALL-SEM-LAND inspect residual).
+
+    `none` means this kind has no address-shaped residual on the inspect
+    surface (the family tag already covers dual-FC / witness / promise etc.).
+    Tags are inspect-only: they do **not** enter SupportClaim digest,
+    requirement id lists, or `describeImplementedJoin` three lines.
+    They do **not** implement binding. -/
+def callScheduleResidualV1 : TargetKind → Option String
+  | .evm => some "hashed-qn-no-deploy-bind"
+  | .solana => some "callee-identity-outer-account-open"
+  | .cosmwasm => some "contract-addr-qn-stub"
+  | _ => none
+
+/-- SYS-S4 `context.attachedValue` family-split tag (COMP-1-SYS-CAP-L2 honesty).
+
+    Resolver `context.attached-value` support is **not** this string and is
+    **not** a claim that every callable kind can read attached value.
+    Product `inspect` may surface the tag; engineering `SupportClaim` digest /
+    requirement id lists do **not** include it. Official-program L2 catalog
+    honesty uses `cryptoCatalogFamilyTagV1`. Callable-kind residuals use
+    `attachedValueResidualV1` (inspect-only). -/
+def attachedValueFamilyTagV1 : TargetKind → String
+  | .evm => "evm-callvalue+view-reads-zero"
+  | .near => "near-attached-deposit-entry-view-fc"
+  | .cosmwasm => "cw-funds-execute-query-fc"
+  | .solana => "solana-no-host-fc"
+  | .noir => "noir-no-host-fc"
+  | .ton => "ton-no-host-fc"
+  | .icp => "icp-no-host-fc"
+  | .psy => "psy-no-host-fc"
+  | .quint => "quint-no-host-fc"
+  | .aleo => "aleo-no-host-fc"
+  | .soroban => "soroban-no-host-fc"
+  | .openvm => "openvm-no-host-fc"
+  | .xrpl => "xrpl-no-host-fc"
+
+/-- Callable-kind residual tags for SYS-S4 attachedValue (inspect-only).
+
+    `none` means this kind has no extra callable residual on the inspect
+    surface (the family tag already covers no-host named FC).
+    Tags do **not** enter SupportClaim digest, requirement id lists, or
+    `describeImplementedJoin`. They do **not** open a host. -/
+def attachedValueResidualV1 : TargetKind → Option String
+  | .evm => some "constructor-fc"
+  | .near => some "view-purefn-fc"
+  | .cosmwasm => some "query-view-fc"
+  | _ => none
+
+/-- Official `pf.crypto.*` catalog family-split tag (COMP-1-SYS-CAP-L2).
+
+    Host-backed QNs already shipped (sha256 / keccak256 / sha256Bytes /
+    merkleVerifyKeccak256 / ecdsaRecoverSecp256k1) are listed; missing host
+    is named fail-closed. Product `inspect` may surface the tag; engineering
+    `SupportClaim` digest / requirement id lists do **not** include it.
+    Tags do **not** open a new official-program leaf. Residuals use
+    `cryptoCatalogResidualV1` (inspect-only). -/
+def cryptoCatalogFamilyTagV1 : TargetKind → String
+  | .evm => "sha256+keccak+sha256Bytes+merkle+ecdsa"
+  | .solana => "sha256+keccak+sha256Bytes"
+  | .near => "sha256+keccak+sha256Bytes"
+  | .ton => "sha256+sha256Bytes"
+  | .soroban => "sha256+sha256Bytes"
+  | .psy => "keccak-gadget-sha256-fc"
+  | .noir => "crypto-no-host-fc"
+  | .aleo => "crypto-no-host-fc"
+  | .quint => "crypto-no-host-fc"
+  | .cosmwasm => "crypto-no-host-fc"
+  | .openvm => "crypto-no-host-fc"
+  | .icp => "crypto-no-host-fc"
+  | .xrpl => "crypto-no-host-fc"
+
+/-- Official-program residual tags for keep-FC crypto hosts (inspect-only).
+
+    `none` means the family tag already covers the catalog (admitted set or
+    generic no-host). Tags do **not** enter SupportClaim digest, requirement
+    id lists, or `describeImplementedJoin`. They do **not** open a host. -/
+def cryptoCatalogResidualV1 : TargetKind → Option String
+  | .cosmwasm => some "no-sha256-host"
+  | .xrpl => some "sha512-half-not-sha256"
+  | .psy => some "keccak-gadget-not-sha2"
+  | _ => none
+
+/-- Inspect-only residual when Finalize `deployable` can be true while the
+    registry maturity label stays `source-only`.
+
+    Does **not** change `expectedMaturityLabelOfKindV1` / SupportClaim /
+    `describeImplementedJoin`. `none` means label and deployable already
+    agree for the shipped default (or deployable is unconditionally false). -/
+def maturityResidualV1 : TargetKind → Option String
+  | .icp => some "deployable-wasm-vs-source-only-label"
+  | .ton => some "conditional-boc-deployable-vs-source-only-label"
+  | _ => none
+
 /-- Non-capability inspection of a support match or request resolution outcome.
     Dependency-injected seams may return this — never a materialize capability. -/
 structure RequirementResolutionInspectionV1 where
@@ -482,9 +599,10 @@ private theorem createStaticRequirementSupportIndexV1_eq_ok_of_stages
     SubMsg note below). EVM result-bearing sync calls read `RETURNDATA` as one
     UInt64 word behind a size/range guard (BL-28; wider result types stay fail
     closed; the callee address is a keccak-of-QN stub pending deployment
-    wiring). NEAR has no synchronous external calls but owns async workflow
-    promises, so it declines sync and supports `effect.asynchronous-workflow`;
-    Noir admits both call keys as a **witness-binding relation** (B-CALL-SEM
+    wiring). NEAR advertises `effect.synchronous-call` only for the pf.assets
+    catalog (deposit + `transferAsync`); generic non-catalog sync stays Plan
+    fail closed (Promise is async). `effect.asynchronous-workflow` stays for
+    schedule. Noir admits both call keys as a **witness-binding relation** (B-CALL-SEM
     honesty, 2026-08-04 review): call/schedule args become public-input slots
     asserted equal to the computed values, and the outcome is a `callStatus`
     witness — the circuit executes **no** external call and the proof does

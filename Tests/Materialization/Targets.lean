@@ -2275,7 +2275,7 @@ private unsafe def testCallScheduleSemanticPlans : IO Unit := do
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"ExtFlow: {target} must materialize"
   for target in [TargetId.solana, TargetId.psy, TargetId.aleo, TargetId.quint,
-      TargetId.soroban, TargetId.openvm] do
+      TargetId.soroban, TargetId.openvm, TargetId.xrpl] do
     match materializeSelected target compiled with
     | .error (.unsupportedRequirementV1 message) =>
         expect (message.contains "effect.asynchronous-workflow")
@@ -2309,7 +2309,8 @@ private unsafe def testCallScheduleSemanticPlans : IO Unit := do
   expectMaterializePlanInvariantV1 "ExtFlow" TargetId.cosmwasm TargetKind.cosmwasm
     compiled "call/sync external call is outside the CosmWasm MVP envelope"
   -- LaterFlow schedule-only from probe. EVM/NEAR/Noir/CW/TON admit.
-  -- Solana/Psy/Aleo/Quint/Soroban/OpenVM decline effect.asynchronous-workflow.
+  -- Solana/Psy/Aleo/Quint/Soroban/OpenVM/XRPL decline
+  -- effect.asynchronous-workflow.
   -- ICP advertises async at resolver only. Not opening schedule;
   -- existing LaterFlow Plan pins unchanged. B-CALL-SEM stays open.
   for target in [TargetId.evm, TargetId.near, TargetId.noir,
@@ -2318,7 +2319,7 @@ private unsafe def testCallScheduleSemanticPlans : IO Unit := do
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"LaterFlow: {target} must materialize"
   for target in [TargetId.solana, TargetId.psy, TargetId.aleo, TargetId.quint,
-      TargetId.soroban, TargetId.openvm] do
+      TargetId.soroban, TargetId.openvm, TargetId.xrpl] do
     match materializeSelected target laterCompiled with
     | .error (.unsupportedRequirementV1 message) =>
         expect (message.contains "effect.asynchronous-workflow")
@@ -6758,6 +6759,47 @@ unsafe def runRemainingNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "MerkleVerifyProbe" target kind
       merkleCompiled marker
 
+  -- COMP-1-SYS-CAP-L2: exact `pf.crypto.ecdsaRecoverSecp256k1(h,v,r,s) -> UInt256`
+  -- cross-target needle (EVM precompile `0x01` STATICCALL). EVM-only leaf;
+  -- the other twelve keep named fail-closed at their own first gate
+  -- (crypto namespace / width / profile), same discipline as merkle.
+  let ecdsaProbeSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program EcdsaRecoverProbe where\n" ++
+    "  entry recover(h : UInt256, v : UInt256, r : UInt256, s : UInt256) : UInt256 do\n" ++
+    "    return call pf.crypto.ecdsaRecoverSecp256k1(h, v, r, s)\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let ecdsaV1 ← match ← session.selectProgramV1 ecdsaProbeSource
+      "<targets-ecdsa-recover>" "Examples.EcdsaRecoverProbe" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"EcdsaRecoverProbe select: {e.render}"
+  let ecdsaCompiled ←
+    liftResult <| Compiler.compileValidatedSourceV1 ecdsaV1
+  let ecdsaEvmOut ← liftResult <| materializeSelected TargetId.evm ecdsaCompiled
+  expect (!(MaterializedArtifactsV1.filesOf ecdsaEvmOut).isEmpty)
+    "EcdsaRecoverProbe: evm must materialize ecdsaRecoverSecp256k1"
+  for (target, kind, marker) in #[
+      (TargetId.solana, TargetKind.solana,
+        "only public Principal/UInt64/UInt8 params"),
+      (TargetId.near, TargetKind.near, "state count is outside the profile limits"),
+      (TargetId.noir, TargetKind.noir,
+        "pf.crypto QN 'pf.crypto.ecdsaRecoverSecp256k1' has no Noir host binding"),
+      (TargetId.aleo, TargetKind.aleo, "widths are supported"),
+      (TargetId.psy, TargetKind.psy, "result-bearing external call is not admitted"),
+      (TargetId.quint, TargetKind.quint, "widths are supported"),
+      (TargetId.cosmwasm, TargetKind.cosmwasm,
+        "state count is outside the profile limits"),
+      (TargetId.ton, TargetKind.ton, "state count is outside the profile limits"),
+      (TargetId.soroban, TargetKind.soroban,
+        "UInt256 is admitted only as pf.crypto.sha256"),
+      (TargetId.icp, TargetKind.icp, "widths are supported"),
+      (TargetId.openvm, TargetKind.openvm, "widths are supported"),
+      (TargetId.xrpl, TargetKind.xrpl, "widths are supported")] do
+    expectMaterializePlanInvariantV1 "EcdsaRecoverProbe" target kind
+      ecdsaCompiled marker
+
   -- N-A4: Option state Normalize-admitted. All twelve materializers
   -- admit Option UInt64 state (Enum-shaped 2-leaf / tag+payload layout):
   -- EVM (BL-31), NEAR (BL-30), Solana (BL-29), Aleo (BL-35), CosmWasm
@@ -7646,7 +7688,7 @@ unsafe def runRemainingNeedles : IO Unit := do
     | .error e =>
         throw <| IO.userError s!"N5 commit: {target} must admit Commit identity, got {e.render}"
   for target in [TargetId.noir, TargetId.psy, TargetId.quint, TargetId.soroban,
-      TargetId.icp, TargetId.openvm] do
+      TargetId.icp, TargetId.openvm, TargetId.xrpl] do
     match materializeSelected target commitCompiled with
     | .ok _ => throw <| IO.userError s!"N5 commit: {target} must decline Commit"
     | .error e =>
@@ -7678,7 +7720,8 @@ unsafe def runRemainingNeedles : IO Unit := do
   -- CAP-2 / CAP-D-SOL-TIME (2026-08-16): Solana admits Clock.unix_timestamp
   -- (i64@32 via sol_get_clock_sysvar; raw bits as UInt64). CAP-3 /
   -- CAP-D-SOR-LEDGER (2026-08-16): Soroban S0 admits env.ledger().timestamp()
-  -- (source-only; no Wasm Finalize). Circuit-class + Quint/OpenVM stay FC.
+  -- (source-only; no Wasm Finalize). Circuit-class + Quint/OpenVM/XRPL stay FC
+  -- (XRPL TIME leaf is ADR-0052 / CAP-D-XRPL-TIME; COMP-1-SYS-CAP-L2 honesty pin).
   -- Unanchored public-input injection would only prove "the program used T",
   -- never "T is the real chain time".
   let _ ← liftResult <| materializeSelected TargetId.evm ctxCompiled
@@ -7689,7 +7732,7 @@ unsafe def runRemainingNeedles : IO Unit := do
   let _ ← liftResult <| materializeSelected TargetId.solana ctxCompiled
   let _ ← liftResult <| materializeSelected TargetId.soroban ctxCompiled
   for target in [TargetId.noir, TargetId.psy, TargetId.aleo,
-      TargetId.openvm, TargetId.quint] do
+      TargetId.openvm, TargetId.quint, TargetId.xrpl] do
     match materializeSelected target ctxCompiled with
     | .ok _ =>
         throw <| IO.userError s!"N5 context: {target} must decline ContextRead"
@@ -7703,7 +7746,8 @@ unsafe def runRemainingNeedles : IO Unit := do
 
   -- ADR-0031 S4: context.attachedValue. EVM admits CALLVALUE; NEAR admits
   -- attached_deposit (entry/init; view FC); CosmWasm admits MessageInfo.funds
-  -- (execute/init; query FC). Other implemented targets stay Plan-fail-closed.
+  -- (execute/init; query FC). Other implemented targets stay Plan-fail-closed
+  -- (including XRPL — no host; COMP-1-SYS-CAP-L2 honesty).
   let attachedSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -7723,10 +7767,12 @@ unsafe def runRemainingNeedles : IO Unit := do
   let _ ← liftResult <| materializeSelected TargetId.evm attachedCompiled
   let _ ← liftResult <| materializeSelected TargetId.near attachedCompiled
   let _ ← liftResult <| materializeSelected TargetId.cosmwasm attachedCompiled
-  -- Quint/Soroban stay FC (no host); do not open attachedValue.
+  -- No-host targets stay FC; do not open attachedValue. XRPL was missing
+  -- from this loop until COMP-1-SYS-CAP-L2 honesty.
   for target in [TargetId.ton,
       TargetId.solana, TargetId.noir, TargetId.psy, TargetId.aleo,
-      TargetId.icp, TargetId.openvm, TargetId.quint, TargetId.soroban] do
+      TargetId.icp, TargetId.openvm, TargetId.quint, TargetId.soroban,
+      TargetId.xrpl] do
     match materializeSelected target attachedCompiled with
     | .ok _ =>
         throw <| IO.userError s!"S4 attached: {target} must decline ContextRead attachedValue"
@@ -7737,6 +7783,46 @@ unsafe def runRemainingNeedles : IO Unit := do
             (e.render).contains "unsupported" ||
             (e.render).contains "pilot")
           s!"S4 attached {target} message must cite ContextRead/attached boundary, got {e.render}"
+
+  -- SYS-S4 view/query residual: EVM view may read CALLVALUE (STATICCALL ⇒ 0);
+  -- NEAR view and CosmWasm query/view stay fail closed; no-host targets stay FC.
+  let attachedViewSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program CtxAttachedView where\n" ++
+    "  state public pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry collect() : UInt64 do\n" ++
+    "    return pad\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return context.attachedValue\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let attachedViewV1 ← match ← session.selectProgramV1 attachedViewSource
+      "<targets-s4-attached-view>" "Examples.CtxAttachedView" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"S4 attached-view select: {e.render}"
+  let attachedViewCompiled ← liftResult <|
+    Compiler.compileValidatedSourceV1 attachedViewV1
+  let _ ← liftResult <| materializeSelected TargetId.evm attachedViewCompiled
+  for target in [TargetId.near, TargetId.cosmwasm, TargetId.ton,
+      TargetId.solana, TargetId.noir, TargetId.psy, TargetId.aleo,
+      TargetId.icp, TargetId.openvm, TargetId.quint, TargetId.soroban,
+      TargetId.xrpl] do
+    match materializeSelected target attachedViewCompiled with
+    | .ok _ =>
+        throw <| IO.userError
+          s!"S4 attached-view: {target} must decline view/query ContextRead attachedValue"
+    | .error e =>
+        expect ((e.render).contains "ContextRead" ||
+            (e.render).contains "context" ||
+            (e.render).contains "attached" ||
+            (e.render).contains "view" ||
+            (e.render).contains "query" ||
+            (e.render).contains "unsupported" ||
+            (e.render).contains "pilot")
+          s!"S4 attached-view {target} message must cite view/query attached boundary, got {e.render}"
 
   -- ADR-0031 S1 / ADR-0030 E3: context.caller Principal ContextRead.
   -- EVM admits ADR-0025 encoding (CALLER → u32le(20)||addr20 leaves;
@@ -7770,7 +7856,8 @@ unsafe def runRemainingNeedles : IO Unit := do
   let _ ← liftResult <| materializeSelected TargetId.cosmwasm callerCompiled
   let _ ← liftResult <| materializeSelected TargetId.icp callerCompiled
   for target in [TargetId.noir, TargetId.psy, TargetId.openvm,
-      TargetId.ton, TargetId.aleo, TargetId.quint, TargetId.soroban] do
+      TargetId.ton, TargetId.aleo, TargetId.quint, TargetId.soroban,
+      TargetId.xrpl] do
     match materializeSelected target callerCompiled with
     | .ok _ =>
         throw <| IO.userError s!"B-ctx caller: {target} must decline ContextRead caller"
@@ -7837,6 +7924,10 @@ unsafe def runRemainingNeedles : IO Unit := do
     TargetId.openvm .openvm
     s!"unsupported OpenVM semantic shape: ContextRead '{blockHeightContextKeyV1.value}' has no OpenVM host binding (unixTimeSeconds/blockHeight/attachedValue/chainId stay fail closed)"
     blockHeightCompiled
+  expectContextMatrixFailClosed "context.blockHeight/xrpl"
+    TargetId.xrpl .xrpl
+    s!"unsupported XRPL semantic shape: ContextRead '{blockHeightContextKeyV1.value}' has no XRPL host binding (unixTimeSeconds/blockHeight/attachedValue/chainId stay fail closed)"
+    blockHeightCompiled
 
   let session ← Language.Loader.ParserSession.create
   let chainIdSource :=
@@ -7900,6 +7991,10 @@ unsafe def runRemainingNeedles : IO Unit := do
     TargetId.openvm .openvm
     s!"unsupported OpenVM semantic shape: ContextRead '{chainIdContextKeyV1.value}' has no OpenVM host binding (unixTimeSeconds/blockHeight/attachedValue/chainId stay fail closed)"
     chainIdCompiled
+  expectContextMatrixFailClosed "context.chainId/xrpl"
+    TargetId.xrpl .xrpl
+    s!"unsupported XRPL semantic shape: ContextRead '{chainIdContextKeyV1.value}' has no XRPL host binding (unixTimeSeconds/blockHeight/attachedValue/chainId stay fail closed)"
+    chainIdCompiled
 
   let session ← Language.Loader.ParserSession.create
   let selfSource :=
@@ -7957,6 +8052,10 @@ unsafe def runRemainingNeedles : IO Unit := do
   expectContextMatrixFailClosed "context.contractId/openvm"
     TargetId.openvm .openvm
     "unsupported OpenVM semantic shape: op is outside O0"
+    selfCompiled
+  expectContextMatrixFailClosed "context.contractId/xrpl"
+    TargetId.xrpl .xrpl
+    "unsupported XRPL semantic shape: op is outside Q0"
     selfCompiled
 
   -- B-RET-ABI: named Struct view return. EVM + Noir + Solana + NEAR + Psy +

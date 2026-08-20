@@ -1175,6 +1175,54 @@ private def supportClaimDigestForRegistrationV1
           s!"no engineering support claim for target '{reg.targetId}' profile '{profile}'"
   digestWireCompile "supportClaim" (EngineeringSupportClaimV1.claimDigestOf claim)
 
+/-- Inspect-only residual line. Empty when the kind has no address-shaped gap. -/
+private def callScheduleResidualTextSuffixV1 (kind : TargetKind) : String :=
+  match callScheduleResidualV1 kind with
+  | some tag => s!"\ncallScheduleResidual={tag}"
+  | none => ""
+
+/-- Inspect JSON residual: string tag or `null`. Not a SupportClaim field. -/
+private def callScheduleResidualJsonV1 (kind : TargetKind) : PfJson :=
+  match callScheduleResidualV1 kind with
+  | some tag => .string tag
+  | none => .null
+
+/-- Inspect-only SYS-S4 residual line. Empty when the kind has no callable gap. -/
+private def attachedValueResidualTextSuffixV1 (kind : TargetKind) : String :=
+  match attachedValueResidualV1 kind with
+  | some tag => s!"\nattachedValueResidual={tag}"
+  | none => ""
+
+/-- Inspect JSON SYS-S4 residual: string tag or `null`. Not a SupportClaim field. -/
+private def attachedValueResidualJsonV1 (kind : TargetKind) : PfJson :=
+  match attachedValueResidualV1 kind with
+  | some tag => .string tag
+  | none => .null
+
+/-- Inspect-only official-crypto residual line. Empty when none. -/
+private def cryptoCatalogResidualTextSuffixV1 (kind : TargetKind) : String :=
+  match cryptoCatalogResidualV1 kind with
+  | some tag => s!"\ncryptoResidual={tag}"
+  | none => ""
+
+/-- Inspect JSON official-crypto residual: string tag or `null`. -/
+private def cryptoCatalogResidualJsonV1 (kind : TargetKind) : PfJson :=
+  match cryptoCatalogResidualV1 kind with
+  | some tag => .string tag
+  | none => .null
+
+/-- Inspect-only maturity residual line. Empty when label and deployable agree. -/
+private def maturityResidualTextSuffixV1 (kind : TargetKind) : String :=
+  match maturityResidualV1 kind with
+  | some tag => s!"\nmaturityResidual={tag}"
+  | none => ""
+
+/-- Inspect JSON maturity residual: string tag or `null`. -/
+private def maturityResidualJsonV1 (kind : TargetKind) : PfJson :=
+  match maturityResidualV1 kind with
+  | some tag => .string tag
+  | none => .null
+
 /-- Product `inspect` human body — registry descriptor + identity chain summary.
 Covers former describe-target fields plus profiles, maturity, status, registry
 root digest, support-claim digest (implemented default profile), and the
@@ -1194,11 +1242,21 @@ def inspectRegistrationText
     | some descriptor =>
         let base ← describeImplementedJoin reg descriptor
         let claimDigest ← supportClaimDigestForRegistrationV1 registry reg
+        -- Family tags + optional residuals sit next to requirement ids so
+        -- inspect cannot be read as "support keys = platform complete".
+        -- None of these fields is part of SupportClaim.
         pure <|
           base ++
+          s!"\ncallScheduleHonesty={callScheduleFamilyTagV1 reg.kind}" ++
+          callScheduleResidualTextSuffixV1 reg.kind ++
+          s!"\nattachedValueHonesty={attachedValueFamilyTagV1 reg.kind}" ++
+          attachedValueResidualTextSuffixV1 reg.kind ++
+          s!"\ncryptoHonesty={cryptoCatalogFamilyTagV1 reg.kind}" ++
+          cryptoCatalogResidualTextSuffixV1 reg.kind ++
           s!"\nprofiles={formatProfileList reg.profiles}" ++
           s!"\nstatus=implemented" ++
           s!"\nmaturity={reg.maturityLabel}" ++
+          maturityResidualTextSuffixV1 reg.kind ++
           s!"\nregistryRootDigest={rootDigest}" ++
           s!"\nsupportClaimDigest={claimDigest}" ++
           s!"\nbuildIdentityDomain={domain}"
@@ -1242,8 +1300,15 @@ def inspectRegistrationJson
             ("defaultProfile", .string profile.toString),
             ("profiles", .array profiles),
             ("requirements", .array reqJson),
+            ("callScheduleHonesty", .string (callScheduleFamilyTagV1 reg.kind)),
+            ("callScheduleResidual", callScheduleResidualJsonV1 reg.kind),
+            ("attachedValueHonesty", .string (attachedValueFamilyTagV1 reg.kind)),
+            ("attachedValueResidual", attachedValueResidualJsonV1 reg.kind),
+            ("cryptoHonesty", .string (cryptoCatalogFamilyTagV1 reg.kind)),
+            ("cryptoResidual", cryptoCatalogResidualJsonV1 reg.kind),
             ("implemented", .bool true),
             ("maturity", .string reg.maturityLabel),
+            ("maturityResidual", maturityResidualJsonV1 reg.kind),
             ("registryRootDigest", .string rootDigest),
             ("supportClaimDigest", .string claimDigest),
             ("buildIdentityDomain", .string engineeringBuildIdentityDomainV1)

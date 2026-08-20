@@ -808,6 +808,25 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
         "inspect must not surface residual alpha privateWitness"
       expect (!hasSubstr text "ProgramRequirement")
         "inspect uses S2 request identities, not alpha Repr"
+      expect (hasSubstr text
+          "callScheduleHonesty=evm-hashed-call+same-tx-schedule")
+        s!"inspect evm family tag, got {text}"
+      expect (hasSubstr text
+          "callScheduleResidual=hashed-qn-no-deploy-bind")
+        s!"inspect evm address residual, got {text}"
+      expect (hasSubstr text
+          "attachedValueHonesty=evm-callvalue+view-reads-zero")
+        s!"inspect evm attachedValue family tag, got {text}"
+      expect (hasSubstr text
+          "attachedValueResidual=constructor-fc")
+        s!"inspect evm attachedValue residual, got {text}"
+      expect (hasSubstr text
+          "cryptoHonesty=sha256+keccak+sha256Bytes+merkle+ecdsa")
+        s!"inspect evm crypto family tag, got {text}"
+      expect (!hasSubstr text "cryptoResidual")
+        "inspect evm has no official-crypto residual"
+      expect (!hasSubstr text "maturityResidual")
+        "inspect evm has no maturity residual"
   | .error e => throw <| IO.userError s!"inspect evm: {e.render}"
   match ProofForgeV2.CLI.inspectTargetText "aleo" with
   | .ok text =>
@@ -819,6 +838,22 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       expect (hasSubstr text "status=implemented") "aleo is implemented"
       expect (hasSubstr text "maturity=instructions-only")
         "aleo exposes only canonical Aleo Instructions"
+      expect (hasSubstr text "callScheduleHonesty=aleo-dual-fc")
+        s!"inspect aleo family tag, got {text}"
+      expect (!hasSubstr text "callScheduleResidual")
+        "inspect aleo has no address-shaped residual"
+      expect (hasSubstr text
+          "attachedValueHonesty=aleo-no-host-fc")
+        s!"inspect aleo attachedValue family tag, got {text}"
+      expect (!hasSubstr text "attachedValueResidual")
+        "inspect aleo has no attachedValue callable residual"
+      expect (hasSubstr text
+          "cryptoHonesty=crypto-no-host-fc")
+        s!"inspect aleo crypto family tag, got {text}"
+      expect (!hasSubstr text "cryptoResidual")
+        "inspect aleo has no official-crypto residual"
+      expect (!hasSubstr text "maturityResidual")
+        "inspect aleo has no maturity residual"
   | .error e => throw <| IO.userError s!"inspect aleo: {e.render}"
   match ProofForgeV2.CLI.inspectTargetText "psy" with
   | .ok text =>
@@ -827,6 +862,23 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       expect (hasSubstr text "status=implemented") "psy is implemented"
       expect (hasSubstr text "maturity=dpn-only")
         "psy exposes only canonical DPN packages"
+      expect (hasSubstr text "callScheduleHonesty=psy-void-sync-async-fc")
+        s!"inspect psy family tag, got {text}"
+      expect (!hasSubstr text "callScheduleResidual")
+        "inspect psy has no address-shaped residual"
+      expect (hasSubstr text
+          "attachedValueHonesty=psy-no-host-fc")
+        s!"inspect psy attachedValue family tag, got {text}"
+      expect (!hasSubstr text "attachedValueResidual")
+        "inspect psy has no attachedValue callable residual"
+      expect (hasSubstr text
+          "cryptoHonesty=keccak-gadget-sha256-fc")
+        s!"inspect psy crypto family tag, got {text}"
+      expect (hasSubstr text
+          "cryptoResidual=keccak-gadget-not-sha2")
+        s!"inspect psy crypto residual, got {text}"
+      expect (!hasSubstr text "maturityResidual")
+        "inspect psy has no maturity residual"
   | .error e => throw <| IO.userError s!"inspect psy: {e.render}"
   -- Legacy three-line helper remains for S2 exact-string join tests.
   match ProofForgeV2.CLI.describeTargetText "aleo" with

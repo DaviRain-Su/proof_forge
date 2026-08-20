@@ -3,7 +3,7 @@ id: ENG-BACKLOG
 title: 工程业务 Backlog（文档↔实现差异 + 构建加速）
 status: draft
 owner: engineering
-updated: 2026-08-18
+updated: 2026-08-19
 normative: false
 ---
 
@@ -34,6 +34,7 @@ normative: false
 | `docs/roadmap-t8.md` | T8/T9 切片状态 |
 | `docs/research/11-feature-coverage-audit.md` | L1–L8 特性缺口清单 |
 | `docs/research/12-target-coverage-matrix.md` | Op×target GAP/LOWERED |
+| `docs/plan/completeness-phased-roadmap.md` | 2026-08-19 完善度审查：三条完成轴 + COMP-0…5 分阶段指针 |
 | `docs/research/10-ibc-as-proofforge-programs.md` | 北极星用例与语言前置（**非近期任务**） |
 | `docs/01-prd.md` FR/NFR/Phase-1 DoD | 产品验收分母（工程解读） |
 | `justfile` / `lakefile.lean` / CI workflow | 构建与反馈循环 |
@@ -80,11 +81,13 @@ formal / release ──────────────────► 04/05
 
 **建议只维护这三份“活队列”**，其余 research 做引用不复制：
 
-1. 本文件 — 总执行 backlog  
+1. 本文件 — 总执行 backlog（完善度勾选在 **§12**）
 2. [`roadmap-t8.md`](roadmap-t8.md) — 宽度/ABI 专项协议（T8/T9）  
 3. [`research/12-target-coverage-matrix.md`](research/12-target-coverage-matrix.md) — op×target 格子  
 
-`research/11` 的分层审查、`research/10` 的 IBC 北极星，关闭后**回写本文件状态**，不必再开第三份平行清单。
+分阶段叙事指针（**不是**第四份 research gap 清单）：
+[`plan/completeness-phased-roadmap.md`](plan/completeness-phased-roadmap.md)。
+`research/11` 的分层审查、`research/10` 的 IBC 北极星，关闭后**回写本文件状态**，不必再开平行清单。
 
 **索引状态**：`research/README.md` 已登记 11/12/13 与后续 toolchain research；DOC-2 已关闭。
 
@@ -245,7 +248,7 @@ D1–D4 = 0/27 done。
 | **B-CTX-OPEN** | ContextRead 各 target Plan 开放（unixTime/caller/blockHeight） | target leaf | **unixTimeSeconds**：EVM `timestamp()`（tag 59）+ NEAR `block_timestamp` ns÷10^9（tag 41）+ CW Env JSON time + TON `blockchain.now()` 已开；**Solana/Noir/Psy/Aleo/Quint 保持 FC**（电路域决策 2026-08-04）。**caller / ADR-0031 S1 已闭合（2026-08-06）**：EVM ADR-0025 `u32le(20)\|\|CALLER` + CallerCheck/Ownable Anvil；Solana 仅 exact CPI profile 的 `pf_caller` signer→32B Principal，ordinary Principal ix canonical gate + Mollusk 8/8，legacy profiles FC；NEAR `predecessor_account_id` init/entry + sandbox，view FC；CW `MessageInfo.sender` instantiate/execute + branch-local loader/charset gate + cw-vm，query/view FC。**blockHeight / ADR-0031 S2**：EVM `number()`（tag 62）、NEAR view-safe `block_index()`、CW Env JSON bare-u64 `height`（tag 55）、Solana `Clock.slot` via `sol_get_clock_sysvar`（Plan tag 51）Plan/IR/emitter leaves 均已开；**Solana sole product profile `solana-sbpf-cpi-elf-v1` 已于 2026-08-12 admit blockHeight**（syscall 读、零 role/site/`pf_caller` 需求；`unixTimeSeconds` 保持 FC）并接 Mollusk runtime 门（`block_height.rs`：双 warp slot 证非常量 + view/entry/state-hold）；EVM 已有 host-optional Anvil `BlockHeightCheck` 门（非 Anvil lossless / formal）；NEAR sandbox 已跑 `Examples/BlockHeightCheck.lean`（`scripts/near_runtime_test.sh` `run_suite blockheightcheck`）；CW 已有 `runtime-tests/cosmwasm/tests/block_height.rs`（`scripts/cosmwasm_runtime_test.sh` 列 `Examples/BlockHeightCheck.lean`）。**Solana `unixTimeSeconds` 仍 FC**（Noir/Psy/Aleo/Quint unixTime 亦 FC） | **done**（2026-08-14 honesty close：NEAR/CW `blockHeight` runtime gates already in tree；unixTimeSeconds Solana/Noir/Psy/Aleo/Quint 仍 FC；非 formal / 非 Anvil lossless） |
 | **B-OPT-STATE** | 九 materializer Option state Plan | target leaf | N-A4 只开 Normalize admit。**NEAR 已开**（2026-08-04 `95289615e`：`Option UInt64` state 复用 Enum 双叶布局（tag+payload 8B KV），none 默认零初始化、none 赋值清零 payload（HostModel+sandbox 双钉），match 走既有 VariantTag/VariantPayload 路径；Option params/非 UInt64 payload 仍 FC）；**EVM 已开**（2026-08-04 `0a46e54d8`：同构 2-slot 布局 + storeAtomic 沿用 B-EVM-MAP-STACK memory-spill 惯例，none 双叶清零，solc strict-assembly 验收 + Token 栈预算不变；Option params 不扩展）；**Solana 已开**（2026-08-04 `42c863d0c`：同构 `slot_tag`/`slot_p0` u64-le 布局 + 多叶原子 store，stale-payload clear 钉死，6 项 Mollusk 测试）；**Aleo 已开**（2026-08-04 `68d7c0a7f`：同构 tag+payload mapping 双叶（flatten-to-mapping），none 默认 get_or_use(0) 零初始化、payload 清零钉死，entry-surface match（multi-leaf view-over-state 仍 FC），OptionState 过真实 leo build）；**CosmWasm 已开**（2026-08-04 `da2f9ffe7`：同构 8B KV 双叶 + storeAtomic，none 清零 runtime 钉死，3 项 cosmwasm-vm 测试）；**Psy 已开**（2026-08-04 `a2755c6c9`：同构 Felt 双叶；顺带两修——VariantTag 窄 32 化使 Enum/Option match 可解、return-only 臂改 dargo expression-if；psyup 验收 10 fixture 全绿）；**Noir 已开**（2026-08-04 `27fa56c83`：同构双叶 + EmitIR brace-escape 共修（`}} else {` 非法输出），nargo 验收）；**TON 已开**（2026-08-04 `ac13b9b09`：同构 tag/payload c4 双叶 + storeAtomic，match 走 VariantTag/VariantPayload，Tolk 1.4 合法性共修（switchRegion 去 do-while/break、view 每臂早退 return），locked tolk→.fif 验收；Option params 仍 FC）；Quint 仍 FC（无 admit 路径） | done（8/9 materializer；Quint FC） |
 | **B-COMMIT-ZK** | Commit × Noir/Psy | target leaf | EVM/Solana/NEAR/Aleo 身份透传已开；Noir/Psy FC。Psy 在开放 identity 前必须先冻结 proof/public-input/commitment binding；仅把 operand 作为普通 Felt 透传会过度声明密码学承诺能力 | pending |
-| **B-CALL-SEM** | call/schedule capability 与真实平台语义对齐 | 产品决策 + target leaf | **#111 Solana legacy honesty 已接线**：两 legacy profile 删除 sync/async support claim，Plan/IR/SBPF 纵深 fail closed（过渡空 AccountMeta CPI / log stub 不可达）。EVM 仍保留真实 `CALL`/returndata（BL-28）与 same-tx fire-and-forget schedule；NEAR/TON/CW/Noir/Psy/Aleo/Quint 纪律保持 main 现状。真实 Solana CPI 见 epic #110 versioned profile。不得把 resolver 支持键写成跨平台 call 完成 | **open**（Solana legacy 已诚实；产品 CPI 与他链缺口仍 open） |
+| **B-CALL-SEM** | call/schedule capability 与真实平台语义对齐 | 产品决策 + target leaf | **#111 Solana legacy honesty 已接线**：两 legacy profile 删除 sync/async support claim，Plan/IR/SBPF 纵深 fail closed（过渡空 AccountMeta CPI / log stub 不可达）。EVM 仍保留真实 `CALL`/returndata（BL-28）与 same-tx fire-and-forget schedule；NEAR/TON/CW/Noir/Psy/Aleo/Quint 纪律保持 main 现状。真实 Solana CPI 见 epic #110 versioned profile。不得把 resolver 支持键写成跨平台 call 完成。**2026-08-19 COMP-1-CALL-SEM-LAND 第一刀**：十三 kind `callScheduleFamilyTagV1` 经 `inspect`/`inspect --json` 的 `callScheduleHonesty` 露出（**不**进 SupportClaim digest）；十三 kind 表面针 + ExtFlow/LaterFlow xrpl 针已齐。**同日 residual 标签**：evm=`hashed-qn-no-deploy-bind`、solana=`callee-identity-outer-account-open`、cosmwasm=`contract-addr-qn-stub`（inspect-only；JSON 其余 kind 为 `null`）。部署地址 / 外层账户 / CW `contract_addr` **绑定**仍 pending | **open**（inspect 族标签+三项 residual 已诚实；产品 CPI 与他链缺口仍 open） |
 | **CW-ABI-FREEZE** | CosmWasm A1 runtime/ABI design-exit | 产品/target semantics 决策 | 已由 **CW-5** 闭合：versioned std/vm/check 3.0.9 + wasmvm 3.0.7 + wasmd v0.70.3 dispatcher 语义冻结；structural-WAT 工程先导批准；`wasm-validated-alpha` 限定 mock 子集。历史 A0/no-dispatch 叙述作废 | **done**（见 CW-5；非 formal） |
 | **ADR-0036** | accepted 范围与工程控制面 reconciliation | 文档/产品决策 | accepted PRD 仍以 EVM/Solana/NEAR/Noir 为 Phase 1；engineering 现 **13 implemented + 0 design-only**（Soroban ADR-0044 + OpenVM ADR-0045/0046 + ICP ADR-0047 + XRPL ADR-0049/0050）不静默扩 accepted scope；B11/B12 contained frontend 保持退役；formal lighthouse=EVM-first。**ADR-0036 仍 `proposed`**，不得写成 accepted | **done（2026-08-10 owner direction；ADR-0036 proposed，accepted PRD 未静默改写；2026-08-14 计数随 ICP implemented 更新为 12+0；2026-08-19 随 XRPL 为 13+0）** |
 | **ADR-0045** | OpenVM guest-source O0 engineering leaf | 文档/工程 | sole default `openvm-guest-source-v1`；受控 Rust guest + catalog；zero-tool finalize；4-key capability；无 prove | **done（2026-08-14；proposed）** |
@@ -447,12 +450,81 @@ D1–D4 = 0/27 done。
 
 ---
 
+## 12. 完善度分阶段队列（2026-08-19；审查落地 + COMP-1 第一刀）
+
+权威叙事：[`plan/completeness-phased-roadmap.md`](plan/completeness-phased-roadmap.md)
+（`PLAN-COMPLETENESS-ROADMAP`）。格子仍以
+[`research/12-target-coverage-matrix.md`](research/12-target-coverage-matrix.md) 为准。
+本表是 **COMP-\*** 勾选真源（DOC-DEDUP：不另开 research gap 清单）。
+本切片只登记队列；**不**把 ADR-0036/0051 标 `accepted`、**不**改 `semantic-core.md`、
+**不**关 formal 0/27。2026-08-19 owner 继续指令后，**COMP-1-CALL-SEM-LAND**
+第一刀（十三 kind inspect 表面针 + 三项地址 residual 标签 + xrpl 针）已部分落地；
+**COMP-1-SYS-CAP-L2** attachedValue / crypto / maturityResidual inspect
+与 ecdsa 十二叶第一道门针已部分落地；地址绑定与官方 program catalog 新叶仍 pending。
+
+三条完成轴互不代签：工程 13 叶 ≠ accepted PRD 四目标 ≠ formal/release。
+Cairo / RISC0 / SP1 / Move / 比特币 **不进本队列**。
+
+### 12.0 阶段 0 — 推荐冻结（proposed；等人拍）
+
+| ID | 项 | 状态 |
+|---|---|---|
+| **COMP-0-CALL-SEM** | B-CALL-SEM：按族拆（resolver 支持 ≠ 跨平台 call 完成）；部署地址另 ADR | owner-directed 2026-08-19（按族拆诚实已开刀；ADR 仍 proposed） |
+| **COMP-0-NOIR-PROVE** | 不推翻 C-4；nargo compile ≠ prove；Phase-1 DoD 字面仍未满足 | proposed |
+| **COMP-0-ADR-0036** | 工程计数改为 **13+0（含 XRPL）**；status 仍 `proposed`；accepted PRD 仍四目标 | 计数已对齐；acceptance 等人拍 |
+| **COMP-0-SPEC-HONESTY** | 采纳已起草 ADR-0051（typed return 一等；schedule void）；accepted 前不改 SPEC | ADR-0051 proposed |
+
+### 12.1 阶段 1 — 共享核（串行；CALL-SEM / attachedValue / crypto inspect + NORMALIZE FC 针已部分落地）
+
+| ID | 项 | 状态 |
+|---|---|---|
+| **COMP-1-SPEC-ALIGN** | ADR-0051 accepted 后改 semantic-core + corpus；无新 Sem00x pin | pending |
+| **COMP-1-NORMALIZE-RESIDUAL** | 嵌套穿透赋值 / 更深 pattern / Field·Principal 源字面量（开则十三叶 Lower 或命名 FC） | **partial** — Field/Principal 源字面量 + Bytes 嵌套穿透产品 FC 针；Map 穿透已是 N-NEST-IDX；开放另批 |
+| **COMP-1-TYPEKEY-REST** | TypeKey 剩余 usage-closure → StructureV1（不关 TASK-D2-06） | **partial** — Stage D `usageClosure` 已接线 StructureV1；剩余是 SPEC 匿名 rank 字节序（会打爆 hand-built fixture，须人拍）+ formal |
+| **COMP-1-CALL-SEM-LAND** | resolver/文档/针，再按 COMP-0 做 EVM 地址、Solana 外层账户、CW `contract_addr` | **partial** — 十三 kind inspect 表面针（human+JSON）+ evm/solana/cosmwasm `callScheduleResidual` + ExtFlow/LaterFlow xrpl 针；地址绑定仍 pending |
+| **COMP-1-SYS-CAP-L2** | 官方 program catalog：有 host 一行一叶，无 host 命名 FC | **partial** — SYS-S4 attachedValue inspect + `cryptoHonesty` 十三 kind 闭表 + cw/xrpl/psy residual + ICP/TON `maturityResidual` + XRPL ContextRead/Commit 矩阵 + Targets.lean ecdsa 十二叶第一道门针（EVM-only 叶；与 merkle 同纪律）；新官方叶仍 pending |
+| **COMP-1-COMMIT-ZK** | Psy/Noir Commit 设计钉；未冻 binding 前继续 FC | pending |
+| **COMP-1-D3-E8** | evidence grade 语义冻结后再进 resolver | pending |
+
+### 12.2 阶段 2 — accepted 四目标工程 DoD（不是 formal D4–D7）
+
+| ID | 项 | 状态 |
+|---|---|---|
+| **COMP-2-EVM-ADDR** | static-QN → 部署地址绑定；Bool/Int/Bytes returndata 按决策；C-3 保持 FC | pending |
+| **COMP-2-SOL-CPI** | product CPI callee / 外层账户；Token/ATA binding 诚实化；WideDiv 差分；async FC | pending |
+| **COMP-2-NEAR-OVERFLOW** | sandbox Counter overflow rollback；view ContextRead 保持 FC | pending |
+| **COMP-2-NOIR-PRD** | 不推翻 C-4 则另开 PRD 修订；推翻才做独立 NoirProveAcceptance | pending |
+
+### 12.3 阶段 3 — 其余九叶（仅已拍板的下一 profile）
+
+| ID | 叶 | 下一刀 | 状态 |
+|---|---|---|---|
+| **COMP-3-CW** | CosmWasm | B-CALL-SEM 地址；可选 wasmd rung-2 | pending |
+| **COMP-3-TON** | TON | schedule callback；不解冻 pf.assets | pending |
+| **COMP-3-ICP** | ICP | inter-canister await；Candid 富类型另批 | pending |
+| **COMP-3-QUINT** | Quint | QUINT-2 Tool Lock + ITF/MBT/verify | pending |
+| **COMP-3-SOR** | Soroban | SOR-1 locked Wasm + auth/TTL | pending |
+| **COMP-3-OVM** | OpenVM | 独立 prove/execute（新 ADR） | pending |
+| **COMP-3-NATIVE** | Aleo / Psy | 重开 VM/proof 必须新 ADR | pending |
+| **COMP-3-XRPL** | XRPL | TIME/CALLER 叶；AlphaNet 另批 | pending |
+
+### 12.4 阶段 4–5 — Formal / release（独立轴；不进日常编码）
+
+| ID | 项 | 状态 |
+|---|---|---|
+| **COMP-4-FORMAL** | 合格主机 + TASK-D1-01 → D2-06/07 → D3 SupportClaim/`OutputSetV1` → D4/C-3；禁 pin 代签 | pending / blocked-on host |
+| **COMP-5-JUST-CONTROL** | 显式设计 `governance-check` / `release-check`，或永久写「不可执行」 | pending |
+| **COMP-5-STAGE0** | 直接 `scripts/verify_host_stage0.sh --require-eligible`；无 just 包装冒充 | pending |
+| **COMP-5-REVIEW** | clean-room / SBOM ceremony / `07-review-report.md`（现 `not_started`） | pending |
+
+---
+
 ## 推荐击杀顺序（产品开发；2026-08-12 全面审查后刷新）
 
 优先序遵循产品判断：**EVM（最完善，formal lighthouse）→ Solana → NEAR → CosmWasm/Wasm**；
 Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 
-**Goal/workflow 入口（2026-08-15）**：next-wave Goal/workflow **已退役**（queue 零 pending）。**不要**再 `/goal @.grok/goals/prompt-next-wave.md` 或 `/workflow next-wave-runner`。能力层 waves（CAP-1a…5、CAP-X-BYTES、CAP-X-MERKLE）与诚实边界波均 **done（2026-08-19）**；日常工程下一刀 = **B-CALL-SEM 决策包（人拍）**。剩余人拍项已排进 [`docs/plan/remaining-owner-waves.md`](plan/remaining-owner-waves.md)（Wave 0–8；**不**自动接受 ADR-0036/0051/0052，**不**开 XRPL TIME/CALLER 叶，**不**标 formal done）。能力层已闭，见 [`docs/plan/capability-layer-tasks.md`](plan/capability-layer-tasks.md)。对账 `research/28-project-wide-honesty-audit.md`。Formal / 产品决策项仍不进 drain。
+**Goal/workflow 入口（2026-08-19）**：next-wave Goal/workflow **已退役**（queue 零 pending）。**不要**再 `/goal @.grok/goals/prompt-next-wave.md` 或 `/workflow next-wave-runner`。能力层 waves（CAP-1a…5、CAP-X-BYTES、CAP-X-MERKLE）与诚实边界波均 **done（2026-08-19）**。日常工程下一刀 = **B-CALL-SEM 残差**（部署地址 / 外层账户 / CW `contract_addr`；十三 kind inspect 表面针已落地，**不**标 closed）。剩余人拍项已排进 [`docs/plan/remaining-owner-waves.md`](plan/remaining-owner-waves.md)（Wave 0–8；**不**自动接受 ADR-0036/0051/0052，**不**开 XRPL TIME/CALLER 叶，**不**标 formal done）。完善度分阶段队列见 [`plan/completeness-phased-roadmap.md`](plan/completeness-phased-roadmap.md) 与上文 **§12**。能力层已闭，见 [`docs/plan/capability-layer-tasks.md`](plan/capability-layer-tasks.md)。对账 `research/28-project-wide-honesty-audit.md`。Formal / 产品决策项仍不进 drain。
 
 ```text
 1. EVM formal lighthouse（ADR-0036，仍 proposed；LH-1…28 + Track F **engineering-done**；**不要**把 TASK/TST 标 done）：
@@ -848,12 +920,19 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-19 | **CAP-X-BYTES（done）**：`pf.crypto.sha256Bytes(Bytes N) -> UInt256` 共享核 + 五叶落地。核：`RequirementIdsV1` 新 QN + `isPfCryptoHostSyscallQnV1` 纳入（RequirementsInfer 经共享 predicate 自动走 env-read 纪律）；Normalize 表达式 call 臂 QN-scoped anonymous Bytes 放行（其余 QN 纪律不变；statement 位 Bytes 仍 generic FC）；Reference 走 generic ExternalCall response cursor（L1 不算 hash，pin 于 `Tests/Semantic/NormalizeSha256BytesV1`）。五叶：EVM `0x02` over memory（N≤64，tag 24）、Solana `sol_sha256` 单 slice（N≤64，stmt tag 17；`CpiDeriveV1` crypto 判定改委托共享 predicate）、NEAR host register bytes（N≤64，stmt tag 16）、TON `SHA256U` 单 cell bits（N≤127，Expr tag 58；`string_hash`/`HASHCU`/`HASHBU` 负针覆盖新叶）、Soroban S0 `env.crypto().sha256` Bytes（N 1..8，ctor tag 14）。Noir/Psy/Aleo/Quint/CosmWasm/OpenVM/ICP/XRPL 保持引 QN 命名 FC；Targets.lean 跨 target needle 接线。**不**声称 Merkle/流式/新 target/formal/release；B-CALL-SEM 不动 |
 | 2026-08-19 | **CAP-X-MERKLE（done）**：`pf.crypto.merkleVerifyKeccak256(root, leaf, s0…s_{D-1}) -> Bool`（D ∈ 1..8，OpenZeppelin sorted-pair，false-not-revert）EVM-only 叶。共享核仅 `RequirementIdsV1` 新 QN + host-syscall predicate 纳入（纯计算不贡献 sync-call；Normalize 零改动——全 UInt256 参数/Bool result 走既有门）；EVM statement tag 25，unrolled `keccak256(0,64)` 链 + `lt`/mux sorted-pair + `eq(mload(64), root)` 进 Bool。十二 target 命名 FC（按各自首道门：crypto 命名空间/宽度/profile）；Targets.lean needle 接线。**不**声称 ICS-23/IBC/NS-2/positional proof/formal/Anvil；sha256 变体与 positional proof 属未来独立 QN。**记录在案的既有裂缝（2026-08-19 诚实边界波已修）**：`ecdsaRecoverSecp256k1` 已纳入 host-syscall predicate（owner 接受 requirement/digest cut over；见下条） |
 | 2026-08-19 | **诚实边界波（done，owner 四句拍板）**：(1) **RES-1B 诚实切片**：`--resource-limit` 四字段（memory-bytes/processes/protocol-bytes/stderr-bytes）parse 但无 in-process producer，产品 preflight 改 usage/exit 2 fail closed（`validateBuildOptionsCliV1`）；wall-ms/published-bytes enforce 不变；cli.md/diagnostics.md 同步；真 memory 采样/process 计数/protocol 帧/stderr cap 另批，59 码表不动。(2) **TON-C4-BUDGET**：c4 门默认 `64+Σ(byteWidth×8)≤1023` 计全部 field；唯一明示豁免 `isLegacyMapFlattenV1`（恰好 24×8-byte；Map cap-8 已知超 cell；多 cell 未做）；Bytes 127/Bytes127+UInt256 翻为 storage-budget 负例（SHA256U hash-cell N≤127 不变）；ArrInt64x24 fixture 去 pad（25 叶不豁免）改 `assert true` init。(3) **XRPL view-only**：Lower/Validate 改 `entries>0 || views>0`（与 ICP/OpenVM/Soroban/Quint 同构）；ADR-0049 §5 与 ADR-0052 Q0 节各补一句；Targets.lean 七 view-only fixture（PrincipalReturn/StringReturn/MaybeViewRet/ArrViewRet/MapViewRet/BytesRetBox/OptViewRet）回纳 xrpl。(4) **ecdsa 裂缝修复**：`pfCryptoEcdsaRecoverSecp256k1QnV1` 纳入 `isPfCryptoHostSyscallQnV1`（EVM precompile `0x01` STATICCALL ≠ 跨合约调用）；RequirementsInfer 自动跳过 sync-call+rollback；owner 接受既有程序 requirements/semanticHash/manifest digest cut over；`Tests/Typed/RequirementsInferV1` 加对偶针。文档同步：RECOVERY 执行指针与十二→十三 materializer、resolver 头注释（NEAR/Solana 行现状）、ADR-0029 正文 draft→proposed。**不**声称 NFR-008/containment/formal/release |
+| 2026-08-19 | **完善度审查落地（文档，非编码切片）**：新增 [`plan/completeness-phased-roadmap.md`](plan/completeness-phased-roadmap.md)（`PLAN-COMPLETENESS-ROADMAP`）与本文件 §12 `COMP-*` 队列。ADR-0036 工程计数改为 **13+0（含 XRPL）**，status 仍 `proposed`。阶段 0 四句推荐冻结（B-CALL-SEM 按族拆、Noir 保持 C-4、ADR-0036 不在本切片 accepted、SPEC-honesty 沿用 ADR-0051）仍须 owner 盖章。不执行阶段 1–5 编码、不改 semantic-core、不关 formal。 |
+| 2026-08-19 | **COMP-1-CALL-SEM-LAND 第一刀（partial）**：owner「继续」指令按族拆诚实。`callScheduleFamilyTagV1` 十三 kind 闭表；产品 `inspect`/`inspect --json` 露出 `callScheduleHonesty`（**不**进 SupportClaim / describe 三行）。NEAR resolver 头注释对齐 Phase C2。ExtFlow/LaterFlow 补 xrpl `effect.asynchronous-workflow` 针。CosmWasm 档案改 generic sync FC + pf.assets sync admitted。**不**关闭 B-CALL-SEM / 部署地址 / formal / ADR accepted |
+| 2026-08-19 | **COMP-1-CALL-SEM-LAND 十三 kind inspect 表面针**：`testInspectCallScheduleHonestySurface` 对全部 implemented target 钉 human+JSON `callScheduleHonesty`；BuildSelection evm/aleo/psy 与 CLI inspect aleo/cosmwasm 补针；describe 仍无该字段。**不**关闭 B-CALL-SEM / 部署地址 / formal |
+| 2026-08-19 | **COMP-1-CALL-SEM-LAND inspect residual 标签**：`callScheduleResidualV1` 仅 evm/solana/cosmwasm 有地址缺口标签（hashed-qn / outer-account / contract-addr stub）；human 仅 `some` 时出一行；JSON 其余 kind 为 `null`。**不**实现绑定、**不**进 SupportClaim / describe、**不**关闭 B-CALL-SEM / formal |
+| 2026-08-19 | **COMP-1-NORMALIZE-RESIDUAL FC 针（partial）**：CheckV1 + product compile 钉 Field/Principal 源整数字面量（`Field(bn254_fr)` / `Principal` vs `integer literal`）与 Bytes 嵌套穿透（`b[i].x` / `b[i][j]` TypeCheck FC）。Normalize 头与 roadmap 1.1 去掉过期「Map `m[k].x:=v` 仍拒」说法（N-NEST-IDX 已开）。**不**开放字面量/Bytes 穿透、**不**改十三叶 Lower、**不**关 formal |
+| 2026-08-19 | **COMP-1-SYS-CAP-L2 attachedValue 诚实表面（partial）**：`attachedValueFamilyTagV1` 十三 kind 闭表经 `inspect`/`inspect --json` 露出（**不**进 SupportClaim / describe）；evm/near/cw 带 callable residual（constructor / view-purefn / query-view）；Targets.lean S4 入口针补 xrpl，并钉 view/query 矩阵（仅 EVM admit）。**不**开官方 program 新叶、**不**开 NEAR view / CW query host、**不**关 formal |
+| 2026-08-19 | **COMP-1-SYS-CAP-L2 official crypto inspect（partial）**：`cryptoCatalogFamilyTagV1` 十三 kind 闭表经 inspect 露出既有 `pf.crypto.*` 叶（evm 五 QN / solana·near 三 QN / ton·soroban sha256 双 QN / psy keccak gadget）；cw/xrpl/psy residual 钉 keep-FC（无 sha256 host / sha512-half≠sha256 / keccak≠SHA-2）。**不**开新官方叶、**不**进 SupportClaim / describe、**不**关 formal |
+| 2026-08-19 | **COMP-1-SYS-CAP-L2 maturityResidual + XRPL context 矩阵（partial）**：inspect 露出 ICP/TON `maturityResidual`（`deployable-wasm-vs-source-only-label` / `conditional-boc-deployable-vs-source-only-label`）；registry `maturityLabel` 仍 `source-only`，**不**改 `expectedMaturityLabelOfKindV1`。Targets.lean 补 XRPL unixTime/caller/blockHeight/chainId/self/Commit FC 针（TIME/CALLER 叶仍 ADR-0052）。**不**开新官方叶、**不**进 SupportClaim / describe、**不**关 formal |
+| 2026-08-19 | **COMP-1-SYS-CAP-L2 ecdsa 十二叶第一道门针（partial）**：Targets.lean 钉合法 `pf.crypto.ecdsaRecoverSecp256k1` ABI（四 UInt256 → UInt256）EVM admit + 十二叶 first-gate FC（与 merkle 同纪律：width / profile / 命名 QN）。XrplPlanV1 补 QN 命名针。**不**开十二叶 ecdsa host、**不**声称 Anvil/formal |
 | 2026-08-19 | **文档事实刷新波（done）**：RPT-027（27-extension-crypto-design）整文刷新——§2 已交付表重画为按-QN 行（sha256 五叶/keccak 三叶/sha256Bytes 五叶/merkle EVM 叶/ecdsa EVM 叶+predicate 纪律）、§3 分桶标 done/pending、§4 改交付记录+剩余须人拍项；RPT-028 重核——计数 13+0/17/339/25·422、P0 标 closed、Gaps 仅余 ADR-0051（人拍）与 P2 顺手项、Verification 行全部重核、roadmap 下一刀=B-CALL-SEM；research README 25/27/28 摘要、`docs/index.md` 下一刀行、ADR README（0016 行 proposed→accepted 对齐 frontmatter、日期）、本文件 EXT-CRYPTO 行/「默认 CAP-1a」行/ecdsa「另议」行、capability-layer-tasks 标题十二→十三与 Wave-3 MERKLE 行/Wave-5 ecdsa 行、NEAR Lower 过期 Map-FC 注释一并修正。**未动**：ADR status 批次升格（需审批字段，人拍）、SPEC 正文（ADR-0051 禁止）、AGENTS 钉串（SBOM 244 / 13/304 / 25/422）、document-status 八行索引 |
 | 2026-08-19 | **矩阵活单元格计数对齐（done）**：`MIGRATION_MATRIX` header through 与 D2/D3 活叙述 `十二 materializer` / `十个 descriptors` / `12×6` 改为 **13+0 / 13 materializers / 17 resolver rows / 13×6**；dated `2026-08-14` 12+0 行未改。**不**关 formal，**不**升格 ADR-0036 |
 | 2026-08-19 | **RPT-028 P2 活页计数诚实残差（done）**：live present-tense 12+0 / 「十二 materializer」/ ADR-0036「固定」改为 **13 implemented + 0 design-only / 17 resolver rows**；TON/Quint dossier、RPT-025、README、slides/speaker-script、backlog 产品现状、RECOVERY 完成条件、toolchain install、matrix D3 活单元格同步；ADR-0036 活页改为「主张收口 / records the boundary」，**仍 `proposed`，未升格**。dated changelog 12+0 行保留为历史快照。**不**接受 ADR-0036/0051/0052，**不**开 XRPL TIME/CALLER |
 | 2026-08-19 | **runtime 执行证据波（done，owner 拍板全波）**：今日三个新 crypto 叶升级为执行级证据。(1) **Solana Mollusk**：`sha256_bytes_check` 新 binary（4 测：zero4/abcd 已知向量 + state 回读 + 单 slice 汇编针；sha2 oracle）；Mollusk 计数 25/422 → **26/426**（docs_check 正则与 AGENTS 钉串同步，13/304 基线保留）；**过程中抓到并修复一个既有 emitter bug**——`EmitSbpfAsmV1` 的 16/32 字节 `set_return_data` 与 `setReturnDataMulti` 指针指向 limb 块最高地址（栈向下生长），返回值含帧垃圾：现改 reverse-pack（Mollusk 实证 sha256_check 修复前红、修复后绿；`SbpfOptionStateProductionV1` golden hash 按新汇编更新）。(2) **NEAR sandbox**：`sha256bytescheck` suite（22 programs / 23 suites；`hashlib.sha256` oracle，向量 01 02 03 04）；同时发现既有 `Sha256Check` suite 自引入起即红（pin 写 BE 整数约定、发射器产出 raw 字节序）——按实测行为（raw-bytes/LE image，与 Solana Mollusk 约定一致）修针，**EVM BE-word vs Solana/NEAR LE-image 的整数级端序不一致登记为人拍项（击杀序 #2）**。(3) **TON sandbox**：`sha256_bytes.test.js` + helper UInt256/Bytes ABI 扩展 + 第 4 个 BoC；**本机 fift companion 缺席、执行级未验证（skip-clean≠pass）**，文档计数按 16 it 诚实措辞。(4) **EVM Anvil**：`Examples/MerkleVerifyCheck.lean` + `evm_merkle_verify_anvil_smoke.sh`（locked anvil/cast 0.3.0 物化后**硬绿**：D=2 sorted-pair keccak root 经 cast keccak 现算，true/交换/root⊕1/错 sibling false-not-revert 全过）+ `evm_anvil_differential.sh` 挂接 + corpus manifest 刷新。Soroban 不做（SOR-1 另批）。全部不声称 formal/C-3/hermetic |
-
-
 ---
 
 ## 10. 新 target 波次（2026-08-03 起）

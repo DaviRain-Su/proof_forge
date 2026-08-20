@@ -82,7 +82,7 @@ normative: false
 
 AGENTS Program 行曾把 ICP 与 Aleo/Psy/Soroban/OpenVM 一并写成「zero-tool/non-deployable」——本波已拆开。CW/NEAR「sync 拒」过粗（pf.assets sync 已 admit）。Quint「仅 4-key」过时（现 6-key）。
 
-**deployable ≠ maturity ≠ host runtime**（`expectedMaturityLabelOfKindV1`）：evm/solana `runtime-validated-alpha`；near/cosmwasm `wasm-validated-alpha`；noir/quint/ton/soroban/openvm/**icp** `source-only`；aleo `instructions-only`；psy `dpn-only`。ICP/TON 可以 Finalize `deployable=true` 而 label 仍是 `source-only`。GHA 另有 path-filtered `solana-runtime` / `near-runtime` / `cosmwasm-runtime`，不等于 ordinary `just ci`。
+**deployable ≠ maturity ≠ host runtime**（`expectedMaturityLabelOfKindV1`）：evm/solana `runtime-validated-alpha`；near/cosmwasm `wasm-validated-alpha`；noir/quint/ton/soroban/openvm/**icp** `source-only`；aleo `instructions-only`；psy `dpn-only`。ICP/TON 可以 Finalize `deployable=true` 而 label 仍是 `source-only`。产品 `inspect` 现以 inspect-only `maturityResidual` 命名该裂缝（icp=`deployable-wasm-vs-source-only-label`、ton=`conditional-boc-deployable-vs-source-only-label`）；**不**改 label、**不**进 SupportClaim。GHA 另有 path-filtered `solana-runtime` / `near-runtime` / `cosmwasm-runtime`，不等于 ordinary `just ci`。
 
 ### 5. Formal vs engineering
 

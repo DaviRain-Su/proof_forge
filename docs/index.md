@@ -3,7 +3,7 @@ id: DOC-INDEX
 title: ProofForge V2 文档导航
 status: proposed
 owner: architecture
-updated: 2026-08-15
+updated: 2026-08-19
 normative: true
 ---
 
@@ -42,13 +42,26 @@ Soroban S1 缺口盘点（非 normative、不实现 SOR-1）：
 [`plan/soroban-s1-wasm-finalize-gap.md`](plan/soroban-s1-wasm-finalize-gap.md)。
 Solana ADR-0048 D4 剩余证书（非 formal TASK-D5）：
 [`plan/solana-adr-0048-next.md`](plan/solana-adr-0048-next.md)。
-**日常工程队列**（可勾选缺口）：[`engineering-backlog.md`](engineering-backlog.md)。
+**日常工程队列**（可勾选缺口）：[`engineering-backlog.md`](engineering-backlog.md)（完善度 **§12**）。
+完善度分阶段指针（三条完成轴；非第四份 gap 清单）：
+[`plan/completeness-phased-roadmap.md`](plan/completeness-phased-roadmap.md)。
 **Agent Notes**（why / why-not，非 ADR / 非 formal）：[`.agents/notes/README.md`](../.agents/notes/README.md)。
 **Goal drain 已空（2026-08-15）**：[`.grok/next-wave-queue.md`](../.grok/next-wave-queue.md) 零 pending；
 [`prompt-next-wave.md`](../.grok/goals/prompt-next-wave.md) **已退役**，不要再 launch。
 全仓对账：[research/28-project-wide-honesty-audit.md](research/28-project-wide-honesty-audit.md)。
-**下一刀（工程，非 formal）**：能力层 waves 已全闭合（2026-08-19：CAP-1a…5 / CAP-X-BYTES / CAP-X-MERKLE / 诚实边界波）；
-当前剩余人拍项已排进 [`plan/remaining-owner-waves.md`](plan/remaining-owner-waves.md)（B-CALL-SEM / ADR-0051 / ADR-0036 / D3-E8 / DOC-JUST-CONTROL / RES-1B / B-COMMIT-ZK / SOR-1 / QUINT-2 / XRPL TIME·CALLER / zkVM / formal D1–D4）；**不**自动接受 ADR，**不**开 XRPL 叶，**不**标 formal done。
+**下一刀（工程，非 formal）**：能力层 waves 已全闭合（2026-08-19：CAP-1a…5 /
+CAP-X-BYTES / CAP-X-MERKLE / 诚实边界波）。COMP-1-CALL-SEM-LAND 第一刀
+（inspect family-tag + 地址 residual）、COMP-1-NORMALIZE-RESIDUAL FC 针
+（Field/Principal 源字面量、Bytes 嵌套穿透）与 COMP-1-SYS-CAP-L2
+attachedValue inspect/Targets 诚实表面、official `cryptoHonesty` 闭表、
+ICP/TON `maturityResidual`、XRPL ContextRead/Commit 矩阵针与 ecdsa
+十二叶第一道门针已部分落地，**不**把 B-CALL-SEM 标 closed，**不**开放
+Field/Principal 字面量，**不**开官方 program 新叶，**不**改 registry maturity 标签。
+当前剩余人拍项已排进 [`plan/remaining-owner-waves.md`](plan/remaining-owner-waves.md)
+（B-CALL-SEM / ADR-0051 / ADR-0036 / D3-E8 / DOC-JUST-CONTROL / RES-1B /
+B-COMMIT-ZK / SOR-1 / QUINT-2 / XRPL TIME·CALLER / zkVM / formal D1–D4）；
+**不**自动接受 ADR，**不**开 XRPL 叶，**不**标 formal done。
+完善度队列 [`plan/completeness-phased-roadmap.md`](plan/completeness-phased-roadmap.md) ·
 能力层设计 [`plan/capability-layer-parity.md`](plan/capability-layer-parity.md) ·
 任务拆分 [`plan/capability-layer-tasks.md`](plan/capability-layer-tasks.md)。
 旧 [`prompt-master-queue.md`](../.grok/goals/prompt-master-queue.md) 仍为历史/退役队列。

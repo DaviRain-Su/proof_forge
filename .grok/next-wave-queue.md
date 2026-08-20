@@ -1,7 +1,7 @@
 # Next-wave drain queue (2026-08-12)
 
 **Authority:** `docs/engineering-backlog.md` 推荐击杀顺序 · ADR-0036 · AGENTS Next task  
-**Live status:** Honesty-matrix drain **retired**. Current engineering wave = **later-target type-surface 拉齐** (implement real Plan/IR/emit, not new FC matrices). Formal `TASK-D2-07` / `TST-SEM-002/003` stay pending. CAP-D host bindings stay blocked until a human yes. Audit = `docs/research/28-project-wide-honesty-audit.md`. Backlog wins on conflict.
+**Live status:** Honesty-matrix drain **retired**. Queue stays **zero pending** — do not relaunch `prompt-next-wave`. Completeness review pointer = `docs/plan/completeness-phased-roadmap.md` + backlog §12 (`COMP-*`); Phase 0 still proposed (ADRs unaccepted). COMP-1-CALL-SEM-LAND first cut (inspect family tags) is **partial**. Queue stays **zero pending**. Current daily engineering next = **B-CALL-SEM residuals** (address / outer accounts / CW addr — not a Goal drain). Formal `TASK-D2-07` / `TST-SEM-002/003` stay pending. CAP-D host bindings stay blocked until a human yes. Audit = `docs/research/28-project-wide-honesty-audit.md`. Backlog wins on conflict.
 
 ### Live 拉齐 wave (2026-08-15)
 

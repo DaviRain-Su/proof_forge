@@ -5,8 +5,10 @@
 
   Pins StateCell happy path (Normalize structure gate + single semantic carrier),
   type / effect / bound / disclosure product wires, canonical Unit fallthrough,
-  Normalize-gate unsupported after-return control flow, and private unused state through the
-  sole ProgramV1 product path. Bound-only coverage is a well-typed triple-nested
+  Normalize-gate unsupported after-return control flow, private unused state,
+  and COMP-1-NORMALIZE-RESIDUAL product FC (Field/Principal source integer
+  literals; field-through-Bytes nested assign) through the sole ProgramV1
+  product path. Bound-only coverage is a well-typed triple-nested
   `for bounded 4096` (UInt32 product overflow). Alpha Typed.checkV1 parity was
   removed with the alpha residual modules.
 -/
@@ -501,6 +503,54 @@ private unsafe def runSource
         (Compiler.compileValidatedSourceV1 source)
       expectNormalizeOk "literal-source-normalize" source
   | .error error => throw <| IO.userError s!"literal-source load: {error.render}"
+
+  -- COMP-1-NORMALIZE-RESIDUAL: Field / Principal source integer literals
+  -- fail at TypeCheck (PF-SRC-INVALID) before Normalize encode.
+  let fieldLitSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program FieldLitGate where\n" ++
+    "  entry run() : Field bn254_fr do\n" ++
+    "    return 1\n"
+  match ← session.selectProgramV1 fieldLitSource
+      "<checkv1-product-field-lit>" moduleName none with
+  | .ok source =>
+      expectRender "field-lit-source"
+        "PF-SRC-INVALID: type mismatch: expected Field(bn254_fr), got integer literal"
+        (Compiler.compileValidatedSourceV1 source)
+  | .error error => throw <| IO.userError s!"field-lit-source load: {error.render}"
+
+  let principalLitSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program PrinLitGate where\n" ++
+    "  entry run() : Principal do\n" ++
+    "    return 1\n"
+  match ← session.selectProgramV1 principalLitSource
+      "<checkv1-product-principal-lit>" moduleName none with
+  | .ok source =>
+      expectRender "principal-lit-source"
+        "PF-SRC-INVALID: type mismatch: expected Principal, got integer literal"
+        (Compiler.compileValidatedSourceV1 source)
+  | .error error => throw <| IO.userError s!"principal-lit-source load: {error.render}"
+
+  let bytesNestedSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program BytesNestedGate where\n" ++
+    "  state b : Bytes 2\n" ++
+    "  init() do\n" ++
+    "    b[0] := 0\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    b[0].x := 1\n" ++
+    "    return 0\n"
+  match ← session.selectProgramV1 bytesNestedSource
+      "<checkv1-product-bytes-nested>" moduleName none with
+  | .ok source =>
+      expectRender "bytes-nested-source"
+        "PF-SRC-INVALID: type mismatch: expected struct type, got UInt8"
+        (Compiler.compileValidatedSourceV1 source)
+  | .error error => throw <| IO.userError s!"bytes-nested-source load: {error.render}"
 
 unsafe def run : IO Unit := do
   runAst

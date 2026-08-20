@@ -4869,6 +4869,31 @@ private unsafe def testFieldBn254Normalize
   let ordValidated ← loadSource session "field-ord" ordSrc
   let ordTyped := checkProgramTypedResultV1 ordValidated
   expect (!ordTyped.ok) "field-ord: TypeCheck rejects Field ordering"
+  -- COMP-1-NORMALIZE-RESIDUAL: Field source integer literals stay TypeCheck FC
+  -- (no default-width Field literal; opening would require thirteen-leaf Lower).
+  let litSrc := wrap "FieldLit" <|
+    "  entry run() : Field bn254_fr do\n" ++
+    "    return 1\n"
+  let litValidated ← loadSource session "field-lit" litSrc
+  let litTyped := checkProgramTypedResultV1 litValidated
+  expect (!litTyped.ok) "field-lit: TypeCheck rejects Field source literal"
+  let litMsgs := litTyped.diagnostics.map (·.message)
+  expect (litMsgs.any fun m =>
+      m.contains "Field(bn254_fr)" && m.contains "integer literal")
+    s!"field-lit: expected Field/integer-literal mismatch, got {litMsgs}"
+  let assignSrc := wrap "FieldLitAssign" <|
+    "  state acc : Field bn254_fr\n" ++
+    "  init() do\n" ++
+    "    acc := 0\n" ++
+    "  entry run() : Field bn254_fr do\n" ++
+    "    return acc\n"
+  let assignValidated ← loadSource session "field-lit-assign" assignSrc
+  let assignTyped := checkProgramTypedResultV1 assignValidated
+  expect (!assignTyped.ok) "field-lit-assign: TypeCheck rejects Field assign literal"
+  let assignMsgs := assignTyped.diagnostics.map (·.message)
+  expect (assignMsgs.any fun m =>
+      m.contains "Field(bn254_fr)" && m.contains "integer literal")
+    s!"field-lit-assign: expected Field/integer-literal mismatch, got {assignMsgs}"
 
 /-- Wave N2c: Principal identity-only — state/params/return + eq/ne.
     Arithmetic/ordering/unary on Principal fail closed. No Principal literals. -/
@@ -4947,6 +4972,17 @@ private unsafe def testPrincipalIdentityNormalize
   let negValidated ← loadSource session "principal-neg" negSrc
   let negTyped := checkProgramTypedResultV1 negValidated
   expect (!negTyped.ok) "principal-neg: TypeCheck rejects Principal unary neg"
+  -- COMP-1-NORMALIZE-RESIDUAL: Principal source integer literals stay TypeCheck FC.
+  let litSrc := wrap "PrinLit" <|
+    "  entry run() : Principal do\n" ++
+    "    return 1\n"
+  let litValidated ← loadSource session "principal-lit" litSrc
+  let litTyped := checkProgramTypedResultV1 litValidated
+  expect (!litTyped.ok) "principal-lit: TypeCheck rejects Principal source literal"
+  let litMsgs := litTyped.diagnostics.map (·.message)
+  expect (litMsgs.any fun m =>
+      m.contains "Principal" && m.contains "integer literal")
+    s!"principal-lit: expected Principal/integer-literal mismatch, got {litMsgs}"
 
 /-- T1 multi-width match scrutinee on UInt8 with exact case valueBytes. -/
 private unsafe def testMultiWidthMatchScrut
@@ -5871,6 +5907,40 @@ private unsafe def testBytesIndexAssignValueMismatch
   expect (msgs.any fun m =>
       m.contains "UInt8" || m.contains "integer literal" || m.contains "range")
     s!"bytes-bad-val: expected UInt8/range diagnostic, got {msgs}"
+
+/-- COMP-1-NORMALIZE-RESIDUAL: Bytes elements are UInt8 leaves. Field or
+    index through `b[i]` stays TypeCheck FC (Normalize's Bytes nested-assign
+    arm is defense-in-depth and unreachable from a typed ProgramV1). -/
+private unsafe def testBytesNestedAssignFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let fieldSrc := wrap "BytesNestedField" <|
+    "  state b : Bytes 2\n" ++
+    "  init() do\n" ++
+    "    b[0] := 0\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    b[0].x := 1\n" ++
+    "    return 0\n"
+  let fieldValidated ← loadSource session "bytes-nested-field" fieldSrc
+  let fieldTyped := checkProgramTypedResultV1 fieldValidated
+  expect (!fieldTyped.ok) "bytes-nested-field: TypeCheck rejects field through Bytes"
+  let fieldMsgs := fieldTyped.diagnostics.map (·.message)
+  expect (fieldMsgs.any fun m =>
+      m.contains "struct type" && m.contains "UInt8")
+    s!"bytes-nested-field: expected struct/UInt8 diagnostic, got {fieldMsgs}"
+  let indexSrc := wrap "BytesNestedIndex" <|
+    "  state b : Bytes 2\n" ++
+    "  init() do\n" ++
+    "    b[0] := 0\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    b[0][0] := 1\n" ++
+    "    return 0\n"
+  let indexValidated ← loadSource session "bytes-nested-index" indexSrc
+  let indexTyped := checkProgramTypedResultV1 indexValidated
+  expect (!indexTyped.ok) "bytes-nested-index: TypeCheck rejects index through Bytes"
+  let indexMsgs := indexTyped.diagnostics.map (·.message)
+  expect (indexMsgs.any fun m =>
+      m.contains "Array, Bytes, or Map" && m.contains "UInt8")
+    s!"bytes-nested-index: expected container/UInt8 diagnostic, got {indexMsgs}"
 
 /-- N-A4: Option state admitted at Normalize; init stores Option.none; entry
     may Construct.some / match / StateStore. Target Plan remains FAIL-CLOSED. -/
@@ -7827,6 +7897,7 @@ unsafe def run : IO Unit := do
   testBytesStateAdmitted session
   testBytesStateIndexAssign session
   testBytesIndexAssignValueMismatch session
+  testBytesNestedAssignFailClosed session
   testOptionStateAdmitted session
   -- T3 aggregate values
   testAggregateTypeInterning session
