@@ -38,6 +38,7 @@ import ProofForgeV2.Targets.Solana.CpiDeriveV1
 import ProofForgeV2.Targets.Solana.CpiEscrowIRV1
 import ProofForgeV2.Targets.Solana.CpiProductCapabilityV1
 import ProofForgeV2.Targets.Solana.CpiProductV1
+import ProofForgeV2.Targets.CallBindV1
 
 namespace ProofForgeV2.Targets.Solana
 
@@ -74,25 +75,27 @@ private def unknownProfileFail (profile : CodegenProfileId) : CompileResult α :
     * `solana-sbpf-cpi-elf-v1` → product CPI Plan
     * retired plan/elf shims and any other profile → fail closed
 -/
-def planFromCapability (capability : ResolvedEngineeringBuildV1) :
+def planFromCapability (capability : ResolvedEngineeringBuildV1)
+    (bindings : Option CallBindV1.CallBindTableV1 := none) :
     CompileResult SolanaPlanFromCapabilityV1 := do
   unless ResolvedEngineeringBuildV1.kindOf capability == .solana do
     throw <| .planInvariant .solana "engineering capability kind is not Solana"
   let profile := ResolvedEngineeringBuildV1.codegenProfileOf capability
   unless profile == CodegenProfileId.solanaSbpfCpiElfV1 do
     unknownProfileFail profile
-  let plan ← productPlanFromCapabilityV1 capability
+  let plan ← productPlanFromCapabilityV1 capability bindings
   pure (.cpi plan)
 
 /-- Capability-gated public IR inspection (sole cpi product IR). -/
-def irFromCapability (capability : ResolvedEngineeringBuildV1) :
+def irFromCapability (capability : ResolvedEngineeringBuildV1)
+    (bindings : Option CallBindV1.CallBindTableV1 := none) :
     CompileResult SolanaIRFromCapabilityV1 := do
   unless ResolvedEngineeringBuildV1.kindOf capability == .solana do
     throw <| .planInvariant .solana "engineering capability kind is not Solana"
   let profile := ResolvedEngineeringBuildV1.codegenProfileOf capability
   unless profile == CodegenProfileId.solanaSbpfCpiElfV1 do
     unknownProfileFail profile
-  let ir ← productIrFromCapabilityV1 capability
+  let ir ← productIrFromCapabilityV1 capability bindings
   pure (.cpi ir)
 
 /-- Engineering plan digest for BuildIdentity / materialize.
@@ -106,11 +109,12 @@ def engineeringSolanaMaterializationPlanDigestV1
 
 /-- Convenience: recompute plan digest from capability (sole rail). -/
 def planDigestFromCapabilityV1
-    (capability : ResolvedEngineeringBuildV1) :
+    (capability : ResolvedEngineeringBuildV1)
+    (bindings : Option CallBindV1.CallBindTableV1 := none) :
     CompileResult Core.Common.Digest := do
   let profile := ResolvedEngineeringBuildV1.codegenProfileOf capability
   unless profile == CodegenProfileId.solanaSbpfCpiElfV1 do
     unknownProfileFail profile
-  productPlanDigestFromCapabilityV1 capability
+  productPlanDigestFromCapabilityV1 capability bindings
 
 end ProofForgeV2.Targets.Solana

@@ -52,7 +52,7 @@ private def usage : String :=
   "  build --network is not supported (no network registry).\n" ++
   "  --resource-limit is lower-only; check rejects external-tool/artifact-output; only wall-ms and build artifact-output.published-bytes are enforced in-process (RES-1 / output-only RES-1B); memory-bytes/processes/protocol-bytes/stderr-bytes are rejected at preflight (no in-process producer).\n" ++
   "  --minimum-evidence recognizes specified|artifact_validated|local_runtime|network_or_proof_validated but currently rejects every explicit request until candidate-bound evidence evaluation is implemented.\n" ++
-  "  --bindings is build-only (evm|solana|cosmwasm); Wave 1 parses proof-forge.call-bind.v1 and discards it (emit still uses hashed QN / QN stubs).\n" ++
+  "  --bindings is build-only (evm|solana|cosmwasm); Wave 2 threads proof-forge.call-bind.v1 into emit (missing generic-call row fail closed; no flag keeps hashed QN / QN stubs).\n" ++
   "  --json emits deterministic PF-JCS on stdout for list-targets/inspect/check/build;\n" ++
   "    version --json emits proof-forge.cli.version.v1;\n" ++
   "    doctor --json emits proof-forge.doctor.v1 (Tool Lock health + exact-set closure under PROOF_FORGE_TOOL_ROOT);\n" ++
@@ -314,10 +314,10 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
   -- and never reaches materialize/staging.
   if options.target.isNone then
     failUsage "--target is required"
-  -- ADR-0053 Wave 1: parse + target-join, then discard. Emit still uses stubs.
-  match options.bindings, options.target with
-  | none, _ => pure ()
-  | some bindingsPath, none => failUsage "--bindings requires --target"
+  -- ADR-0053 Wave 2: parse + target-join, then thread the table into emit.
+  let bindingsTable ← match options.bindings, options.target with
+  | none, _ => pure (none : Option CallBindTableV1)
+  | some _, none => failUsage "--bindings requires --target"
   | some bindingsPath, some target =>
       match CallBindTargetV1.ofTargetId? target with
       | none => failUsage "--bindings is only accepted with --target evm|solana|cosmwasm"
@@ -326,7 +326,7 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
             try IO.FS.readFile (FilePath.mk bindingsPath)
             catch _ => failUsage s!"--bindings could not read '{bindingsPath}'"
           match decodeCallBindTableForTargetV1 text target with
-          | .ok _table => pure ()
+          | .ok table => pure (some table)
           | .error msg => failUsage msg
   let _languageVersion ← resolveLanguageVersionForCli options.languageVersion
   let source ← match options.source with
@@ -370,6 +370,7 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
       let receipt ←
         try
           emitProgram capability outputPath options.resourceLimits (some startedMs)
+            bindingsTable
         catch
         | .userError msg =>
             if msg.startsWith "PF-RESOURCE-OUTPUT:" then

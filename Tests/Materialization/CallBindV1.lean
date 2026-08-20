@@ -1,19 +1,27 @@
 /-
-  Tests.Materialization.CallBindV1 — ADR-0053 Wave 1 parser + CLI flags.
+  Tests.Materialization.CallBindV1 — ADR-0053 Wave 1 parser + Wave 2 emit.
 
-  Pure parse of `proof-forge.call-bind.v1` and `--bindings` preflight.
-  Does not change EVM / Solana / CosmWasm emit. Not formal / C-3.
+  Pure parse of `proof-forge.call-bind.v1`, `--bindings` preflight, and
+  three-leaf emit consume (missing row fail closed; bound address appears
+  in Yul / WAT). Not formal / C-3. Not Wave 2a empty-account CALL.
 -/
 import ProofForgeV2.CLI.Emit
+import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.TargetIdentityV1
+import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.CallBindV1
+import ProofForgeV2.Targets.Registry
+import Tests.Language.ParserSession
 
 namespace Tests.Materialization.CallBindV1
 
 open ProofForgeV2
 open ProofForgeV2.CLI
+open ProofForgeV2.Compiler
 open ProofForgeV2.Core.Common
+open ProofForgeV2.Targets
+open ProofForgeV2.Targets.BuildSelectionV1
 open ProofForgeV2.Targets.CallBindV1
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
@@ -90,7 +98,7 @@ private def digest0 : String := "sha256:" ++ String.ofList (List.replicate 64 '0
 private def expectBuildOpts (label : String) (args : List String) : IO BuildOptions :=
   expectOk label (parseBuildArgsExcept args)
 
-def run : IO Unit := do
+unsafe def run : IO Unit := do
   -- Canonical empty table (all three targets).
   for (label, doc, expected) in
       #[("evm-empty", evmDoc #[], CallBindTargetV1.evm),
@@ -288,6 +296,230 @@ def run : IO Unit := do
   | .build opts =>
       expect (opts.bindings == some "a.json") "product build keeps path"
   | other => throw <| IO.userError s!"expected build command, got {repr other}"
+
+  -- Wave 2 lookup helpers (table row is Oracle.quote).
+  let quoteQn ← expectOk "quote qn 2" (parseQualifiedName #["Oracle", "quote"])
+  match requireEvmAddressV1 evmTable quoteQn.components.toArray with
+  | .ok bytes => expect (bytes.size == 20) "requireEvm 20 bytes"
+  | .error msg => throw <| IO.userError s!"requireEvm Oracle.quote: {msg}"
+  expectErr "requireEvm missing"
+    (requireEvmAddressV1 evmTable
+      (← expectOk "missing2" (parseQualifiedName #["Oracle", "missing"])).components.toArray)
+    "no evm row"
+  -- Wave 2b: nonempty Solana accounts parse, but lookup fail-closes.
+  expectErr "requireSol nonempty accounts"
+    (requireSolanaProgramIdV1 solTable
+      (← expectOk "vault qn" (parseQualifiedName #["Vault", "deposit"])).components.toArray)
+    "accounts binding is not admitted"
+
+  -- Wave 2 EVM emit: bound address appears; missing row fail closed;
+  -- no table keeps hashed stub.
+  let session ← Tests.Language.ParserSession.shared
+  let callText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CallBindEvm where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    call Oracle.feed(count)\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let callSource ← match ← session.selectProgramV1
+      callText "<call-bind-evm>" "Tests.CallBindEvm" none with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"load CallBindEvm: {e.render}"
+  let callCompiled ← match Compiler.compileValidatedSourceV1 callSource with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"compile CallBindEvm: {e.render}"
+  let callSel ← match resolveBuildSelectionV1 TargetId.evm none with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"select evm: {e.render}"
+  let callCap ← match Targets.resolveEngineeringRequirementsV1 callSel callCompiled with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"resolve CallBindEvm: {e.render}"
+  let hashedNeedle :=
+    (Targets.Evm.Keccak.keccak256Hex "Oracle".toUTF8).drop 24
+  let stubIr ← match Targets.Evm.irFromCapability callCap none with
+    | .ok ir => pure ir
+    | .error e => throw <| IO.userError s!"ir stub: {e.render}"
+  expect (stubIr.yul.contains s!"call(gas(), 0x{hashedNeedle},")
+    s!"no-bindings Yul must keep hashed stub 0x{hashedNeedle}"
+  let boundAddr := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  let evmBindText ← liftJcs "evm-bind-emit"
+    (evmDoc #[evmBinding "Oracle.feed" boundAddr])
+  let evmBindTable ← expectOk "evm-bind-emit"
+    (parseCallBindTableV1 evmBindText)
+  let boundIr ← match Targets.Evm.irFromCapability callCap (some evmBindTable) with
+    | .ok ir => pure ir
+    | .error e => throw <| IO.userError s!"ir bound: {e.render}"
+  expect (boundIr.yul.contains
+      "call(gas(), 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,")
+    "bound Yul must CALL the table address"
+  expect (!boundIr.yul.contains s!"call(gas(), 0x{hashedNeedle},")
+    "bound Yul must not keep the hashed stub"
+  let emptyEvm ← expectOk "evm-empty-table" (parseCallBindTableV1 (← liftJcs "empty" (evmDoc #[])))
+  match Targets.Evm.irFromCapability callCap (some emptyEvm) with
+  | .ok _ => throw <| IO.userError "empty table must fail closed on Oracle.feed"
+  | .error e =>
+      expect (hasSubstr e.render "no evm row")
+        s!"empty table must mention no evm row, got {e.render}"
+
+  -- Wave 2 CosmWasm emit: bound contract_addr; IR keeps QN stub.
+  let schedText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CallBindCw where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(x : UInt64) do\n" ++
+    "    count := x\n" ++
+    "  entry later() : UInt64 do\n" ++
+    "    schedule ledger.daily(count)\n" ++
+    "    count := count + 1\n" ++
+    "    return count\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return count\n"
+  let schedSource ← match ← session.selectProgramV1
+      schedText "<call-bind-cw>" "Tests.CallBindCw" none with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"load CallBindCw: {e.render}"
+  let schedCompiled ← match Compiler.compileValidatedSourceV1 schedSource with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"compile CallBindCw: {e.render}"
+  let schedSel ← match resolveBuildSelectionV1 TargetId.cosmwasm none with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"select cw: {e.render}"
+  let schedCap ← match Targets.resolveEngineeringRequirementsV1 schedSel schedCompiled with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"resolve CallBindCw: {e.render}"
+  let cwPlan ← match Targets.CosmWasm.planFromCapability schedCap with
+    | .ok p => pure p
+    | .error e => throw <| IO.userError s!"plan CallBindCw: {e.render}"
+  let stubFiles ← match Targets.CosmWasm.engineeringFilesFromPlan cwPlan none with
+    | .ok fs => pure fs
+    | .error e => throw <| IO.userError s!"cw stub files: {e.render}"
+  let some stubWat := stubFiles.find? (·.path.endsWith ".wat") |
+    throw <| IO.userError "missing stub wat"
+  expect (stubWat.contents.contains "\"contract_addr\":\"ledger.daily\"")
+    "no-bindings WAT must keep QN stub"
+  let cwBindText ← liftJcs "cw-bind-emit"
+    (cosmwasmDoc #[cosmwasmBinding "ledger.daily" "bound-contract-addr"])
+  let cwBindTable ← expectOk "cw-bind-emit" (parseCallBindTableV1 cwBindText)
+  let boundFiles ← match Targets.CosmWasm.engineeringFilesFromPlan cwPlan (some cwBindTable) with
+    | .ok fs => pure fs
+    | .error e => throw <| IO.userError s!"cw bound files: {e.render}"
+  let some boundWat := boundFiles.find? (·.path.endsWith ".wat") |
+    throw <| IO.userError "missing bound wat"
+  expect (boundWat.contents.contains "\"contract_addr\":\"bound-contract-addr\"")
+    "bound WAT must use table contractAddr"
+  expect (!boundWat.contents.contains "\"contract_addr\":\"ledger.daily\"")
+    "bound WAT must not keep the QN stub as contract_addr"
+  let emptyCw ← expectOk "cw-empty-table"
+    (parseCallBindTableV1 (← liftJcs "cw-empty" (cosmwasmDoc #[])))
+  match Targets.CosmWasm.engineeringFilesFromPlan cwPlan (some emptyCw) with
+  | .ok _ => throw <| IO.userError "empty CW table must fail closed on ledger.daily"
+  | .error e =>
+      expect (hasSubstr e.render "no cosmwasm row")
+        s!"empty CW table must mention no cosmwasm row, got {e.render}"
+
+  -- Wave 2 Solana: missing row fail closed at product derive; system.transfer
+  -- stays catalog-exempt (does not consult the table). Naked sync without
+  -- extension.solana-cpi-accounts stays the existing product capability FC.
+  let solNakedText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CallBindSolNaked where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    call Oracle.feed(count)\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let solNakedSource ← match ← session.selectProgramV1
+      solNakedText "<call-bind-sol-naked>" "Tests.CallBindSolNaked" none with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"load CallBindSolNaked: {e.render}"
+  let solNakedCompiled ← match Compiler.compileValidatedSourceV1 solNakedSource with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"compile CallBindSolNaked: {e.render}"
+  let solSel ← match resolveBuildSelectionV1 TargetId.solana
+      (some CodegenProfileId.solanaSbpfCpiElfV1) with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"select solana: {e.render}"
+  let solNakedCap ← match Targets.resolveEngineeringRequirementsV1 solSel solNakedCompiled with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"resolve CallBindSolNaked: {e.render}"
+  match Targets.Solana.buildFromCapability solNakedCap none with
+  | .ok _ => throw <| IO.userError "solana naked Oracle.feed without table must stay FC"
+  | .error e =>
+      expect (e.code == "PF-REQ-UNSUPPORTED")
+        s!"solana no-table naked Oracle.feed must PF-REQ-UNSUPPORTED, got {e.render}"
+  let solText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program CallBindSol where\n" ++
+    "  requires extension solana.cpi.accounts version \"1.0.0\"\n" ++
+    "    digest \"sha256:df7d513d3d8b6324755a91d359c4d543a4432f87c78a0795d44b8bc7361b4020\"\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    call Oracle.feed(count)\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let solSource ← match ← session.selectProgramV1
+      solText "<call-bind-sol>" "Examples.CallBindSol" none with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"load CallBindSol: {e.render}"
+  let solCompiled ← match Compiler.compileValidatedSourceV1 solSource with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"compile CallBindSol: {e.render}"
+  let solCap ← match Targets.resolveEngineeringRequirementsV1 solSel solCompiled with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"resolve CallBindSol: {e.render}"
+  match Targets.Solana.buildFromCapability solCap none with
+  | .ok _ => throw <| IO.userError "solana Oracle.feed without table must stay FC"
+  | .error e =>
+      expect (e.code == "PF-PLAN-INVARIANT")
+        s!"solana no-table Oracle.feed with extension must PF-PLAN-INVARIANT, got {e.render}"
+  let emptySol ← expectOk "sol-empty"
+    (parseCallBindTableV1 (← liftJcs "sol-empty" (solanaDoc #[])))
+  match Targets.Solana.buildFromCapability solCap (some emptySol) with
+  | .ok _ => throw <| IO.userError "empty solana table must fail closed on Oracle.feed"
+  | .error e =>
+      expect (hasSubstr e.render "no solana row")
+        s!"empty solana table must mention no solana row, got {e.render}"
+  let solBindText ← liftJcs "sol-bind"
+    (solanaDoc #[solanaBinding "Oracle.feed" ones32 #[]])
+  let solBindTable ← expectOk "sol-bind" (parseCallBindTableV1 solBindText)
+  match Targets.Solana.buildFromCapability solCap (some solBindTable) with
+  | .ok files =>
+      let some asm := files.find? (·.path.endsWith ".s") |
+        throw <| IO.userError "solana bound emit missing .s"
+      expect (hasSubstr asm.contents ones32)
+        "bound solana asm must contain the table programId"
+  | .error e =>
+      throw <| IO.userError
+        s!"solana bound Oracle.feed must emit, got {e.render}"
+  let nonemptyAccText ← liftJcs "sol-nonempty"
+    (solanaDoc #[solanaBinding "Oracle.feed" ones32
+      #[solanaAccount "authority" zero32 false false]])
+  let nonemptyAccTable ← expectOk "sol-nonempty" (parseCallBindTableV1 nonemptyAccText)
+  match Targets.Solana.buildFromCapability solCap (some nonemptyAccTable) with
+  | .ok _ => throw <| IO.userError "nonempty solana accounts must fail closed in Wave 2"
+  | .error e =>
+      expect (hasSubstr e.render "accounts binding is not admitted")
+        s!"nonempty accounts must mention Wave 2b, got {e.render}"
 
   IO.println "Tests.Materialization.CallBindV1: ok"
 

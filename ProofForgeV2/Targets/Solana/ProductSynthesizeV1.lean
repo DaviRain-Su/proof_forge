@@ -33,6 +33,7 @@ import ProofForgeV2.Targets.Solana.CpiIdlV1
 import ProofForgeV2.Targets.Solana.CpiPlanV1
 import ProofForgeV2.Targets.Solana.ProductFrameV1
 import ProofForgeV2.Targets.Solana.ProductCpiRecipesV1
+import ProofForgeV2.Targets.CallBindV1
 
 namespace ProofForgeV2.Targets.Solana
 
@@ -98,7 +99,8 @@ def semanticUsesContextCallerV1 (data : SemanticProgramDataV1) : Bool :=
     sites remain empty-meta partial. -/
 def synthesizeFullBodyProductBaseFilesV1
     (capability : ResolvedEngineeringBuildV1)
-    (hasSites : Bool) :
+    (hasSites : Bool)
+    (bindings : Option CallBindV1.CallBindTableV1 := none) :
     CompileResult (Array OutputFile) := do
   let compiled := ResolvedEngineeringBuildV1.compiledOf capability
   let data ← match decodeSemanticProgramDataV1
@@ -108,7 +110,7 @@ def synthesizeFullBodyProductBaseFilesV1
         throw <| .planInvariant .solana
           "product synthesize full-body: invalid Semantic carrier"
   let admitCaller := semanticUsesContextCallerV1 data
-  let cpiPlan ← productPlanFromCapabilityV1 capability
+  let cpiPlan ← productPlanFromCapabilityV1 capability bindings
   let validated := SolanaCpiProductPlanV1.planOf cpiPlan
   unless hasSites == !validated.candidate.cpiSites.isEmpty do
     throw <| .planInvariant .solana
@@ -202,7 +204,7 @@ def synthesizeFullBodyProductBaseFilesV1
   let multiRoleOn := bodyIr.stateAccount.productMultiRoleCount > 0
   let tokenMultiRoleOn := bodyIr.stateAccount.productTokenMultiRole
   let multiN := bodyIr.stateAccount.productMultiRoleCount
-  let asm ← emitSbpfAsmV1 bodyIr
+  let asm ← emitSbpfAsmV1 bodyIr bindings
   let frame ←
     if multiRoleOn then do
       unless multiRoleCpiBaseForV1 multiN ≤ productMaxFrameBytesV1 do
@@ -300,16 +302,18 @@ def synthesizeFullBodyProductBaseFilesV1
 
 /-- Zero-site full-body product base files (P3-c). -/
 def synthesizeZeroSiteFullBodyBaseFilesV1
-    (capability : ResolvedEngineeringBuildV1) :
+    (capability : ResolvedEngineeringBuildV1)
+    (bindings : Option CallBindV1.CallBindTableV1 := none) :
     CompileResult (Array OutputFile) :=
-  synthesizeFullBodyProductBaseFilesV1 capability false
+  synthesizeFullBodyProductBaseFilesV1 capability false bindings
 
 /-- P3-d partial: full-body shape + non-empty cpiSites → one ELF with body
     Map/CFG + empty-meta ExternalCall invoke. Not multi-role CPI maturity. -/
 def synthesizeFullBodyWithSitesBaseFilesV1
-    (capability : ResolvedEngineeringBuildV1) :
+    (capability : ResolvedEngineeringBuildV1)
+    (bindings : Option CallBindV1.CallBindTableV1 := none) :
     CompileResult (Array OutputFile) :=
-  synthesizeFullBodyProductBaseFilesV1 capability true
+  synthesizeFullBodyProductBaseFilesV1 capability true bindings
 
 private def buildUnknownProfileFail (profile : CodegenProfileId) :
     CompileResult (Array OutputFile) :=
@@ -324,13 +328,14 @@ private def buildUnknownProfileFail (profile : CodegenProfileId) :
     * straight-line non-empty sites → CpiV1 escrow product base files
     * any other profile (including retired plan/elf shims) → fail closed
 -/
-def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
+def buildFromCapability (capability : ResolvedEngineeringBuildV1)
+    (bindings : Option CallBindV1.CallBindTableV1 := none) :
     CompileResult (Array OutputFile) := do
   unless ResolvedEngineeringBuildV1.kindOf capability == .solana do
     throw <| .planInvariant .solana "engineering capability kind is not Solana"
   let profile := ResolvedEngineeringBuildV1.codegenProfileOf capability
   if profile == CodegenProfileId.solanaSbpfCpiElfV1 then
-    let plan ← productPlanFromCapabilityV1 capability
+    let plan ← productPlanFromCapabilityV1 capability bindings
     let cand := SolanaCpiProductPlanV1.candidateOf plan
     let hasSites := !cand.cpiSites.isEmpty
     let compiled := ResolvedEngineeringBuildV1.compiledOf capability
@@ -347,11 +352,11 @@ def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
     -- also force full-body when real CPI sites coexist; escrow composite is
     -- only for straight-line non-empty sites without full-body operations.
     if data.logicalState.isEmpty then
-      productBaseFilesFromCapabilityV1 capability
+      productBaseFilesFromCapabilityV1 capability bindings
     else if !hasSites || needsBody then
-      synthesizeFullBodyProductBaseFilesV1 capability hasSites
+      synthesizeFullBodyProductBaseFilesV1 capability hasSites bindings
     else
-      let files ← productBaseFilesFromCapabilityV1 capability
+      let files ← productBaseFilesFromCapabilityV1 capability bindings
       let bodyTempBytes :=
         productEscrowTempRegionEndV1 - productEscrowTempBaseV1
       let cpiScratchBytes :=

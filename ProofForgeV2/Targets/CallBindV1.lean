@@ -398,12 +398,4 @@ def requireCosmWasmAddressV1 (table : CallBindTableV1) (callee : Array String) :
           pure contractAddr
       | _ => throw (wrongSiteError "cosmwasm" callee)
 
-/-- True when `qn` is a `pf.crypto.*` catalog call (never consults the table). -/
-def isPfCryptoBindExemptQnV1 (qn : String) : Bool :=
-  qn.startsWith "pf.crypto."
-
-/-- True when `qn` is a `pf.assets` catalog call (never consults the table). -/
-def isPfAssetsBindExemptQnV1 (qn : String) : Bool :=
-  qn.startsWith "pf.assets."
-
 end ProofForgeV2.Targets.CallBindV1

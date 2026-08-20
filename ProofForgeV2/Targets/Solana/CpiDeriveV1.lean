@@ -37,6 +37,7 @@ import ProofForgeV2.Targets.Solana.CpiPlanV1
 import ProofForgeV2.Targets.Solana.CpiPreflightCapabilityV1
 import ProofForgeV2.Targets.Solana.CpiProductCapabilityV1
 import ProofForgeV2.Targets.Solana.LowerSemanticV1
+import ProofForgeV2.Targets.CallBindV1
 
 namespace ProofForgeV2.Targets.Solana.CpiV1
 
@@ -681,6 +682,10 @@ structure DerivePlanSnapshotV1 where
   computeAssumptions : ComputeAssumptionsV1
   /-- When `true`, reject companion and non-approved product APIs. -/
   productApiFilter : Bool
+  /-- ADR-0053 Wave 2: optional bind table. Present table lets a generic QN
+      through product-API filter iff it has an exact Solana row; missing row
+      still fail-closed. Absent table keeps today's approved-API filter. -/
+  bindings : Option ProofForgeV2.Targets.CallBindV1.CallBindTableV1 := none
 
 /-- Collect raw ExternalCall sites. Exact `pf.crypto.sha256|keccak256` are
     full-body host syscalls and are skipped rather than classified as CPI
@@ -694,8 +699,20 @@ structure DerivePlanSnapshotV1 where
     * only `pf.assets.native.deposit` / `pf.assets.native.transfer` enter this
       lane (other three catalog QNs fail closed as Phase B scope);
     * non-catalog QNs keep existing CPI profile product filter behaviour. -/
+private def requireCallBindGenericQnV1
+    (bindings : Option ProofForgeV2.Targets.CallBindV1.CallBindTableV1)
+    (callee : QualifiedName) : CompileResult Bool :=
+  match bindings with
+  | none => pure false
+  | some table =>
+      match ProofForgeV2.Targets.CallBindV1.requireSolanaProgramIdV1
+          table callee.components.toArray with
+      | .ok _ => pure true
+      | .error msg => deriveFail msg
+
 private def collectRawSitesFiltered
-    (data : SemanticProgramDataV1) (productApiFilter : Bool) :
+    (data : SemanticProgramDataV1) (productApiFilter : Bool)
+    (bindings : Option ProofForgeV2.Targets.CallBindV1.CallBindTableV1 := none) :
     CompileResult (Array RawSiteV1) := do
   unless data.invariants.isEmpty do
     deriveFail "CPI derive rejects nonempty invariants table"
@@ -732,25 +749,35 @@ private def collectRawSitesFiltered
                   deriveFail
                     s!"CPI product derive rejects companion API '{qn}'"
                 unless isApprovedProductApiV1 qn do
-                  deriveFail
-                    s!"CPI product derive rejects non-approved API '{qn}'"
-              let api ← match findFrozenApi? qn with
-                | some a => pure a
-                | none =>
+                  -- Wave 2: a present bind table does not mint a CPI site for
+                  -- unknown QNs (no frozen API). Full-body empty-meta emit
+                  -- consumes the table for program id. Missing row and
+                  -- nonempty accounts fail closed via requireSolanaProgramIdV1.
+                  if ← requireCallBindGenericQnV1 bindings callee then
+                    pure ()
+                  else
+                    deriveFail
+                      s!"CPI product derive rejects non-approved API '{qn}'"
+              match findFrozenApi? qn with
+              | none =>
+                  -- Bound generic QN: skip CPI-site mint; full-body lowering
+                  -- still emits empty-meta invoke with the bound program id.
+                  unless ← requireCallBindGenericQnV1 bindings callee do
                     deriveFail s!"CPI derive rejects unknown callee QN '{qn}'"
-              let principals ← validateArgSources data.types callable api args
-              out := out.push {
-                callableId
-                handlerMode := mode
-                handlerName := hname
-                blockId := blk.id.toNat
-                instructionIndex := instrIdx
-                effectId := effectId.toNat
-                qn
-                api
-                argValueIds := args
-                principalParams := principals
-              }
+              | some api =>
+                  let principals ← validateArgSources data.types callable api args
+                  out := out.push {
+                    callableId
+                    handlerMode := mode
+                    handlerName := hname
+                    blockId := blk.id.toNat
+                    instructionIndex := instrIdx
+                    effectId := effectId.toNat
+                    qn
+                    api
+                    argValueIds := args
+                    principalParams := principals
+                  }
         | _ => pure ()
   pure out
 
@@ -882,7 +909,7 @@ def deriveSolanaCpiPlanCandidateCoreV1
     (snapshot : DerivePlanSnapshotV1) :
     CompileResult SolanaCpiPlanCandidateV1 := do
   let directHandlers ← collectDirectHandlers data
-  let rawSites ← collectRawSitesFiltered data snapshot.productApiFilter
+  let rawSites ← collectRawSitesFiltered data snapshot.productApiFilter snapshot.bindings
   let rawEnvReadSites ← collectRawEnvReadSites data snapshot.productApiFilter
   let rawContextReadSites ← collectRawContextReadSites data
   -- ADR-0032 U1 P4: body-only programs (zero ExternalCall / envRead / caller)
@@ -1453,7 +1480,8 @@ def deriveSolanaCpiPlanFromPreflightV1
     Uses active profile/catalog digests + activeComputeAssumptionsV1 and
     product API filter (companion FC). -/
 def deriveSolanaCpiPlanFromProductCapabilityV1
-    (capability : ResolvedSolanaCpiProductCapabilityV1) :
+    (capability : ResolvedSolanaCpiProductCapabilityV1)
+    (bindings : Option ProofForgeV2.Targets.CallBindV1.CallBindTableV1 := none) :
     CompileResult SolanaCpiProductPlanV1 := do
   unless !ResolvedSolanaCpiProductCapabilityV1.activationDeniedOf capability do
     deriveFail "CPI product derive rejects activationDenied product capability"
@@ -1476,6 +1504,7 @@ def deriveSolanaCpiPlanFromProductCapabilityV1
     catalogDigest
     computeAssumptions := activeComputeAssumptionsV1
     productApiFilter := true
+    bindings
   }
   let plan ← validateSolanaCpiProductPlanV1 candidate
   checkSolanaCpiProductMaterializationEligibilityV1 plan

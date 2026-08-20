@@ -1995,19 +1995,19 @@ def validateIR (ir : IR) : CompileResult Unit := do
     validateFnIR ir.sourcePlan fn
   for handler in ir.handlers do
     validateHandlerIR ir.sourcePlan handler
-  let expectedFns := ir.sourcePlan.fns.map (lowerFn ir.sourcePlan)
+  let expectedFns := ir.sourcePlan.fns.map (fun fn => lowerFn ir.sourcePlan fn)
   unless ir.fns == expectedFns do
     throw <| .planInvariant .solana "typed Solana IR fns are not the exact lowering of its source Plan"
   let expectedHandlers := #[lowerHandler ir.sourcePlan ir.sourcePlan.initializer] ++
-    ir.sourcePlan.entries.map (lowerHandler ir.sourcePlan)
+    ir.sourcePlan.entries.map (fun h => lowerHandler ir.sourcePlan h)
   unless ir.handlers == expectedHandlers do
     throw <| .planInvariant .solana "typed Solana IR operations are not the exact lowering of its source Plan"
 
 private def lower (plan : Plan) : CompileResult IR := do
   validatePlan plan
-  let fns := plan.fns.map (lowerFn plan)
+  let fns := plan.fns.map (fun fn => lowerFn plan fn)
   let handlers := #[lowerHandler plan plan.initializer] ++
-    plan.entries.map (lowerHandler plan)
+    plan.entries.map (fun h => lowerHandler plan h)
   let ir : IR := {
     sourcePlan := plan
     name := plan.programName
