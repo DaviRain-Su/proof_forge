@@ -61,15 +61,19 @@ never consult the table.
 
 **Wave 2 (done):** with `--bindings`, generic `call`/`schedule`
 on evm/solana/cosmwasm without a matching row fails closed. Table is
-explicit (never ambient). Solana nonempty `accounts` stays Wave 2b.
+explicit (never ambient).
 
-**Wave 2a (done this slice):** generic void CALL reverts when
-`extcodesize==0`. `schedule` stays fire-and-forget; result-bearing
-CALL still uses `returndatasize`. Inspect residuals still not cleared.
+**Wave 2a (done):** generic void CALL reverts when `extcodesize==0`.
+`schedule` stays fire-and-forget; result-bearing CALL still uses
+`returndatasize`.
+
+**Wave 2b (done this slice):** Solana nonempty `accounts` pack
+compile-time AccountMetas (≤8). Not outer-instruction account join.
+Inspect residuals still not cleared.
 
 Open remainder: resolver support keys must not be read as
-“cross-platform call done.” Next coding: Wave 2b (Solana nonempty
-accounts). Do not clear inspect residuals in this wave.
+“cross-platform call done.” Next coding: inspect residual clear
+only when that program’s generic calls all have rows (own slice).
 
 ### Decisions (inventory 2026-08-16 + evm-call-addr-gap §3)
 
@@ -78,7 +82,7 @@ Recommended conservative honesty:
 1. **EVM callee binding** — keep hashed-QN stub honest; add a **versioned binding table** later (compile-time table / NetworkProfile / post-deploy receipt). Do not silently treat CREATE, CREATE2, and pre-placed Anvil addresses as interchangeable. Product `build` must not start consuming Anvil placement. Identity join (sourceHash / semanticHash / artifact vs code-at-address) is part of the same pick. Empty-account void CALL is fail closed (Wave 2a `extcodesize`).
 2. **EVM `schedule` spelling** — same-tx fire-and-forget must not keep advertising `effect.asynchronous-workflow` without a distinct caveat.
 3. **EVM returndata residual** — Bool / Int / Bytes stay FC.
-4. **Solana product CPI** — next implementable leaf = callee identity / outer account ABI; async stays FC.
+4. **Solana product CPI** — Wave 2b packs compile-time AccountMetas from `--bindings`; outer-instruction account join and async stay FC.
 5. **CosmWasm** — `SubMsg contract_addr` QN stub → real address binding only after the same binding pick.
 6. **Noir** — keep witness-binding only; result-bearing FC until a response-witness contract exists.
 7. **NEAR / TON / ICP / Psy / Aleo / Soroban / OpenVM / Quint** — keep current per-target honesty (no silent expansion).

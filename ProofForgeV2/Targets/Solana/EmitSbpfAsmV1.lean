@@ -79,8 +79,9 @@ clockUnixTimestamp (CAP-2: same syscall → Clock.unix_timestamp i64@32
 as u64 bits; no extra sign/range guard), assert,
 returnNone, revertError, ifRegion, switchRegion, forRegion, callFn (inline
 expand), emitEvent (`sol_log_data`), externalCall/schedule (real CPI via
-`sol_invoke_signed_c`, empty AccountMeta; result-bearing call reads
-`sol_get_return_data`).
+`sol_invoke_signed_c`; Wave 2 empty-meta or Wave 2b compile-time
+AccountMeta; **not** outer AccountInfo join — syscall r2/r3 stay 0;
+result-bearing call reads `sol_get_return_data`).
 
 ## Fail closed
 
@@ -1657,9 +1658,12 @@ private def programIdLimbLeV1 (hex64 : String) (limb : Nat) : CompileResult Nat 
     value := value + byte * (Nat.pow 2 (8 * i))
   pure value
 
-/-- BL-27 / P3-e foundation: emit `sol_invoke_signed_c` with empty AccountMeta.
+/-- BL-27 / P3-e foundation: emit `sol_invoke_signed_c`.
     * Generic product QN: method disc (product ABI) + LE UInt64 args; program id
-      from IR (SHA-256 path stub).
+      from IR (SHA-256 path stub) or Wave 2 bind table.
+    * Wave 2b: present table with nonempty `accounts` packs compile-time
+      AccountMetas (pubkey + is_writable + is_signer). Empty accounts stay
+      empty-meta. This is **not** outer-instruction account join.
     * `solana.system.transfer` (P3-e foundation): native System program id
       (32 zeros) + SystemInstruction::Transfer 12B data (u32 tag 2 + lamports).
       Still **empty AccountMeta** (multi-role walker deferred); data/program id
@@ -1676,6 +1680,22 @@ private def resolveBoundProgramIdHexV1
     | some table =>
         match requireSolanaProgramIdV1 table callee with
         | .ok bytes => pure (encodeLowerHexBytesV1 bytes)
+        | .error msg =>
+            throw <| .planInvariant .solana msg
+
+/-- Wave 2b: compile-time AccountMetas from the bind table. System transfer
+    and absent table stay empty. Missing row already fail-closed above. -/
+private def resolveBoundAccountsV1
+    (bindings : Option CallBindTableV1) (callee : Array String) :
+    CompileResult (Array CallBindAccountV1) := do
+  if ProductCpiRecipesV1.isSystemTransferCalleeV1 callee then
+    pure #[]
+  else
+    match bindings with
+    | none => pure #[]
+    | some table =>
+        match requireSolanaAccountsV1 table callee with
+        | .ok accounts => pure accounts
         | .error msg =>
             throw <| .planInvariant .solana msg
 
@@ -1696,19 +1716,26 @@ private def emitCpiInvoke (b0 : AsmBuf) (tempBase : Nat)
       return ← asmError
         "S1b system.transfer empty-meta partial requires exactly one UInt64 amount arg"
   let n := args.size
+  let boundAccounts ← resolveBoundAccountsV1 bindings callee
+  let accountCount := boundAccounts.size
   -- system.transfer: 2×u64 scratch for continuous 12B packing (tag@+0, lamports@+4).
   -- generic: 1 disc + n arg words.
   let dataSlots := if isSysXfer then 2 else 1 + n
   let dataLenBytes :=
     if isSysXfer then ProductCpiRecipesV1.systemTransferDataLenV1 else 8 * dataSlots
   let pidBaseSlots := 4
+  -- Wave 2b: each AccountMeta is pubkey(32) + flags packed in 16B (2 stack slots).
+  let metaSlots := accountCount * 2
+  let keySlots := accountCount * 4
   let ixSlots := 5
   let resultSlots := match resultDest with | some _ => 5 | none => 0
-  let need := pidBaseSlots + dataSlots + ixSlots + resultSlots
+  let need := pidBaseSlots + dataSlots + keySlots + metaSlots + ixSlots + resultSlots
   let (b1, bufBase) := allocTemps b0 need
   let pidBase := bufBase
   let dataBase := bufBase + pidBaseSlots
-  let ixBase := dataBase + dataSlots
+  let keyBase := dataBase + dataSlots
+  let metaBase := keyBase + keySlots
+  let ixBase := metaBase + metaSlots
   let retBase := ixBase + ixSlots
   let pidOutBase := retBase + 1
   let mut b := emit b1
@@ -1721,7 +1748,11 @@ private def emitCpiInvoke (b0 : AsmBuf) (tempBase : Nat)
   else
     let method := callee[callee.size - 1]!
     let discHex := externalMethodDiscriminator method n
-    b := emit b s!"  ; method disc={discHex} (product ABI, empty AccountMeta)"
+    if accountCount == 0 then
+      b := emit b s!"  ; method disc={discHex} (product ABI, empty AccountMeta)"
+    else
+      b := emit b
+        s!"  ; method disc={discHex} (product ABI, Wave 2b compile-time AccountMeta n={accountCount})"
   b := emit b "  ; stack temps grow downward: reverse-pack multi-word structs"
   for limb in [:4] do
     let v ← programIdLimbLeV1 pidHex limb
@@ -1751,13 +1782,41 @@ private def emitCpiInvoke (b0 : AsmBuf) (tempBase : Nat)
         b := loadTemp b "r1" tempBase args[i]!
         b := storeTempAbs b (dataBase + n - 1 - i) "r1"
       pure (dataBase + n)
+  -- Wave 2b: compile-time AccountMetas. pubkey bytes live in key slots;
+  -- each meta is pubkey_addr + is_writable + is_signer (SolAccountMeta).
+  -- Reverse-pack the meta array so accIdx 0 occupies the lowest address.
+  for accIdx in [:accountCount] do
+    let some acc := boundAccounts[accIdx]? |
+      return ← asmError s!"S1b Wave 2b missing AccountMeta at index {accIdx}"
+    let pubkeyHex := encodeLowerHexBytesV1 acc.pubkey
+    unless pubkeyHex.length == 64 do
+      return ← asmError s!"S1b Wave 2b account pubkey must be 64 hex chars"
+    let keyPtr := keyBase + accIdx * 4
+    for limb in [:4] do
+      let v ← programIdLimbLeV1 pubkeyHex limb
+      b := emit b s!"  lddw r1, {hexImm v}"
+      b := storeTempAbs b (keyPtr + 3 - limb) "r1"
+    let metaPtr := metaBase + (accountCount - 1 - accIdx) * 2
+    b := emit b "  mov64 r1, r10"
+    b := emit b s!"  add64 r1, -{tempStackOff (keyPtr + 3)}"
+    b := storeTempAbs b (metaPtr + 1) "r1"
+    let flags : Nat :=
+      (if acc.writable then 1 else 0) + (if acc.signer then 256 else 0)
+    b := emit b s!"  lddw r1, {hexImm flags}"
+    b := storeTempAbs b metaPtr "r1"
   -- SolInstruction reverse-pack.
   b := emit b "  mov64 r1, r10"
   b := emit b s!"  add64 r1, -{tempStackOff pidPtrTemp}"
   b := storeTempAbs b (ixBase + 4) "r1"
-  b := emit b "  lddw r1, 0"
-  b := storeTempAbs b (ixBase + 3) "r1"
-  b := emit b "  lddw r1, 0"
+  if accountCount == 0 then
+    b := emit b "  lddw r1, 0"
+    b := storeTempAbs b (ixBase + 3) "r1"
+  else
+    let metaArrayPtr := metaBase + accountCount * 2 - 1
+    b := emit b "  mov64 r1, r10"
+    b := emit b s!"  add64 r1, -{tempStackOff metaArrayPtr}"
+    b := storeTempAbs b (ixBase + 3) "r1"
+  b := emit b s!"  lddw r1, {hexImm accountCount}"
   b := storeTempAbs b (ixBase + 2) "r1"
   b := emit b "  mov64 r1, r10"
   b := emit b s!"  add64 r1, -{tempStackOff dataPtrTemp}"
@@ -1767,6 +1826,8 @@ private def emitCpiInvoke (b0 : AsmBuf) (tempBase : Nat)
   let ixPtrTemp := ixBase + 4
   b := emit b "  mov64 r1, r10"
   b := emit b s!"  add64 r1, -{tempStackOff ixPtrTemp}"
+  -- Wave 2b packs SolInstruction.accounts only. Outer AccountInfo join
+  -- (syscall r2/r3) stays empty — same as the empty-meta path.
   b := emit b "  lddw r2, 0"
   b := emit b "  lddw r3, 0"
   b := emit b "  lddw r4, 0"
@@ -3452,8 +3513,9 @@ private partial def requireSolanaBindingsCoverOpsV1
     | _ => pure ()
 
 /-- Public S1b emitter: typed `IR` → default-dialect SBPF assembly text.
-    ADR-0053 Wave 2: optional `bindings` rewrites generic-QN program ids in
-    empty-meta `sol_invoke` packing; IR itself stays hashed-stub identical. -/
+    ADR-0053 Wave 2/2b: optional `bindings` rewrite generic-QN program ids
+    and compile-time AccountMetas in `sol_invoke` packing; IR itself stays
+    hashed-stub identical. Not outer-instruction account join. -/
 def emitSbpfAsmV1 (ir : IR) (bindings : Option CallBindTableV1 := none) :
     CompileResult String := do
   validateIR ir
