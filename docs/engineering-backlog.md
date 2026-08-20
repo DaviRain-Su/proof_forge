@@ -3,7 +3,7 @@ id: ENG-BACKLOG
 title: 工程业务 Backlog（文档↔实现差异 + 构建加速）
 status: draft
 owner: engineering
-updated: 2026-08-19
+updated: 2026-08-20
 normative: false
 ---
 
@@ -524,7 +524,11 @@ Cairo / RISC0 / SP1 / Move / 比特币 **不进本队列**。
 优先序遵循产品判断：**EVM（最完善，formal lighthouse）→ Solana → NEAR → CosmWasm/Wasm**；
 Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 
-**Goal/workflow 入口（2026-08-19）**：next-wave Goal/workflow **已退役**（queue 零 pending）。**不要**再 `/goal @.grok/goals/prompt-next-wave.md` 或 `/workflow next-wave-runner`。能力层 waves（CAP-1a…5、CAP-X-BYTES、CAP-X-MERKLE）与诚实边界波均 **done（2026-08-19）**。日常工程下一刀 = **B-CALL-SEM 残差**（部署地址 / 外层账户 / CW `contract_addr`；十三 kind inspect 表面针已落地，**不**标 closed）。剩余人拍项已排进 [`docs/plan/remaining-owner-waves.md`](plan/remaining-owner-waves.md)（Wave 0–8；**不**自动接受 ADR-0036/0051/0052，**不**开 XRPL TIME/CALLER 叶，**不**标 formal done）。完善度分阶段队列见 [`plan/completeness-phased-roadmap.md`](plan/completeness-phased-roadmap.md) 与上文 **§12**。能力层已闭，见 [`docs/plan/capability-layer-tasks.md`](plan/capability-layer-tasks.md)。对账 `research/28-project-wide-honesty-audit.md`。Formal / 产品决策项仍不进 drain。
+**Goal/workflow 入口（2026-08-20）**：活索引 [`.grok/README.md`](../.grok/README.md)。
+next-wave / master / business-formalization Goal 与对应 runner **已退役（refuse-exit）**。
+**不要**再 `/goal @.grok/goals/prompt-next-wave.md` 或 `/workflow next-wave-runner`。
+新的有界切片用 `proof-forge-engineering-slice` / `develop-review-commit`。
+能力层 waves（CAP-1a…5、CAP-X-BYTES、CAP-X-MERKLE）与诚实边界波均 **done（2026-08-19）**。日常工程下一刀 = **B-CALL-SEM 残差**（部署地址 / 外层账户 / CW `contract_addr`；十三 kind inspect 表面针已落地，**不**标 closed）。剩余人拍项已排进 [`docs/plan/remaining-owner-waves.md`](plan/remaining-owner-waves.md)（Wave 0–8；**不**自动接受 ADR-0036/0051/0052，**不**开 XRPL TIME/CALLER 叶，**不**标 formal done）。完善度分阶段队列见 [`plan/completeness-phased-roadmap.md`](plan/completeness-phased-roadmap.md) 与上文 **§12**。能力层已闭，见 [`docs/plan/capability-layer-tasks.md`](plan/capability-layer-tasks.md)。对账 `research/28-project-wide-honesty-audit.md`。Formal / 产品决策项仍不进 drain。
 
 ```text
 1. EVM formal lighthouse（ADR-0036，仍 proposed；LH-1…28 + Track F **engineering-done**；**不要**把 TASK/TST 标 done）：
@@ -929,6 +933,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-19 | **COMP-1-SYS-CAP-L2 official crypto inspect（partial）**：`cryptoCatalogFamilyTagV1` 十三 kind 闭表经 inspect 露出既有 `pf.crypto.*` 叶（evm 五 QN / solana·near 三 QN / ton·soroban sha256 双 QN / psy keccak gadget）；cw/xrpl/psy residual 钉 keep-FC（无 sha256 host / sha512-half≠sha256 / keccak≠SHA-2）。**不**开新官方叶、**不**进 SupportClaim / describe、**不**关 formal |
 | 2026-08-19 | **COMP-1-SYS-CAP-L2 maturityResidual + XRPL context 矩阵（partial）**：inspect 露出 ICP/TON `maturityResidual`（`deployable-wasm-vs-source-only-label` / `conditional-boc-deployable-vs-source-only-label`）；registry `maturityLabel` 仍 `source-only`，**不**改 `expectedMaturityLabelOfKindV1`。Targets.lean 补 XRPL unixTime/caller/blockHeight/chainId/self/Commit FC 针（TIME/CALLER 叶仍 ADR-0052）。**不**开新官方叶、**不**进 SupportClaim / describe、**不**关 formal |
 | 2026-08-19 | **COMP-1-SYS-CAP-L2 ecdsa 十二叶第一道门针（partial）**：Targets.lean 钉合法 `pf.crypto.ecdsaRecoverSecp256k1` ABI（四 UInt256 → UInt256）EVM admit + 十二叶 first-gate FC（与 merkle 同纪律：width / profile / 命名 QN）。XrplPlanV1 补 QN 命名针。**不**开十二叶 ecdsa host、**不**声称 Anvil/formal |
+| 2026-08-20 | **Grok workflow 退役收口（docs only）**：新增 [`.grok/README.md`](../.grok/README.md) 活索引；`next-wave-runner` / `business-formalization-runner` / Noir ACIR / product-surface / dist / refinement-audit 等 drain workflow 改为 launch 即 `retired` 退出；Goal prompt 加 RETIRED 横幅。**不**删 `goals/slices/` 历史合同。**不**关 formal / B-CALL-SEM / ADR。 |
 | 2026-08-19 | **文档事实刷新波（done）**：RPT-027（27-extension-crypto-design）整文刷新——§2 已交付表重画为按-QN 行（sha256 五叶/keccak 三叶/sha256Bytes 五叶/merkle EVM 叶/ecdsa EVM 叶+predicate 纪律）、§3 分桶标 done/pending、§4 改交付记录+剩余须人拍项；RPT-028 重核——计数 13+0/17/339/25·422、P0 标 closed、Gaps 仅余 ADR-0051（人拍）与 P2 顺手项、Verification 行全部重核、roadmap 下一刀=B-CALL-SEM；research README 25/27/28 摘要、`docs/index.md` 下一刀行、ADR README（0016 行 proposed→accepted 对齐 frontmatter、日期）、本文件 EXT-CRYPTO 行/「默认 CAP-1a」行/ecdsa「另议」行、capability-layer-tasks 标题十二→十三与 Wave-3 MERKLE 行/Wave-5 ecdsa 行、NEAR Lower 过期 Map-FC 注释一并修正。**未动**：ADR status 批次升格（需审批字段，人拍）、SPEC 正文（ADR-0051 禁止）、AGENTS 钉串（SBOM 244 / 13/304 / 25/422）、document-status 八行索引 |
 | 2026-08-19 | **矩阵活单元格计数对齐（done）**：`MIGRATION_MATRIX` header through 与 D2/D3 活叙述 `十二 materializer` / `十个 descriptors` / `12×6` 改为 **13+0 / 13 materializers / 17 resolver rows / 13×6**；dated `2026-08-14` 12+0 行未改。**不**关 formal，**不**升格 ADR-0036 |
 | 2026-08-19 | **RPT-028 P2 活页计数诚实残差（done）**：live present-tense 12+0 / 「十二 materializer」/ ADR-0036「固定」改为 **13 implemented + 0 design-only / 17 resolver rows**；TON/Quint dossier、RPT-025、README、slides/speaker-script、backlog 产品现状、RECOVERY 完成条件、toolchain install、matrix D3 活单元格同步；ADR-0036 活页改为「主张收口 / records the boundary」，**仍 `proposed`，未升格**。dated changelog 12+0 行保留为历史快照。**不**接受 ADR-0036/0051/0052，**不**开 XRPL TIME/CALLER |

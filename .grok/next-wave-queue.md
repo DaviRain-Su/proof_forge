@@ -1,7 +1,13 @@
-# Next-wave drain queue (2026-08-12)
+# Next-wave drain queue — **RETIRED archive** (2026-08-12)
 
-**Authority:** `docs/engineering-backlog.md` 推荐击杀顺序 · ADR-0036 · AGENTS Next task  
-**Live status:** Honesty-matrix drain **retired**. Queue stays **zero pending** — do not relaunch `prompt-next-wave`. Completeness review pointer = `docs/plan/completeness-phased-roadmap.md` + backlog §12 (`COMP-*`); Phase 0 still proposed (ADRs unaccepted). COMP-1-CALL-SEM-LAND first cut (inspect family tags) is **partial**. Queue stays **zero pending**. Current daily engineering next = **B-CALL-SEM residuals** (address / outer accounts / CW addr — not a Goal drain). Formal `TASK-D2-07` / `TST-SEM-002/003` stay pending. CAP-D host bindings stay blocked until a human yes. Audit = `docs/research/28-project-wide-honesty-audit.md`. Backlog wins on conflict.
+> **Do not launch** `/goal @.grok/goals/prompt-next-wave.md` or
+> `/workflow next-wave-runner`. The runner now **refuses and exits**.
+> Live index: [`.grok/README.md`](README.md).
+> Daily next: [`docs/plan/completeness-phased-roadmap.md`](../docs/plan/completeness-phased-roadmap.md)
+> + backlog §12. Owner waves: [`docs/plan/remaining-owner-waves.md`](../docs/plan/remaining-owner-waves.md).
+
+**Authority (historical):** `docs/engineering-backlog.md` · ADR-0036 · AGENTS Next task  
+**Live status:** Honesty-matrix drain **retired**. Queue stays **zero pending**. Completeness review pointer = `docs/plan/completeness-phased-roadmap.md` + backlog §12 (`COMP-*`); Phase 0 still proposed (ADRs unaccepted). COMP-1-CALL-SEM-LAND first cut (inspect family tags) is **partial**. Current daily engineering next = **B-CALL-SEM residuals** (address / outer accounts / CW addr — not a Goal drain). Formal `TASK-D2-07` / `TST-SEM-002/003` stay pending. Audit = `docs/research/28-project-wide-honesty-audit.md`. Backlog wins on conflict.
 
 ### Live 拉齐 wave (2026-08-15)
 
@@ -70,15 +76,19 @@ Goal: lift envelope-4 toward mid-tier (CW/TON/Aleo/Psy), then mid-tier toward th
 **Sole L1 step:** `SemanticProgramV1 → admitReferenceProgramSliceV1 → stepReferenceSliceV1`  
 **Forbidden:** close formal TASK/TST/EV · Anvil lossless OutcomeWire (spec-FC) · invent TASK-* · push · `git add -A` · `git reset --hard` · supersede ADR-0027 · silent accepted-PRD expansion
 
-## How Goal and workflow cooperate
+## How Goal and workflow cooperate — **RETIRED**
 
-| Surface | Command | What it does |
+Do **not** run the commands below. They are the 2026-08 drain entry and
+will redo LH-4 or walk into forbidden C-3. `next-wave-runner` now exits
+`retired`. Use [`.grok/README.md`](README.md).
+
+| Surface | Historical command | Status |
 |---|---|---|
-| **Goal (drain)** | `/goal @.grok/goals/prompt-next-wave.md --budget 8000000` | One long session: pick → implement/review/commit → next, until hard-stop |
-| **Workflow (one slice)** | `/workflow next-wave-runner` | Select + implement + review + verify + **one** local commit |
-| Resume after budget | same Goal `starting at <NEXT>` | Never restart from LH-1 |
+| Goal (drain) | `/goal @.grok/goals/prompt-next-wave.md --budget 8000000` | **retired** |
+| Workflow (one slice) | `/workflow next-wave-runner` | **retired** (refuse-exit) |
+| Resume after budget | same Goal `starting at <NEXT>` | **retired** |
 
-Goal **should** call `next-wave-runner` for medium/large slices. Small doc-only rows may be done in-Goal. Workflows cannot nest; one fire = one slice.
+Historical note (do not follow): Goal used to call `next-wave-runner`. That runner now refuse-exits.
 
 ## Track A — EVM formal lighthouse (serial; primary)
 

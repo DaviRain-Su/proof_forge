@@ -1,24 +1,9 @@
 # Goal — 业务逻辑形式化主路径（track 1）drain
 
-> **入口（在 Grok Goal 里开，不要只聊天做半截）：**
->
-> ```text
-> /goal @.grok/goals/prompt-business-formalization.md --budget 8000000
-> ```
->
-> 续跑（会话断后）：
->
-> ```text
-> /goal @.grok/goals/prompt-business-formalization.md --budget 8000000
-> ```
->
-> 或启动 workflow（同一队列）：
->
-> ```text
-> /workflow business-formalization-runner
-> ```
->
-> （runner 一次做 **下一项**；要 drain 请用本 Goal 或带 `args.drain=true` 的 multi-fire。）
+> **RETIRED（2026-08-20）。** ADR-0034 wave-3′ 已 drain。
+> **不要**再执行本 Goal，**不要** `/workflow business-formalization-runner`
+> （runner 现在一启动就退出）。活索引：[`.grok/README.md`](../README.md)。
+> 历史队列：[`.grok/business-formalization-queue.md`](../business-formalization-queue.md)。
 
 ---
 

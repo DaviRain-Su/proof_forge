@@ -210,3 +210,4 @@ Same as `engineering-backlog.md`: one shared-core cutover at a time;
 leaf worktrees with zero file overlap; fail-the-test first; no new
 formal `TASK-*`; `just sbom-package-files-refresh` after
 `ProofForgeV2/**`; commit each slice; push Cursor Origin, not GitHub.
+Do **not** relaunch retired Grok drains — live index [`.grok/README.md`](../../.grok/README.md).

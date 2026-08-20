@@ -1,12 +1,7 @@
 # Goal prompt — N-A2（多臂同外构造器 match 细化）
 
-> **用法**：BUILD 切片合入/完成后，在干净 worktree：
->
-> ```text
-> /goal @.grok/goals/prompt-n-a2.md --budget 2000000
-> ```
->
-> 这是 **sole Normalize 共享核** 切片：禁止并行 leaf 改同一文件。
+> **RETIRED。** N-A2 已 done。不要再开本 Goal。
+> 活索引：[`.grok/README.md`](../README.md)。
 
 ---
 

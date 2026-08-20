@@ -1,18 +1,7 @@
 # Goal — finish N-2 inside Goal, then continue drain
 
-> **User intent:** N-2 (and further backlog) must run **in Goal**, not as chat-side
-> implementer progress. This file is the resume entry when N-2 WIP is already on
-> the worktree and backlog must not be falsely marked done.
->
-> ```text
-> /goal @.grok/goals/prompt-n-2-finish.md --budget 4000000
-> ```
->
-> Larger budget / full queue after N-2:
->
-> ```text
-> /goal @.grok/goals/prompt-master-queue.md starting at N-2 --budget 8000000
-> ```
+> **RETIRED。** N-2 已 done。不要再开本 Goal，也不要切入 master drain。
+> 活索引：[`.grok/README.md`](../README.md)。
 
 ---
 

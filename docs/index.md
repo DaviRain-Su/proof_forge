@@ -3,7 +3,7 @@ id: DOC-INDEX
 title: ProofForge V2 文档导航
 status: proposed
 owner: architecture
-updated: 2026-08-19
+updated: 2026-08-20
 normative: true
 ---
 
@@ -46,8 +46,10 @@ Solana ADR-0048 D4 剩余证书（非 formal TASK-D5）：
 完善度分阶段指针（三条完成轴；非第四份 gap 清单）：
 [`plan/completeness-phased-roadmap.md`](plan/completeness-phased-roadmap.md)。
 **Agent Notes**（why / why-not，非 ADR / 非 formal）：[`.agents/notes/README.md`](../.agents/notes/README.md)。
-**Goal drain 已空（2026-08-15）**：[`.grok/next-wave-queue.md`](../.grok/next-wave-queue.md) 零 pending；
-[`prompt-next-wave.md`](../.grok/goals/prompt-next-wave.md) **已退役**，不要再 launch。
+**Goal drain 已空**：活索引 [`.grok/README.md`](../.grok/README.md)。
+[`next-wave-queue.md`](../.grok/next-wave-queue.md) 零 pending；
+[`prompt-next-wave.md`](../.grok/goals/prompt-next-wave.md) 与 `next-wave-runner`
+**已退役（refuse-exit）**，不要再 launch。
 全仓对账：[research/28-project-wide-honesty-audit.md](research/28-project-wide-honesty-audit.md)。
 **下一刀（工程，非 formal）**：能力层 waves 已全闭合（2026-08-19：CAP-1a…5 /
 CAP-X-BYTES / CAP-X-MERKLE / 诚实边界波）。COMP-1-CALL-SEM-LAND 第一刀

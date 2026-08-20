@@ -1,14 +1,7 @@
 # Goal — Skeptic recovery first, then master drain
 
-> **入口（本轮优先用这个，再回到 master）**
->
-> ```text
-> /goal @.grok/goals/prompt-skeptic-recovery.md --budget 4000000
-> ```
->
-> 恢复完成后若预算仍够，**同一 Goal 回合内**无缝切入
-> [`.grok/goals/prompt-master-queue.md`](prompt-master-queue.md) 的 drain 环，
-> 从真实 NEXT 继续；不够则报告 `NEXT=` 后用户再开 master。
+> **RETIRED。** SKEPTIC-1 已 closed。不要再开本 Goal，也不要切入
+> `prompt-master-queue`。活索引：[`.grok/README.md`](../README.md)。
 
 ---
 

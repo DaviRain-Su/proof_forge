@@ -1,11 +1,11 @@
 # Goal slice queue (engineering only) — **HISTORICAL seed**
-> **两个 Goal 入口均已退役（2026-08-15/16）**：`.grok/next-wave-queue.md` 已零 `pending`，
-> `/goal @.grok/goals/prompt-next-wave.md` 不得再执行。当前下一刀见
-> `docs/plan/capability-layer-tasks.md` 与 `AGENTS.md` Next task。
+> **两个 Goal 入口均已退役（2026-08-15/16；2026-08-20 refuse-exit）**：
+> `.grok/next-wave-queue.md` 已零 `pending`；`next-wave-runner` 一启动就退出。
+> 活索引：[`.grok/README.md`](../README.md)。日常下一刀见
+> `docs/plan/completeness-phased-roadmap.md` + backlog §12。
 > This file is navigation-only for the 2026-08-02 master drain. Do not resume it from BUILD-1.
 > Generated for `/goal` + workflows. Formal F-*/Q-*/C-3 excluded.
 > Master goal (retired): `.grok/goals/prompt-master-queue.md`
-> **Current resume (2026-08-02):** engineering drain complete through RES-1; C-5 ongoing (ArraySlots); formal C-3 blocked; NS-* language-gated
 >
 > Status seed is **not** live authority — always re-read `docs/engineering-backlog.md`.
 > Seed column below tracks **navigation only**; conflict → backlog wins.

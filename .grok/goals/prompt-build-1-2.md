@@ -1,13 +1,7 @@
 # Goal prompt — BUILD-1 + BUILD-2（反馈循环）
 
-> **用法**：在 Grok 会话中（仓库根、干净 worktree）执行：
->
-> ```text
-> /goal @.grok/goals/prompt-build-1-2.md --budget 800000
-> ```
->
-> 或把下文「OBJECTIVE」整段粘贴到 `/goal ...`。  
-> 也可由主代理直接 `workflow name=proof-forge-engineering-slice` 带下方 JSON args。
+> **RETIRED。** BUILD-1 / BUILD-2 已 done。不要再开本 Goal。
+> 活索引：[`.grok/README.md`](../README.md)。
 
 ---
 

@@ -1,7 +1,11 @@
-# Business formalization queue (track 1)
+# Business formalization queue (track 1) — **RETIRED archive**
 
-**Authority:** ADR-0027（inline same-file base）· ADR-0034 D10 · INV-2 · Agents Next task
-**Mode:** autonomous runner — do **not** wait for the user to say continue
+> **Do not launch** `/goal @.grok/goals/prompt-business-formalization.md` or
+> `/workflow business-formalization-runner`. The runner now refuse-exits.
+> Live index: [`.grok/README.md`](README.md).
+
+**Authority (historical):** ADR-0027（inline same-file base）· ADR-0034 D10 · INV-2 · Agents Next task
+**Mode:** historical — runner retired; do **not** invent a next packaging slice
 **Sole step:** `SemanticProgramV1 → admitReferenceProgramSliceV1 → stepReferenceSliceV1`
 **Product decision (2026-08-09, user-confirmed):** 形式化验证与业务合约同文件；`ProofInstances/` 与 `ClosedSubjectPinV1` 已删除，重复 `ZeroCounter*` family 已删除；产品包最终零合约专属内容。
 **Forbidden:** second State/Effect/step · contract-specific content in `ProofForgeV2/` product modules · supersede ADR-0027 · formal TASK/TST claims · push unless user later asks · delete anything before its removal gate below

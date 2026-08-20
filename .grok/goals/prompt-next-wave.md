@@ -1,9 +1,11 @@
 # Goal — 下一波可执行工程 drain（EVM lighthouse + S4）
 
-> **2026-08-15：本 Goal 已退役。** Track A/B 无 `pending`。
+> **RETIRED（2026-08-15；2026-08-20 refuse-exit）。** Track A/B 无 `pending`。
 > **不要**再执行 `/goal @.grok/goals/prompt-next-wave.md`，**不要** `starting at LH-4`，
-> **不要**报告 `NEXT=FORMAL_C3`。下一刀见 [`docs/research/28-project-wide-honesty-audit.md`](../../docs/research/28-project-wide-honesty-audit.md)
-> 与 [`AGENTS.md`](../../AGENTS.md) Next task。
+> **不要**报告 `NEXT=FORMAL_C3`。配套 `/workflow next-wave-runner` 现在一启动就退出。
+> 活索引：[`.grok/README.md`](../README.md)。日常下一刀：
+> [`docs/plan/completeness-phased-roadmap.md`](../../docs/plan/completeness-phased-roadmap.md)
+> + [`AGENTS.md`](../../AGENTS.md) Next task。
 >
 > 历史入口（已空，仅留档）：
 >

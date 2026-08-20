@@ -1,18 +1,7 @@
 # Goal — finish C-2 inside Goal, then continue drain
 
-> **User intent:** C-2 (and further backlog) must run **in Goal**, not as chat-side
-> “half-green research + backlog mark”. Chat may leave Goal-owned WIP under
-> `docs/research/15-aleo-psy-compiler-vm.md`; only Goal commits C-2 and drains.
->
-> ```text
-> /goal @.grok/goals/prompt-c-2-finish.md --budget 4000000
-> ```
->
-> Or master drain from C-2:
->
-> ```text
-> /goal @.grok/goals/prompt-master-queue.md starting at C-2 --budget 8000000
-> ```
+> **RETIRED。** C-2 已 done。不要再开本 Goal，也不要切入 master drain。
+> 活索引：[`.grok/README.md`](../README.md)。
 
 ---
 

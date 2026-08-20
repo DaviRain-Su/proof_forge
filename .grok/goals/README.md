@@ -1,80 +1,38 @@
 ---
 id: GROK-GOALS
-title: Goal + workflow 全队列操作手册（ProofForge）
+title: Goal + workflow 入口（退役手册）
 status: draft
 owner: engineering
-updated: 2026-08-12
+updated: 2026-08-20
 normative: false
 ---
 
-# Goal + workflow：整仓工程队列
+# Goal + workflow：不要再 drain
 
-## 当前优先：Goal-auto drain 已空（2026-08-15）
+**活索引：** [`.grok/README.md`](../README.md)
 
-旧 master 队列与 next-wave（LH + S4 + Track F）均已 drain。
-**不要再开 `prompt-master-queue` 或 `prompt-next-wave`。**
-下一刀见 [`docs/research/28-project-wide-honesty-audit.md`](../../docs/research/28-project-wide-honesty-audit.md)
-与根 [`AGENTS.md`](../../AGENTS.md) Next task。
+工程完成面是 **13 implemented + 0 design-only**。Goal-auto / master / business
+drain **全部空**。本目录只留历史合同。
 
-历史命令（已空，勿 launch）：
+## 现在用什么
 
-```text
-/goal @.grok/goals/prompt-next-wave.md --budget 8000000
-```
-
-单切片（不 drain）：
-
-```text
-/workflow next-wave-runner
-```
-
-只看下一项、不改树：
-
-```text
-/workflow next-wave-runner {"mode":"status"}
-```
-
-## 不能用 Goal 自动做完的东西
-
-| 轴 | 为什么 Goal 不能“持续跑到完成” |
+| 意图 | 入口 |
 |---|---|
-| Formal D1–D4 0/27 | 要独立 TST/EV/资格仪式；`TASK-D1-01` 仍 blocked |
-| C-3 / Anvil lossless Outcome | spec 明确 fail closed；不是缺人写 adapter |
-| B-CALL-SEM / B-COMMIT-ZK / QUINT-2 / D3-E8 | 产品决策，不是实现债 |
-| `just release-check` | 当前无 recipe（DOC-JUST-CONTROL） |
+| 日常下一刀 | [`docs/plan/completeness-phased-roadmap.md`](../../docs/plan/completeness-phased-roadmap.md) · backlog §12 |
+| 人拍项 | [`docs/plan/remaining-owner-waves.md`](../../docs/plan/remaining-owner-waves.md) |
+| 新的有界切片 | `/workflow proof-forge-engineering-slice` |
+| 只读审查 | `/workflow proof-forge-one-slice` |
+| 任意有界改动 + 本地 commit | `/workflow develop-review-commit` |
 
-Goal **成功** = Track A+B 工程 pending 清空。Formal 仍保持 pending。
+## 禁止 launch
 
-## 历史入口（勿当当前主轴）
-
-| 文件 | 状态 |
+| 文件 / workflow | 状态 |
 |---|---|
-| `prompt-master-queue.md` + `QUEUE.md` | 历史工程 drain；seed 过期；backlog 才是事实 |
-| `prompt-business-formalization.md` | wave-3′ **drained**；无新 pending 不得发明切片 |
-| `prompt-skeptic-recovery.md` | 已 closed |
-| `proof-forge-engineering-slice` | 仍可用：任意单切片全流程 |
-| `proof-forge-one-slice` | 仍可用：实现后只读 review |
+| `prompt-next-wave.md` · `next-wave-runner` | **retired**（一启动就退出） |
+| `prompt-master-queue.md` · `QUEUE.md` · `slices/*` | 历史种子；不要从 BUILD-1 续跑 |
+| `prompt-business-formalization.md` · `business-formalization-runner` | **retired** |
+| `prompt-skeptic-recovery.md` · `prompt-build-1-2.md` · `prompt-c-2-finish.md` · `prompt-n-2-finish.md` · `prompt-n-a2.md` | 对应切片已 done |
 
-## 与 workflow
+Goal **不能**自动做完：formal D1–D4、C-3、B-CALL-SEM 绑定、ADR 升格、`just release-check`。
 
-| Workflow | 作用 |
-|---|---|
-| **`next-wave-runner`** | **当前** 下一波单切片 + local commit |
-| `proof-forge-engineering-slice` | 通用单切片（需手传 args） |
-| `proof-forge-one-slice` | 实现后只读 review |
-| `business-formalization-runner` | 历史；队列已空则 `program_complete` |
-
-**不** push；**不** formal release。
-
-## 预算
-
-| 意图 | `--budget` |
-|---|---|
-| 续跑一长段 drain | 8M+ |
-| 小 pilot | 1–2M + 显式 `max_slices=N` |
-
-## 禁止
-
-不 push、不 formal 仪式、不并行改 Normalize 共享核。
-不在聊天里 drain backlog 并假 done。
-不重做已存在的 NEAR/CW `blockHeight` runtime harness。
+`slices/*.md` 是已完成切片合同，不是待办。

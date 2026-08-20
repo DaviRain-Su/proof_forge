@@ -3,7 +3,7 @@ id: PLAN-COMPLETENESS-ROADMAP
 title: ProofForge V2 完善度审查与分阶段执行队列
 status: draft
 owner: engineering
-updated: 2026-08-19
+updated: 2026-08-20
 normative: false
 ---
 
@@ -212,7 +212,7 @@ Capability 横切（2026-08-19）：`sha256Bytes` 五叶已开；`merkleVerifyKe
 
 ## 8. 不要做的事
 
-- 不要再开 `prompt-next-wave` / 再钉 Sem00x / 把 TST-SEM-002/003 标 done
+- 不要再开 `prompt-next-wave` / `next-wave-runner`（已 refuse-exit；活索引 `.grok/README.md`）/ 再钉 Sem00x / 把 TST-SEM-002/003 标 done
 - 不要把 ordinary `just ci` 写成 hermetic / formal / release
 - 不要静默把 accepted PRD 从四目标改成十三
 - 不要新增 Cairo/RISC0/SP1/Move/BTC target
