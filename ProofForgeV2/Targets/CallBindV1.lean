@@ -10,7 +10,8 @@
 
   Not SemanticProgramV1. Not NetworkProfile. Not formal / C-3.
   Wave 2a empty-account void CALL lives in Evm.EmitIRV1 (not this table).
-  Not Wave 2b Solana nonempty accounts.
+  Wave 2b: Solana nonempty `accounts` → compile-time AccountMeta (≤8);
+  not outer-instruction account join.
 -/
 import ProofForgeV2.Core.Canonical
 import ProofForgeV2.Core.Common
@@ -364,11 +365,13 @@ def requireEvmAddressV1 (table : CallBindTableV1) (callee : Array String) :
           pure address
       | _ => throw (wrongSiteError "evm" callee)
 
-/-- Wave 2 Solana lookup. Nonempty `accounts` is Wave 2b (outer AccountMeta
-    ABI) and fail-closed here so a half-wired program-id is never claimed
-    complete. Empty accounts → program id only (empty-meta packing stays). -/
-def requireSolanaProgramIdV1 (table : CallBindTableV1) (callee : Array String) :
-    Except String ByteArray := do
+/-- Wave 2b compile-time AccountMeta cap. Larger rows fail closed so the
+    S1b stack packing stays bounded. Not an outer-instruction role count. -/
+def maxSolanaBindAccountsV1 : Nat := 8
+
+/-- Shared Solana row lookup. Missing / wrong-site / bad sizes fail closed. -/
+def requireSolanaBindingV1 (table : CallBindTableV1) (callee : Array String) :
+    Except String (ByteArray × Array CallBindAccountV1) := do
   let some name := qualifiedNameOfComponents? callee |
     throw (missingCalleeError "solana" callee)
   match findRow? table name with
@@ -378,11 +381,28 @@ def requireSolanaProgramIdV1 (table : CallBindTableV1) (callee : Array String) :
       | .solana programId accounts =>
           unless programId.size == 32 do
             throw "call-bind: solana programId must be exactly 32 bytes"
-          unless accounts.isEmpty do
+          unless accounts.size ≤ maxSolanaBindAccountsV1 do
             throw
-              "call-bind: solana accounts binding is not admitted in Wave 2 (empty accounts only; outer AccountMeta is Wave 2b)"
-          pure programId
+              s!"call-bind: solana accounts binding admits at most {maxSolanaBindAccountsV1} AccountMetas"
+          for acc in accounts do
+            unless acc.pubkey.size == 32 do
+              throw "call-bind: solana account pubkey must be exactly 32 bytes"
+          pure (programId, accounts)
       | _ => throw (wrongSiteError "solana" callee)
+
+/-- Wave 2/2b Solana program-id lookup. Nonempty `accounts` are admitted
+    (Wave 2b compile-time AccountMeta); this helper still returns only the
+    program id. Empty accounts → program id only (empty-meta packing). -/
+def requireSolanaProgramIdV1 (table : CallBindTableV1) (callee : Array String) :
+    Except String ByteArray := do
+  let (programId, _) ← requireSolanaBindingV1 table callee
+  pure programId
+
+/-- Wave 2b: compile-time AccountMeta list (possibly empty). -/
+def requireSolanaAccountsV1 (table : CallBindTableV1) (callee : Array String) :
+    Except String (Array CallBindAccountV1) := do
+  let (_, accounts) ← requireSolanaBindingV1 table callee
+  pure accounts
 
 /-- Wave 2 CosmWasm lookup. Present table + missing/wrong-site → error. -/
 def requireCosmWasmAddressV1 (table : CallBindTableV1) (callee : Array String) :

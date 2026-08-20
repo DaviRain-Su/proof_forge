@@ -749,10 +749,10 @@ private def collectRawSitesFiltered
                   deriveFail
                     s!"CPI product derive rejects companion API '{qn}'"
                 unless isApprovedProductApiV1 qn do
-                  -- Wave 2: a present bind table does not mint a CPI site for
-                  -- unknown QNs (no frozen API). Full-body empty-meta emit
-                  -- consumes the table for program id. Missing row and
-                  -- nonempty accounts fail closed via requireSolanaProgramIdV1.
+                  -- Wave 2/2b: a present bind table does not mint a CPI site
+                  -- for unknown QNs (no frozen API). Full-body emit consumes
+                  -- the table for program id + compile-time AccountMetas.
+                  -- Missing row still fail-closed via requireSolanaProgramIdV1.
                   if ← requireCallBindGenericQnV1 bindings callee then
                     pure ()
                   else
@@ -761,7 +761,7 @@ private def collectRawSitesFiltered
               match findFrozenApi? qn with
               | none =>
                   -- Bound generic QN: skip CPI-site mint; full-body lowering
-                  -- still emits empty-meta invoke with the bound program id.
+                  -- emits invoke with the bound program id / Wave 2b metas.
                   unless ← requireCallBindGenericQnV1 bindings callee do
                     deriveFail s!"CPI derive rejects unknown callee QN '{qn}'"
               | some api =>

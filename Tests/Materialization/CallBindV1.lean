@@ -4,7 +4,8 @@
   Pure parse of `proof-forge.call-bind.v1`, `--bindings` preflight, and
   three-leaf emit consume (missing row fail closed; bound address appears
   in Yul / WAT). Wave 2a pins empty-account void CALL `extcodesize` revert.
-  Not formal / C-3. Not Wave 2b Solana accounts.
+  Wave 2b pins Solana compile-time AccountMeta (nonempty accounts).
+  Not formal / C-3. Not inspect-residual clear.
 -/
 import ProofForgeV2.CLI.Emit
 import ProofForgeV2.Compiler.Pipeline
@@ -307,11 +308,21 @@ unsafe def run : IO Unit := do
     (requireEvmAddressV1 evmTable
       (← expectOk "missing2" (parseQualifiedName #["Oracle", "missing"])).components.toArray)
     "no evm row"
-  -- Wave 2b: nonempty Solana accounts parse, but lookup fail-closes.
-  expectErr "requireSol nonempty accounts"
-    (requireSolanaProgramIdV1 solTable
-      (← expectOk "vault qn" (parseQualifiedName #["Vault", "deposit"])).components.toArray)
-    "accounts binding is not admitted"
+  -- Wave 2b: nonempty Solana accounts parse and lookup admits program id.
+  match requireSolanaProgramIdV1 solTable
+      (← expectOk "vault qn" (parseQualifiedName #["Vault", "deposit"])).components.toArray with
+  | .ok bytes => expect (bytes.size == 32) "requireSol nonempty still returns programId"
+  | .error msg => throw <| IO.userError s!"requireSol nonempty must admit Wave 2b, got {msg}"
+  match requireSolanaAccountsV1 solTable
+      (← expectOk "vault qn 2" (parseQualifiedName #["Vault", "deposit"])).components.toArray with
+  | .ok accs =>
+      expect (accs.size == 1) "Vault.deposit has one compile-time AccountMeta"
+      match accs[0]? with
+      | some acc =>
+          expect (acc.role == "authority") "Vault.deposit role"
+          expect (acc.signer && acc.writable) "Vault.deposit flags"
+      | none => throw <| IO.userError "Vault.deposit AccountMeta missing"
+  | .error msg => throw <| IO.userError s!"requireSol accounts: {msg}"
 
   -- Wave 2 EVM emit: bound address appears; missing row fail closed;
   -- no table keeps hashed stub.
@@ -514,18 +525,82 @@ unsafe def run : IO Unit := do
         throw <| IO.userError "solana bound emit missing .s"
       expect (hasSubstr asm.contents ones32)
         "bound solana asm must contain the table programId"
+      expect (hasSubstr asm.contents "empty AccountMeta")
+        "empty-accounts bind stays empty-meta"
   | .error e =>
       throw <| IO.userError
         s!"solana bound Oracle.feed must emit, got {e.render}"
   let nonemptyAccText ← liftJcs "sol-nonempty"
     (solanaDoc #[solanaBinding "Oracle.feed" ones32
-      #[solanaAccount "authority" zero32 false false]])
+      #[solanaAccount "authority" zero32 true true]])
   let nonemptyAccTable ← expectOk "sol-nonempty" (parseCallBindTableV1 nonemptyAccText)
   match Targets.Solana.buildFromCapability solCap (some nonemptyAccTable) with
-  | .ok _ => throw <| IO.userError "nonempty solana accounts must fail closed in Wave 2"
+  | .ok files =>
+      let some asm := files.find? (·.path.endsWith ".s") |
+        throw <| IO.userError "solana Wave 2b emit missing .s"
+      expect (hasSubstr asm.contents ones32)
+        "Wave 2b asm must still contain the table programId"
+      expect (hasSubstr asm.contents "Wave 2b compile-time AccountMeta n=1")
+        "Wave 2b asm must name compile-time AccountMeta"
+      expect (hasSubstr asm.contents "lddw r1, 0x101\n")
+        "Wave 2b writable+signer flags pack as 0x101"
+      expect (hasSubstr asm.contents "lddw r1, 0x1\n")
+        "Wave 2b accounts_len=1 packs as 0x1"
+      expect (hasSubstr asm.contents "lddw r2, 0")
+        "Wave 2b still passes empty AccountInfo (r2=0)"
+      expect (hasSubstr asm.contents "lddw r3, 0")
+        "Wave 2b still passes empty AccountInfo len (r3=0)"
+      expect (!hasSubstr asm.contents "empty AccountMeta")
+        "Wave 2b nonempty accounts must not keep empty-meta comment"
   | .error e =>
-      expect (hasSubstr e.render "accounts binding is not admitted")
-        s!"nonempty accounts must mention Wave 2b, got {e.render}"
+      throw <| IO.userError
+        s!"solana Wave 2b Oracle.feed must emit, got {e.render}"
+  let aa32 := String.ofList (List.replicate 64 'a')
+  let bb32 := String.ofList (List.replicate 64 'b')
+  let twoAccText ← liftJcs "sol-two-acc"
+    (solanaDoc #[solanaBinding "Oracle.feed" ones32
+      #[solanaAccount "authority" aa32 true true,
+        solanaAccount "vault" bb32 false true]])
+  let twoAccTable ← expectOk "sol-two-acc" (parseCallBindTableV1 twoAccText)
+  match Targets.Solana.buildFromCapability solCap (some twoAccTable) with
+  | .ok files =>
+      let some asm := files.find? (·.path.endsWith ".s") |
+        throw <| IO.userError "solana Wave 2b two-account emit missing .s"
+      expect (hasSubstr asm.contents "Wave 2b compile-time AccountMeta n=2")
+        "Wave 2b two-account asm must name n=2"
+      -- Reverse-pack emits acc0 then acc1; flags 0x101 then 0x1.
+      expect (hasSubstr asm.contents "lddw r1, 0x101\n")
+        "acc0 writable+signer packs as 0x101"
+      expect (hasSubstr asm.contents "lddw r1, 0x1\n")
+        "acc1 writable-only packs as 0x1"
+      expect (hasSubstr asm.contents "lddw r1, 0x2\n")
+        "Wave 2b accounts_len=2 packs as 0x2"
+      expect (hasSubstr asm.contents "lddw r1, 0xaaaaaaaaaaaaaaaa")
+        "acc0 pubkey limbs must appear"
+      expect (hasSubstr asm.contents "lddw r1, 0xbbbbbbbbbbbbbbbb")
+        "acc1 pubkey limbs must appear"
+      let some before101 := (asm.contents.splitOn "lddw r1, 0x101\n")[0]? |
+        throw <| IO.userError "missing 0x101 split"
+      expect (!hasSubstr before101 "lddw r1, 0x1\n")
+        "acc0 flags (0x101) must appear before acc1 flags (0x1)"
+      let some beforeAa := (asm.contents.splitOn "lddw r1, 0xaaaaaaaaaaaaaaaa")[0]? |
+        throw <| IO.userError "missing aa pubkey split"
+      expect (!hasSubstr beforeAa "lddw r1, 0xbbbbbbbbbbbbbbbb")
+        "acc0 pubkey must appear before acc1 pubkey"
+  | .error e =>
+      throw <| IO.userError
+        s!"solana Wave 2b two-account Oracle.feed must emit, got {e.render}"
+  let tooMany : Array PfJson :=
+    (Array.range 9).map (fun i =>
+      solanaAccount s!"role{i}" zero32 false false)
+  let tooManyText ← liftJcs "sol-too-many"
+    (solanaDoc #[solanaBinding "Oracle.feed" ones32 tooMany])
+  let tooManyTable ← expectOk "sol-too-many" (parseCallBindTableV1 tooManyText)
+  match Targets.Solana.buildFromCapability solCap (some tooManyTable) with
+  | .ok _ => throw <| IO.userError "9 AccountMetas must fail closed"
+  | .error e =>
+      expect (hasSubstr e.render "at most 8 AccountMetas")
+        s!"9 AccountMetas must mention cap, got {e.render}"
 
   IO.println "Tests.Materialization.CallBindV1: ok"
 

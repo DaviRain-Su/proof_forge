@@ -17,9 +17,11 @@ proposed
 `--bindings` 与 `proof-forge.call-bind.v1`。**Wave 2** 把表显式接到三叶
 emit：有 `--bindings` 时 generic `call`/`schedule` 无匹配行 fail closed；
 无 flag 时 hashed QN / QN stub 不变。`pf.crypto.*` / `pf.assets` 不查表。
-Solana nonempty `accounts` 仍属 Wave 2b（本波 empty accounts → program id
-only）。**Wave 2a（已接线）**：generic void CALL 在 `extcodesize==0` 时
-fail closed。`schedule` / result-bearing CALL / `pf.assets` 不改。
+**Wave 2b（已接线）**：Solana nonempty `accounts` → 编译期 AccountMeta
+（pubkey + signer/writable，≤8）；**不是**交易外层账户 join。empty
+accounts 仍 empty-meta。**Wave 2a（已接线）**：generic void CALL 在
+`extcodesize==0` 时 fail closed。`schedule` / result-bearing CALL /
+`pf.assets` 不改。
 
 不关闭 `B-CALL-SEM` 全表。不接受 ADR-0036 / 0051。不改
 `semantic-core.md`。不声称 formal / C-3 / Anvil lossless / CREATE / CREATE2。
@@ -117,6 +119,7 @@ hashed stub 不是部署地址。空账户 EVM void `CALL` 在 Wave 2a 起 fail 
 Wave 2 落地后：CLI 认识 `--bindings`；表可解码、可查 QN；有表时三叶
 generic call/schedule 消费同一 `CallBindTableV1`（EVM Yul 地址、CW WAT
 `contract_addr`、Solana empty-meta program id）。无表行为不变。
-Wave 2a：generic void CALL 空账户 fail closed。inspect residual 只在
-「该 program 全部 generic call 有行」时才清（本波不改 inspect）。
-Solana nonempty accounts 仍属 Wave 2b。
+Wave 2a：generic void CALL 空账户 fail closed。Wave 2b：Solana nonempty
+accounts 打成编译期 AccountMeta（≤8；非 outer-instruction join）。
+inspect residual 只在「该 program 全部 generic call 有行」时才清（本波不改
+inspect）。
