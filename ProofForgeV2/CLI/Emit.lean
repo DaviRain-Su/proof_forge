@@ -1518,20 +1518,33 @@ def renderCheckOkJsonV1
       ("proofCertificationDigest", proofDigestJson)
     ]
 
-/-- Product build success human body (includes selected profile). -/
-def renderBuildOkHumanV1 (receipt : EmitReceiptV1) : String :=
-  s!"built target={receipt.target} profile={receipt.codegenProfile} deployable={receipt.deployable}" ++
-    s!" surface=development releaseQualification={releaseQualificationWireV1}"
+/-- Product build success human body (includes selected profile).
+    Program-level `callScheduleResidual` only when the address gap remains. -/
+def renderBuildOkHumanV1
+    (receipt : EmitReceiptV1)
+    (callScheduleResidual : Option String := none) : String :=
+  let base :=
+    s!"built target={receipt.target} profile={receipt.codegenProfile} deployable={receipt.deployable}" ++
+      s!" surface=development releaseQualification={releaseQualificationWireV1}"
+  match callScheduleResidual with
+  | some tag => base ++ s!"\ncallScheduleResidual={tag}"
+  | none => base
 
 /-- Product build success JSON (`proof-forge.cli.build.v1`).
 Explicit `--minimum-evidence` requests fail preflight until D3-E8 is wired, so
 both evidence values stay null and `minimumEvidenceEnforcement` records the
-fail-closed boundary (see docs/plan/d3-e8-minimum-evidence.md). -/
+fail-closed boundary (see docs/plan/d3-e8-minimum-evidence.md).
+`callScheduleResidual` is program-level (string or `null`); not SupportClaim. -/
 def renderBuildOkJsonV1
     (receipt : EmitReceiptV1)
-    (resourceLimits : Array ResourceLimitOverrideV1 := #[]) :
+    (resourceLimits : Array ResourceLimitOverrideV1 := #[])
+    (callScheduleResidual : Option String := none) :
     CompileResult String :=
   let limitsJson := PfJson.array (resourceLimits.map renderResourceLimitJsonV1)
+  let residualJson :=
+    match callScheduleResidual with
+    | some tag => PfJson.string tag
+    | none => PfJson.null
   renderCliJsonV1 <|
     PfJson.object #[
       ("schema", .string "proof-forge.cli.build.v1"),
@@ -1542,6 +1555,7 @@ def renderBuildOkJsonV1
       ("minimumEvidence", PfJson.null),
       ("minimumEvidenceRequested", PfJson.null),
       ("minimumEvidenceEnforcement", .string minimumEvidenceEnforcementWireV1),
+      ("callScheduleResidual", residualJson),
       ("surface", .string "development"),
       ("releaseQualification", .string releaseQualificationWireV1)
     ]

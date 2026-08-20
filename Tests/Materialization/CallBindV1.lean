@@ -5,7 +5,8 @@
   three-leaf emit consume (missing row fail closed; bound address appears
   in Yul / WAT). Wave 2a pins empty-account void CALL `extcodesize` revert.
   Wave 2b pins Solana compile-time AccountMeta (nonempty accounts).
-  Not formal / C-3. Not inspect-residual clear.
+  Wave 2c pins program-level callScheduleResidual (build only; target
+  inspect stays the closed kind table). Not formal / C-3.
 -/
 import ProofForgeV2.CLI.Emit
 import ProofForgeV2.Compiler.Pipeline
@@ -14,7 +15,10 @@ import ProofForgeV2.Core.TargetIdentityV1
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.CallBindV1
 import ProofForgeV2.Targets.Registry
+import ProofForgeV2.Targets.RequirementResolverV1
 import Tests.Language.ParserSession
+
+set_option maxRecDepth 4096
 
 namespace Tests.Materialization.CallBindV1
 
@@ -22,9 +26,11 @@ open ProofForgeV2
 open ProofForgeV2.CLI
 open ProofForgeV2.Compiler
 open ProofForgeV2.Core.Common
+open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets
 open ProofForgeV2.Targets.BuildSelectionV1
 open ProofForgeV2.Targets.CallBindV1
+open ProofForgeV2.Targets.RequirementResolverV1
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
@@ -99,6 +105,18 @@ private def digest0 : String := "sha256:" ++ String.ofList (List.replicate 64 '0
 
 private def expectBuildOpts (label : String) (args : List String) : IO BuildOptions :=
   expectOk label (parseBuildArgsExcept args)
+
+private def expectResidual
+    (label : String)
+    (kind : TargetKind)
+    (semantic : SemanticProgramV1)
+    (table : Option CallBindTableV1)
+    (expected : Option String) : IO Unit := do
+  match programCallScheduleResidualV1 kind semantic table with
+  | .ok tag =>
+      expect (tag == expected)
+        s!"{label}: residual {repr tag} ≠ {repr expected}"
+  | .error msg => throw <| IO.userError s!"{label}: {msg}"
 
 unsafe def run : IO Unit := do
   -- Canonical empty table (all three targets).
@@ -378,7 +396,14 @@ unsafe def run : IO Unit := do
     "Wave 2a bound void CALL must revert on empty code"
   expect (!boundIr.yul.contains s!"call(gas(), 0x{hashedNeedle},")
     "bound Yul must not keep the hashed stub"
+  -- Wave 2c: program-level residual. Target inspect stays hashed-qn.
+  let evmSemantic := Compiler.CompiledSemanticV1.semanticV1Of callCompiled
+  expectResidual "evm none-table" .evm evmSemantic none
+    (some "hashed-qn-no-deploy-bind")
+  expectResidual "evm bound" .evm evmSemantic (some evmBindTable) none
   let emptyEvm ← expectOk "evm-empty-table" (parseCallBindTableV1 (← liftJcs "empty" (evmDoc #[])))
+  expectResidual "evm empty-table" .evm evmSemantic (some emptyEvm)
+    (some "hashed-qn-no-deploy-bind")
   match Targets.Evm.irFromCapability callCap (some emptyEvm) with
   | .ok _ => throw <| IO.userError "empty table must fail closed on Oracle.feed"
   | .error e =>
@@ -434,8 +459,14 @@ unsafe def run : IO Unit := do
     "bound WAT must use table contractAddr"
   expect (!boundWat.contents.contains "\"contract_addr\":\"ledger.daily\"")
     "bound WAT must not keep the QN stub as contract_addr"
+  let cwSemantic := Compiler.CompiledSemanticV1.semanticV1Of schedCompiled
+  expectResidual "cw none-table" .cosmwasm cwSemantic none
+    (some "contract-addr-qn-stub")
+  expectResidual "cw bound" .cosmwasm cwSemantic (some cwBindTable) none
   let emptyCw ← expectOk "cw-empty-table"
     (parseCallBindTableV1 (← liftJcs "cw-empty" (cosmwasmDoc #[])))
+  expectResidual "cw empty-table" .cosmwasm cwSemantic (some emptyCw)
+    (some "contract-addr-qn-stub")
   match Targets.CosmWasm.engineeringFilesFromPlan cwPlan (some emptyCw) with
   | .ok _ => throw <| IO.userError "empty CW table must fail closed on ledger.daily"
   | .error e =>
@@ -519,6 +550,13 @@ unsafe def run : IO Unit := do
   let solBindText ← liftJcs "sol-bind"
     (solanaDoc #[solanaBinding "Oracle.feed" ones32 #[]])
   let solBindTable ← expectOk "sol-bind" (parseCallBindTableV1 solBindText)
+  let solSemantic := Compiler.CompiledSemanticV1.semanticV1Of solCompiled
+  expectResidual "sol none-table" .solana solSemantic none
+    (some "callee-identity-outer-account-open")
+  expectResidual "sol bound" .solana solSemantic (some solBindTable)
+    (some "callee-identity-outer-account-open")
+  expectResidual "sol empty-table" .solana solSemantic (some emptySol)
+    (some "callee-identity-outer-account-open")
   match Targets.Solana.buildFromCapability solCap (some solBindTable) with
   | .ok files =>
       let some asm := files.find? (·.path.endsWith ".s") |
@@ -601,6 +639,31 @@ unsafe def run : IO Unit := do
   | .error e =>
       expect (hasSubstr e.render "at most 8 AccountMetas")
         s!"9 AccountMetas must mention cap, got {e.render}"
+
+  -- Wave 2c: no generic call/schedule → program-level residual none.
+  let plainText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CallBindPlain where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(x : UInt64) do\n" ++
+    "    count := x\n" ++
+    "  entry bump() : UInt64 do\n" ++
+    "    count := count + 1\n" ++
+    "    return count\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return count\n"
+  let plainSource ← match ← session.selectProgramV1
+      plainText "<call-bind-plain>" "Tests.CallBindPlain" none with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"load CallBindPlain: {e.render}"
+  let plainCompiled ← match Compiler.compileValidatedSourceV1 plainSource with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"compile CallBindPlain: {e.render}"
+  let plainSemantic := Compiler.CompiledSemanticV1.semanticV1Of plainCompiled
+  expectResidual "plain evm" .evm plainSemantic none none
+  expectResidual "plain solana" .solana plainSemantic none none
+  expectResidual "plain cosmwasm" .cosmwasm plainSemantic none none
 
   IO.println "Tests.Materialization.CallBindV1: ok"
 
