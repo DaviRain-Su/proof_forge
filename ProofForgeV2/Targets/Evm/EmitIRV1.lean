@@ -1714,7 +1714,12 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
         output := output ++ s!"{indent}mstore(0, 0x{padded})\n"
         let okName := s!"callOk{next}"
         next := next + 1
+        -- Wave 2a: empty-account void CALL is fail closed. EVM CALL to an
+        -- account with no code returns success; `extcodesize` rejects that
+        -- before the CALL. Result-bearing CALL already reverts on empty
+        -- returndata; `schedule` stays fire-and-forget (success popped).
         output := output ++
+          s!"{indent}if iszero(extcodesize(0x{addr20})) \{ revert(0, 0) }\n" ++
           s!"{indent}let {okName} := call(gas(), 0x{addr20}, 0, 0, {4 + 32 * args.size}, 0, 0)\n" ++
           s!"{indent}if iszero({okName}) \{ revert(0, 0) }\n"
     | .externalCallResult callee args result =>

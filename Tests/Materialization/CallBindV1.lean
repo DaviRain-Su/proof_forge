@@ -3,7 +3,8 @@
 
   Pure parse of `proof-forge.call-bind.v1`, `--bindings` preflight, and
   three-leaf emit consume (missing row fail closed; bound address appears
-  in Yul / WAT). Not formal / C-3. Not Wave 2a empty-account CALL.
+  in Yul / WAT). Wave 2a pins empty-account void CALL `extcodesize` revert.
+  Not formal / C-3. Not Wave 2b Solana accounts.
 -/
 import ProofForgeV2.CLI.Emit
 import ProofForgeV2.Compiler.Pipeline
@@ -348,6 +349,8 @@ unsafe def run : IO Unit := do
     | .error e => throw <| IO.userError s!"ir stub: {e.render}"
   expect (stubIr.yul.contains s!"call(gas(), 0x{hashedNeedle},")
     s!"no-bindings Yul must keep hashed stub 0x{hashedNeedle}"
+  expect (stubIr.yul.contains s!"if iszero(extcodesize(0x{hashedNeedle}))")
+    "Wave 2a hashed stub void CALL must revert on empty code"
   let boundAddr := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   let evmBindText ← liftJcs "evm-bind-emit"
     (evmDoc #[evmBinding "Oracle.feed" boundAddr])
@@ -359,6 +362,9 @@ unsafe def run : IO Unit := do
   expect (boundIr.yul.contains
       "call(gas(), 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,")
     "bound Yul must CALL the table address"
+  expect (boundIr.yul.contains
+      "if iszero(extcodesize(0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa))")
+    "Wave 2a bound void CALL must revert on empty code"
   expect (!boundIr.yul.contains s!"call(gas(), 0x{hashedNeedle},")
     "bound Yul must not keep the hashed stub"
   let emptyEvm ← expectOk "evm-empty-table" (parseCallBindTableV1 (← liftJcs "empty" (evmDoc #[])))
