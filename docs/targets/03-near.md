@@ -463,11 +463,11 @@ Phase 1：实现
   也不包含第二套业务 step。rc.1 release archive已公开重下载并按 exact hash/size复核，两个 Tool
   Lock和activation rows分别绑定独立 executable identity；Linux locked product consumer已从
   `VerifiedVaultPF.lean`经proof certification、materialize/finalize、provider execution与Reference
-  join实跑5/5。主CI Linux lane和macOS 26 arm64独立 lane配置为运行同一回归；Darwin lane只从
-  对应 Tool Lock物化 `wat2wasm`、provider及其 exact runtime dylib selected closure，不把CI runner
-  宣称为锁定开发机host profile。missing root、executable tamper及Darwin runtime dylib tamper均
-  fail closed。无 PATH或 local-build fallback，也不存在单digest跨平台授权。双平台CI观察完成前
-  不关闭阶段出口。
+  join实跑5/5，并在主CI target lane持续执行。macOS 26 arm64独立 lane只从对应 Tool Lock物化并
+  重验 `wat2wasm`、provider及其 exact runtime dylib selected closure，再用最小无业务fixture原生
+  运行真实parser/checker/instantiator/interpreter；它不重复编译平台无关的Lean/Reference graph，
+  也不声称第二次product join或锁定开发机host profile。missing root、executable/runtime tamper均
+  fail closed。无 PATH或 local-build fallback，也不存在单digest跨平台授权。
 - **locked WasmCert → sole Reference product carrier（Phase 7 第三十七切）**：
   `WasmCertReferenceJoinV1` 只消费 private-constructor locked execution observation；semantic subject
   不由调用方选择，而是从其中 exact `FinalizedArtifactsV1` capability恢复 retained
@@ -578,8 +578,9 @@ success、Unit fall-through、Reference exact post-state及 first/second guard c
 rollback。finalized Wasm现有 exact digest provenance与 bounded section-envelope gate，并已由锁定的
 structured WasmCert provider解析、typecheck、instantiate和执行 selected VerifiedVault fixture；
 Linux locked product chain的host trace replay与 sole ReferenceMachine五条调用 exact join已通过，
-macOS 26 arm64配置同一CI consumer。仍没有 WAT→Wasm translation theorem、kernel中的一般
-IR/WAT→Wasm simulation theorem；binary parser与 purpose-built host assumptions也未消失。因此这项
+macOS 26 arm64 CI则持续验证独立locked provider/runtime closure的原生执行。仍没有 WAT→Wasm
+translation theorem、kernel中的一般 IR/WAT→Wasm simulation theorem；binary parser与
+purpose-built host assumptions也未消失。因此这项
 identity-bound executable join仍是 engineering evidence，不能标成完整 Reference→Wasm/NEAR formal
 refinement。通用 corpus 对 corrupt storage 或
 gas/profile 的覆盖仍不完整；StateCell

@@ -17052,3 +17052,17 @@ normative: false
   `ProofForgeV2.Targets.SupportClaimV1`与`ProofForgeV2.Targets.EngineeringBuildV1` kernel build成功；
   StateCell完整production文件回归随本切片执行。准确边界提升到唯一engineering capability；尚未闭合
   Solana Plan/IR、emitter exact equation、assembly SHA、unconditional `get`、ELF或SVM runtime。
+
+## 2026-08-21 — WasmCert Darwin CI职责分层与冷编译超时修复
+
+- 连续CI run的Darwin arm64 job在locked closure验证完成后，均耗尽90分钟于platform-independent、
+  theorem-heavy Lean/Reference graph冷编译；provider没有启动，因此不能归因于provider hang。Linux
+  target lane在完整目标shard后继续运行 exact VerifiedVaultPF source→finalized Wasm→locked provider→
+  sole Reference 5/5 product consumer，不删除或跳过完整验收。
+- Darwin lane收敛为其独有的platform义务：从active lock物化并逐文件校验 `wat2wasm`、provider及
+  runtime dylib closure，执行exact version probe，再以canonical最小无业务fixture真实运行
+  WasmCert parser、proved checker、instantiator与interpreter，并逐字段/digest检查canonical
+  result/trace/observation。该fixture不提供业务post-state oracle，也不称为product/Reference join。
+- lane不再安装Lean或缓存/编译Lake graph，timeout从150分钟收紧到30分钟；`ci-required`仍把selected
+  Darwin job的failure/skipped/cancelled视为阻断。历史run `31781471216` 的双平台完整consumer观察
+  仍是历史证据；持续CI按产品证据与平台closure证据分层，不升级formal/release maturity。

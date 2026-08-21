@@ -42,16 +42,17 @@ It accepts only native Linux x86_64 or Darwin arm64, uses the same Python
 SHA-256 implementation on both platforms, and `--repeat-check` requires two
 independent clean builds to be byte-identical before publication. This makes
 the Darwin candidate build runnable without GNU `sha256sum`. Manual matrix run
-`31766677105` produced and audited both native candidates; neither archive is
-admitted to Tool Lock yet.
+`31766677105` produced the candidates later reviewed and published as rc.1;
+the current per-platform Tool Locks admit those exact release bytes. Running
+this build recipe again still produces only a non-admitted candidate and cannot
+change either lock.
 
-Given an already-finalized VerifiedVaultPF Wasm, run the executable acceptance
-and the repository's Lean canonical content joins with:
+Given an exact materialized per-platform Tool Root, run the full product and
+Reference acceptance with:
 
 ```bash
-python3 scripts/wasmcert_provider_smoke_v1.py \
-  --provider build/tools/proof-forge-wasmcert-provider-v1 \
-  --wasm build/v2/near-runtime/VerifiedVaultPF/VerifiedVaultPF.wasm
+PROOF_FORGE_TOOL_ROOT=/path/to/tool-root \
+  python3 scripts/wasmcert_provider_smoke_v1.py
 ```
 
 The five cases are `init`, `deposit`, `withdraw`, `status`, and an overdraw
@@ -61,6 +62,19 @@ VerifiedVaultPF subject and compares return data, production storage, and
 rollback. The Python harness deliberately carries no hand-written business
 post-state oracle. Temporary request/result/trace/observation files are removed
 after the check.
+
+The Darwin CI lane uses the narrower native-platform mode:
+
+```bash
+PROOF_FORGE_TOOL_ROOT=/path/to/tool-root \
+  python3 scripts/wasmcert_provider_smoke_v1.py --platform-smoke
+```
+
+That mode rehashes the locked `wat2wasm`, provider, and runtime files, then
+runs the real Wasm parser/checker/instantiator/interpreter on a generated
+business-free module. It validates native closure execution only; the Linux
+target lane remains the authority for the full VerifiedVaultPF product and
+Reference 5/5 acceptance.
 
 The machine protocol remains:
 
@@ -76,15 +90,14 @@ diagnostics only.
 
 ## Assurance boundary
 
-This overlay source and build recipe do **not** provision the provider. Run
-`31766677105` produced byte-identical Darwin arm64 and Linux x86_64 candidates
-with executable SHA-256 values
+This overlay source and build recipe do **not** activate a newly built provider.
+Run `31766677105` produced byte-identical Darwin arm64 and Linux x86_64
+candidates with executable SHA-256 values
 `696b55dd6c02159a5c45f7aba0e1196ee4cc046ac903ffe6b7387763e3399842` and
 `c08b1622b5e9593f9803e60977c40f8531e52e9596dc2549fea14edaf2615919`.
-The Linux candidate also passed the five-path smoke in a Debian 12 / GLIBC 2.36
-orb. Candidate hashes and same-host repeat builds are still not per-platform
-Tool Lock identities. Until durable content-addressed assets, runtime closures,
-and per-platform lock rows are committed,
-`requireWasmCertProviderProvisionedV1` must continue to return
-`executableUnprovisioned` and no product target-refinement evidence may consume
-provider records.
+Those exact rc.1 release bytes and runtime closures are now admitted by the two
+per-platform Tool Locks; the Linux closure also passes the five-path product
+smoke on Debian 12 / GLIBC 2.36. Candidate hashes and same-host repeat builds
+remain insufficient on their own: any replacement still requires durable
+content-addressed assets and a reviewed lock/activation change. Provider
+records remain engineering observations, not formal target-refinement evidence.

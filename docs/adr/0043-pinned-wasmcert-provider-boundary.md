@@ -229,8 +229,10 @@ LGPL-2.1-or-later；不能只复制 opam 的简化 MIT 字段。
 - activation digest API按 `darwin-arm64`/`linux-x86_64`持有两个不同 row，且各自等于对应 lock
   executable pin；source revision、archive digest、canonical lock identity和executable digest保持
   不同概念，不能互相冒充。
-- NEAR本阶段的双平台 provisioning/activation/consumer出口已经实现，并进入 Linux主CI与
-  macOS 14独立 lane。translation、unverified parser、host与adapter assumptions仍必须明示；下一步
-  可按路线恢复 Solana bounded target slice，而不能把本出口宣传成一般 Wasm/NEAR formal refinement。
+- NEAR本阶段的双平台 provisioning/activation出口已经实现。Linux主CI运行 exact source→finalized
+  Wasm→locked provider→sole Reference五路径完整 consumer；macOS 26 arm64独立 lane逐文件验证并
+  原生执行 locked provider/runtime closure，但不重复编译平台无关的 theorem-heavy Lean/Reference
+  graph，也不把 platform fixture smoke称为第二次product join。translation、unverified parser、
+  host与adapter assumptions仍必须明示；不能把本出口宣传成一般 Wasm/NEAR formal refinement。
 - WasmCert parser、wrapper glue、OCaml compiler/runtime和 purpose-built host仍属于明确列出的 TCB/
   assumption边界；文档和 UI 不得用单一 `verified=true` 抹平这些差异。
