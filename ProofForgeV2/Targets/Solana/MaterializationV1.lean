@@ -117,4 +117,10 @@ def planDigestFromCapabilityV1
     unknownProfileFail profile
   productPlanDigestFromCapabilityV1 capability bindings
 
+/-- Materializer associated types are the #125 tagged sums (legacy | cpi).
+    Aggregate Registry still sole-mints via one `.solana` kind dispatch. -/
+instance : Materializer .solana where
+  Plan := SolanaPlanFromCapabilityV1
+  TargetIR := SolanaIRFromCapabilityV1
+
 end ProofForgeV2.Targets.Solana

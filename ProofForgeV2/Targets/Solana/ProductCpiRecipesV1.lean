@@ -218,6 +218,7 @@ def multiRoleAbiDataLenOffsetV1 : Nat := 80
 def multiRoleAbiFullPrefixV1 : Nat := 88
 def multiRoleAbiIsSignerOffsetV1 : Nat := 1
 def multiRoleAbiIsWritableOffsetV1 : Nat := 2
+def multiRoleAbiIsExecutableOffsetV1 : Nat := 3
 def multiRoleAbiMaxPermittedV1 : Nat := 10240
 def multiRoleAbiOrigDataLenOffV1 : Nat := 4
 /-- Must match `frozenLoaderV3AbiLayoutV1.originalDataLenEntryValue` (0).

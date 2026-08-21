@@ -3,7 +3,7 @@ id: ADR-0036
 title: Engineering target scope and EVM-first formal lighthouse
 status: proposed
 owner: architecture
-updated: 2026-08-19
+updated: 2026-08-21
 normative: true
 ---
 
@@ -79,3 +79,16 @@ stated in their target dossiers. Soroban S0 source-only evidence does not promot
 accepted Phase 1 or formal scope. OpenVM O0/O1 does not claim proof, VK, or
 `verifiable-workload` maturity. XRPL Q0/Q1 does not claim AlphaNet, mainnet, or
 `B-CALL-SEM` alignment.
+
+## Governance state
+
+本版 decision 已与当前工程事实对账：registry 为 **13 implemented + 0
+design-only**，accepted PRD 仍是 EVM / Solana / NEAR / Noir 四目标，retired
+frontend 不恢复，formal lighthouse 保持 EVM-first。当前没有发现需要改写上述
+decision 的技术 finding；建议按本版正文接受。
+
+状态仍保持 `proposed`，因为仓库中没有对**本版正文**可核验的完整 acceptance
+record。翻为 `accepted` 必须取得 owner 明确批准，并在 frontmatter 记录
+`approvers`、`approvedAt`、`reviewCommit`、`reviewLink` 与 `openFindings`。
+工程计数对齐、ordinary CI 或其它 target runtime evidence 均不能代签该治理批准，
+也不能借 status flip 扩写 accepted PRD 或关闭 formal D1–D4。

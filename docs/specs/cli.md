@@ -3,7 +3,7 @@ id: SPEC-CLI-001
 title: CLI 契约
 status: proposed
 owner: cli
-updated: 2026-08-20
+updated: 2026-08-21
 normative: true
 ---
 
@@ -108,11 +108,18 @@ join 后把表显式传到三叶 emit：generic `call`/`schedule` 无匹配行 f
 EVM generic void CALL 在 `extcodesize==0` 时 fail closed（与 `--bindings` 无关）。
 **Wave 2c**：成功 `build` JSON（`proof-forge.cli.build.v1`）带
 `callScheduleResidual: string | null`（program-level；无 generic call 或
-EVM/CW 全部 generic call 有精确行 → `null`；Solana 有 generic call 仍为
-`callee-identity-outer-account-open`）。human 仅在 residual 仍存在时多一行。
+EVM/CW 全部 generic call 有精确行 → `null`）。**Wave 3**：Solana 仅当
+program 属于 state-bearing、single generic callee、synchronous void CALL、
+1..8 non-alias account rows、无 frozen CPI site 的支持子集时，完成 exact outer
+AccountInfo join 并令 residual 为 `null`；empty-state / schedule / empty-row /
+multi-callee / mixed-site / generic result-bearing 形态保留
+`callee-identity-outer-account-open` 或在 materialize 前 fail closed。human 仅在
+residual 仍存在时多一行。
 target `inspect` 仍静态报告 kind 闭表；inspect-output / manifest / evidence
-不加该字段。不把产品
-`build` 接到 Anvil / wasmd / 任何网络。
+不加该字段。Solana Wave 3 的 outer role 顺序为既有 roles、bind row source order、
+executable callee program；`cpiSites` 不因 generic call-bind 伪造。identity digest
+metadata 仍 parse-only，不参与 emit/SupportClaim。不把产品 `build` 接到 Anvil /
+wasmd / 任何网络。
 
 `--resource-limit` 是 repeatable、逐 stage/field 的 lower-only override。CLI 名称固定映射到
 SPEC-COMMON-001，不创建第二套 resource profile：

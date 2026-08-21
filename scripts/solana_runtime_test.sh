@@ -384,6 +384,52 @@ caller_isme_out="$(cd "$caller_isme_out" && pwd -P)"
 export PROOF_FORGE_CALLER_ISME_OUT="$caller_isme_out"
 echo "solana-runtime-test: CallerIsMe.so=$(wc -c <"$caller_isme_out/CallerIsMe.so" | tr -d ' ') bytes"
 
+# ADR-0053 Wave 3: product-built generic caller + product-built callee. The
+# caller's explicit bind table supplies one writable callee-state role plus the
+# executable callee program role; Mollusk validates the exact outer join.
+call_bind_callee_out="${PROOF_FORGE_CALL_BIND_CALLEE_OUT:-$root/build/v2/solana-call-bind-callee}"
+export PROOF_FORGE_CALL_BIND_CALLEE_OUT="$call_bind_callee_out"
+echo "solana-runtime-test: CallBindCallee product build → $call_bind_callee_out"
+rm -rf "$call_bind_callee_out"
+mkdir -p "$(dirname "$call_bind_callee_out")"
+if ! lake env "$cli" build \
+  "runtime-tests/solana/fixtures/CallBindCallee.lean" \
+  --module "Examples.CallBindCallee" \
+  --target solana \
+  --profile solana-sbpf-cpi-elf-v1 \
+  -o "$call_bind_callee_out"; then
+  die "proof-forge-next build failed for CallBindCallee"
+fi
+[[ -f "$call_bind_callee_out/CallBindCallee.so" ]] || die "CallBindCallee.so missing"
+if ! lake env "$cli" inspect --output-dir "$call_bind_callee_out" --json >/dev/null; then
+  die "product inspect failed for CallBindCallee under $call_bind_callee_out"
+fi
+call_bind_callee_out="$(cd "$call_bind_callee_out" && pwd -P)"
+export PROOF_FORGE_CALL_BIND_CALLEE_OUT="$call_bind_callee_out"
+
+call_bind_caller_out="${PROOF_FORGE_CALL_BIND_CALLER_OUT:-$root/build/v2/solana-call-bind-caller}"
+export PROOF_FORGE_CALL_BIND_CALLER_OUT="$call_bind_caller_out"
+echo "solana-runtime-test: CallBindCaller product build → $call_bind_caller_out"
+rm -rf "$call_bind_caller_out"
+mkdir -p "$(dirname "$call_bind_caller_out")"
+call_bind_table="$root/build/v2/solana-call-bind-caller.bindings.v1.json"
+printf '%s' '{"bindings":[{"accounts":[{"pubkey":"2121212121212121212121212121212121212121212121212121212121212121","role":"callee_state","signer":false,"writable":true}],"callee":"Oracle.feed","programId":"4343434343434343434343434343434343434343434343434343434343434343"}],"schema":"proof-forge.call-bind.v1","target":"solana"}' >"$call_bind_table"
+if ! lake env "$cli" build \
+  "runtime-tests/solana/fixtures/CallBindCaller.lean" \
+  --module "Examples.CallBindCaller" \
+  --target solana \
+  --profile solana-sbpf-cpi-elf-v1 \
+  --bindings "$call_bind_table" \
+  -o "$call_bind_caller_out"; then
+  die "proof-forge-next build failed for CallBindCaller"
+fi
+[[ -f "$call_bind_caller_out/CallBindCaller.so" ]] || die "CallBindCaller.so missing"
+if ! lake env "$cli" inspect --output-dir "$call_bind_caller_out" --json >/dev/null; then
+  die "product inspect failed for CallBindCaller under $call_bind_caller_out"
+fi
+call_bind_caller_out="$(cd "$call_bind_caller_out" && pwd -P)"
+export PROOF_FORGE_CALL_BIND_CALLER_OUT="$call_bind_caller_out"
+
 echo "solana-runtime-test: cargo test (cwd=$crate_dir)"
 
 state_cell_out="$(cd "$state_cell_out" && pwd -P)"

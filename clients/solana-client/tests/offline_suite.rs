@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 
 use proof_forge_solana_client::artifact::{
     read_regular_single_link_file, verify_solana_artifact, verify_solana_artifact_with_adapter,
-    verify_transfer_sol_artifact, verify_transfer_sol_artifact_with_source_hash, CANONICAL_LEAVES,
-    IR_DIGEST_DOMAIN, MAX_ARTIFACT_FILES, MAX_FILE_BYTES, PLAN_DIGEST_DOMAIN,
+    verify_transfer_sol_artifact, verify_transfer_sol_artifact_with_source_hash, IR_DIGEST_DOMAIN,
+    MAX_ARTIFACT_FILES, MAX_FILE_BYTES, PLAN_DIGEST_DOMAIN,
 };
 use proof_forge_solana_client::constants::{
     CATALOG_DIGEST_HEX, DEFAULT_EXPECTED_SOURCE_HASH, EXTENSION_DIGEST_HEX, EXTENSION_ID,
@@ -16,6 +16,7 @@ use proof_forge_solana_client::constants::{
 };
 use proof_forge_solana_client::output_set::{
     cpi_elf_expected_leaves, elf_expected_leaves, plan_expected_leaves,
+    FULL_BODY_HYBRID_IR_DIGEST_DOMAIN,
 };
 use proof_forge_solana_client::program_adapter::ProgramAdapterId;
 use proof_forge_solana_client::sha256_hex;
@@ -31,6 +32,7 @@ const SUPPORT: &str = "ddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 const REGISTRY: &str = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 const SOURCE_IR: &str = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
 const OTHER_SOURCE: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const CALL_BIND_PROGRAM_NAME: &str = "CallBindFixture";
 
 fn write(path: &Path, bytes: &[u8]) {
     fs::write(path, bytes).unwrap();
@@ -247,6 +249,39 @@ fn build_cpi_artifact_tree(
     let idl = idl_json(program_name, handler_name, &plan_digest);
     let bindings = bindings_json(&plan_digest, &ir_digest);
     let asm = asm_text();
+
+    seal_cpi_artifact_tree(
+        dir,
+        program_name,
+        source_hash,
+        &plan,
+        &ir,
+        &idl,
+        &bindings,
+        asm,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn seal_cpi_artifact_tree(
+    dir: &Path,
+    program_name: &str,
+    source_hash: &str,
+    plan: &str,
+    ir: &str,
+    idl: &str,
+    bindings: &str,
+    asm: &str,
+) -> PathBuf {
+    let plan_bytes = plan.as_bytes();
+    let plan_digest = domain_separated_sha256_hex(PLAN_DIGEST_DOMAIN, plan_bytes);
+    let ir_bytes = ir.as_bytes();
+    let ir_domain = if ir.contains("proof-forge.solana.full-body-hybrid-ir.v1") {
+        FULL_BODY_HYBRID_IR_DIGEST_DOMAIN
+    } else {
+        IR_DIGEST_DOMAIN
+    };
+    let ir_digest = domain_separated_sha256_hex(ir_domain, ir_bytes);
     let so: Vec<u8> = {
         let mut v = b"\x7fELF".to_vec();
         v.extend_from_slice(b" minimal offline test so payload bytes!!!!");
@@ -344,6 +379,176 @@ fn build_cpi_artifact_tree(
         serde_json::to_string_pretty(&manifest).unwrap().as_bytes(),
     );
     dir.to_path_buf()
+}
+
+fn build_call_bind_artifact_tree(dir: &Path) -> PathBuf {
+    let alias_policy = serde_json::json!({
+        "cpiSiteMetaKeys": "pairwise-distinct",
+        "outerRoleKeys": "pairwise-distinct",
+        "sameRoleAcrossCpiSites": "allowed-and-reused",
+        "separateRolesAcrossCpiSites": "must-remain-distinct"
+    });
+    let roles = serde_json::json!([
+        {
+            "name": "state",
+            "roleId": 0,
+            "keyPolicy": {"kind": "state", "schemaId": 0},
+            "constraint": {
+                "data": {"kind": "proofForgeState"},
+                "executable": "forbidden",
+                "initialization": "initializerUninitializedOtherwiseInitialized",
+                "owner": {"kind": "currentProgram"},
+                "provisioning": "mustExist"
+            },
+            "aliasPolicy": alias_policy
+        },
+        {
+            "name": "callee_state",
+            "roleId": 1,
+            "keyPolicy": {
+                "kind": "callBindAccount",
+                "pubkey": "21".repeat(32),
+                "signer": false,
+                "writable": true
+            },
+            "constraint": {
+                "data": {"kind": "notRead"},
+                "executable": "forbidden",
+                "initialization": "any",
+                "owner": {"kind": "any"},
+                "provisioning": "mustExist"
+            },
+            "aliasPolicy": alias_policy
+        },
+        {
+            "name": "call_bind_Oracle_feed_program",
+            "roleId": 2,
+            "keyPolicy": {"kind": "callBindProgram", "programId": "43".repeat(32)},
+            "constraint": {
+                "data": {"kind": "notRead"},
+                "executable": "required",
+                "initialization": "any",
+                "owner": {"kind": "any"},
+                "provisioning": "mustExist"
+            },
+            "aliasPolicy": alias_policy
+        }
+    ]);
+    let uses = serde_json::json!([
+        {"roleId": 0, "position": 0, "directSignerContribution": false, "directWritableContribution": true, "outerSigner": false, "outerWritable": true},
+        {"roleId": 1, "position": 1, "directSignerContribution": false, "directWritableContribution": true, "outerSigner": false, "outerWritable": true},
+        {"roleId": 2, "position": 2, "directSignerContribution": false, "directWritableContribution": false, "outerSigner": false, "outerWritable": false}
+    ]);
+    let plan = serde_json::json!({
+        "schema": "proof-forge.solana.cpi-plan.v1",
+        "programName": CALL_BIND_PROGRAM_NAME,
+        "profileId": PROFILE_CPI_ELF_V1,
+        "profileDigest": format!("sha256:{PROFILE_DIGEST_HEX}"),
+        "calleeCatalogDigest": format!("sha256:{CATALOG_DIGEST_HEX}"),
+        "extensionRequirement": {
+            "id": EXTENSION_ID,
+            "version": EXTENSION_VERSION,
+            "digest": format!("sha256:{EXTENSION_DIGEST_HEX}"),
+            "predicates": []
+        },
+        "accountRoles": roles,
+        "handlers": [{
+            "handlerId": 0,
+            "callableId": 0,
+            "name": "invoke",
+            "mode": "entry",
+            "cpiSiteIds": [],
+            "accountUses": uses
+        }],
+        "cpiSites": [],
+        "computeAssumptions": {
+            "implementationState": "product-exact-synchronous-call-active-v1"
+        }
+    })
+    .to_string();
+    let plan_digest = domain_separated_sha256_hex(PLAN_DIGEST_DOMAIN, plan.as_bytes());
+
+    let role_rows = roles.as_array().unwrap();
+    let use_rows = uses.as_array().unwrap();
+    let accounts: Vec<serde_json::Value> = role_rows
+        .iter()
+        .zip(use_rows)
+        .map(|(role, use_row)| {
+            let mut account = role.clone();
+            let object = account.as_object_mut().unwrap();
+            for field in [
+                "position",
+                "directSignerContribution",
+                "directWritableContribution",
+                "outerSigner",
+                "outerWritable",
+            ] {
+                object.insert(field.to_string(), use_row[field].clone());
+            }
+            account
+        })
+        .collect();
+    let idl = serde_json::json!({
+        "schema": "proof-forge.solana.cpi-idl.v1",
+        "programName": CALL_BIND_PROGRAM_NAME,
+        "profileId": PROFILE_CPI_ELF_V1,
+        "profileDigest": format!("sha256:{PROFILE_DIGEST_HEX}"),
+        "catalogDigest": format!("sha256:{CATALOG_DIGEST_HEX}"),
+        "planDigest": format!("sha256:{plan_digest}"),
+        "instructions": [{
+            "name": "invoke",
+            "mode": "entry",
+            "handlerId": 0,
+            "cpiSiteIds": [],
+            "accounts": accounts
+        }],
+        "cpiSites": []
+    })
+    .to_string();
+    let ir = serde_json::json!({
+        "schema": "proof-forge.solana.full-body-hybrid-ir.v1",
+        "synthesize": "call-bind-outer-account-join",
+        "frameMode": "unifiedCpi",
+        "frameBytes": 2888,
+        "cpiSites": 0,
+        "outerRoleCount": 3
+    })
+    .to_string();
+    let ir_digest = domain_separated_sha256_hex(FULL_BODY_HYBRID_IR_DIGEST_DOMAIN, ir.as_bytes());
+    let bindings = serde_json::json!({
+        "schema": "proof-forge.solana.cpi-bindings.v1",
+        "fullBodyHybrid": true,
+        "programName": CALL_BIND_PROGRAM_NAME,
+        "profileId": PROFILE_CPI_ELF_V1,
+        "profileDigest": format!("sha256:{PROFILE_DIGEST_HEX}"),
+        "calleeCatalogDigest": format!("sha256:{CATALOG_DIGEST_HEX}"),
+        "planDigest": format!("sha256:{plan_digest}"),
+        "synthesize": "call-bind-outer-account-join",
+        "frameMode": "unifiedCpi",
+        "frameBytes": 2888,
+        "cpiSites": 0,
+        "outerRoleCount": 3,
+        "irDigest": format!("sha256:{ir_digest}"),
+        "implementationState": "product-exact-synchronous-call-active-v1"
+    })
+    .to_string();
+    let asm = "; PROOF-FORGE-SBPF-ASM v1\n\
+.globl entrypoint\n\
+entrypoint:\n\
+; call-bind outer AccountInfo join\n\
+; call-bind callee program\n\
+call sol_invoke_signed_c\n";
+
+    seal_cpi_artifact_tree(
+        dir,
+        CALL_BIND_PROGRAM_NAME,
+        OTHER_SOURCE,
+        &plan,
+        &ir,
+        &idl,
+        &bindings,
+        asm,
+    )
 }
 
 fn build_minimal_artifact_tree(dir: &Path, source_hash: &str) -> PathBuf {
@@ -668,6 +873,87 @@ fn cpi_profile_leaf_shape_for_dynamic_program_name() {
     assert!(v.so_path.as_ref().unwrap().ends_with("AlphaBeta.so"));
 }
 
+#[test]
+fn call_bind_artifact_projection_accepted() {
+    let dir = tempdir().unwrap();
+    build_call_bind_artifact_tree(dir.path());
+    let verified = verify_solana_artifact(dir.path()).unwrap();
+    assert_eq!(
+        verified.manifest.artifact_program_name,
+        CALL_BIND_PROGRAM_NAME
+    );
+    assert_eq!(verified.profile_id, PROFILE_CPI_ELF_V1);
+}
+
+#[test]
+fn call_bind_artifact_rejects_idl_fixed_pubkey_mismatch() {
+    let dir = tempdir().unwrap();
+    build_call_bind_artifact_tree(dir.path());
+    let path = dir
+        .path()
+        .join(format!("{CALL_BIND_PROGRAM_NAME}.idl.json"));
+    let mut idl: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    idl["instructions"][0]["accounts"][1]["keyPolicy"]["pubkey"] =
+        serde_json::json!("22".repeat(32));
+    write(&path, &serde_json::to_vec(&idl).unwrap());
+    reseal_cpi_hashes_only(dir.path(), CALL_BIND_PROGRAM_NAME, OTHER_SOURCE);
+
+    let err = verify_solana_artifact(dir.path()).unwrap_err();
+    assert!(err.to_string().contains("keyPolicy diverges"), "{err}");
+}
+
+#[test]
+fn call_bind_artifact_rejects_idl_signer_or_writable_mismatch() {
+    for (field, value) in [("outerSigner", true), ("outerWritable", false)] {
+        let dir = tempdir().unwrap();
+        build_call_bind_artifact_tree(dir.path());
+        let path = dir
+            .path()
+            .join(format!("{CALL_BIND_PROGRAM_NAME}.idl.json"));
+        let mut idl: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        idl["instructions"][0]["accounts"][1][field] = serde_json::json!(value);
+        write(&path, &serde_json::to_vec(&idl).unwrap());
+        reseal_cpi_hashes_only(dir.path(), CALL_BIND_PROGRAM_NAME, OTHER_SOURCE);
+
+        let err = verify_solana_artifact(dir.path()).unwrap_err();
+        assert!(err.to_string().contains(field), "{field}: {err}");
+    }
+}
+
+#[test]
+fn call_bind_artifact_rejects_idl_executable_constraint_mismatch() {
+    let dir = tempdir().unwrap();
+    build_call_bind_artifact_tree(dir.path());
+    let path = dir
+        .path()
+        .join(format!("{CALL_BIND_PROGRAM_NAME}.idl.json"));
+    let mut idl: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    idl["instructions"][0]["accounts"][2]["constraint"]["executable"] =
+        serde_json::json!("forbidden");
+    write(&path, &serde_json::to_vec(&idl).unwrap());
+    reseal_cpi_hashes_only(dir.path(), CALL_BIND_PROGRAM_NAME, OTHER_SOURCE);
+
+    let err = verify_solana_artifact(dir.path()).unwrap_err();
+    assert!(err.to_string().contains("constraint diverges"), "{err}");
+}
+
+#[test]
+fn call_bind_artifact_rejects_bindings_outer_role_count_mismatch() {
+    let dir = tempdir().unwrap();
+    build_call_bind_artifact_tree(dir.path());
+    let path = dir
+        .path()
+        .join(format!("{CALL_BIND_PROGRAM_NAME}.cpi-bindings.json"));
+    let mut bindings: serde_json::Value =
+        serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    bindings["outerRoleCount"] = serde_json::json!(2);
+    write(&path, &serde_json::to_vec(&bindings).unwrap());
+    reseal_cpi_hashes_only(dir.path(), CALL_BIND_PROGRAM_NAME, OTHER_SOURCE);
+
+    let err = verify_solana_artifact(dir.path()).unwrap_err();
+    assert!(err.to_string().contains("outerRoleCount"), "{err}");
+}
+
 // ---------------------------------------------------------------------------
 // TransferSol adapter regressions (20 security/digest/ABI cases)
 // ---------------------------------------------------------------------------
@@ -932,15 +1218,14 @@ fn verify_rejects_uppercase_digest() {
 
 /// Reseal leaf content hashes + evidenceSha256 + outputSetDigest after leaf mutation.
 fn reseal_hashes_only(dir: &Path, source_hash: &str) {
+    reseal_cpi_hashes_only(dir, TRANSFER_SOL_PROGRAM_NAME, source_hash);
+}
+
+fn reseal_cpi_hashes_only(dir: &Path, program_name: &str, source_hash: &str) {
     let mut files_meta = Vec::new();
-    for (path, role) in &CANONICAL_LEAVES {
-        let b = fs::read(dir.join(path)).unwrap();
-        files_meta.push((
-            (*role).to_string(),
-            (*path).to_string(),
-            b.len() as u64,
-            sha256_hex(&b),
-        ));
+    for (path, role) in cpi_elf_expected_leaves(program_name) {
+        let b = fs::read(dir.join(&path)).unwrap();
+        files_meta.push((role, path, b.len() as u64, sha256_hex(&b)));
     }
     let evidence = fs::read(dir.join("evidence.json")).unwrap();
     let evidence_sha = sha256_hex(&evidence);
@@ -951,7 +1236,7 @@ fn reseal_hashes_only(dir: &Path, source_hash: &str) {
         "proof-forge.output.v1",
         "solana",
         "solana-sbpf-cpi-elf-v1",
-        "TransferSol",
+        program_name,
         &files_meta,
         source_hash,
         SEMANTIC_HASH,

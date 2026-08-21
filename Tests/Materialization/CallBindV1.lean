@@ -6,7 +6,8 @@
   in Yul / WAT). Wave 2a pins empty-account void CALL `extcodesize` revert.
   Wave 2b pins Solana compile-time AccountMeta (nonempty accounts).
   Wave 2c pins program-level callScheduleResidual (build only; target
-  inspect stays the closed kind table). Not formal / C-3.
+  inspect stays the closed kind table). Wave 3 pins Solana bound-account
+  outer AccountInfo join. Not formal / C-3.
 -/
 import ProofForgeV2.CLI.Emit
 import ProofForgeV2.Compiler.Pipeline
@@ -16,6 +17,8 @@ import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.CallBindV1
 import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Targets.RequirementResolverV1
+import ProofForgeV2.Targets.Solana.CpiIdlV1
+import ProofForgeV2.Targets.Solana.CpiProductV1
 import Tests.Language.ParserSession
 
 set_option maxRecDepth 4096
@@ -572,27 +575,144 @@ unsafe def run : IO Unit := do
     (solanaDoc #[solanaBinding "Oracle.feed" ones32
       #[solanaAccount "authority" zero32 true true]])
   let nonemptyAccTable ← expectOk "sol-nonempty" (parseCallBindTableV1 nonemptyAccText)
+  expectResidual "sol nonempty bound" .solana solSemantic (some nonemptyAccTable) none
+  let callBindPlan ← match Targets.Solana.CpiV1.productPlanFromCapabilityV1
+      solCap (some nonemptyAccTable) with
+    | .ok plan => pure plan
+    | .error e => throw <| IO.userError s!"derive call-bind Plan: {e.render}"
+  let callBindCandidate :=
+    Targets.Solana.CpiV1.SolanaCpiProductPlanV1.candidateOf callBindPlan
+  expect (callBindCandidate.accountRoles.size == 3)
+    "call-bind Plan must expose state + bound account + callee program"
+  expect callBindCandidate.cpiSites.isEmpty
+    "generic call-bind roles must not fabricate a frozen CpiSitePlan"
+  match callBindCandidate.accountRoles[0]? with
+  | some role =>
+      expect (role.roleId == 0 && role.name == "state")
+        "call-bind Plan role 0 must remain caller state"
+      match role.keyPolicy with
+      | .state 0 => pure ()
+      | _ => throw <| IO.userError "call-bind Plan role 0 key policy must be state:0"
+  | none => throw <| IO.userError "call-bind Plan state role missing"
+  match callBindCandidate.accountRoles[1]? with
+  | some role =>
+      expect (role.roleId == 1 && role.name == "authority")
+        "call-bind Plan role 1 must be the bound account"
+      match role.keyPolicy with
+      | .callBindAccount pubkey signer writable =>
+          expect (Targets.Solana.CpiV1.SolanaPubkeyV1.toBytes pubkey ==
+              ByteArray.mk (Array.replicate 32 0))
+            "call-bind Plan must retain the exact bound account pubkey"
+          expect (signer && writable)
+            "call-bind Plan key policy must retain bind privileges"
+      | _ =>
+          throw <| IO.userError "call-bind Plan role 1 must use callBindAccount"
+      expect (role.constraint ==
+          Targets.Solana.CpiV1.callBindAccountRoleConstraintV1)
+        "bound account must forbid executable and not read data"
+  | none => throw <| IO.userError "call-bind Plan account role missing"
+  match callBindCandidate.accountRoles[2]? with
+  | some role =>
+      expect (role.roleId == 2 && role.name == "call_bind_Oracle_feed_program")
+        "call-bind Plan role 2 must be the callee program"
+      match role.keyPolicy with
+      | .callBindProgram programId =>
+          let actual := Targets.Solana.CpiV1.SolanaPubkeyV1.toBytes programId
+          expect (actual == ByteArray.mk (Array.replicate 32 0x11))
+            s!"call-bind Plan must retain the exact callee program id, got {repr actual.data}"
+      | _ =>
+          throw <| IO.userError "call-bind Plan role 2 must use callBindProgram"
+      expect (role.constraint ==
+          Targets.Solana.CpiV1.callBindProgramRoleConstraintV1)
+        "callee program role must require executable"
+  | none => throw <| IO.userError "call-bind Plan program role missing"
+  for handler in callBindCandidate.handlers do
+    expect (handler.accountUses.size == 3)
+      s!"call-bind Plan handler '{handler.name}' must expose all three roles"
+    expect (handler.accountUses.map (·.roleId) == #[0, 1, 2])
+      s!"call-bind Plan handler '{handler.name}' role order"
+    match handler.accountUses[1]?, handler.accountUses[2]? with
+    | some boundUse, some programUse =>
+        expect (boundUse.position == 1 && boundUse.outerSigner &&
+            boundUse.outerWritable && boundUse.directSignerContribution &&
+            boundUse.directWritableContribution)
+          s!"call-bind Plan handler '{handler.name}' bound privilege projection"
+        expect (programUse.position == 2 && !programUse.outerSigner &&
+            !programUse.outerWritable && !programUse.directSignerContribution &&
+            !programUse.directWritableContribution)
+          s!"call-bind Plan handler '{handler.name}' program privilege projection"
+    | _, _ => throw <| IO.userError "call-bind Plan handler role suffix missing"
+  let callBindIdl ← match Targets.Solana.CpiV1.deriveSolanaCpiIdlV1
+      (Targets.Solana.CpiV1.SolanaCpiProductPlanV1.planOf callBindPlan) with
+    | .ok idl => pure idl
+    | .error e => throw <| IO.userError s!"derive call-bind IDL: {e.render}"
+  expect callBindIdl.candidate.cpiSites.isEmpty
+    "call-bind IDL must not fabricate a frozen CPI site"
+  expect (callBindIdl.candidate.instructions.size == callBindCandidate.handlers.size)
+    "call-bind IDL instruction count must equal Plan handler count"
+  for (instruction, handler) in
+      callBindIdl.candidate.instructions.zip callBindCandidate.handlers do
+    expect (instruction.accounts.size == 3)
+      s!"call-bind IDL instruction '{instruction.name}' must expose three accounts"
+    for i in [0:instruction.accounts.size] do
+      match instruction.accounts[i]?, handler.accountUses[i]?,
+          callBindCandidate.accountRoles[i]? with
+      | some account, some use, some role =>
+          expect (account.position == i && account.roleId == i &&
+              account.name == role.name && account.keyPolicy == role.keyPolicy &&
+              account.constraint == role.constraint &&
+              account.outerSigner == use.outerSigner &&
+              account.outerWritable == use.outerWritable &&
+              account.directSignerContribution == use.directSignerContribution &&
+              account.directWritableContribution == use.directWritableContribution)
+            s!"call-bind IDL instruction '{instruction.name}' account {i} must equal Plan projection"
+      | _, _, _ => throw <| IO.userError "call-bind IDL/Plan role projection missing"
   match Targets.Solana.buildFromCapability solCap (some nonemptyAccTable) with
   | .ok files =>
       let some asm := files.find? (·.path.endsWith ".s") |
-        throw <| IO.userError "solana Wave 2b emit missing .s"
+        throw <| IO.userError "solana Wave 3 emit missing .s"
       expect (hasSubstr asm.contents ones32)
-        "Wave 2b asm must still contain the table programId"
+        "Wave 3 asm must still contain the table programId"
       expect (hasSubstr asm.contents "Wave 2b compile-time AccountMeta n=1")
-        "Wave 2b asm must name compile-time AccountMeta"
+        "Wave 3 must retain compile-time AccountMeta"
       expect (hasSubstr asm.contents "lddw r1, 0x101\n")
         "Wave 2b writable+signer flags pack as 0x101"
       expect (hasSubstr asm.contents "lddw r1, 0x1\n")
         "Wave 2b accounts_len=1 packs as 0x1"
-      expect (hasSubstr asm.contents "lddw r2, 0")
-        "Wave 2b still passes empty AccountInfo (r2=0)"
-      expect (hasSubstr asm.contents "lddw r3, 0")
-        "Wave 2b still passes empty AccountInfo len (r3=0)"
+      expect (hasSubstr asm.contents "call-bind outer AccountInfo join")
+        "Wave 3 must name the outer AccountInfo join"
+      expect (hasSubstr asm.contents
+          "call-bind account role 'authority' local=1 exact pubkey signer=1 writable=1")
+        "Wave 3 must preflight authority key and exact privileges"
+      expect (hasSubstr asm.contents
+          "call-bind callee program local=2 exact program id executable=1")
+        "Wave 3 must preflight the executable callee program identity"
+      expect (hasSubstr asm.contents
+          "ROLE_FLAGS (signer|writable<<8|executable<<16)")
+        "multi-role walker must preserve executable for AccountInfo packing"
+      expect (hasSubstr asm.contents "ROLE_RENT")
+        "multi-role walker must preserve rent epoch for AccountInfo packing"
+      expect (hasSubstr asm.contents "call-bind AccountInfos startLocal=1 n=2")
+        "Wave 3 must pack one meta account plus the callee program AccountInfo"
+      expect (hasSubstr asm.contents "lddw r3, 2")
+        "Wave 3 must pass AccountInfo len rows+program=2"
+      expect (hasSubstr asm.contents "jne r0, 0, cpi_failed_mr")
+        "Wave 3 must propagate CPI failure"
+      expect (hasSubstr asm.contents "jne r1, r3, call_bind_check_failed_")
+        "Wave 3 exact role mismatch must use the local check-failure exit"
+      expect (hasSubstr asm.contents "call_bind_checks_ok_")
+        "Wave 3 successful role checks must branch around Custom(1)"
       expect (!hasSubstr asm.contents "empty AccountMeta")
         "Wave 2b nonempty accounts must not keep empty-meta comment"
+      let some marker := files.find? (·.path.endsWith ".cpi-ir.json") |
+        throw <| IO.userError "solana Wave 3 emit missing cpi-ir"
+      expect (hasSubstr marker.contents "call-bind-outer-account-join")
+        s!"Wave 3 marker must name call-bind join, got {marker.contents}"
+      expect (hasSubstr marker.contents "\"outerRoleCount\":3")
+        s!"Wave 3 marker must expose state+account+program roles, got {marker.contents}"
   | .error e =>
       throw <| IO.userError
-        s!"solana Wave 2b Oracle.feed must emit, got {e.render}"
+        s!"solana Wave 3 Oracle.feed must emit, got {e.render}"
   let aa32 := String.ofList (List.replicate 64 'a')
   let bb32 := String.ofList (List.replicate 64 'b')
   let twoAccText ← liftJcs "sol-two-acc"
@@ -617,6 +737,19 @@ unsafe def run : IO Unit := do
         "acc0 pubkey limbs must appear"
       expect (hasSubstr asm.contents "lddw r1, 0xbbbbbbbbbbbbbbbb")
         "acc1 pubkey limbs must appear"
+      expect (hasSubstr asm.contents
+          "call-bind account role 'authority' local=1 exact pubkey signer=1 writable=1")
+        "acc0 runtime role contract must be exact"
+      expect (hasSubstr asm.contents
+          "call-bind account role 'vault' local=2 exact pubkey signer=0 writable=1")
+        "acc1 runtime role contract must distinguish writable from signer"
+      expect (hasSubstr asm.contents
+          "call-bind callee program local=3 exact program id executable=1")
+        "callee program must follow bound account rows"
+      expect (hasSubstr asm.contents "call-bind AccountInfos startLocal=1 n=3")
+        "two account rows require rows+program AccountInfos"
+      expect (hasSubstr asm.contents "lddw r3, 3")
+        "two account rows must pass AccountInfo len 3"
       let some before101 := (asm.contents.splitOn "lddw r1, 0x101\n")[0]? |
         throw <| IO.userError "missing 0x101 split"
       expect (!hasSubstr before101 "lddw r1, 0x1\n")
@@ -628,6 +761,27 @@ unsafe def run : IO Unit := do
   | .error e =>
       throw <| IO.userError
         s!"solana Wave 2b two-account Oracle.feed must emit, got {e.render}"
+  let duplicatePubkeyText ← liftJcs "sol-duplicate-pubkey"
+    (solanaDoc #[solanaBinding "Oracle.feed" ones32
+      #[solanaAccount "authority" aa32 true false,
+        solanaAccount "vault" aa32 false true]])
+  let duplicatePubkeyTable ← expectOk "sol-duplicate-pubkey"
+    (parseCallBindTableV1 duplicatePubkeyText)
+  match Targets.Solana.buildFromCapability solCap (some duplicatePubkeyTable) with
+  | .ok _ => throw <| IO.userError "duplicate outer account pubkeys must fail closed"
+  | .error e =>
+      expect (hasSubstr e.render "distinct account pubkeys")
+        s!"duplicate outer account pubkeys diagnostic, got {e.render}"
+  let programAsAccountText ← liftJcs "sol-program-as-account"
+    (solanaDoc #[solanaBinding "Oracle.feed" ones32
+      #[solanaAccount "callee" ones32 false false]])
+  let programAsAccountTable ← expectOk "sol-program-as-account"
+    (parseCallBindTableV1 programAsAccountText)
+  match Targets.Solana.buildFromCapability solCap (some programAsAccountTable) with
+  | .ok _ => throw <| IO.userError "callee program/account identity alias must fail closed"
+  | .error e =>
+      expect (hasSubstr e.render "distinct from programId")
+        s!"callee program/account alias diagnostic, got {e.render}"
   let tooMany : Array PfJson :=
     (Array.range 9).map (fun i =>
       solanaAccount s!"role{i}" zero32 false false)
@@ -639,6 +793,68 @@ unsafe def run : IO Unit := do
   | .error e =>
       expect (hasSubstr e.render "at most 8 AccountMetas")
         s!"9 AccountMetas must mention cap, got {e.render}"
+
+  -- Wave 3 residual honesty: schedule has no synchronous AccountInfo join;
+  -- frozen system.transfer is not a generic call-bind callee.
+  let solScheduleText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CallBindSolSchedule where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n" ++
+    "  entry later() : UInt64 do\n" ++
+    "    schedule Oracle.feed(count)\n" ++
+    "    return count\n"
+  let solScheduleSource ← match ← session.selectProgramV1
+      solScheduleText "<call-bind-sol-schedule>" "Tests.CallBindSolSchedule" none with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"load CallBindSolSchedule: {e.render}"
+  let solScheduleCompiled ← match Compiler.compileValidatedSourceV1 solScheduleSource with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"compile CallBindSolSchedule: {e.render}"
+  expectResidual "sol scheduled nonempty bound" .solana
+    (Compiler.CompiledSemanticV1.semanticV1Of solScheduleCompiled)
+    (some nonemptyAccTable) (some "callee-identity-outer-account-open")
+
+  let solSystemText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CallBindSolSystem where\n" ++
+    "  requires extension solana.cpi.accounts version \"1.0.0\"\n" ++
+    "    digest \"sha256:df7d513d3d8b6324755a91d359c4d543a4432f87c78a0795d44b8bc7361b4020\"\n" ++
+    "  state count : UInt64\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n" ++
+    "  entry pay(payer : Principal, recipient : Principal, amount : UInt64) : UInt64 do\n" ++
+    "    call solana.system.transfer(payer, recipient, amount)\n" ++
+    "    return count\n"
+  let solSystemSource ← match ← session.selectProgramV1
+      solSystemText "<call-bind-sol-system>" "Tests.CallBindSolSystem" none with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"load CallBindSolSystem: {e.render}"
+  let solSystemCompiled ← match Compiler.compileValidatedSourceV1 solSystemSource with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"compile CallBindSolSystem: {e.render}"
+  let solSystemSemantic := Compiler.CompiledSemanticV1.semanticV1Of solSystemCompiled
+  expectResidual "sol system no table" .solana solSystemSemantic none none
+  expectResidual "sol system unrelated table" .solana solSystemSemantic
+    (some nonemptyAccTable) none
+  let solSystemCap ← match
+      Targets.resolveEngineeringRequirementsV1 solSel solSystemCompiled with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"resolve CallBindSolSystem: {e.render}"
+  match Targets.Solana.buildFromCapability solSystemCap (some nonemptyAccTable) with
+  | .ok files =>
+      let some asm := files.find? (·.path.endsWith ".s") |
+        throw <| IO.userError "Solana system build with unrelated bind table missing .s"
+      expect (hasSubstr asm.contents "system.transfer")
+        "frozen system.transfer must remain on its specialized rail"
+      expect (!hasSubstr asm.contents "product_external_call_bind_join")
+        "frozen system.transfer must not activate generic call-bind join"
+  | .error e =>
+      throw <| IO.userError
+        s!"frozen system.transfer must ignore unrelated bind rows, got {e.render}"
 
   -- Wave 2c: no generic call/schedule → program-level residual none.
   let plainText :=

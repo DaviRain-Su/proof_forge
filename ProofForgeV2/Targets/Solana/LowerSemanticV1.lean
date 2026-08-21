@@ -140,6 +140,15 @@ structure StateAccount where
   /-- P3-e / M4b multi-role: when >0, EmitSbpfAsm walks this many outer accounts
       into the role table and uses multi-role AccountMetas. 0 = off. -/
   productMultiRoleCount : Nat := 0
+  /-- ADR-0053 Wave 3: multi-role is a generic call-bind outer AccountInfo
+      join, not a frozen system/token CPI recipe. -/
+  productCallBindMultiRole : Bool := false
+  /-- Wave 3: first appended call-bind account role. Existing Plan roles keep
+      their dense locals in `[0, productCallBindRoleBase)`. -/
+  productCallBindRoleBase : Nat := 0
+  /-- Wave 3: number of bound AccountMeta rows. The callee program role is
+      `productCallBindRoleBase + productCallBindAccountCount`. -/
+  productCallBindAccountCount : Nat := 0
   /-- P3-e: system.transfer payer role local (dense product plan index). -/
   productXferPayerLocal : Nat := 0
   /-- P3-e: system.transfer recipient role local. -/

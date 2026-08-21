@@ -280,7 +280,8 @@ private def findStateSchema?
 
 private def packageContextOfKeyPolicy : RoleKeyPolicyV1 → Option String
   | .fixedProgram packageId => some packageId
-  | .state _ | .accountParameter .. | .vaultPda | .handlerCaller | .vaultAta .. | .dstAta .. => none
+  | .state _ | .accountParameter .. | .vaultPda | .handlerCaller | .vaultAta ..
+  | .dstAta .. | .callBindAccount .. | .callBindProgram .. => none
 
 private def requireSystemPackage : CompileResult FrozenCalleePackage := do
   match findCalleePackage? "system-v1" with
@@ -460,6 +461,8 @@ private def projectEntryGlobalOps
           roleId := handle.roleId
           localIndex := i
         }
+    | .callBindAccount pubkey .. | .callBindProgram pubkey =>
+        ops := ops.push (.checkExactKey i pubkey)
     | .state _ | .vaultPda | .handlerCaller | .vaultAta .. | .dstAta .. => pure ()
     let constraintOps ← projectConstraintOps i mode handle.keyPolicy
       handle.constraint stateSchemas

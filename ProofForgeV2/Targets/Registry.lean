@@ -12,7 +12,8 @@ import ProofForgeV2.Targets.Icp.PlanSchemaV1
 import ProofForgeV2.Targets.OpenVM.PlanSchemaV1
 import ProofForgeV2.Targets.Xrpl.PlanSchemaV1
 import ProofForgeV2.Targets.EngineeringBuildIdentityV1
-import ProofForgeV2.Targets.Solana
+import ProofForgeV2.Targets.Solana.MaterializationV1
+import ProofForgeV2.Targets.Solana.ProductSynthesizeV1
 import ProofForgeV2.Targets.Near
 import ProofForgeV2.Targets.Noir
 import ProofForgeV2.Targets.CosmWasm

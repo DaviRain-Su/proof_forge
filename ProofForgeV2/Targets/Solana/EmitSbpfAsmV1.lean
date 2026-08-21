@@ -80,7 +80,8 @@ as u64 bits; no extra sign/range guard), assert,
 returnNone, revertError, ifRegion, switchRegion, forRegion, callFn (inline
 expand), emitEvent (`sol_log_data`), externalCall/schedule (real CPI via
 `sol_invoke_signed_c`; Wave 2 empty-meta or Wave 2b compile-time
-AccountMeta; **not** outer AccountInfo join — syscall r2/r3 stay 0;
+AccountMeta; Wave 3 stamped full-body generic calls exact-join outer
+AccountInfos and pass nonzero syscall r2/r3; unstamped/empty rows stay 0;
 result-bearing call reads `sol_get_return_data`).
 
 ## Fail closed
@@ -1658,12 +1659,125 @@ private def programIdLimbLeV1 (hex64 : String) (limb : Nat) : CompileResult Nat 
     value := value + byte * (Nat.pow 2 (8 * i))
   pure value
 
+/-- ADR-0053 Wave 3 outer-role layout for one generic bound callee. Existing
+    product Plan roles occupy the prefix; bound meta rows and then the callee
+    program are appended. -/
+private structure CallBindOuterJoinEmitV1 where
+  roleCount : Nat
+  roleBase : Nat
+  accountCount : Nat
+
+/-- Exact 32-byte role-key and signer/writable join against the compile-time
+    bind row. Mismatch exits through the caller-provided local Custom(1) path. -/
+private def emitCallBindRequireRoleV1
+    (b0 : AsmBuf) (roleCount localIdx : Nat) (expectedHex note : String)
+    (signer writable : Bool) (failureLabel : String)
+    (executable : Option Bool := none) :
+    CompileResult AsmBuf := do
+  unless localIdx < roleCount do
+    return ← asmError
+      s!"call-bind outer role local {localIdx} out of range {roleCount}"
+  unless expectedHex.length == 64 do
+    return ← asmError "call-bind outer role expected key must be 32 bytes"
+  let roleTableBytes := productRoleTableBytesForV1 roleCount
+  let mut b := emit b0 s!"  ; {note}"
+  b := emit b "  mov64 r2, r10"
+  b := emit b s!"  lddw r3, {roleTableBytes}"
+  b := emit b "  sub64 r2, r3"
+  if localIdx != 0 then
+    b := emit b s!"  lddw r3, {localIdx * productRoleStrideV1}"
+    b := emit b "  add64 r2, r3"
+  b := emit b "  ldxdw r2, [r2 + 8]                  ; ROLE_KEY"
+  for limb in [:4] do
+    let expected ← programIdLimbLeV1 expectedHex limb
+    b := emit b s!"  ldxdw r1, [r2 + {limb * 8}]"
+    b := emit b s!"  lddw r3, {hexImm expected}"
+    b := emit b s!"  jne r1, r3, {failureLabel}"
+  -- Recompute the role slot and require exact lower privilege bytes. The bind
+  -- schema does not carry executable, so that outer flag is not claimed here.
+  b := emit b "  mov64 r2, r10"
+  b := emit b s!"  lddw r3, {roleTableBytes}"
+  b := emit b "  sub64 r2, r3"
+  if localIdx != 0 then
+    b := emit b s!"  lddw r3, {localIdx * productRoleStrideV1}"
+    b := emit b "  add64 r2, r3"
+  let expectedFlags : Nat :=
+    (if signer then 1 else 0) + (if writable then 256 else 0)
+  b := emit b "  ldxdw r1, [r2 + 56]                 ; ROLE_FLAGS"
+  b := emit b "  and64 r1, 0xffff"
+  b := emit b s!"  lddw r3, {hexImm expectedFlags}"
+  b := emit b s!"  jne r1, r3, {failureLabel}"
+  match executable with
+  | none => pure ()
+  | some expectedExecutable =>
+      b := emit b "  ldxdw r1, [r2 + 56]                 ; ROLE_FLAGS executable"
+      b := emit b "  rsh64 r1, 16"
+      b := emit b "  and64 r1, 1"
+      b := emit b s!"  lddw r3, {if expectedExecutable then 1 else 0}"
+      b := emit b s!"  jne r1, r3, {failureLabel}"
+  pure b
+
+/-- Pack a contiguous range of outer roles into SolAccountInfo records at
+    `[r9 + infosOff]`. Generic call-bind excludes the state/other Plan-role
+    prefix and includes the appended callee program as the final record. -/
+private def emitCallBindAccountInfosV1
+    (b0 : AsmBuf) (roleCount startLocal count infosOff : Nat) :
+    CompileResult AsmBuf := do
+  unless count > 0 && startLocal + count ≤ roleCount do
+    return ← asmError
+      "call-bind AccountInfo role range is empty or outside the outer role table"
+  let roleTableBytes := productRoleTableBytesForV1 roleCount
+  let (b1, loopLab) := fresh b0 "call_bind_fill_info"
+  let mut b := emit b1
+    s!"  ; call-bind AccountInfos startLocal={startLocal} n={count}"
+  b := emit b "  mov64 r5, r9"
+  if infosOff != 0 then
+    b := emit b s!"  add64 r5, {infosOff}"
+  b := emit b "  lddw r7, 0"
+  b := emit b s!"{loopLab}:"
+  b := emit b "  mov64 r2, r10"
+  b := emit b s!"  lddw r3, {roleTableBytes}"
+  b := emit b "  sub64 r2, r3"
+  b := emit b "  mov64 r3, r7"
+  if startLocal != 0 then
+    b := emit b s!"  add64 r3, {startLocal}"
+  b := emit b "  lsh64 r3, 6"
+  b := emit b "  add64 r2, r3"
+  b := emit b "  ldxdw r4, [r2 + 8]"
+  b := emit b "  stxdw [r5 + 0], r4                  ; key"
+  b := emit b "  ldxdw r4, [r2 + 24]"
+  b := emit b "  stxdw [r5 + 8], r4                  ; lamports"
+  b := emit b "  ldxdw r4, [r2 + 40]"
+  b := emit b "  stxdw [r5 + 16], r4                 ; data_len"
+  b := emit b "  ldxdw r4, [r2 + 32]"
+  b := emit b "  stxdw [r5 + 24], r4                 ; data"
+  b := emit b "  ldxdw r4, [r2 + 16]"
+  b := emit b "  stxdw [r5 + 32], r4                 ; owner"
+  b := emit b "  ldxdw r4, [r2 + 48]"
+  b := emit b "  stxdw [r5 + 40], r4                 ; rent"
+  b := emit b "  ldxdw r4, [r2 + 56]"
+  b := emit b "  stxb [r5 + 48], r4"
+  b := emit b "  rsh64 r4, 8"
+  b := emit b "  stxb [r5 + 49], r4"
+  b := emit b "  rsh64 r4, 8"
+  b := emit b "  stxb [r5 + 50], r4"
+  b := emit b "  lddw r4, 0"
+  for pad in [51:56] do
+    b := emit b s!"  stxb [r5 + {pad}], r4"
+  b := emit b s!"  add64 r5, {productAccountInfoSizeV1}"
+  b := emit b "  add64 r7, 1"
+  b := emit b s!"  lddw r3, {count}"
+  b := emit b s!"  jlt r7, r3, {loopLab}"
+  pure b
+
 /-- BL-27 / P3-e foundation: emit `sol_invoke_signed_c`.
     * Generic product QN: method disc (product ABI) + LE UInt64 args; program id
       from IR (SHA-256 path stub) or Wave 2 bind table.
     * Wave 2b: present table with nonempty `accounts` packs compile-time
-      AccountMetas (pubkey + is_writable + is_signer). Empty accounts stay
-      empty-meta. This is **not** outer-instruction account join.
+      AccountMetas (pubkey + is_writable + is_signer).
+    * Wave 3 stamped full-body IR additionally exact-joins those rows and the
+      callee program to outer roles and passes packed AccountInfos. Empty rows
+      stay on the partial empty-meta/empty-AccountInfo path.
     * `solana.system.transfer` (P3-e foundation): native System program id
       (32 zeros) + SystemInstruction::Transfer 12B data (u32 tag 2 + lamports).
       Still **empty AccountMeta** (multi-role walker deferred); data/program id
@@ -1702,7 +1816,8 @@ private def resolveBoundAccountsV1
 private def emitCpiInvoke (b0 : AsmBuf) (tempBase : Nat)
     (callee : Array String) (programIdHex : String) (args : Array Nat)
     (resultDest : Option Nat) (kindNote : String)
-    (bindings : Option CallBindTableV1 := none) : CompileResult AsmBuf := do
+    (bindings : Option CallBindTableV1 := none)
+    (outerJoin : Option CallBindOuterJoinEmitV1 := none) : CompileResult AsmBuf := do
   unless callee.size ≥ 2 do
     return ← asmError s!"S1b {kindNote} callee must have ≥2 components"
   let note := String.intercalate "." callee.toList
@@ -1718,6 +1833,17 @@ private def emitCpiInvoke (b0 : AsmBuf) (tempBase : Nat)
   let n := args.size
   let boundAccounts ← resolveBoundAccountsV1 bindings callee
   let accountCount := boundAccounts.size
+  match outerJoin with
+  | none => pure ()
+  | some join =>
+      unless !isSysXfer do
+        return ← asmError "call-bind outer AccountInfo join cannot stamp system.transfer"
+      unless accountCount > 0 && accountCount == join.accountCount do
+        return ← asmError
+          "call-bind outer AccountInfo stamp diverges from bound account rows"
+      unless join.roleBase + join.accountCount + 1 == join.roleCount do
+        return ← asmError
+          "call-bind outer AccountInfo role layout is not base+accounts+program"
   -- system.transfer: 2×u64 scratch for continuous 12B packing (tag@+0, lamports@+4).
   -- generic: 1 disc + n arg words.
   let dataSlots := if isSysXfer then 2 else 1 + n
@@ -1730,7 +1856,20 @@ private def emitCpiInvoke (b0 : AsmBuf) (tempBase : Nat)
   let ixSlots := 5
   let resultSlots := match resultDest with | some _ => 5 | none => 0
   let need := pidBaseSlots + dataSlots + keySlots + metaSlots + ixSlots + resultSlots
-  let (b1, bufBase) := allocTemps b0 need
+  let (b1, bufBase) ← match outerJoin with
+    | none => pure (allocTemps b0 need)
+    | some join =>
+        let infoBytes := (join.accountCount + 1) * productAccountInfoSizeV1
+        unless need * 8 + infoBytes ≤ multiRoleCpiScratchBudgetV1 do
+          return ← asmError
+            "call-bind CPI payload and AccountInfos exceed the multi-role scratch budget"
+        -- The generic packer normally allocates from temp 0. Under multi-role
+        -- that aliases the role table. Place its contiguous temp block at the
+        -- high edge of the dedicated CPI scratch; AccountInfos occupy the low
+        -- edge at `r10 - multiRoleCpiBaseForV1 roleCount`.
+        let payloadBaseBytes :=
+          productMultiRoleTempBaseForV1 join.roleCount + multiRoleBodyTempBytesV1
+        pure (b0, payloadBaseBytes / 8 - 1)
   let pidBase := bufBase
   let dataBase := bufBase + pidBaseSlots
   let keyBase := dataBase + dataSlots
@@ -1824,15 +1963,49 @@ private def emitCpiInvoke (b0 : AsmBuf) (tempBase : Nat)
   b := emit b s!"  lddw r1, {hexImm dataLenBytes}"
   b := storeTempAbs b ixBase "r1"
   let ixPtrTemp := ixBase + 4
-  b := emit b "  mov64 r1, r10"
-  b := emit b s!"  add64 r1, -{tempStackOff ixPtrTemp}"
-  -- Wave 2b packs SolInstruction.accounts only. Outer AccountInfo join
-  -- (syscall r2/r3) stays empty — same as the empty-meta path.
-  b := emit b "  lddw r2, 0"
-  b := emit b "  lddw r3, 0"
+  match outerJoin with
+  | none =>
+      b := emit b "  mov64 r1, r10"
+      b := emit b s!"  add64 r1, -{tempStackOff ixPtrTemp}"
+      -- Empty bind rows and legacy partial paths retain empty AccountInfos.
+      b := emit b "  lddw r2, 0"
+      b := emit b "  lddw r3, 0"
+  | some join =>
+      let (b2, checkFailedLab) := fresh b "call_bind_check_failed"
+      let (b3, checksOkLab) := fresh b2 "call_bind_checks_ok"
+      b := b3
+      b := emit b
+        "  ; --- call-bind outer AccountInfo join (accounts then callee program) ---"
+      for accIdx in [:boundAccounts.size] do
+        let some account := boundAccounts[accIdx]? |
+          return ← asmError s!"call-bind outer account row {accIdx} missing"
+        let localIdx := join.roleBase + accIdx
+        let keyHex := encodeLowerHexBytesV1 account.pubkey
+        let note :=
+          s!"call-bind account role '{account.role}' local={localIdx} exact pubkey signer={if account.signer then 1 else 0} writable={if account.writable then 1 else 0}"
+        b ← emitCallBindRequireRoleV1 b join.roleCount localIdx keyHex note
+          account.signer account.writable checkFailedLab (some false)
+      let programLocal := join.roleBase + join.accountCount
+      b ← emitCallBindRequireRoleV1 b join.roleCount programLocal pidHex
+        s!"call-bind callee program local={programLocal} exact program id executable=1"
+        false false checkFailedLab (some true)
+      b := emit b s!"  ja {checksOkLab}"
+      b := emitErrorExit b checkFailedLab 1
+      b := emit b s!"{checksOkLab}:"
+      b := emit b "  mov64 r9, r10"
+      b := emit b s!"  lddw r4, {multiRoleCpiBaseForV1 join.roleCount}"
+      b := emit b "  sub64 r9, r4"
+      let infoCount := join.accountCount + 1
+      b ← emitCallBindAccountInfosV1 b join.roleCount join.roleBase infoCount 0
+      b := emit b "  mov64 r1, r10"
+      b := emit b s!"  add64 r1, -{tempStackOff ixPtrTemp}"
+      b := emit b "  mov64 r2, r9"
+      b := emit b s!"  lddw r3, {infoCount}"
   b := emit b "  lddw r4, 0"
   b := emit b "  lddw r5, 0"
   b := emit b "  call sol_invoke_signed_c"
+  if outerJoin.isSome then
+    b := emit b "  jne r0, 0, cpi_failed_mr"
   match resultDest with
   | none => pure b
   | some dest =>
@@ -3177,7 +3350,15 @@ private def emitOperation (fuel : Nat) (b : AsmBuf) (ir : IR) (tempBase : Nat)
         return ← asmError
           "product full-body does not yet emit result-bearing ExternalCall (P3-d+)"
       if ir.stateAccount.productMultiRoleCount > 0 then
-        if ir.stateAccount.productTokenMultiRole then
+        if ir.stateAccount.productCallBindMultiRole then
+          let join : CallBindOuterJoinEmitV1 := {
+            roleCount := ir.stateAccount.productMultiRoleCount
+            roleBase := ir.stateAccount.productCallBindRoleBase
+            accountCount := ir.stateAccount.productCallBindAccountCount
+          }
+          emitCpiInvoke b tempBase callee programIdHex args none
+            "product_external_call_bind_join" bindings (some join)
+        else if ir.stateAccount.productTokenMultiRole then
           unless ProductCpiRecipesV1.isPfAssetsTokenTransferCalleeV1 callee do
             return ← asmError
               "M4b multi-role full-body currently admits only pf.assets.token.transfer"
@@ -3371,7 +3552,11 @@ private def emitMultiRoleWalkAndIxBase (b0 : AsmBuf) (roleCount : Nat)
     b := emit b s!"  jgt r3, 1, {errLab}"
     b := emit b "  lsh64 r3, 8"
     b := emit b "  or64 r1, r3"
-    b := emit b "  stxdw [r2 + 56], r1                ; ROLE_FLAGS (signer|writable<<8)"
+    b := emit b s!"  ldxb r4, [r8 + {multiRoleAbiIsExecutableOffsetV1}]"
+    b := emit b s!"  jgt r4, 1, {errLab}"
+    b := emit b "  lsh64 r4, 16"
+    b := emit b "  or64 r1, r4"
+    b := emit b "  stxdw [r2 + 56], r1                ; ROLE_FLAGS (signer|writable<<8|executable<<16)"
     -- advance r8 past account: fullPrefix + data_len + 10240 + align8 + rent 8
     b := emit b s!"  ldxdw r1, [r8 + {multiRoleAbiDataLenOffsetV1}]"
     b := emit b "  mov64 r3, r8"
@@ -3386,6 +3571,8 @@ private def emitMultiRoleWalkAndIxBase (b0 : AsmBuf) (roleCount : Nat)
     b := emit b "  sub64 r4, r1"
     b := emit b "  add64 r3, r4"
     b := emit b "mr_aligned:"
+    b := emit b "  ldxdw r1, [r3 + 0]                  ; rent epoch"
+    b := emit b "  stxdw [r2 + 48], r1                ; ROLE_RENT"
     b := emit b "  add64 r3, 8                        ; rent epoch"
     b := emit b "  mov64 r8, r3"
     b := emit b "  add64 r7, 1"
@@ -3426,7 +3613,9 @@ def emitValidatedSbpfAsmV1 (ir : IR)
   }
   if multiN > 0 then
     let mrKind :=
-      if ir.stateAccount.productTokenMultiRole then
+      if ir.stateAccount.productCallBindMultiRole then
+        "call-bind outer AccountInfo (ADR-0053 Wave 3)"
+      else if ir.stateAccount.productTokenMultiRole then
         "token.transfer AccountMeta (M4b/M4c)"
       else
         "system.transfer AccountMeta (P3-e)"
