@@ -426,8 +426,15 @@ second codegen.
     `CertifiedPlanLoweringV1` composes exact equations for those same stages and
     replays to the exact private lowering and capability-gated materializer; it
     accepts no expected Plan and is not a second Plan representation or
-    lowering. Next decompose the context and callable internals only at coherent
-    production boundaries needed for StateCell stage equations, then
+    lowering. The first concrete StateCell client now kernel-replays the exact
+    context-preparation stage: type closure, state-account layout, constants,
+    interfaces, pure-function index and program identity all come from the sole
+    production functions. Its layout marker is bound to the production SHA-256
+    preimage through an indexed block certificate; the retained context witness
+    has an exact `.ok` equation and no expected Plan is supplied. Callable
+    accumulation and finalization remain open. Next decompose the callable
+    internals only at coherent production boundaries needed for those StateCell
+    stage equations, then
     totalize/replay the remaining `ValidatePlanV1`/`EmitIRV1` recursive bodies.
     Do not copy an expected Plan or make the private lowerers public merely to
     force reduction.
@@ -463,8 +470,9 @@ Next formalization slices, in order:
    `resolveBuildSelectionV1`, frozen support index/support claims and the sole
    `resolveEngineeringRequirementsV1` are also discharged. Next
    finish the reusable StateCell Plan-support equations through the new exact
-   context/callable/finalization certificate, refining only the still-opaque
-   context and Handler stages as necessary. Then totalize/replay the remaining
+   callable/finalization certificate; context preparation and its layout hash
+   are now discharged. Refine only the still-opaque Handler stages as necessary.
+   Then totalize/replay the remaining
    `ValidatePlanV1`, `EmitIRV1` and `validateIR` recursive bodies and discharge
    the StateCell exact post-validation emission equation. Keep traversal
    contract-independent and do not add a proof-only compiler, emitter or copied

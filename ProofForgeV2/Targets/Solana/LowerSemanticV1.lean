@@ -435,7 +435,9 @@ structure Plan where
 private def planError (message : String) : CompileResult α :=
   .error <| .planInvariant .solana message
 
-private def maxIdentifierBytes : Nat := 240
+/-- Shared identifier ceiling used by the production Plan context. Exposed so
+    source-bound certificates can replay the same admission check. -/
+def maxIdentifierBytes : Nat := 240
 -- `.sbpf-plan` is the longest emitted suffix (10 bytes) under the CLI's
 -- 240-byte relative-path ceiling.
 def maxArtifactStemBytes : Nat := 230
@@ -504,15 +506,17 @@ def slotPitchOfByteWidth (byteWidth : Nat) : Nat :=
   let limbs := (byteWidth + 7) / 8
   if limbs ≤ 1 then 8 else limbs * 8
 
-private def layoutFieldSignature (field : StateField) : String :=
+/-- Canonical signature fragment consumed by the sole state-layout hash. -/
+def layoutFieldSignature (field : StateField) : String :=
   s!"{field.sourceId}:{field.name}:{field.accountIndex}:{field.byteOffset}:{field.byteWidth}:{layoutFieldTypeSuffix field.byteWidth field.isInt}"
 
-private def layoutSignature (fields : Array StateField) : String :=
+/-- Canonical ordered field preimage consumed by the sole state-layout hash. -/
+def layoutSignature (fields : Array StateField) : String :=
   s!"{fields.size}|{String.intercalate "|" (fields.toList.map layoutFieldSignature)}"
 
 /-- First 8 bytes of the internally produced SHA-256 digest, interpreted
     big-endian as UInt64. Callers never pass arbitrary-width bytes. -/
-private def firstWordBE (bytes : ByteArray) : UInt64 := Id.run do
+def firstWordBE (bytes : ByteArray) : UInt64 := Id.run do
   let mut value : UInt64 := 0
   for index in [0:8] do
     value := UInt64.shiftLeft value 8 ||| bytes[index]!.toUInt64
@@ -619,7 +623,7 @@ private def solanaPlanErr (message : String) : CompileError :=
     named Struct/Enum, anonymous `Array UInt64 N` (N ≤ 8), and anonymous
     `Option UInt64` entry/view returns are admitted (≤8 UInt64/Int64 leaves);
     Map/Bytes/nested/Principal returns stay fail-closed. -/
-private def validateSolanaTypeClosureV1
+def validateSolanaTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult SolanaTypeClosureV1 :=
   validatePilotTypeClosure solanaPlanErr solanaTypeClosureWording types
     pilotUintWidthPolicySolanaBody
@@ -690,7 +694,7 @@ private def decodePrincipalLiteralLeavesV1 (bytes : ByteArray) :
 
 /-- Resolve admitted scalar state/param TypeId to physical byte width
     (1/2/4/8/16/32). -/
-private def abiByteWidthOfTypeV1
+def abiByteWidthOfTypeV1
     (types : SolanaTypeClosureV1) (typeId : TypeIdV1) : CompileResult Nat := do
   match types.uintWidthOf typeId with
   | some w =>
@@ -747,7 +751,7 @@ private def isSolanaMapPrincipalLeafCountV1 (n : Nat) : Bool :=
     → 44×8-byte leaves (`Map Principal UInt64` E4 LP pilot; always unsigned).
     Bytes: fixed `Bytes N` → N×1-byte UInt8 leaves. Historical needles stay
     contains-match. -/
-private def containerLeafLayoutV1
+def containerLeafLayoutV1
     (typeDecls : Array TypeDeclV1) (types : SolanaTypeClosureV1)
     (typeId : TypeIdV1) : CompileResult (Option (Nat × Nat × Bool)) := do
   unless types.isContainer typeId do
@@ -883,7 +887,7 @@ private def leafCountOfTypeV1
     `containerTypeIds`). Admitted surfaces: Map IndexGet intermediate,
     N-ANON-RESULT / B-RET-ABI return, and B-OPT-STATE `Option UInt64` storage
     (2-leaf Enum-shaped layout). Element-type gates remain at each use site. -/
-private def isAnonymousOptionTypeIdV1
+def isAnonymousOptionTypeIdV1
     (typeDecls : Array TypeDeclV1) (typeId : TypeIdV1) : Bool :=
   match typeDecls[typeId.toNat]? with
   | some { shape := .option _, name := none, .. } => true
@@ -1190,7 +1194,10 @@ private def mapKeyShapeOfV1
           "unsupported Solana semantic shape: Map admits only UInt64 or Principal keys"
   | _ => pure none
 
-private def makeStateAccountV1
+/-- Build the sole production Solana account layout from Semantic state
+    declarations. Public for staged certificate replay; it is not a second
+    layout representation or constructor. -/
+def makeStateAccountV1
     (types : SolanaTypeClosureV1)
     (typeDecls : Array TypeDeclV1)
     (states : Array StateDeclV1) : CompileResult StateAccount := do
@@ -1751,7 +1758,9 @@ private def admitSolanaConstantTypeV1
     throw <| .planInvariant .solana
       "unsupported Solana semantic shape: constant is not admitted UInt width, Int64, Bool, or String"
 
-private def validateSolanaConstantTableV1
+/-- Replayable boundary for the constant-table validation performed by the
+    sole production Plan context stage. -/
+def validateSolanaConstantTableV1
     (types : SolanaTypeClosureV1) (constants : Array ConstantV1) :
     CompileResult Unit := do
   for i in [0:constants.size] do
@@ -2187,7 +2196,7 @@ structure PureFnTableV1 where
   resultIsBool : Array Bool
   resultIsInt : Array Bool
 
-private def buildPureFnTableV1
+def buildPureFnTableV1
     (types : SolanaTypeClosureV1)
     (callables : Array CallableV1) : CompileResult PureFnTableV1 := do
   let mut byCallableId : Array (Option Nat) := Array.mk (List.replicate callables.size none)

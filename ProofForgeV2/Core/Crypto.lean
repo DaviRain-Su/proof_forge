@@ -138,7 +138,9 @@ private def compress (state : Array UInt32) (schedule : Array UInt32) : Array UI
     state[6]! + registers.g, state[7]! + registers.h
   ]
 
-private def appendUInt32BE (bytes : ByteArray) (value : UInt32) : ByteArray :=
+/-- Append one chaining word in the byte order used by the sole SHA-256
+    production renderer. Exposed so certificates can replay raw digest bytes. -/
+def appendUInt32BE (bytes : ByteArray) (value : UInt32) : ByteArray :=
   bytes
     |>.push (UInt32.shiftRight value 24).toUInt8
     |>.push (UInt32.shiftRight value 16).toUInt8
