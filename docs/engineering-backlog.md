@@ -491,7 +491,7 @@ Cairo / RISC0 / SP1 / Move / 比特币 **不进本队列**。
 | ID | 项 | 状态 |
 |---|---|---|
 | **COMP-2-EVM-ADDR** | static-QN → 部署地址绑定；Bool/Int/Bytes returndata 按决策；C-3 保持 FC | pending |
-| **COMP-2-SOL-CPI** | product CPI callee / 外层账户；Token/ATA binding 诚实化；WideDiv 差分；async FC | pending |
+| **COMP-2-SOL-CPI** | product CPI callee / 外层账户；Token/ATA binding 诚实化；WideDiv 差分；async FC | **partial** — WideDiv/WideDiv256 已由独立 Rust oracle + Mollusk 覆盖 UInt128/256 div/mod 成功与零除 `Custom(0x1001)` 全账户回滚；WideDivDispatch 已执行最远 handler，故该 engineering runtime 项已闭。product CPI callee/外层账户与 Token/ATA `artifactBinding` 诚实化仍 pending；async 保持 FC；非 formal/hermetic |
 | **COMP-2-NEAR-OVERFLOW** | sandbox Counter overflow rollback；view ContextRead 保持 FC | **partial / lifecycle-blocked** — Counter-shaped exact `+2` receipt rollback 已观测；exact no-initializer `Examples/Counter` 仍被 NEAR Plan 拒绝，需先冻结 lifecycle 映射；view caller 保持 FC |
 | **COMP-2-NOIR-PRD** | 不推翻 C-4 则另开 PRD 修订；推翻才做独立 NoirProveAcceptance | pending |
 
