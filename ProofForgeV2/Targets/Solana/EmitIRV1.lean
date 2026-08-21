@@ -2499,9 +2499,38 @@ def withProductMultiRoleSystemTransferV1
   let sa := {
     ir.stateAccount with
       productMultiRoleCount := roleCount
+      productCallBindMultiRole := false
+      productCallBindRoleBase := 0
+      productCallBindAccountCount := 0
       productXferPayerLocal := payerLocal
       productXferRecipientLocal := recipientLocal
       productXferProgramLocal := programLocal
+      productTokenMultiRole := false
+      productTokenSiteCount := 0
+      productTokenVaultAtaLocals := #[]
+      productTokenMintLocals := #[]
+      productTokenDstAtaLocals := #[]
+      productTokenVaultPdaLocals := #[]
+      productTokenProgramLocals := #[]
+      productTokenCallerLocals := #[]
+      productTokenDstWalletLocals := #[]
+      productTokenSystemLocals := #[]
+      productTokenAtaProgramLocals := #[]
+  }
+  let sp := { ir.sourcePlan with stateAccount := sa }
+  { ir with stateAccount := sa, sourcePlan := sp }
+
+/-- ADR-0053 Wave 3: stamp the validated Plan suffix for one generic callee's
+    compile-time bound account roles and program role. Runtime checks remain
+    emitter-owned because these roles do not fabricate frozen CPI sites. -/
+def withProductMultiRoleCallBindV1
+    (ir : IR) (baseRoleCount accountCount : Nat) : IR :=
+  let sa := {
+    ir.stateAccount with
+      productMultiRoleCount := baseRoleCount + accountCount + 1
+      productCallBindMultiRole := true
+      productCallBindRoleBase := baseRoleCount
+      productCallBindAccountCount := accountCount
       productTokenMultiRole := false
       productTokenSiteCount := 0
       productTokenVaultAtaLocals := #[]
@@ -2535,6 +2564,9 @@ def withProductMultiRoleTokenSitesV1
   let sa := {
     ir.stateAccount with
       productMultiRoleCount := roleCount
+      productCallBindMultiRole := false
+      productCallBindRoleBase := 0
+      productCallBindAccountCount := 0
       productTokenMultiRole := true
       productTokenSiteCount := sites.size
       productTokenVaultAtaLocals := vaultAtas

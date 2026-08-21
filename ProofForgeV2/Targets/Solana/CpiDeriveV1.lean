@@ -1447,6 +1447,124 @@ def deriveSolanaCpiPlanCandidateCoreV1
     computeAssumptions := snapshot.computeAssumptions
   }
 
+/-- Generic callees that belong to ADR-0053 rather than a frozen product API.
+    Keep source order and deduplicate exact qualified names. -/
+private def collectGenericCallBindCalleesV1
+    (data : SemanticProgramDataV1) : Array QualifiedName := Id.run do
+  let mut out : Array QualifiedName := #[]
+  for callable in data.callables do
+    for block in callable.blocks do
+      for instruction in block.instructions do
+        match instruction.op with
+        | .externalCall _ callee _ =>
+            let qn := String.intercalate "." callee.components.toArray.toList
+            let exempt :=
+              qn.startsWith "pf.crypto." || qn.startsWith "pf.assets." ||
+                qn == "solana.system.transfer"
+            unless exempt || out.any (· == callee) do
+              out := out.push callee
+        | _ => pure ()
+  pure out
+
+private def callBindProgramRoleNameV1 (callee : QualifiedName) : String :=
+  let preferred :=
+    "call_bind_" ++
+      String.intercalate "_" callee.components.toArray.toList ++ "_program"
+  if preferred.utf8ByteSize ≤ 240 && isIdentifier preferred then
+    preferred
+  else
+    "call_bind_program"
+
+/-- Product-owned ADR-0053 Plan augmentation. The generic call remains absent
+    from frozen `cpiSites`; exact bound accounts and the executable callee are
+    instead appended as a validated global-role suffix used by every handler's
+    unified outer layout. -/
+private def augmentProductCallBindRolesV1
+    (data : SemanticProgramDataV1)
+    (bindings : Option ProofForgeV2.Targets.CallBindV1.CallBindTableV1)
+    (candidate : SolanaCpiPlanCandidateV1) :
+    CompileResult SolanaCpiPlanCandidateV1 := do
+  let some table := bindings | pure candidate
+  let callees := collectGenericCallBindCalleesV1 data
+  let mut hasNonempty := false
+  for callee in callees do
+    let (_, accounts) ← mapExcept
+      (ProofForgeV2.Targets.CallBindV1.requireSolanaBindingV1
+        table callee.components.toArray)
+      "call-bind Plan role lookup"
+    if !accounts.isEmpty then
+      hasNonempty := true
+  unless hasNonempty do
+    return candidate
+  unless callees.size == 1 do
+    deriveFail
+      "call-bind: Solana outer AccountInfo join currently requires one distinct generic callee"
+  unless candidate.cpiSites.isEmpty do
+    deriveFail
+      "call-bind: generic outer AccountInfo join cannot share a full-body frozen CPI-site layout"
+  let some callee := callees[0]? |
+    deriveFail "call-bind: Solana outer AccountInfo join missing generic callee"
+  let (programIdBytes, accounts) ← mapExcept
+    (ProofForgeV2.Targets.CallBindV1.requireSolanaOuterAccountJoinV1
+      table callee.components.toArray)
+    "call-bind Plan outer join"
+  let programId ← mapExcept (SolanaPubkeyV1.ofBytes programIdBytes)
+    "call-bind Plan programId"
+  let roleBase := candidate.accountRoles.size
+  let outerRoleCount := roleBase + accounts.size + 1
+  unless outerRoleCount ≤ maxOuterRolesV1 do
+    deriveFail
+      s!"call-bind: Solana outer role count {outerRoleCount} exceeds {maxOuterRolesV1}"
+
+  let mut roles := candidate.accountRoles
+  let mut addedUses : Array HandlerAccountUseV1 := #[]
+  for account in accounts do
+    if roles.any (fun role => role.name == account.role) then
+      deriveFail s!"call-bind: account role name '{account.role}' collides with Plan role"
+    let pubkey ← mapExcept (SolanaPubkeyV1.ofBytes account.pubkey)
+      s!"call-bind Plan account role '{account.role}' pubkey"
+    let roleId := roles.size
+    roles := roles.push {
+      roleId
+      name := account.role
+      keyPolicy := .callBindAccount pubkey account.signer account.writable
+      constraint := callBindAccountRoleConstraintV1
+      aliasPolicy := frozenAliasPolicyV1
+    }
+    addedUses := addedUses.push {
+      position := addedUses.size
+      roleId
+      directSignerContribution := account.signer
+      directWritableContribution := account.writable
+      outerSigner := account.signer
+      outerWritable := account.writable
+    }
+  let programRoleName := callBindProgramRoleNameV1 callee
+  if roles.any (fun role => role.name == programRoleName) then
+    deriveFail
+      s!"call-bind: callee program role name '{programRoleName}' collides with Plan role"
+  let programRoleId := roles.size
+  roles := roles.push {
+    roleId := programRoleId
+    name := programRoleName
+    keyPolicy := .callBindProgram programId
+    constraint := callBindProgramRoleConstraintV1
+    aliasPolicy := frozenAliasPolicyV1
+  }
+  addedUses := addedUses.push {
+    position := addedUses.size
+    roleId := programRoleId
+    directSignerContribution := false
+    directWritableContribution := false
+    outerSigner := false
+    outerWritable := false
+  }
+  let handlers := candidate.handlers.map fun handler =>
+    let base := handler.accountUses.size
+    let suffix := addedUses.map fun use => { use with position := base + use.position }
+    { handler with accountUses := handler.accountUses ++ suffix }
+  pure { candidate with accountRoles := roles, handlers }
+
 /-- Sole #118 lane A derive: preflight carrier → authority Plan carrier.
     Uses frozen profile/catalog digests + frozenComputeAssumptionsV1. -/
 def deriveSolanaCpiPlanFromPreflightV1
@@ -1506,6 +1624,7 @@ def deriveSolanaCpiPlanFromProductCapabilityV1
     productApiFilter := true
     bindings
   }
+  let candidate ← augmentProductCallBindRolesV1 data bindings candidate
   let plan ← validateSolanaCpiProductPlanV1 candidate
   checkSolanaCpiProductMaterializationEligibilityV1 plan
   pure (SolanaCpiProductPlanV1.mk capability plan)

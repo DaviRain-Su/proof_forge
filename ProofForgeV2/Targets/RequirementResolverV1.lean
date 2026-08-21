@@ -137,8 +137,13 @@ private def isCallBindExemptQnV1 (qn : String) : Bool :=
 private def dottedCallBindQnV1 (name : Core.Common.QualifiedName) : String :=
   String.intercalate "." name.components.toArray.toList
 
+private def isSolanaSystemTransferQnV1
+    (name : Core.Common.QualifiedName) : Bool :=
+  name.components.toArray == #["solana", "system", "transfer"]
+
 /-- Generic `call`/`schedule` callees that the bind table must cover. -/
-private def collectGenericCallBindCalleesV1 (data : SemanticProgramDataV1) :
+private def collectGenericCallBindCalleesV1
+    (kind : TargetKind) (data : SemanticProgramDataV1) :
     Array Core.Common.QualifiedName := Id.run do
   let mut out : Array Core.Common.QualifiedName := #[]
   for callable in data.callables do
@@ -146,10 +151,23 @@ private def collectGenericCallBindCalleesV1 (data : SemanticProgramDataV1) :
       for instr in blk.instructions do
         match instr.op with
         | .externalCall _ callee _ | .schedule _ callee _ =>
-            unless isCallBindExemptQnV1 (dottedCallBindQnV1 callee) do
+            unless isCallBindExemptQnV1 (dottedCallBindQnV1 callee) ||
+                (kind == .solana && isSolanaSystemTransferQnV1 callee) do
               out := out.push callee
         | _ => pure ()
   pure out
+
+/-- Wave 3 is a synchronous outer AccountInfo join. Solana schedules remain
+    rejected by the product CPI rail and cannot clear that residual. -/
+private def hasGenericSolanaScheduleV1 (data : SemanticProgramDataV1) : Bool :=
+  data.callables.any fun callable =>
+    callable.blocks.any fun blk =>
+      blk.instructions.any fun instr =>
+        match instr.op with
+        | .schedule _ callee _ =>
+            !isCallBindExemptQnV1 (dottedCallBindQnV1 callee) &&
+              !isSolanaSystemTransferQnV1 callee
+        | _ => false
 
 private def rowCoversGenericCalleeV1
     (kind : TargetKind) (table : CallBindTableV1)
@@ -171,13 +189,29 @@ private def rowCoversGenericCalleeV1
       | .error _ => false
   | _ => false
 
+private def solanaRowsCloseOuterJoinV1
+    (table : CallBindTableV1)
+    (callees : Array Core.Common.QualifiedName) : Bool := Id.run do
+  let mut firstQn : Option String := none
+  for callee in callees do
+    let qn := dottedCallBindQnV1 callee
+    match firstQn with
+    | none => firstQn := some qn
+    | some first =>
+        unless qn == first do return false
+    match requireSolanaOuterAccountJoinV1 table callee.components.toArray with
+    | .ok _ => pure ()
+    | .error _ => return false
+  return !callees.isEmpty
+
 /-- Program-level address residual (build surface).
 
     * No generic `call`/`schedule` → `none` (nothing to bind).
     * Present table covering every generic QN:
       - evm / cosmwasm → `none` (hashed QN / contract_addr stub closed);
-      - solana → keep `callee-identity-outer-account-open` (Wave 2b packs
-        compile-time AccountMeta; outer AccountInfo join stays open).
+      - solana state-bearing, synchronous, one-callee nonempty
+        identity-distinct rows → `none` (Wave 3 exact outer AccountInfo join);
+        empty-state/scheduled/empty-row/multi-callee programs keep the residual.
     * Missing table or uncovered QN → target-level `callScheduleResidualV1`.
     Does **not** change target `inspect`. Does **not** enter SupportClaim. -/
 def programCallScheduleResidualV1
@@ -189,7 +223,7 @@ def programCallScheduleResidualV1
     | .ok d => pure d
     | .error _ =>
         throw "call-bind: compiled semantic failed structure validation"
-  let callees := collectGenericCallBindCalleesV1 data
+  let callees := collectGenericCallBindCalleesV1 kind data
   if callees.isEmpty then
     pure none
   else
@@ -202,7 +236,13 @@ def programCallScheduleResidualV1
             covered := false
         if covered then
           match kind with
-          | .solana => pure (some "callee-identity-outer-account-open")
+          | .solana =>
+              if !data.logicalState.isEmpty &&
+                  !hasGenericSolanaScheduleV1 data &&
+                  solanaRowsCloseOuterJoinV1 table callees then
+                pure none
+              else
+                pure (some "callee-identity-outer-account-open")
           | _ => pure none
         else
           pure (callScheduleResidualV1 kind)

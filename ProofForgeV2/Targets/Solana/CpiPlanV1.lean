@@ -33,6 +33,13 @@ inductive RoleKeyPolicyV1 where
   | state (schemaId : Nat)
   | accountParameter (callableId : Nat) (paramOrdinal : Nat)
   | fixedProgram (packageId : String)
+  /-- ADR-0053 product-owned exact outer account. Signer/writable are carried
+      here so Plan validation can derive the handler privilege join without
+      fabricating a frozen CPI site. -/
+  | callBindAccount
+      (pubkey : SolanaPubkeyV1) (signer : Bool) (writable : Bool)
+  /-- ADR-0053 product-owned exact executable callee program account. -/
+  | callBindProgram (programId : SolanaPubkeyV1)
   /-- ADR-0029 B1: synthetic self-vault PDA (derived at runtime; not an ix param). -/
   | vaultPda
   /-- ADR-0029 B1: synthetic outer-signer caller for deposit. -/
@@ -586,6 +593,14 @@ private def deriveHandlerRoleIds
     for ctxSite in c.contextReadSites do
       if ctxSite.handlerId == h.handlerId then
         acc := pushUnique acc ctxSite.callerRoleId
+    -- 4) ADR-0053 generic bind roles are a product-owned suffix rather than
+    -- frozen CPI sites. The unified multi-role entrypoint requires the same
+    -- exact outer role layout for every handler.
+    for role in c.accountRoles do
+      match role.keyPolicy with
+      | .callBindAccount .. | .callBindProgram .. =>
+          acc := pushUnique acc role.roleId
+      | _ => pure ()
     return acc
 
 /-- Expected site predicates: callee, then metas order, then outer-only order. -/
@@ -790,6 +805,19 @@ private def encodeRoleKeyPolicy : RoleKeyPolicyV1 → CompileResult PfJson
       pure (.object #[
         ("kind", .string "fixedProgram"),
         ("packageId", .string packageId)
+      ])
+  | .callBindAccount pubkey signer writable =>
+      pure (.object #[
+        ("kind", .string "callBindAccount"),
+        ("pubkey", .string (encodeLowerHex (SolanaPubkeyV1.toBytes pubkey))),
+        ("signer", .bool signer),
+        ("writable", .bool writable)
+      ])
+  | .callBindProgram programId =>
+      pure (.object #[
+        ("kind", .string "callBindProgram"),
+        ("programId", .string
+          (encodeLowerHex (SolanaPubkeyV1.toBytes programId)))
       ])
   | .vaultPda => pure (.object #[("kind", .string "vaultPda")])
   | .handlerCaller => pure (.object #[("kind", .string "handlerCaller")])
@@ -1321,6 +1349,9 @@ private def validateRoles (c : SolanaCpiPlanCandidateV1) : CompileResult Unit :=
   let mut fixedPackages : Array String := #[]
   let mut accountParamKeys : Array (Nat × Nat) := #[]
   let mut stateRoleCount : Array Nat := Array.replicate c.stateSchemas.size 0
+  let mut callBindStarted := false
+  let mut callBindProgramSeen := false
+  let mut callBindAccountCount := 0
   for role in c.accountRoles do
     match role.keyPolicy with
     | .state schemaId =>
@@ -1346,6 +1377,8 @@ private def validateRoles (c : SolanaCpiPlanCandidateV1) : CompileResult Unit :=
         unless c.handlers.any (fun h => h.callableId == callableId) do
           planFail "accountParameter role callableId is not a handler callable"
     | .fixedProgram packageId =>
+        if callBindStarted then
+          planFail "call-bind roles must be the final accountRoles suffix"
         match findCalleePackage? packageId with
         | none => planFail s!"fixedProgram role package '{packageId}' is unknown"
         | some _ => pure ()
@@ -1354,18 +1387,50 @@ private def validateRoles (c : SolanaCpiPlanCandidateV1) : CompileResult Unit :=
         if fixedPackages.any (· == packageId) then
           planFail s!"duplicate fixedProgram role for package '{packageId}'"
         fixedPackages := fixedPackages.push packageId
+    | .callBindAccount pubkey _signer _writable =>
+        if callBindProgramSeen then
+          planFail "callBindAccount roles must precede callBindProgram"
+        callBindStarted := true
+        callBindAccountCount := callBindAccountCount + 1
+        unless (SolanaPubkeyV1.toBytes pubkey).size == 32 do
+          planFail "callBindAccount pubkey must be exactly 32 bytes"
+        unless role.constraint == callBindAccountRoleConstraintV1 do
+          planFail
+            "callBindAccount constraint must equal callBindAccountRoleConstraintV1"
+    | .callBindProgram programId =>
+        if callBindProgramSeen then
+          planFail "call-bind Plan must contain at most one callBindProgram role"
+        callBindStarted := true
+        callBindProgramSeen := true
+        unless (SolanaPubkeyV1.toBytes programId).size == 32 do
+          planFail "callBindProgram programId must be exactly 32 bytes"
+        unless role.constraint == callBindProgramRoleConstraintV1 do
+          planFail
+            "callBindProgram constraint must equal callBindProgramRoleConstraintV1"
     | .vaultPda =>
+        if callBindStarted then
+          planFail "call-bind roles must be the final accountRoles suffix"
         unless role.name == "pf_vault" do
           planFail "vaultPda role name must be pf_vault"
     | .handlerCaller =>
+        if callBindStarted then
+          planFail "call-bind roles must be the final accountRoles suffix"
         unless role.name == "pf_caller" do
           planFail "handlerCaller role name must be pf_caller"
     | .vaultAta _mintCallableId _mintParamOrdinal =>
+        if callBindStarted then
+          planFail "call-bind roles must be the final accountRoles suffix"
         unless role.name.startsWith "pf_vault_ata" do
           planFail "vaultAta role name must start with pf_vault_ata"
     | .dstAta _mintCallableId _dstParamOrdinal _mintParamOrdinal =>
+        if callBindStarted then
+          planFail "call-bind roles must be the final accountRoles suffix"
         unless role.name.startsWith "pf_dst_ata" do
           planFail "dstAta role name must start with pf_dst_ata"
+  if callBindStarted then
+    unless callBindAccountCount > 0 && callBindProgramSeen do
+      planFail
+        "call-bind role suffix requires at least one account and exactly one program"
   unless natPairsUnique accountParamKeys do
     planFail "accountParameter (callableId,paramOrdinal) must be unique"
   -- each state schema has exactly one state role (no unused)
@@ -1485,6 +1550,14 @@ private def validateHandlers (c : SolanaCpiPlanCandidateV1) : CompileResult Unit
           | .view =>
               unless !use.directSignerContribution && !use.directWritableContribution do
                 planFail "view state role requires neither direct signer nor writable"
+      | .callBindAccount _ signer writable =>
+          unless use.directSignerContribution == signer &&
+              use.directWritableContribution == writable do
+            planFail
+              "callBindAccount direct privileges must equal its bind policy"
+      | .callBindProgram _ =>
+          unless !use.directSignerContribution && !use.directWritableContribution do
+            planFail "callBindProgram direct privileges must be false"
       | _ =>
           unless !use.directSignerContribution && !use.directWritableContribution do
             planFail
@@ -1598,6 +1671,8 @@ private def validateOneSite
                 planFail "principal cpi arg must not bind a state role"
             | .fixedProgram _ =>
                 planFail "principal cpi arg must not bind a fixedProgram role"
+            | .callBindAccount .. | .callBindProgram .. =>
+                planFail "principal cpi arg must not bind a call-bind role"
             | .vaultPda | .handlerCaller | .vaultAta .. | .dstAta .. =>
                 planFail "principal cpi arg must not bind a synthetic vault/caller/ata role"
             unless handler.accountUses.any (fun u => u.roleId == roleId) do

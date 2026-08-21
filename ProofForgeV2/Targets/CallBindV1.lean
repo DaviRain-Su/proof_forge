@@ -10,8 +10,9 @@
 
   Not SemanticProgramV1. Not NetworkProfile. Not formal / C-3.
   Wave 2a empty-account void CALL lives in Evm.EmitIRV1 (not this table).
-  Wave 2b: Solana nonempty `accounts` → compile-time AccountMeta (≤8);
-  not outer-instruction account join.
+  Wave 2b: Solana nonempty `accounts` → compile-time AccountMeta (≤8).
+  Wave 3: a nonempty, identity-distinct Solana row also drives the product
+  full-body outer AccountInfo join; empty rows retain the partial path.
 -/
 import ProofForgeV2.Core.Canonical
 import ProofForgeV2.Core.Common
@@ -403,6 +404,28 @@ def requireSolanaAccountsV1 (table : CallBindTableV1) (callee : Array String) :
     Except String (Array CallBindAccountV1) := do
   let (_, accounts) ← requireSolanaBindingV1 table callee
   pure accounts
+
+/-- Wave 3 outer AccountInfo join gate. The Loader transaction account list
+    cannot carry two distinct full-account rows for one pubkey, and the callee
+    program occupies its own outer role. Keep the schema permissive for the
+    Wave 2b compile-time-only path, but fail closed before activating the
+    runtime join. -/
+def requireSolanaOuterAccountJoinV1
+    (table : CallBindTableV1) (callee : Array String) :
+    Except String (ByteArray × Array CallBindAccountV1) := do
+  let (programId, accounts) ← requireSolanaBindingV1 table callee
+  unless !accounts.isEmpty do
+    throw "call-bind: Solana outer AccountInfo join requires at least one account row"
+  let mut seen : Array ByteArray := #[]
+  for account in accounts do
+    if account.pubkey == programId then
+      throw
+        "call-bind: Solana outer AccountInfo account pubkeys must be distinct from programId"
+    if seen.any (· == account.pubkey) then
+      throw
+        "call-bind: Solana outer AccountInfo join requires distinct account pubkeys"
+    seen := seen.push account.pubkey
+  pure (programId, accounts)
 
 /-- Wave 2 CosmWasm lookup. Present table + missing/wrong-site → error. -/
 def requireCosmWasmAddressV1 (table : CallBindTableV1) (callee : Array String) :

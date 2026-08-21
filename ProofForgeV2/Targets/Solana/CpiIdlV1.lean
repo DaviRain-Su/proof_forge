@@ -140,6 +140,16 @@ private def pfNat (label : String) (n : Nat) : CompileResult PfJson := do
 private def digestsEqual (left right : Digest) : Bool :=
   left.algorithm == right.algorithm && left.bytes == right.bytes
 
+private def lowerHexDigit (n : Nat) : Char :=
+  if n < 10 then Char.ofNat ('0'.toNat + n)
+  else Char.ofNat ('a'.toNat + n - 10)
+
+private def encodeLowerHex (bytes : ByteArray) : String :=
+  bytes.foldl (fun result byte =>
+    let value := byte.toNat
+    (result.push (lowerHexDigit (value / 16))).push
+      (lowerHexDigit (value % 16))) ""
+
 private def findRole?
     (roles : Array AccountRoleSchemaV1) (roleId : Nat) :
     Option AccountRoleSchemaV1 :=
@@ -390,6 +400,19 @@ private def encodeRoleKeyPolicy : RoleKeyPolicyV1 → CompileResult PfJson
       pure (.object #[
         ("kind", .string "fixedProgram"),
         ("packageId", .string packageId)
+      ])
+  | .callBindAccount pubkey signer writable =>
+      pure (.object #[
+        ("kind", .string "callBindAccount"),
+        ("pubkey", .string (encodeLowerHex (SolanaPubkeyV1.toBytes pubkey))),
+        ("signer", .bool signer),
+        ("writable", .bool writable)
+      ])
+  | .callBindProgram programId =>
+      pure (.object #[
+        ("kind", .string "callBindProgram"),
+        ("programId", .string
+          (encodeLowerHex (SolanaPubkeyV1.toBytes programId)))
       ])
   | .vaultPda => pure (.object #[("kind", .string "vaultPda")])
   | .handlerCaller => pure (.object #[("kind", .string "handlerCaller")])

@@ -106,10 +106,7 @@ fn state_account(program_id: &Pubkey, data: Vec<u8>) -> Account {
 
 /// Map product IDL method name → discriminator name (init → initialize).
 fn disc_name(method: &str, mode: &str) -> String {
-    if method == "init"
-        || mode == "initialize"
-        || mode == "initializer"
-    {
+    if method == "init" || mode == "initialize" || mode == "initializer" {
         "initialize".into()
     } else {
         method.into()
@@ -123,6 +120,31 @@ struct IdlIx {
     outer_signer: bool,
     outer_writable: bool,
     param_count: usize,
+}
+
+fn body_only_state_account<'a>(
+    method: &str,
+    accounts: &'a [serde_json::Value],
+) -> Result<&'a serde_json::Value, String> {
+    if accounts.len() != 1 {
+        return Err(format!(
+            "pf run supports exactly one state account; method {method} declares {} roles; CPI/multi-role artifacts must use pf test",
+            accounts.len()
+        ));
+    }
+    let account = &accounts[0];
+    let role_id = account.get("roleId").and_then(|value| value.as_u64());
+    let position = account.get("position").and_then(|value| value.as_u64());
+    let key_policy = account
+        .get("keyPolicy")
+        .and_then(|value| value.get("kind"))
+        .and_then(|value| value.as_str());
+    if role_id != Some(0) || position != Some(0) || key_policy != Some("state") {
+        return Err(format!(
+            "pf run requires method {method} account[0] to be roleId=0, position=0, keyPolicy=state; CPI/multi-role artifacts must use pf test"
+        ));
+    }
+    Ok(account)
 }
 
 fn load_idl(path: &std::path::Path) -> Vec<IdlIx> {
@@ -143,7 +165,7 @@ fn load_idl(path: &std::path::Path) -> Vec<IdlIx> {
                 .unwrap_or("entry")
                 .to_string();
             let accounts = ix.get("accounts")?.as_array()?;
-            let acc0 = accounts.first()?;
+            let acc0 = body_only_state_account(&name, accounts).unwrap_or_else(|error| die(error));
             let outer_signer = acc0
                 .get("outerSigner")
                 .and_then(|b| b.as_bool())
@@ -292,10 +314,8 @@ fn main() {
         (post, ret)
     };
 
-    let is_init = method == "init"
-        || method == "initialize"
-        || method == "constructor"
-        || method == "deploy";
+    let is_init =
+        method == "init" || method == "initialize" || method == "constructor" || method == "deploy";
 
     if is_init {
         let ix = find_ix("init");
@@ -355,4 +375,41 @@ fn main() {
         "sol-oneshot: ok mode=call method={method} program={}",
         so_path.display()
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::body_only_state_account;
+
+    #[test]
+    fn accepts_exact_body_only_state_role() {
+        let accounts = serde_json::json!([{
+            "roleId": 0,
+            "position": 0,
+            "keyPolicy": {"kind": "state"}
+        }]);
+        assert!(body_only_state_account("get", accounts.as_array().unwrap()).is_ok());
+    }
+
+    #[test]
+    fn rejects_call_bind_multi_role_artifact() {
+        let accounts = serde_json::json!([
+            {"roleId": 0, "position": 0, "keyPolicy": {"kind": "state"}},
+            {"roleId": 1, "position": 1, "keyPolicy": {"kind": "callBindAccount"}},
+            {"roleId": 2, "position": 2, "keyPolicy": {"kind": "callBindProgram"}}
+        ]);
+        let error = body_only_state_account("invoke", accounts.as_array().unwrap()).unwrap_err();
+        assert!(error.contains("CPI/multi-role artifacts must use pf test"));
+    }
+
+    #[test]
+    fn rejects_non_state_single_role() {
+        let accounts = serde_json::json!([{
+            "roleId": 0,
+            "position": 0,
+            "keyPolicy": {"kind": "callBindProgram"}
+        }]);
+        let error = body_only_state_account("invoke", accounts.as_array().unwrap()).unwrap_err();
+        assert!(error.contains("keyPolicy=state"));
+    }
 }

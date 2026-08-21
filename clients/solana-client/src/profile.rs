@@ -330,7 +330,6 @@ fn validate_cpi_evidence_note(
     Ok(())
 }
 
-
 fn is_full_body_hybrid_ir_text(ir_text: &str) -> bool {
     ir_text.contains(&format!("\"schema\":\"{FULL_BODY_HYBRID_IR_SCHEMA}\""))
         || ir_text.contains(&format!("\"schema\": \"{FULL_BODY_HYBRID_IR_SCHEMA}\""))
@@ -364,16 +363,39 @@ fn join_cpi_full_body_hybrid(
         CPI_CATALOG_DIGEST_HEX,
     )?;
 
+    let roles = as_array(plan, "accountRoles")?;
+    if roles.is_empty() {
+        return Err(ClientError::AbiJoin(
+            "full-body hybrid plan.accountRoles must be non-empty".into(),
+        ));
+    }
+    let has_call_bind_roles = roles.iter().any(|role| {
+        role.get("keyPolicy")
+            .and_then(|policy| policy.get("kind"))
+            .and_then(Value::as_str)
+            .is_some_and(|kind| matches!(kind, "callBindAccount" | "callBindProgram"))
+    });
+
     let ext = plan
         .get("extensionRequirement")
         .ok_or_else(|| ClientError::AbiJoin("plan missing extensionRequirement".into()))?;
-    require_str(ext, "id", BODY_ONLY_EXTENSION_ID)?;
-    require_str(ext, "version", BODY_ONLY_EXTENSION_VERSION)?;
-    require_digest_wire_eq(
-        "plan.extensionRequirement.digest",
-        plan_str(ext, "digest")?,
-        BODY_ONLY_EXTENSION_DIGEST_HEX,
-    )?;
+    if has_call_bind_roles {
+        require_str(ext, "id", CPI_EXTENSION_ID)?;
+        require_str(ext, "version", CPI_EXTENSION_VERSION)?;
+        require_digest_wire_eq(
+            "plan.extensionRequirement.digest",
+            plan_str(ext, "digest")?,
+            CPI_EXTENSION_DIGEST_HEX,
+        )?;
+    } else {
+        require_str(ext, "id", BODY_ONLY_EXTENSION_ID)?;
+        require_str(ext, "version", BODY_ONLY_EXTENSION_VERSION)?;
+        require_digest_wire_eq(
+            "plan.extensionRequirement.digest",
+            plan_str(ext, "digest")?,
+            BODY_ONLY_EXTENSION_DIGEST_HEX,
+        )?;
+    }
     if !as_array(ext, "predicates")?.is_empty() {
         return Err(ClientError::AbiJoin(
             "plan.extensionRequirement.predicates must be empty".into(),
@@ -426,16 +448,65 @@ fn join_cpi_full_body_hybrid(
         ));
     }
     require_str(bindings, "programName", program_name)?;
-    require_str(bindings, "frameMode", "bodyOnly")?;
-    if bindings.get("frameBytes").and_then(Value::as_u64) != Some(4096) {
+    require_str(bindings, "profileId", PROFILE_CPI_ELF_V1)?;
+    require_digest_wire_eq(
+        "bindings.profileDigest",
+        plan_str(bindings, "profileDigest")?,
+        CPI_PROFILE_DIGEST_HEX,
+    )?;
+    require_digest_wire_eq(
+        "bindings.calleeCatalogDigest",
+        plan_str(bindings, "calleeCatalogDigest")?,
+        CPI_CATALOG_DIGEST_HEX,
+    )?;
+    let bind_plan = require_sha256_wire("bindings.planDigest", plan_str(bindings, "planDigest")?)?;
+    if bind_plan != plan_digest {
         return Err(ClientError::AbiJoin(
-            "hybrid bindings.frameBytes must be 4096".into(),
+            "hybrid bindings.planDigest != manifest.planDigest".into(),
+        ));
+    }
+    require_str(
+        bindings,
+        "implementationState",
+        "product-exact-synchronous-call-active-v1",
+    )?;
+    let expected_frame_mode = if has_call_bind_roles {
+        "unifiedCpi"
+    } else {
+        "bodyOnly"
+    };
+    require_str(bindings, "frameMode", expected_frame_mode)?;
+    let frame_bytes = bindings
+        .get("frameBytes")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| ClientError::AbiJoin("hybrid bindings.frameBytes missing".into()))?;
+    if frame_bytes == 0 || frame_bytes > 4096 {
+        return Err(ClientError::AbiJoin(
+            "hybrid bindings.frameBytes must be in 1..=4096".into(),
+        ));
+    }
+    if !has_call_bind_roles && frame_bytes != 4096 {
+        return Err(ClientError::AbiJoin(
+            "body-only hybrid bindings.frameBytes must be 4096".into(),
         ));
     }
     if bindings.get("cpiSites").and_then(Value::as_u64) != Some(0) {
         return Err(ClientError::AbiJoin(
             "hybrid bindings.cpiSites must be 0".into(),
         ));
+    }
+    let outer_role_count = bindings
+        .get("outerRoleCount")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| ClientError::AbiJoin("hybrid bindings.outerRoleCount missing".into()))?;
+    if has_call_bind_roles {
+        require_str(bindings, "synthesize", "call-bind-outer-account-join")?;
+        if outer_role_count != roles.len() as u64 {
+            return Err(ClientError::AbiJoin(format!(
+                "call-bind bindings.outerRoleCount {outer_role_count} must equal plan.accountRoles length {}",
+                roles.len()
+            )));
+        }
     }
     let bind_ir = require_sha256_wire("bindings.irDigest", plan_str(bindings, "irDigest")?)?;
     if bind_ir != expected_ir_digest {
@@ -489,40 +560,306 @@ fn join_cpi_full_body_hybrid(
             )));
         }
     }
+    validate_hybrid_account_projection(roles, handlers, instructions, has_call_bind_roles)?;
+    if !as_array(idl, "cpiSites")?.is_empty() {
+        return Err(ClientError::AbiJoin(
+            "full-body hybrid idl.cpiSites must be empty".into(),
+        ));
+    }
 
     // ---- Hybrid IR marker JSON ----
-    validate_full_body_hybrid_ir_json(ir_text)?;
+    validate_full_body_hybrid_ir_json(
+        ir_text,
+        expected_frame_mode,
+        frame_bytes,
+        outer_role_count,
+        has_call_bind_roles,
+    )?;
 
     // ---- Assembly (body-only S1b surface; not composite CPI product markers) ----
-    validate_full_body_hybrid_assembly(asm_text)?;
+    validate_full_body_hybrid_assembly(asm_text, has_call_bind_roles)?;
 
     Ok(())
 }
 
-fn validate_full_body_hybrid_ir_json(ir_text: &str) -> Result<(), ClientError> {
+fn validate_hybrid_account_projection(
+    roles: &[Value],
+    handlers: &[Value],
+    instructions: &[Value],
+    call_bind: bool,
+) -> Result<(), ClientError> {
+    let mut call_bind_account_count = 0usize;
+    let mut call_bind_started = false;
+    let mut call_bind_program_seen = false;
+    for (i, role) in roles.iter().enumerate() {
+        if role.get("roleId").and_then(Value::as_u64) != Some(i as u64) {
+            return Err(ClientError::AbiJoin(format!(
+                "hybrid plan.accountRoles[{i}].roleId must be {i}"
+            )));
+        }
+        let _ = plan_str(role, "name")?;
+        let policy = role.get("keyPolicy").ok_or_else(|| {
+            ClientError::AbiJoin(format!("hybrid plan.accountRoles[{i}].keyPolicy missing"))
+        })?;
+        let kind = plan_str(policy, "kind")?;
+        match kind {
+            "callBindAccount" => {
+                if call_bind_program_seen {
+                    return Err(ClientError::AbiJoin(
+                        "callBindAccount roles must precede callBindProgram".into(),
+                    ));
+                }
+                call_bind_started = true;
+                call_bind_account_count += 1;
+                require_lower_hex_32(
+                    &format!("plan.accountRoles[{i}].keyPolicy.pubkey"),
+                    plan_str(policy, "pubkey")?,
+                )?;
+                require_bool(policy, "signer", &format!("accountRoles[{i}].keyPolicy"))?;
+                require_bool(policy, "writable", &format!("accountRoles[{i}].keyPolicy"))?;
+                validate_call_bind_constraint(role, i, "forbidden")?;
+            }
+            "callBindProgram" => {
+                if call_bind_program_seen {
+                    return Err(ClientError::AbiJoin(
+                        "call-bind Plan must contain exactly one callBindProgram role".into(),
+                    ));
+                }
+                call_bind_started = true;
+                call_bind_program_seen = true;
+                require_lower_hex_32(
+                    &format!("plan.accountRoles[{i}].keyPolicy.programId"),
+                    plan_str(policy, "programId")?,
+                )?;
+                validate_call_bind_constraint(role, i, "required")?;
+            }
+            "state" | "accountParameter" | "fixedProgram" | "vaultPda" | "handlerCaller"
+            | "vaultAta" | "dstAta" => {
+                if call_bind_started {
+                    return Err(ClientError::AbiJoin(
+                        "call-bind roles must be the final plan.accountRoles suffix".into(),
+                    ));
+                }
+            }
+            other => {
+                return Err(ClientError::AbiJoin(format!(
+                    "unknown hybrid role keyPolicy kind '{other}'"
+                )));
+            }
+        }
+    }
+    if call_bind
+        && (call_bind_account_count == 0
+            || !call_bind_program_seen
+            || !matches!(
+                roles
+                    .last()
+                    .and_then(|role| role.get("keyPolicy"))
+                    .and_then(|policy| policy.get("kind"))
+                    .and_then(Value::as_str),
+                Some("callBindProgram")
+            ))
+    {
+        return Err(ClientError::AbiJoin(
+            "call-bind role suffix requires accounts followed by one final program role".into(),
+        ));
+    }
+
+    for (handler_index, (handler, instruction)) in handlers.iter().zip(instructions).enumerate() {
+        let uses = as_array(handler, "accountUses")?;
+        let accounts = as_array(instruction, "accounts")?;
+        if accounts.len() != uses.len() {
+            return Err(ClientError::AbiJoin(format!(
+                "idl.instructions[{handler_index}].accounts length {} must equal plan.handlers[{handler_index}].accountUses length {}",
+                accounts.len(),
+                uses.len()
+            )));
+        }
+        if call_bind && uses.len() != roles.len() {
+            return Err(ClientError::AbiJoin(format!(
+                "call-bind plan.handlers[{handler_index}].accountUses must contain the full {}-role layout",
+                roles.len()
+            )));
+        }
+        for (position, (account, use_row)) in accounts.iter().zip(uses).enumerate() {
+            let role_id = use_row
+                .get("roleId")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| {
+                    ClientError::AbiJoin(format!(
+                        "plan.handlers[{handler_index}].accountUses[{position}].roleId missing"
+                    ))
+                })?;
+            if use_row.get("position").and_then(Value::as_u64) != Some(position as u64) {
+                return Err(ClientError::AbiJoin(format!(
+                    "plan.handlers[{handler_index}].accountUses[{position}].position mismatch"
+                )));
+            }
+            if call_bind && role_id != position as u64 {
+                return Err(ClientError::AbiJoin(format!(
+                    "call-bind plan.handlers[{handler_index}].accountUses[{position}] must use roleId {position}"
+                )));
+            }
+            let role = roles.get(role_id as usize).ok_or_else(|| {
+                ClientError::AbiJoin(format!(
+                    "plan.handlers[{handler_index}].accountUses[{position}].roleId out of range"
+                ))
+            })?;
+            if account.get("position").and_then(Value::as_u64) != Some(position as u64)
+                || account.get("roleId").and_then(Value::as_u64) != Some(role_id)
+            {
+                return Err(ClientError::AbiJoin(format!(
+                    "idl.instructions[{handler_index}].accounts[{position}] position/roleId diverges from Plan"
+                )));
+            }
+            if plan_str(account, "name")? != plan_str(role, "name")? {
+                return Err(ClientError::AbiJoin(format!(
+                    "idl.instructions[{handler_index}].accounts[{position}].name diverges from Plan role"
+                )));
+            }
+            for field in ["keyPolicy", "constraint", "aliasPolicy"] {
+                if account.get(field) != role.get(field) || account.get(field).is_none() {
+                    return Err(ClientError::AbiJoin(format!(
+                        "idl.instructions[{handler_index}].accounts[{position}].{field} diverges from Plan role"
+                    )));
+                }
+            }
+            for field in [
+                "directSignerContribution",
+                "directWritableContribution",
+                "outerSigner",
+                "outerWritable",
+            ] {
+                let plan_value = require_bool(
+                    use_row,
+                    field,
+                    &format!("plan.handlers[{handler_index}].accountUses[{position}]"),
+                )?;
+                let idl_value = require_bool(
+                    account,
+                    field,
+                    &format!("idl.instructions[{handler_index}].accounts[{position}]"),
+                )?;
+                if idl_value != plan_value {
+                    return Err(ClientError::AbiJoin(format!(
+                        "idl.instructions[{handler_index}].accounts[{position}].{field} diverges from Plan use"
+                    )));
+                }
+            }
+
+            let policy = role.get("keyPolicy").expect("checked above");
+            match plan_str(policy, "kind")? {
+                "callBindAccount" => {
+                    let signer = require_bool(policy, "signer", "callBindAccount keyPolicy")?;
+                    let writable = require_bool(policy, "writable", "callBindAccount keyPolicy")?;
+                    for (field, expected) in [
+                        ("directSignerContribution", signer),
+                        ("directWritableContribution", writable),
+                        ("outerSigner", signer),
+                        ("outerWritable", writable),
+                    ] {
+                        if require_bool(use_row, field, "callBindAccount Plan use")? != expected {
+                            return Err(ClientError::AbiJoin(format!(
+                                "callBindAccount {field} must equal bind key policy"
+                            )));
+                        }
+                    }
+                }
+                "callBindProgram" => {
+                    for field in [
+                        "directSignerContribution",
+                        "directWritableContribution",
+                        "outerSigner",
+                        "outerWritable",
+                    ] {
+                        if require_bool(use_row, field, "callBindProgram Plan use")? {
+                            return Err(ClientError::AbiJoin(format!(
+                                "callBindProgram {field} must be false"
+                            )));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_call_bind_constraint(
+    role: &Value,
+    role_index: usize,
+    executable: &str,
+) -> Result<(), ClientError> {
+    let constraint = role.get("constraint").ok_or_else(|| {
+        ClientError::AbiJoin(format!(
+            "plan.accountRoles[{role_index}].constraint missing"
+        ))
+    })?;
+    require_str(constraint, "executable", executable)?;
+    require_str(constraint, "provisioning", "mustExist")?;
+    let data = constraint.get("data").ok_or_else(|| {
+        ClientError::AbiJoin(format!(
+            "plan.accountRoles[{role_index}].constraint.data missing"
+        ))
+    })?;
+    require_str(data, "kind", "notRead")
+}
+
+fn require_bool(v: &Value, key: &str, context: &str) -> Result<bool, ClientError> {
+    v.get(key)
+        .and_then(Value::as_bool)
+        .ok_or_else(|| ClientError::AbiJoin(format!("{context}.{key} must be a boolean")))
+}
+
+fn require_lower_hex_32(label: &str, value: &str) -> Result<(), ClientError> {
+    if value.len() != 64
+        || !value
+            .as_bytes()
+            .iter()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+    {
+        return Err(ClientError::AbiJoin(format!(
+            "{label} must be exactly 32-byte lowercase hex"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_full_body_hybrid_ir_json(
+    ir_text: &str,
+    expected_frame_mode: &str,
+    expected_frame_bytes: u64,
+    expected_outer_role_count: u64,
+    call_bind: bool,
+) -> Result<(), ClientError> {
     let v: Value = serde_json::from_str(ir_text)
         .map_err(|e| ClientError::AbiJoin(format!("hybrid ir json: {e}")))?;
     require_str(&v, "schema", FULL_BODY_HYBRID_IR_SCHEMA)?;
     // marker fields — engineering honesty, not provenance
     if v.get("synthesize").and_then(Value::as_str).is_none() {
-        return Err(ClientError::AbiJoin(
-            "hybrid ir missing synthesize".into(),
-        ));
+        return Err(ClientError::AbiJoin("hybrid ir missing synthesize".into()));
     }
-    if v.get("frameMode").and_then(Value::as_str) != Some("bodyOnly") {
-        return Err(ClientError::AbiJoin(
-            "hybrid ir frameMode must be bodyOnly".into(),
-        ));
+    if v.get("frameMode").and_then(Value::as_str) != Some(expected_frame_mode) {
+        return Err(ClientError::AbiJoin(format!(
+            "hybrid ir frameMode must be {expected_frame_mode}"
+        )));
     }
-    if v.get("frameBytes").and_then(Value::as_u64) != Some(4096) {
-        return Err(ClientError::AbiJoin(
-            "hybrid ir frameBytes must be 4096".into(),
-        ));
+    if v.get("frameBytes").and_then(Value::as_u64) != Some(expected_frame_bytes) {
+        return Err(ClientError::AbiJoin(format!(
+            "hybrid ir frameBytes must equal bindings.frameBytes {expected_frame_bytes}"
+        )));
     }
     if v.get("cpiSites").and_then(Value::as_u64) != Some(0) {
-        return Err(ClientError::AbiJoin(
-            "hybrid ir cpiSites must be 0".into(),
-        ));
+        return Err(ClientError::AbiJoin("hybrid ir cpiSites must be 0".into()));
+    }
+    if v.get("outerRoleCount").and_then(Value::as_u64) != Some(expected_outer_role_count) {
+        return Err(ClientError::AbiJoin(format!(
+            "hybrid ir outerRoleCount must equal bindings.outerRoleCount {expected_outer_role_count}"
+        )));
+    }
+    if call_bind {
+        require_str(&v, "synthesize", "call-bind-outer-account-join")?;
     }
     Ok(())
 }
@@ -867,8 +1204,7 @@ fn validate_cpi_ir_text(
     Ok(())
 }
 
-
-fn validate_full_body_hybrid_assembly(asm: &str) -> Result<(), ClientError> {
+fn validate_full_body_hybrid_assembly(asm: &str, call_bind: bool) -> Result<(), ClientError> {
     let lower = asm.to_ascii_lowercase();
     if lower.contains("preactivation")
         || lower.contains("activationdenied")
@@ -887,6 +1223,19 @@ fn validate_full_body_hybrid_assembly(asm: &str) -> Result<(), ClientError> {
             return Err(ClientError::AbiJoin(format!(
                 "hybrid assembly missing marker {marker}"
             )));
+        }
+    }
+    if call_bind {
+        for marker in [
+            "call-bind outer AccountInfo join",
+            "call-bind callee program",
+            "call sol_invoke_signed_c",
+        ] {
+            if !asm.contains(marker) {
+                return Err(ClientError::AbiJoin(format!(
+                    "call-bind hybrid assembly missing marker {marker}"
+                )));
+            }
         }
     }
     Ok(())

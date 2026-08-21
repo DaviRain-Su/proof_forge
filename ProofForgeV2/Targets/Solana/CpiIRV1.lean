@@ -599,6 +599,18 @@ private def encodeRoleKeyPolicy : RoleKeyPolicyV1 → CompileResult PfJson
         ("kind", .string "fixedProgram"),
         ("packageId", .string packageId)
       ])
+  | .callBindAccount pubkey signer writable =>
+      pure (.object #[
+        ("kind", .string "callBindAccount"),
+        ("pubkey", encodePubkey pubkey),
+        ("signer", .bool signer),
+        ("writable", .bool writable)
+      ])
+  | .callBindProgram programId =>
+      pure (.object #[
+        ("kind", .string "callBindProgram"),
+        ("programId", encodePubkey programId)
+      ])
   | .vaultPda => pure (.object #[("kind", .string "vaultPda")])
   | .handlerCaller => pure (.object #[("kind", .string "handlerCaller")])
   | .vaultAta .. => pure (.object #[("kind", .string "vaultAta")])

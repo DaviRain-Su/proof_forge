@@ -3,7 +3,7 @@ id: PHASE-6
 title: 实现日志
 status: draft
 owner: engineering
-updated: 2026-08-19
+updated: 2026-08-21
 normative: false
 ---
 
@@ -11,6 +11,29 @@ normative: false
 
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
+
+## 2026-08-21 — ADR-0053 Wave 3 Solana outer AccountInfo join
+
+- 对 state-bearing、single generic callee、synchronous void CALL、1..8 non-alias
+  account rows、无 frozen CPI sites 的产品子集，`CallBindTableV1` 现在同时驱动
+  compile-time AccountMeta 与 outer AccountInfo join。Plan/IDL 投影既有 roles 后的
+  bound accounts（source order）+ executable callee program；generic bind 保持
+  `cpiSites=[]`，不伪造 frozen CPI contract。
+- SBPF multi-role walker 保留 key/owner/data/flags/rent，逐项精确校验 account key、
+  signer、writable 与 callee program key/executable；CPI AccountInfo 范围精确为
+  bound rows + program，inner failure 原样传播。支持子集的 program-level
+  `callScheduleResidual` 由 `callee-identity-outer-account-open` 清为 `null`。
+- `clients/solana-client` 对 Plan↔IDL 的 fixed pubkey / privileges / executable /
+  outer role count 做 exact verifier join；`sol_oneshot` 明确拒 call-bind multi-role
+  artifact 并指向 `pf test`。
+- 产品 runtime fixture `CallBindCaller` / `CallBindCallee` 由 CLI 独立构建；
+  `call_bind_product` 8 tests 覆盖 artifact projection、成功 source-order commit、
+  wrong account/program key、signer/writable/executable mismatch 与 inner-failure
+  full rollback。完整 `scripts/solana_runtime_test.sh`、CallBind Lean runner、Solana
+  client 34-test offline suite 与 `git diff --check` 通过。
+- 保持 FC/open：empty-state、schedule、empty-row、multi-callee、mixed frozen-site、
+  generic result-bearing CALL、identity digest verification、target static inspect、
+  formal/C-3/hermetic/release。ADR-0036 / 0053 均仍 `proposed`，等待可核验审批记录。
 
 ## 2026-08-19 — COMP-1-SYS-CAP-L2 ecdsa 十二叶第一道门针
 

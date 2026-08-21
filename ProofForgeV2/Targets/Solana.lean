@@ -60,16 +60,3 @@ Legacy ExternalCall/Schedule remain unreachable and byte-stable on no-call
 programs. Default / sole product profile is `solana-sbpf-cpi-elf-v1`
 (retired `plan-v1` / `elf-v1` resolve as `PF-PROFILE-UNKNOWN`).
 -/
-
-namespace ProofForgeV2.Targets.Solana
-
-open ProofForgeV2
-open ProofForgeV2.Compiler
-
-/-- Materializer associated types are the #125 tagged sums (legacy | cpi).
-    Aggregate Registry still sole-mints via one `.solana` kind dispatch. -/
-instance : Materializer .solana where
-  Plan := SolanaPlanFromCapabilityV1
-  TargetIR := SolanaIRFromCapabilityV1
-
-end ProofForgeV2.Targets.Solana
