@@ -34,6 +34,8 @@ open System
 open Lean
 open Lean.Elab.Command
 
+set_option maxRecDepth 4096
+
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
 
@@ -858,12 +860,21 @@ private unsafe def testFourTargetFinalization : IO Unit := do
       expect (disk == f.contents) s!"evm base byte preservation {f.path}"
     let binPath := outDir / "StateCell.bin"
     expect (← binPath.pathExists) "evm writes StateCell.bin"
+    let runtimePath := outDir / "StateCell.runtime.bin"
+    expect (← runtimePath.pathExists) "evm writes StateCell.runtime.bin"
     let bin ← IO.FS.readFile binPath
     expect (!bin.isEmpty && bin.endsWith "\n") "evm .bin nonempty trailing newline"
     let hexBody := if bin.endsWith "\n" then bin.dropEnd 1 |>.copy else bin
     expect (hexBody.all fun c =>
         ('0' ≤ c && c ≤ '9') || ('a' ≤ c && c ≤ 'f') || ('A' ≤ c && c ≤ 'F'))
       "evm .bin is hex bytecode + newline"
+    let runtime ← IO.FS.readFile runtimePath
+    expect (!runtime.isEmpty && runtime.endsWith "\n")
+      "evm runtime .bin nonempty trailing newline"
+    let runtimeBody := runtime.dropEnd 1 |>.copy
+    expect (runtimeBody.length % 2 == 0 && runtimeBody.all fun c =>
+        ('0' ≤ c && c ≤ '9') || ('a' ≤ c && c ≤ 'f'))
+      "evm runtime .bin is lowercase even-length hex + newline"
     let evidence ← IO.FS.readFile (outDir / "evidence.json")
     expect ((evidence.splitOn "solc ").length > 1) "evm evidence solc note"
     expect ((evidence.splitOn "completed successfully").length > 1)
@@ -871,7 +882,56 @@ private unsafe def testFourTargetFinalization : IO Unit := do
     let manifest ← IO.FS.readFile (outDir / "manifest.json")
     expect ((manifest.splitOn "\"deployable\": true").length > 1) "evm manifest deployable"
     expect ((manifest.splitOn "StateCell.bin").length > 1) "evm manifest includes .bin"
+    expect ((manifest.splitOn "StateCell.runtime.bin").length > 1)
+      "evm manifest includes runtime .bin"
     expect ((manifest.splitOn sourceHash).length > 1) "evm manifest sourceHash"
+    let authority ← ProofForgeV2.CLI.inspectEvmBindingOutputAuthorityV1 outDir
+    expect (authority.target == .evm && authority.deployable)
+      "EVM callee output authority target/deployability"
+    expect (authority.artifactProgramName == "StateCell")
+      "EVM callee output authority program name"
+    expect (authority.runtimeArtifactBytes == runtime.toUTF8)
+      "EVM callee output authority retains exact runtime artifact bytes"
+    -- Root symlink, missing runtime, symlink runtime, descriptor removal, and
+    -- traversal mutation all fail through the same full output-dir boundary.
+    let outputLink := FilePath.mk "build/v2/finalization-evm-link"
+    if ← outputLink.pathExists then IO.FS.removeFile outputLink
+    let _ ← IO.Process.output {
+      cmd := "ln"
+      args := #["-s", "finalization-evm", outputLink.toString]
+    }
+    expectIoErrorContains "EVM authority symlink output root" "not a real directory" do
+      let _ ← ProofForgeV2.CLI.inspectEvmBindingOutputAuthorityV1 outputLink
+      pure ()
+    IO.FS.removeFile outputLink
+    IO.FS.removeFile runtimePath
+    expectIoErrorContains "EVM authority missing runtime" "StateCell.runtime.bin" do
+      let _ ← ProofForgeV2.CLI.inspectEvmBindingOutputAuthorityV1 outDir
+      pure ()
+    IO.FS.writeFile runtimePath runtime
+    IO.FS.removeFile runtimePath
+    let _ ← IO.Process.output {
+      cmd := "ln"
+      args := #["-s", "StateCell.bin", runtimePath.toString]
+    }
+    expectIoErrorContains "EVM authority symlink runtime" "symbolic link" do
+      let _ ← ProofForgeV2.CLI.inspectEvmBindingOutputAuthorityV1 outDir
+      pure ()
+    IO.FS.removeFile runtimePath
+    IO.FS.writeFile runtimePath runtime
+    let manifestPath := outDir / "manifest.json"
+    IO.FS.writeFile manifestPath
+      (String.intercalate "StateCell.runtime.bim" (manifest.splitOn "StateCell.runtime.bin"))
+    expectIoErrorContains "EVM authority manifest omits runtime" "outputSetDigest" do
+      let _ ← ProofForgeV2.CLI.inspectEvmBindingOutputAuthorityV1 outDir
+      pure ()
+    IO.FS.writeFile manifestPath manifest
+    IO.FS.writeFile manifestPath
+      (String.intercalate "../escape.runtime.bin" (manifest.splitOn "StateCell.runtime.bin"))
+    expectIoErrorContains "EVM authority traversal descriptor" "unsafe artifact path" do
+      let _ ← ProofForgeV2.CLI.inspectEvmBindingOutputAuthorityV1 outDir
+      pure ()
+    IO.FS.writeFile manifestPath manifest
   -- NEAR: real wat2wasm .wasm + base wat preservation.
   do
     let selection ← liftResult "select near" (resolveBuildSelectionV1 TargetId.near none)
@@ -926,6 +986,94 @@ private def runProductCliWithToolRoot (toolRoot : String) (args : Array String) 
     inheritEnv := true
   }
 
+/-- Real product CLI ingress: inspected callee output → identity join → caller
+    output whose Yul contains the exact endpoint and runtime EXTCODEHASH gate. -/
+private unsafe def testEvmCallBindProductIngress : IO Unit := do
+  let toolRoot ← match ← IO.getEnv "PROOF_FORGE_TOOL_ROOT" with
+    | some value => pure value
+    | none => throw <| IO.userError "PROOF_FORGE_TOOL_ROOT must be set for finalization tests"
+  let calleeDir := FilePath.mk "build/v2/finalization-evm"
+  let authority ← ProofForgeV2.CLI.inspectEvmBindingOutputAuthorityV1 calleeDir
+  let artifactDigest ← match renderDigest authority.artifactSha256 with
+    | .ok value => pure value
+    | .error e => throw <| IO.userError s!"render runtime artifact digest: {e}"
+  let sourceDigest ← match renderDigest authority.sourceHash with
+    | .ok value => pure value
+    | .error e => throw <| IO.userError s!"render source digest: {e}"
+  let semanticDigest ← match renderDigest authority.semanticHash with
+    | .ok value => pure value
+    | .error e => throw <| IO.userError s!"render semantic digest: {e}"
+  let bindValue : PfJson := .object #[
+    ("bindings", .array #[.object #[
+      ("address", .string "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+      ("callee", .string "StateCell.increment"),
+      ("identity", .object #[
+        ("artifactSha256", .string artifactDigest),
+        ("semanticHash", .string semanticDigest),
+        ("sourceHash", .string sourceDigest)
+      ])
+    ]]),
+    ("schema", .string "proof-forge.call-bind.v1"),
+    ("target", .string "evm")
+  ]
+  let bindText ← match renderPfJcs bindValue with
+    | .ok value => pure value
+    | .error e => throw <| IO.userError s!"render EVM product bind table: {e}"
+  let sourcePath := FilePath.mk "build/v2/finalization-call-bind-caller.lean"
+  let bindPath := FilePath.mk "build/v2/finalization-call-bind.json"
+  IO.FS.writeFile sourcePath
+    ("import ProofForgeV2\n\n" ++
+      "namespace Tests\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      "program FinalizationCallBindCaller where\n" ++
+      "  state value : UInt64\n" ++
+      "  init(initial : UInt64) do\n" ++
+      "    value := initial\n" ++
+      "  entry invoke(delta : UInt64) : UInt64 do\n" ++
+      "    call StateCell.increment(delta)\n" ++
+      "    value := value + 1\n" ++
+      "    return value\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return value\n" ++
+      "end Tests\n")
+  IO.FS.writeFile bindPath bindText
+  let callerDir := FilePath.mk "build/v2/finalization-call-bind-caller"
+  if ← callerDir.pathExists then IO.FS.removeDirAll callerDir
+  let result ← runProductCliWithToolRoot toolRoot #[
+    "build", sourcePath.toString, "--module", "Tests.FinalizationCallBindCaller",
+    "--target", "evm", "--bindings", bindPath.toString,
+    "--callee-output", calleeDir.toString, "-o", callerDir.toString, "--json"
+  ]
+  expect (result.exitCode == 0)
+    s!"EVM call-bind product ingress failed:\n{result.stdout}\n{result.stderr}"
+  let runtimeCode ← match Targets.CallBindV1.decodeEvmRuntimeBytecodeArtifactV1
+      authority.runtimeArtifactBytes with
+    | .ok value => pure value
+    | .error e => throw <| IO.userError s!"decode verified runtime artifact: {e}"
+  let runtimeKeccakHex := Targets.CallBindV1.encodeLowerHexBytesV1
+    (Targets.Evm.Keccak.keccak256 runtimeCode)
+  let callerYul ← IO.FS.readFile (callerDir / "FinalizationCallBindCaller.yul")
+  expect (callerYul.contains
+      "extcodesize(0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb)")
+    "product caller must use the exact bound endpoint"
+  expect (callerYul.contains
+      s!"extcodehash(0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb), 0x{runtimeKeccakHex}")
+    "product caller must use the exact verified runtime code hash"
+  let missingDir := FilePath.mk "build/v2/finalization-call-bind-missing-authority"
+  if ← missingDir.pathExists then IO.FS.removeDirAll missingDir
+  let missing ← runProductCliWithToolRoot toolRoot #[
+    "build", sourcePath.toString, "--module", "Tests.FinalizationCallBindCaller",
+    "--target", "evm", "--bindings", bindPath.toString,
+    "-o", missingDir.toString, "--json"
+  ]
+  expect (missing.exitCode != 0 &&
+      (missing.stdout ++ missing.stderr).contains "no verified EVM output matches")
+    "product caller without --callee-output must fail closed before emit"
+  expect (!(← missingDir.pathExists))
+    "missing EVM callee authority must publish no caller output"
+  IO.FS.removeFile sourcePath
+  IO.FS.removeFile bindPath
+
 /-- Tool-failure zero publish (EVM missing tool root via CLI child process). -/
 private unsafe def testToolFailureZeroPublish : IO Unit := do
   -- Ensure product CLI exists for this focused suite.
@@ -968,6 +1116,8 @@ private unsafe def testNearToolFailureZeroPublish : IO Unit := do
   let receipt ← ProofForgeV2.CLI.emitProgram evmCap evmOut
   expect (receipt.deployable == true) "EVM still deployable after NEAR tool-fail case"
   expect (← (evmOut / "StateCell.bin").pathExists) "EVM still emits .bin"
+  expect (← (evmOut / "StateCell.runtime.bin").pathExists)
+    "EVM still emits runtime .bin"
 
 /-- CLI authority deletion pins (source + Environment). -/
 private unsafe def testCliAuthorityDeletion : IO Unit := do
@@ -1047,6 +1197,7 @@ unsafe def run : IO Unit := do
   testNonDeployablePhases
   testFourTargetFinalization
   testToolFailureZeroPublish
+  testEvmCallBindProductIngress
   testNearToolFailureZeroPublish
   testCliAuthorityDeletion
   IO.println "Tests.Materialization.EngineeringFinalizationV1: ok"

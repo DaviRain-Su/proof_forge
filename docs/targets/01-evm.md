@@ -53,13 +53,21 @@ deploy 默认 ctor `0` 或 `PF_EVM_INIT_ARGS`，再 view/mutate；`init`/`constr
   `Option UInt64` / `Array Int64 N` / `Option Int64` / `Bytes N` 发 Solidity tuple；Map/nested/非标量元素与 target pureFn aggregate仍 FC；
 - **static-QN external call/schedule**：sync 发真实 `CALL`；result-bearing UInt64 路径要求
   `returndatasize ≥ 32`、读取首 word并做 UInt64 range check；schedule 仍同步 CALL+discard。
-  callee 仍为 target-path hash stub，真实 deployment-address binding 未闭合；
+  无 `--bindings` 时 callee 保持 target-path hash stub。显式 EVM bind 时，表内预置
+  20-byte address 必须与一个显式 `--callee-output` 的 deployable
+  `proof-forge.output.v1` exact join：callee program name、`sourceHash`、
+  `semanticHash` 与 `{program}.runtime.bin` 文件 SHA-256 全匹配；hex 解码后的 runtime
+  bytes 计算 Ethereum Keccak-256，CALL/schedule 前以 `EXTCODEHASH` 校验地址处代码。
+  这是本地 artifact→runtime-code identity gate；不验证 receipt、地址来源、CREATE /
+  CREATE2 或部署过程，故完整 deployment-address binding 与 `B-CALL-SEM` 仍未闭合；
 - Token 当前为 **locked-solc engineering finalization**（hashed Map）：creation bytecode
   远低于 EIP-3860（旧 258460 B 数字来自 unrolled dense Map，已过期）。emitter 对
   constructor/runtime 做 phase-local helper 发射；共享 `pf_sload_u64` 摊销 UInt64 range
   gate；hashed upsert 走 `pf_hmap_*`（非整表 24/44 sstore）。Anvil/mainnet/OZ 产品声明
   仍以各自 runtime 门为准；
-- Yul + digest-pinned `solc --strict-assembly --optimize` bytecode（与 Solidity `--optimize` 同源 Yul 优化器）；**EvmSolc** 验收门（工具缺席干净跳过）；
+- Yul + digest-pinned `solc --standard-json`（Yul language、optimizer enabled）同时产出
+  creation `{program}.bin` 与 deployed runtime `{program}.runtime.bin`；**EvmSolc**
+  验收门（工具缺席干净跳过）；
 - engineering planDigest 可绑 BuildIdentity/OutputSet；G4 `evm_anvil_differential.sh` 从产品 CLI
   制品运行 Counter/Accumulator/ArithOps/EventFlow，固定 overflow state-hold 与 emit 日志。
   **Lighthouse slice-3（engineering）**：StateCell/Accumulator/ArithOps（digest-listed）
@@ -72,7 +80,7 @@ deploy 默认 ctor `0` 或 `PF_EVM_INIT_ARGS`，再 view/mutate；`init`/`constr
   selector + state-hold + recovery。local Anvil only — not formal / not mainnet。
 - **双 profile（EVMOZ-001）**：默认 `evm-yul-solc-0.8.34-v1`（**hashed Map**，evidence
   `map-storage=hashed`）；显式 `evm-yul-solc-0.8.34-cancun-v1` 在 Finalize 加
-  `solc --evm-version cancun` + 同 hashed Map，runtime 经 `PF_EVM_PROFILE=…cancun-v1`
+  standard JSON `evmVersion="cancun"` + 同 hashed Map，runtime 经 `PF_EVM_PROFILE=…cancun-v1`
   启动 `anvil --hardfork cancun`。两 profile 共用锁定 solc 0.8.34 / Anvil 0.3.0。
 - **`pf.assets` native binding（ADR-0029 Phase B2，2026-08-05）**：两 profile 均 advertise
   exact `extension.pf-assets`（resolver multi-permit）。`pf.assets.native.deposit` →
@@ -121,7 +129,7 @@ deploy 默认 ctor `0` 或 `PF_EVM_INIT_ARGS`，再 view/mutate；`init`/`constr
   false-not-revert）。host-optional engineering Anvil companion
   `scripts/evm_merkle_verify_anvil_smoke.sh` 挂 `evm_anvil_differential.sh`（非 formal/C-3）。
 
-**明确未闭合**：完整 SemanticProgramV1 表面；ContextRead 已开放版本化的 `unixTimeSeconds`、`caller` 与 **`blockHeight`（S2：`number()`）**，未知键仍 FC；Option/Array/Bytes **param** 已 flatten；Map param 仍 FC（hashed 1-slot）；Option Int64 / Array Int64 / Bytes N return 已开；非 UInt64/Int64 payload 与 nested Option 仍 fail-closed；Map Int64 return 与 Int64-key Map 仍 FC；static-QN callee 仍是 hashed-address stub，缺真实 deployment-address binding；formal Plan/IR/Build/Output identity 与 identity-bound Reference↔Anvil formal differential；G4 不是 formal TST closure，不得写成 D4 / formal TASK 完成；**不得**把 Cancun profile 写成 OZ compatibility 或 formal hardfork 闭合；**不得**把 ADR-0025/S1 写成 Ownable/OZ/ABI/formal 完成。
+**明确未闭合**：完整 SemanticProgramV1 表面；ContextRead 已开放版本化的 `unixTimeSeconds`、`caller` 与 **`blockHeight`（S2：`number()`）**，未知键仍 FC；Option/Array/Bytes **param** 已 flatten；Map param 仍 FC（hashed 1-slot）；Option Int64 / Array Int64 / Bytes N return 已开；非 UInt64/Int64 payload 与 nested Option 仍 fail-closed；Map Int64 return 与 Int64-key Map 仍 FC；static-QN 无 bind 时仍是 hashed-address stub；有 bind 时只闭合本地 output/runtime identity + call-time code-hash gate，仍缺 receipt/address provenance/CREATE/CREATE2/deployment-process proof；formal Plan/IR/Build/Output identity 与 identity-bound Reference↔Anvil formal differential；G4 不是 formal TST closure，不得写成 D4 / formal TASK 完成；**不得**把 Cancun profile 写成 OZ compatibility 或 formal hardfork 闭合；**不得**把 ADR-0025/S1 写成 Ownable/OZ/ABI/formal 完成。
 
 ## 0.1 `context.caller` Principal encoding 与物化合同（ADR-0025；S1-EVM）
 

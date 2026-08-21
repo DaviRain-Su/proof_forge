@@ -52,7 +52,7 @@ proof-forge-next check <source> --module <lean-module-name> [--language-version 
   [--format human|json]
 proof-forge-next build <source> --module <lean-module-name> --target <id> [--profile <id>]
   [--language-version <semver>] [--minimum-evidence <grade>]
-  [--bindings <path>]
+  [--bindings <path>] [--callee-output <dir>]...
   [--program <qualified>] [--resource-limit <stage>.<field>=<n>]...
   --output <dir> [--force] [--format human|json]
 proof-forge-next inspect <output-dir> [--format human|json]
@@ -106,7 +106,20 @@ wire whitelist，但任何显式 `--minimum-evidence` 请求都在 source open /
 `--target evm|solana|cosmwasm`；`check` 与其余十叶给该 flag 均为 usage / exit 2。
 文件必须是 PF-JCS `proof-forge.call-bind.v1`。**Wave 2** parse + 与 `--target`
 join 后把表显式传到三叶 emit：generic `call`/`schedule` 无匹配行 fail closed。
-无 `--bindings` 时行为与今天完全相同（hashed QN / QN stub）。**Wave 2a**：
+EVM 表额外要求每行完整 `sourceHash` / `semanticHash` / `artifactSha256`，并要求调用方
+对每个 callee 以可重复 `--callee-output <dir>` 显式提供恰好一个本地
+`proof-forge.output.v1` 权威目录。CLI 先执行 manifest、sidecar、artifact content 与
+exact disk closure 的完整 inspect，再按 callee program name + 三 digest exact join；
+`artifactSha256` 绑定 `{program}.runtime.bin` 的 lowercase-hex+LF 文件内容。
+finalizer 产出的 runtime bytes 经 hex 解码后计算 Ethereum Keccak-256，emitter 在每个
+generic CALL/schedule 前执行 `extcodehash(address)` exact guard。缺失、重复、未使用、
+identity/target/deployability/runtime mismatch、symlink/path traversal 均 fail closed。
+`--callee-output` 不能脱离 `--bindings`，也不能用于非 EVM target；不做目录发现、RPC、
+receipt、CREATE/CREATE2 推导。地址仍是表内预置 20 bytes，故这只验证「该地址当下代码
+等于已验证 callee runtime」，不证明地址来源或部署过程。
+
+无 `--bindings` 时行为与今天完全相同（hashed QN / QN stub），且不发明 runtime-code
+identity 声明。**Wave 2a**：
 EVM generic void CALL 在 `extcodesize==0` 时 fail closed（与 `--bindings` 无关）。
 **Wave 2c**：成功 `build` JSON（`proof-forge.cli.build.v1`）带
 `callScheduleResidual: string | null`（program-level；无 generic call 或
@@ -120,8 +133,8 @@ residual 仍存在时多一行。
 target `inspect` 仍静态报告 kind 闭表；inspect-output / manifest / evidence
 不加该字段。Solana Wave 3 的 outer role 顺序为既有 roles、bind row source order、
 executable callee program；`cpiSites` 不因 generic call-bind 伪造。identity digest
-metadata 仍 parse-only，不参与 emit/SupportClaim。不把产品 `build` 接到 Anvil /
-wasmd / 任何网络。
+metadata 对 Solana/CosmWasm 仍 parse-only，不参与 emit/SupportClaim；EVM 仅消费上列
+本地 output/runtime join，不把产品 `build` 接到 Anvil / wasmd / 任何网络。
 
 `--resource-limit` 是 repeatable、逐 stage/field 的 lower-only override。CLI 名称固定映射到
 SPEC-COMMON-001，不创建第二套 resource profile：

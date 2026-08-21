@@ -17,7 +17,7 @@ Pins (engineering only; not formal D4 / OZ compatibility / release evidence):
 * registry membership of `evm-yul-solc-0.8.34-cancun-v1` with default v1 (hashed Map)
 * requirement-support row for the Cancun profile (same S2 set as default)
 * residual descriptor is v1; accepts Cancun via acceptsCodegenProfile
-* pure Finalize argv: Cancun adds `--evm-version cancun`; legacy keeps historical args
+* pure Finalize standard-JSON request: Cancun pins `evmVersion`; legacy omits it
 * evidence hardfork note is non-empty only for Cancun
 -/
 
@@ -108,20 +108,41 @@ private def testSupportAndDescriptor : IO Unit := do
 
 /-- Pure Finalize argv + evidence note are profile-gated (no tool invocation). -/
 private def testFinalizeArgsAndNote : IO Unit := do
-  match FinalizeV1.solcArgsForProfile CodegenProfileId.evmYulSolc0834V1 "StateCell.yul" with
+  match FinalizeV1.solcArgsForProfile CodegenProfileId.evmYulSolc0834V1 "input.json" with
   | .ok legacyArgs =>
-      expect (legacyArgs == #["--strict-assembly", "--optimize", "--bin", "StateCell.yul"])
-        "legacy solc args enable --optimize (no ambient --evm-version)"
+      expect (legacyArgs == #["--standard-json", "input.json"])
+        "legacy solc args consume the explicit standard-JSON request"
   | .error e => throw <| IO.userError s!"legacy solcArgs must succeed: {e}"
-  match FinalizeV1.solcArgsForProfile CodegenProfileId.evmYulSolc0834CancunV1 "StateCell.yul" with
+  match FinalizeV1.solcArgsForProfile CodegenProfileId.evmYulSolc0834CancunV1 "input.json" with
   | .ok cancunArgs =>
-      expect (cancunArgs ==
-          #["--strict-assembly", "--optimize", "--evm-version", "cancun",
-            "--bin", "StateCell.yul"])
-        "cancun solc args pin --evm-version cancun"
+      expect (cancunArgs == #["--standard-json", "input.json"])
+        "cancun solc args consume the explicit standard-JSON request"
   | .error e => throw <| IO.userError s!"cancun solcArgs must succeed: {e}"
+  let legacyRequest ← match FinalizeV1.renderSolcStandardJsonInputV1
+      CodegenProfileId.evmYulSolc0834V1 "StateCell.yul" "object \"StateCell\" {}" with
+    | .ok value => pure value
+    | .error e => throw <| IO.userError s!"legacy standard JSON must render: {e}"
+  expect (legacyRequest.contains "\"optimizer\":{\"enabled\":true}")
+    "legacy standard JSON enables optimizer"
+  expect (legacyRequest.contains "evm.deployedBytecode.object")
+    "legacy standard JSON requests deployed runtime bytecode"
+  expect (!legacyRequest.contains "\"evmVersion\"")
+    "legacy standard JSON omits ambient evmVersion"
+  let cancunRequest ← match FinalizeV1.renderSolcStandardJsonInputV1
+      CodegenProfileId.evmYulSolc0834CancunV1 "StateCell.yul" "object \"StateCell\" {}" with
+    | .ok value => pure value
+    | .error e => throw <| IO.userError s!"cancun standard JSON must render: {e}"
+  expect (cancunRequest.contains "\"evmVersion\":\"cancun\"")
+    "cancun standard JSON pins evmVersion"
+  let bytecodes ← match FinalizeV1.parseSolcStandardJsonBytecodesV1
+      "{\"contracts\":{\"StateCell.yul\":{\"StateCell\":{\"evm\":{\"bytecode\":{\"object\":\"6001\"},\"deployedBytecode\":{\"object\":\"6002\"}}}}}}"
+      "StateCell.yul" "StateCell" with
+    | .ok value => pure value
+    | .error e => throw <| IO.userError s!"standard JSON bytecodes must parse: {e}"
+  expect (bytecodes == ("6001", "6002"))
+    "standard JSON parser returns creation + runtime bytecode"
   -- Unknown profile fail closed (open-else would silently treat as legacy).
-  match FinalizeV1.solcArgsForProfile CodegenProfileId.solanaSbpfPlanV1 "StateCell.yul" with
+  match FinalizeV1.solcArgsForProfile CodegenProfileId.solanaSbpfPlanV1 "input.json" with
   | .ok _ => throw <| IO.userError "foreign profile solcArgs must fail closed"
   | .error e =>
       expect (e.contains "unsupported EVM finalize profile")

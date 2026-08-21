@@ -12,6 +12,23 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-21 — EVM call-bind local output/runtime identity join
+
+- EVM finalizer 改为单次 locked-solc standard-JSON invocation，同时请求 creation 与
+  deployed runtime bytecode，产品输出新增 finalizer-owned
+  `{program}.runtime.bin`，自动进入 manifest artifact inventory 与 exact disk closure。
+- `build --target evm --bindings ...` 现在要求每行完整 source/semantic/runtime-artifact
+  SHA-256，并用 repeatable `--callee-output <dir>` 显式提供本地
+  `proof-forge.output.v1` authority。CLI 复用完整 output inspector，要求 EVM +
+  deployable + 恰好一个匹配 runtime descriptor；callee program name + 三 digest 必须
+  exact join，缺失、重复、未使用、content/path/symlink mismatch 全部 fail closed。
+- runtime artifact SHA-256 绑定 lowercase-hex+LF 文件 bytes；解码后的 deployed code
+  计算 Ethereum Keccak-256。bound generic call/result/schedule 在 CALL 前执行 exact
+  `EXTCODEHASH(address)` guard；无 `--bindings` 的 hashed-QN 路径保持原字节与行为，
+  不发明 verified-code 声明。
+- 该切片无 RPC / network fallback，不验证 receipt、CREATE/CREATE2、address provenance、
+  constructor state 或 deployment process；不关闭全 `B-CALL-SEM`、formal/C-3/release。
+
 ## 2026-08-21 — ADR-0036 / ADR-0053 acceptance control-plane sync
 
 - owner directive 已接受 ADR-0036 / ADR-0053；两份记录绑定 review commit

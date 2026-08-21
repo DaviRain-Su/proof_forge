@@ -88,11 +88,15 @@ otherwise identical programs.
 
 ### Finalize
 
-Same locked solc 0.8.34 argv:
+Same locked solc 0.8.34 standard-JSON Yul request:
 
 ```text
---strict-assembly --optimize --bin
+language=Yul; optimizer.enabled=true;
+outputSelection=evm.bytecode.object+evm.deployedBytecode.object
 ```
+
+Finalizer writes creation `{program}.bin` and deployed runtime
+`{program}.runtime.bin` from the same invocation.
 
 Evidence note fragment: ` map-storage=hashed`.
 

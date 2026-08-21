@@ -1,9 +1,11 @@
 /-
-  Tests.Materialization.CallBindV1 — ADR-0053 Wave 1 parser + Wave 2 emit.
+  Tests.Materialization.CallBindV1 — ADR-0053 parser + bound emit.
 
   Pure parse of `proof-forge.call-bind.v1`, `--bindings` preflight, and
   three-leaf emit consume (missing row fail closed; bound address appears
-  in Yul / WAT). Wave 2a pins empty-account void CALL `extcodesize` revert.
+  in Yul / WAT). EVM rows additionally require exact local-output identity
+  verification and pin the runtime `extcodehash` gate before CALL.
+  Wave 2a pins empty-account void CALL `extcodesize` revert.
   Wave 2b pins Solana compile-time AccountMeta (nonempty accounts).
   Wave 2c pins program-level callScheduleResidual (build only; target
   inspect stays the closed kind table). Wave 3 pins Solana bound-account
@@ -58,8 +60,25 @@ private def liftJcs (label : String) (value : PfJson) : IO String :=
   | .ok s => pure s
   | .error msg => throw <| IO.userError s!"{label}: renderPfJcs failed: {msg}"
 
+private def digestWire (label : String) (digest : Digest) : IO String :=
+  match renderDigest digest with
+  | .ok value => pure value
+  | .error msg => throw <| IO.userError s!"{label}: renderDigest failed: {msg}"
+
 private def evmBinding (callee address : String) : PfJson :=
   .object #[("address", .string address), ("callee", .string callee)]
+
+private def evmBindingWithIdentity
+    (callee address sourceHash semanticHash artifactSha256 : String) : PfJson :=
+  .object #[
+    ("address", .string address),
+    ("callee", .string callee),
+    ("identity", .object #[
+      ("artifactSha256", .string artifactSha256),
+      ("semanticHash", .string semanticHash),
+      ("sourceHash", .string sourceHash)
+    ])
+  ]
 
 private def evmDoc (bindings : Array PfJson) : PfJson :=
   .object #[
@@ -105,6 +124,7 @@ private def ones20 : String := "0x" ++ String.ofList (List.replicate 40 '1')
 private def zero32 : String := String.ofList (List.replicate 64 '0')
 private def ones32 : String := String.ofList (List.replicate 64 '1')
 private def digest0 : String := "sha256:" ++ String.ofList (List.replicate 64 '0')
+private def digest1 : String := "sha256:" ++ String.ofList (List.replicate 64 '1')
 
 private def expectBuildOpts (label : String) (args : List String) : IO BuildOptions :=
   expectOk label (parseBuildArgsExcept args)
@@ -288,8 +308,11 @@ unsafe def run : IO Unit := do
   expect noFlag.bindings.isNone "omitted --bindings stays none"
   let withFlag ← expectBuildOpts "with-flag"
     ["Examples/StateCell.lean", "--module", "Examples.StateCell", "--target", "evm",
-      "--bindings", "testdata/call-bind/evm.v1.json"]
+      "--bindings", "testdata/call-bind/evm.v1.json",
+      "--callee-output", "build/callee-a", "--callee-output", "build/callee-b"]
   expect (withFlag.bindings == some "testdata/call-bind/evm.v1.json") "bindings path"
+  expect (withFlag.calleeOutputs == #["build/callee-a", "build/callee-b"])
+    "callee outputs preserve explicit argv order"
   expectErr "dup-flag"
     (parseBuildArgsExcept
       ["Examples/StateCell.lean", "--module", "Examples.StateCell", "--target", "evm",
@@ -300,6 +323,23 @@ unsafe def run : IO Unit := do
       ["Examples/StateCell.lean", "--module", "Examples.StateCell", "--target", "evm",
         "--bindings"])
     "missing --bindings value"
+  expectErr "callee-without-bindings"
+    (parseProductCliCommandV1
+      ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
+        "--target", "evm", "--callee-output", "build/callee"])
+    "--callee-output requires --bindings"
+  expectErr "callee-on-solana"
+    (parseProductCliCommandV1
+      ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
+        "--target", "solana", "--bindings", "a.json",
+        "--callee-output", "build/callee"])
+    "only accepted with --target evm"
+  expectErr "duplicate-callee-output"
+    (parseBuildArgsExcept
+      ["Examples/StateCell.lean", "--module", "Examples.StateCell", "--target", "evm",
+        "--bindings", "a.json", "--callee-output", "build/callee",
+        "--callee-output", "build/callee"])
+    "duplicate --callee-output"
 
   -- Product preflight: check rejects; unsupported target rejects; evm accepts path.
   expectErr "check-flag"
@@ -315,9 +355,12 @@ unsafe def run : IO Unit := do
   match ← expectOk "build-ok"
       (parseProductCliCommandV1
         ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
-          "--target", "evm", "--bindings", "a.json"]) with
+          "--target", "evm", "--bindings", "a.json",
+          "--callee-output", "build/callee"]) with
   | .build opts =>
       expect (opts.bindings == some "a.json") "product build keeps path"
+      expect (opts.calleeOutputs == #["build/callee"])
+        "product build keeps explicit callee output"
   | other => throw <| IO.userError s!"expected build command, got {repr other}"
 
   -- Wave 2 lookup helpers (table row is Oracle.quote).
@@ -345,8 +388,76 @@ unsafe def run : IO Unit := do
       | none => throw <| IO.userError "Vault.deposit AccountMeta missing"
   | .error msg => throw <| IO.userError s!"requireSol accounts: {msg}"
 
-  -- Wave 2 EVM emit: bound address appears; missing row fail closed;
-  -- no table keeps hashed stub.
+  -- EVM local-output identity join. artifactSha256 binds the exact lowercase
+  -- hex+LF runtime artifact; EXTCODEHASH uses Keccak of decoded code bytes.
+  let runtimeArtifact := "6001600055\n".toUTF8
+  let sourceDigest ← expectOk "source digest" (parseDigest digest0)
+  let semanticDigest ← expectOk "semantic digest" (parseDigest digest1)
+  let artifactDigest := sha256Bytes runtimeArtifact
+  let artifactWire ← digestWire "artifact digest" artifactDigest
+  let boundAddr := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  let evmBindText ← liftJcs "evm-bind-emit"
+    (evmDoc #[evmBindingWithIdentity "Oracle.feed" boundAddr
+      digest0 digest1 artifactWire])
+  let parsedEvmBindTable ← expectOk "evm-bind-emit"
+    (parseCallBindTableV1 evmBindText)
+  let authority : EvmBindingOutputAuthorityV1 := {
+    target := .evm
+    deployable := true
+    artifactProgramName := "Oracle"
+    sourceHash := sourceDigest
+    semanticHash := semanticDigest
+    artifactSha256 := artifactDigest
+    runtimeArtifactBytes := runtimeArtifact
+  }
+  let evmBindTable ← expectOk "verify EVM output"
+    (verifyEvmBindingOutputsV1 parsedEvmBindTable #[authority])
+  let expectedRuntimeBytes ← expectOk "decode runtime"
+    (decodeEvmRuntimeBytecodeArtifactV1 runtimeArtifact)
+  let expectedRuntimeKeccak := Targets.Evm.Keccak.keccak256 expectedRuntimeBytes
+  match requireVerifiedEvmCallSiteV1 evmBindTable #["Oracle", "feed"] with
+  | .ok site =>
+      expect (site.address.size == 20) "verified EVM site keeps 20-byte address"
+      expect (site.runtimeCodeKeccak256 == expectedRuntimeKeccak)
+        "verified EVM site derives Keccak from decoded runtime code"
+  | .error msg => throw <| IO.userError s!"verified EVM site: {msg}"
+  expectErr "EVM output missing"
+    (verifyEvmBindingOutputsV1 parsedEvmBindTable #[])
+    "no verified EVM output"
+  expectErr "EVM output duplicate"
+    (verifyEvmBindingOutputsV1 parsedEvmBindTable #[authority, authority])
+    "multiple verified EVM outputs"
+  expectErr "EVM source mismatch"
+    (verifyEvmBindingOutputsV1 parsedEvmBindTable
+      #[{ authority with sourceHash := semanticDigest }])
+    "no verified EVM output"
+  expectErr "EVM semantic mismatch"
+    (verifyEvmBindingOutputsV1 parsedEvmBindTable
+      #[{ authority with semanticHash := sourceDigest }])
+    "no verified EVM output"
+  expectErr "EVM runtime artifact mismatch"
+    (verifyEvmBindingOutputsV1 parsedEvmBindTable
+      #[{ authority with runtimeArtifactBytes := "6002\n".toUTF8 }])
+    "runtime artifact SHA-256 mismatch"
+  expectErr "EVM unused output"
+    (verifyEvmBindingOutputsV1 parsedEvmBindTable
+      #[authority, { authority with artifactProgramName := "Unused" }])
+    "does not match any row"
+  expectErr "EVM partial identity"
+    (verifyEvmBindingOutputsV1 idTable #[authority])
+    "requires identity.semanticHash"
+  expectErr "runtime missing LF"
+    (decodeEvmRuntimeBytecodeArtifactV1 "6001".toUTF8)
+    "end with one LF"
+  expectErr "runtime uppercase"
+    (decodeEvmRuntimeBytecodeArtifactV1 "60AA\n".toUTF8)
+    "lowercase hex"
+  expectErr "runtime empty"
+    (decodeEvmRuntimeBytecodeArtifactV1 "\n".toUTF8)
+    "nonempty"
+
+  -- Bound EVM emit: endpoint + exact runtime hash appear; missing/unverified
+  -- rows fail closed. No table keeps the historical hashed-QN stub.
   let session ← Tests.Language.ParserSession.shared
   let callText :=
     "import ProofForgeV2\n" ++
@@ -357,8 +468,10 @@ unsafe def run : IO Unit := do
     "    count := initial\n" ++
     "  entry bump(delta : UInt64) : UInt64 do\n" ++
     "    call Oracle.feed(count)\n" ++
+    "    schedule Oracle.feed(count)\n" ++
     "    count := count + delta\n" ++
-    "    return count\n" ++
+    "    let observed : UInt64 := call Oracle.feed(count)\n" ++
+    "    return observed\n" ++
     "  view get() : UInt64 do\n" ++
     "    return count\n"
   let callSource ← match ← session.selectProgramV1
@@ -383,11 +496,13 @@ unsafe def run : IO Unit := do
     s!"no-bindings Yul must keep hashed stub 0x{hashedNeedle}"
   expect (stubIr.yul.contains s!"if iszero(extcodesize(0x{hashedNeedle}))")
     "Wave 2a hashed stub void CALL must revert on empty code"
-  let boundAddr := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-  let evmBindText ← liftJcs "evm-bind-emit"
-    (evmDoc #[evmBinding "Oracle.feed" boundAddr])
-  let evmBindTable ← expectOk "evm-bind-emit"
-    (parseCallBindTableV1 evmBindText)
+  expect (!stubIr.yul.contains "extcodehash")
+    "no-bindings hashed stub must not claim verified runtime identity"
+  match Targets.Evm.irFromCapability callCap (some parsedEvmBindTable) with
+  | .ok _ => throw <| IO.userError "parse-only EVM table must fail before emit"
+  | .error e =>
+      expect (hasSubstr e.render "no verified runtime artifact")
+        s!"parse-only EVM table must name unverified runtime, got {e.render}"
   let boundIr ← match Targets.Evm.irFromCapability callCap (some evmBindTable) with
     | .ok ir => pure ir
     | .error e => throw <| IO.userError s!"ir bound: {e.render}"
@@ -397,6 +512,11 @@ unsafe def run : IO Unit := do
   expect (boundIr.yul.contains
       "if iszero(extcodesize(0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa))")
     "Wave 2a bound void CALL must revert on empty code"
+  let expectedRuntimeKeccakHex := encodeLowerHexBytesV1 expectedRuntimeKeccak
+  let codeHashGuard :=
+    s!"if iszero(eq(extcodehash(0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa), 0x{expectedRuntimeKeccakHex})) \{ revert(0, 0) }"
+  expect ((boundIr.yul.splitOn codeHashGuard).length == 4)
+    "bound Yul must check exact runtime Keccak before void/result/schedule CALL"
   expect (!boundIr.yul.contains s!"call(gas(), 0x{hashedNeedle},")
     "bound Yul must not keep the hashed stub"
   -- Wave 2c: program-level residual. Target inspect stays hashed-qn.

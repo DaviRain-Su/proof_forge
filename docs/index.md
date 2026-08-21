@@ -54,9 +54,10 @@ Solana ADR-0048 D4 剩余证书（非 formal TASK-D5）：
 全仓对账：[research/28-project-wide-honesty-audit.md](research/28-project-wide-honesty-audit.md)。
 **下一刀（四目标工程 DoD，非 formal）**：能力层 waves 已全闭合（2026-08-19：CAP-1a…5 /
 CAP-X-BYTES / CAP-X-MERKLE / 诚实边界波）；Call-bind Wave 1–3 的工程 DoD 已于
-2026-08-21 闭合支持子集；ADR-0036 / ADR-0053 同日已由 owner directive accepted。
-当前按 EVM → Solana → NEAR → Noir 对账。EVM endpoint binding 已闭；identity digest
-verification 仍须先冻结 callee artifact / receipt 来源，不能由 bind row 自证。
+2026-08-21 闭合支持子集，EVM 方案 A 的显式本地 callee output/runtime identity join
+与 CALL-time code-hash gate 也已接线；ADR-0036 / ADR-0053 同日已由 owner directive
+accepted。当前按 EVM → Solana → NEAR → Noir 对账。EVM receipt/address provenance /
+constructor/deployment proof 仍未闭，不能由 bind row 自证。
 COMP-1-NORMALIZE-RESIDUAL FC 针
 （Field/Principal 源字面量、Bytes 嵌套穿透）与 COMP-1-SYS-CAP-L2
 attachedValue inspect/Targets 诚实表面、official `cryptoHonesty` 闭表、

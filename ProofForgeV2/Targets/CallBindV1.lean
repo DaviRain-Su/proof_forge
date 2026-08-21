@@ -18,6 +18,7 @@ import ProofForgeV2.Core.Canonical
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.TargetIdentityV1
 import ProofForgeV2.Core.Unicode
+import ProofForgeV2.Targets.Evm.Keccak
 
 namespace ProofForgeV2.Targets.CallBindV1
 
@@ -81,10 +82,34 @@ inductive CallBindSiteV1 where
   deriving Repr
 
 structure CallBindRowV1 where
+  private mk ::
   callee : QualifiedName
   site : CallBindSiteV1
   identity : Option CallBindIdentityV1 := none
+  /-- Product-minted runtime identity. Never parsed from the bind document.
+      EVM emit requires this field for every bound row. -/
+  evmRuntimeCodeKeccak256 : Option ByteArray := none
   deriving Repr
+
+/-- Fully inspected local EVM output authority. Product CLI mints this only
+    after proof-forge.output.v1 sidecar, artifact-content, and exact disk
+    closure validation. The pure join below still recomputes the runtime
+    artifact SHA-256 before deriving its EIP-1052 Keccak hash. -/
+structure EvmBindingOutputAuthorityV1 where
+  target : TargetId
+  deployable : Bool
+  artifactProgramName : String
+  sourceHash : Digest
+  semanticHash : Digest
+  artifactSha256 : Digest
+  runtimeArtifactBytes : ByteArray
+  deriving Repr
+
+/-- EVM endpoint plus the exact deployed-code hash checked at each call site. -/
+structure VerifiedEvmCallSiteV1 where
+  address : ByteArray
+  runtimeCodeKeccak256 : ByteArray
+  deriving Repr, Inhabited
 
 structure CallBindTableV1 where
   private mk ::
@@ -94,7 +119,9 @@ structure CallBindTableV1 where
 
 namespace CallBindTableV1
 
-/-- Parser-only mint of the private-ctor table. -/
+/-- Module-owned mint used by the parser and EVM output verifier. Rows also
+    have a private constructor, so external callers cannot forge the internal
+    verified-runtime field through this table helper. -/
 def ofRows (target : CallBindTargetV1) (rows : Array CallBindRowV1) : CallBindTableV1 :=
   { target, rows }
 
@@ -365,6 +392,131 @@ def requireEvmAddressV1 (table : CallBindTableV1) (callee : Array String) :
             throw "call-bind: evm address must be exactly 20 bytes"
           pure address
       | _ => throw (wrongSiteError "evm" callee)
+
+/-- EIP-170 deployed runtime-code limit. Empty code is also rejected. -/
+def maxEvmRuntimeCodeBytesV1 : Nat := 24576
+
+/-- Exact product runtime artifact format: lowercase hex followed by one LF.
+    The returned bytes are the deployed code hashed by EIP-1052 `EXTCODEHASH`. -/
+def decodeEvmRuntimeBytecodeArtifactV1 (artifact : ByteArray) :
+    Except String ByteArray := do
+  let text ← match String.fromUTF8? artifact with
+    | some value => pure value
+    | none => throw "call-bind: EVM runtime artifact must be UTF-8 lowercase hex"
+  unless text.endsWith "\n" do
+    throw "call-bind: EVM runtime artifact must end with one LF"
+  let body := text.dropEnd 1 |>.copy
+  if body.isEmpty then
+    throw "call-bind: EVM runtime artifact must be nonempty"
+  if body.contains "\n" || body.contains "\r" then
+    throw "call-bind: EVM runtime artifact must contain one trailing LF only"
+  unless body.utf8ByteSize % 2 == 0 do
+    throw "call-bind: EVM runtime artifact hex length must be even"
+  let byteCount := body.utf8ByteSize / 2
+  if byteCount > maxEvmRuntimeCodeBytesV1 then
+    throw s!"call-bind: EVM runtime code exceeds EIP-170 ({byteCount} > {maxEvmRuntimeCodeBytesV1})"
+  decodeLowerHexBytesV1 body byteCount false "call-bind: EVM runtime artifact"
+
+private def digestEqV1 (a b : Digest) : Bool :=
+  a.algorithm == b.algorithm && a.bytes == b.bytes
+
+private def expectedEvmArtifactProgramNameV1 (callee : QualifiedName) :
+    Except String String := do
+  let components := callee.components.toArray
+  if components.size < 2 then
+    throw "call-bind: EVM callee must contain a program and method"
+  pure components[components.size - 2]!
+
+/-- Close each EVM row against one fully inspected local output directory.
+
+    Required join:
+    row QN program name + sourceHash + semanticHash + artifactSha256
+      == proof-forge.output.v1 manifest + `{program}.runtime.bin` descriptor.
+    The exact artifact bytes are re-hashed, decoded, and Keccak-256'd. The
+    resulting hash is internal-only and later emitted as an EXTCODEHASH guard.
+    Missing/partial identities, duplicate authorities, and unused authorities
+    fail closed. No network, deployment receipt, CREATE, or CREATE2 claim. -/
+def verifyEvmBindingOutputsV1
+    (table : CallBindTableV1)
+    (outputs : Array EvmBindingOutputAuthorityV1) :
+    Except String CallBindTableV1 := do
+  unless table.target == .evm do
+    throw "call-bind: EVM binding outputs require an evm table"
+  let mut verifiedRows : Array CallBindRowV1 := #[]
+  let mut usedOutputs : Array Nat := #[]
+  for row in table.rows do
+    match row.site with
+    | .evm _ => pure ()
+    | _ => throw "call-bind: EVM table contains a non-EVM site"
+    let identity ← match row.identity with
+      | some value => pure value
+      | none =>
+          throw s!"call-bind: EVM row '{dottedQualifiedName row.callee}' requires identity"
+    let sourceHash ← match identity.sourceHash with
+      | some value => pure value
+      | none =>
+          throw s!"call-bind: EVM row '{dottedQualifiedName row.callee}' requires identity.sourceHash"
+    let semanticHash ← match identity.semanticHash with
+      | some value => pure value
+      | none =>
+          throw s!"call-bind: EVM row '{dottedQualifiedName row.callee}' requires identity.semanticHash"
+    let artifactSha256 ← match identity.artifactSha256 with
+      | some value => pure value
+      | none =>
+          throw s!"call-bind: EVM row '{dottedQualifiedName row.callee}' requires identity.artifactSha256"
+    let programName ← expectedEvmArtifactProgramNameV1 row.callee
+    let mut matchIndexes : Array Nat := #[]
+    for index in [0:outputs.size] do
+      let output ← match outputs[index]? with
+        | some value => pure value
+        | none => throw "call-bind: internal EVM output index is out of bounds"
+      if output.target == TargetId.evm && output.deployable &&
+          output.artifactProgramName == programName &&
+          digestEqV1 output.sourceHash sourceHash &&
+          digestEqV1 output.semanticHash semanticHash &&
+          digestEqV1 output.artifactSha256 artifactSha256 then
+        matchIndexes := matchIndexes.push index
+    if matchIndexes.isEmpty then
+      throw s!"call-bind: no verified EVM output matches '{dottedQualifiedName row.callee}'"
+    unless matchIndexes.size == 1 do
+      throw s!"call-bind: multiple verified EVM outputs match '{dottedQualifiedName row.callee}'"
+    let outputIndex := matchIndexes[0]!
+    let output ← match outputs[outputIndex]? with
+      | some value => pure value
+      | none => throw "call-bind: internal EVM output index is out of bounds"
+    let recomputedArtifactSha256 := sha256Bytes output.runtimeArtifactBytes
+    unless digestEqV1 recomputedArtifactSha256 artifactSha256 do
+      throw s!"call-bind: runtime artifact SHA-256 mismatch for '{dottedQualifiedName row.callee}'"
+    let runtimeCode ← decodeEvmRuntimeBytecodeArtifactV1 output.runtimeArtifactBytes
+    let runtimeCodeKeccak256 := ProofForgeV2.Targets.Evm.Keccak.keccak256 runtimeCode
+    unless runtimeCodeKeccak256.size == 32 do
+      throw "call-bind: internal EVM runtime code hash must be 32 bytes"
+    unless usedOutputs.contains outputIndex do
+      usedOutputs := usedOutputs.push outputIndex
+    verifiedRows := verifiedRows.push
+      { row with evmRuntimeCodeKeccak256 := some runtimeCodeKeccak256 }
+  for index in [0:outputs.size] do
+    unless usedOutputs.contains index do
+      throw s!"call-bind: EVM binding output {index} does not match any row"
+  pure (CallBindTableV1.ofRows .evm verifiedRows)
+
+/-- EVM emitter gate: a bound endpoint is usable only after the product output
+    join minted its 32-byte runtime hash. -/
+def requireVerifiedEvmCallSiteV1
+    (table : CallBindTableV1) (callee : Array String) :
+    Except String VerifiedEvmCallSiteV1 := do
+  let address ← requireEvmAddressV1 table callee
+  let some name := qualifiedNameOfComponents? callee |
+    throw (missingCalleeError "evm" callee)
+  let some row := findRow? table name |
+    throw (missingCalleeError "evm" callee)
+  let runtimeCodeKeccak256 ← match row.evmRuntimeCodeKeccak256 with
+    | some value => pure value
+    | none =>
+        throw s!"call-bind: EVM row '{dottedQualifiedName name}' has no verified runtime artifact"
+  unless runtimeCodeKeccak256.size == 32 do
+    throw "call-bind: EVM runtime code hash must be exactly 32 bytes"
+  pure { address, runtimeCodeKeccak256 }
 
 /-- Wave 2b compile-time AccountMeta cap. Larger rows fail closed so the
     S1b stack packing stays bounded. Not an outer-instruction role count. -/

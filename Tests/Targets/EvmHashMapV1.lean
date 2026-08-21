@@ -93,9 +93,9 @@ private def testRegistryAndDescriptor : IO Unit := do
     "rejects foreign"
 
 private def testFinalizeArgsAndNote : IO Unit := do
-  match FinalizeV1.solcArgsForProfile CodegenProfileId.evmYulSolc0834V1 "x.yul" with
+  match FinalizeV1.solcArgsForProfile CodegenProfileId.evmYulSolc0834V1 "x.json" with
   | .ok args =>
-      expect (args == #["--strict-assembly", "--optimize", "--bin", "x.yul"])
+      expect (args == #["--standard-json", "x.json"])
         "v1 solc args"
   | .error e => throw <| IO.userError s!"v1 solcArgs must succeed: {e}"
   match FinalizeV1.evidenceHardforkNote CodegenProfileId.evmYulSolc0834V1 with

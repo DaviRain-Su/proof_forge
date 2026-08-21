@@ -204,10 +204,11 @@ def parse? (s : String) : Option CodegenProfileId :=
 
 /-- Product-default EVM Yul/solc profile. Map state uses hashed storage
     (one base slot; entries at `keccak256(key||base)` / Principal wire).
-    Finalize: locked solc 0.8.34 + `--optimize`. -/
+    Finalize: locked solc 0.8.34 standard-JSON Yul + optimizer, with creation
+    and deployed runtime outputs; the legacy profile omits `evmVersion`. -/
 def evmYulSolc0834V1 : CodegenProfileId := ⟨"evm-yul-solc-0.8.34-v1"⟩
 /-- Explicit Cancun hardfork EVM profile (not the product default).
-    Finalize uses `solc --evm-version cancun`; Anvil runtime uses `--hardfork cancun`.
+    Finalize sets standard JSON `evmVersion=cancun`; Anvil runtime uses `--hardfork cancun`.
     Same locked solc 0.8.34 / Anvil 0.3.0 binaries and hashed-Map storage as v1. -/
 def evmYulSolc0834CancunV1 : CodegenProfileId := ⟨"evm-yul-solc-0.8.34-cancun-v1"⟩
 /-- Retired single-account plan shim (ADR-0032 U1 deletion). Not a registry

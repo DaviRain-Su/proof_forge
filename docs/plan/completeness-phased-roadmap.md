@@ -20,7 +20,8 @@ normative: false
 > 与 **COMP-1-SYS-CAP-L2**（attachedValue / crypto / engineeringValidationResidual inspect +
 > XRPL context 矩阵针）已部分落地；部署地址绑定、新官方叶与 Field/Principal
 > 字面量开放仍 pending。ADR-0053 Wave 3 已闭合 Solana 支持子集的 outer
-> AccountInfo join；unsupported shape 与 identity digest verification 仍 FC/open。
+> AccountInfo join；EVM 本地 callee output/runtime identity + CALL-time code hash gate
+> 已接线。Solana/CosmWasm identity、EVM deployment proof 与 unsupported shape 仍 FC/open。
 > ADR-0053 已于 2026-08-21 accepted；上述 residual 不因 acceptance 自动关闭。
 
 范围边界：[`../adr/0036-engineering-scope-and-evm-formal-lighthouse.md`](../adr/0036-engineering-scope-and-evm-formal-lighthouse.md)
@@ -140,7 +141,7 @@ Capability 横切（2026-08-19）：`sha256Bytes` 五叶已开；`merkleVerifyKe
 | **COMP-1-SPEC-ALIGN** | ADR-0051 accepted 后修订 `semantic-core.md` + corpus 对齐；无新 Sem00x pin | COMP-0-SPEC-HONESTY owner 接受 | pending |
 | **COMP-1-NORMALIZE-RESIDUAL** | 嵌套穿透赋值；仍拒绝的构造器嵌套；Field/Principal 源字面量（开则十三叶同时 Lower 或命名 FC） | 无（可先做 FC 针） | **partial** — Field/Principal 源字面量 + Bytes 嵌套穿透产品 FC 针；Map 穿透已是 N-NEST-IDX；开字面量/Bytes 穿透另批 |
 | **COMP-1-TYPEKEY-REST** | TypeKey 剩余 usage-closure → StructureV1 | 不关 TASK-D2-06 | **partial** — Stage D 已接线；剩余 SPEC 匿名 rank 字节序（人拍）+ formal |
-| **COMP-1-CALL-SEM-LAND** | versioned bind table、三叶 emit 与 Solana 支持子集 outer join；保留各族明确 FC | COMP-0-CALL-SEM 人拍 | **partial** — Wave 1/2/2a/2b/2c + Wave 3 engineering done：EVM/CW 精确 endpoint、Solana state-bearing single-callee void-call 的 1..8 rows + executable program outer join、program residual 清零与 Mollusk 闭环；identity digest parse-only，Solana unsupported shapes、target inspect static residual、其它 target families、formal/C-3 仍开 |
+| **COMP-1-CALL-SEM-LAND** | versioned bind table、三叶 emit 与 Solana 支持子集 outer join；保留各族明确 FC | COMP-0-CALL-SEM 人拍 | **partial** — Wave 1/2/2a/2b/2c + Wave 3 engineering done；EVM local-output identity follow-on done：EVM/CW 精确 endpoint、EVM 显式 output/runtime digest join + CALL-time code hash、Solana state-bearing single-callee void-call 的 1..8 rows + executable program outer join、program residual 清零与 Mollusk 闭环；EVM deployment proof、Solana/CW identity、Solana unsupported shapes、target inspect static residual、其它 target families、formal/C-3 仍开 |
 | **COMP-1-SYS-CAP-L2** | 官方 program catalog：有 host 就 exact 一行一叶，无 host 就命名 FC | SYS-CAP S1–S4 已闭 | **partial** — attachedValue inspect + `cryptoHonesty` 十三 kind 闭表 + cw/xrpl/psy residual + ICP/TON `engineeringValidationResidual` + XRPL ContextRead/Commit 矩阵 + ecdsa 十二叶第一道门针；新官方叶仍 pending |
 | **COMP-1-COMMIT-ZK** | Psy/Noir Commit 设计钉；未冻 binding 前继续 FC | ADR-0041 已 proposed | pending |
 | **COMP-1-D3-E8** | evidence grade 语义冻结后再进 resolver | 先语义，再门禁 | pending |

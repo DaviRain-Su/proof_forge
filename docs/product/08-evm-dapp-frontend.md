@@ -65,6 +65,7 @@ Monorepo fixture (Lake module). External authors: `pf new` → `src/*.pf`.
 |---|---|
 | `StateCell.abi.json` | Solidity JSON ABI（constructor / increment / get） |
 | `StateCell.bin` | creation bytecode（hex，可无 `0x` 前缀） |
+| `StateCell.runtime.bin` | deployed runtime bytecode（lowercase hex + LF；call-bind code identity 输入） |
 | `StateCell.yul` | 中间表示（前端通常不需要） |
 | `manifest.json` | OutputSet 清单 |
 
