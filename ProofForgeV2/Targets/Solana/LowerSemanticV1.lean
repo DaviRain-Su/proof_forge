@@ -722,6 +722,11 @@ private def mkStateLoadExpr (bitWidth : Nat) (accountIndex byteOffset : Nat) : E
   if bitWidth == 64 then .stateLoad accountIndex byteOffset
   else .narrowStateLoad bitWidth accountIndex byteOffset
 
+/-- UInt64 state loads retain the historical scalar production expression. -/
+theorem mkStateLoadExpr_uint64 (accountIndex byteOffset : Nat) :
+    mkStateLoadExpr 64 accountIndex byteOffset =
+      .stateLoad accountIndex byteOffset := rfl
+
 /-- Dense Map UInt64 pilot capacity (aligned with EVM Token pilot). -/
 private def solanaMapPilotCapacityV1 : Nat := 8
 private def solanaMapSlotsPerEntryV1 : Nat := 3
@@ -1377,7 +1382,11 @@ def deriveSolanaStateAccountFromSemanticDataV1
     let account ← makeStateAccountV1 types data.types data.logicalState
     pure (some account)
 
-private structure LoweredValueV1 where
+/-- One lowered Semantic SSA value carried between stages of the sole
+    production callable pass. Public fields permit kernel certificates to
+    retain exact parameter, instruction, and region equations; constructors
+    do not bypass any production validation or lowering stage. -/
+structure LoweredValueV1 where
   expr : Expr
   depth : Nat
   expandedNodes : Nat
@@ -1414,6 +1423,18 @@ private def LoweredValueV1.leafExprs (v : LoweredValueV1) : Array Expr :=
   | some ls => ls
   | none => #[v.expr]
 
+/-- Replay the aggregate discriminator without exposing a second value
+    representation to staged callable certificates. -/
+theorem LoweredValueV1.isAggregate_eq_isSome (value : LoweredValueV1) :
+    value.isAggregate = value.aggregateLeaves.isSome := rfl
+
+/-- Replay scalar/aggregate leaves from the exact production value carrier. -/
+theorem LoweredValueV1.leafExprs_eq (value : LoweredValueV1) :
+    value.leafExprs =
+      match value.aggregateLeaves with
+      | some leaves => leaves
+      | none => #[value.expr] := rfl
+
 private def mkAggregateValueV1 (leaves : Array Expr) (deps : Array ValueIdV1)
     (depth expandedNodes : Nat) (leafByteWidth : Nat := 8) : LoweredValueV1 :=
   let head := match leaves[0]? with | some e => e | none => .literal 0
@@ -1440,6 +1461,28 @@ private def promoteDominatingPureV1
       out := out.push id
   pure out
 
+/-- An empty post-entry range leaves the production arm-readable table
+    unchanged. This is the common single-block certificate boundary. -/
+theorem promoteDominatingPureV1_eq_of_size_le
+    (blockEntry : Nat) (values : Array LoweredValueV1)
+    (base : Array ValueIdV1) (hsize : values.size ≤ blockEntry) :
+    promoteDominatingPureV1 blockEntry values base = base := by
+  unfold promoteDominatingPureV1
+  simp [Id.run, hsize]
+  rfl
+
+/-- Any two values immediately after a block entry are promoted in canonical
+    ValueId order. -/
+theorem promoteDominatingPureV1_two_after_block_entry
+    (blockEntry : Nat) (values : Array LoweredValueV1)
+    (hsize : values.size = blockEntry + 2) :
+    promoteDominatingPureV1 blockEntry values #[] =
+      #[UInt32.ofNat blockEntry, UInt32.ofNat (blockEntry + 1)] := by
+  unfold promoteDominatingPureV1
+  rw [hsize]
+  simp [Id.run, List.range']
+  rfl
+
 /-- Match-arm free values: scrutinee + dependency closure. -/
 private def extendArmReadablesV1
     (values : Array LoweredValueV1) (armReadables : Array ValueIdV1)
@@ -1455,7 +1498,10 @@ private def extendArmReadablesV1
           out := out.push d
       pure out
 
-private def makeParamsV1 (owner : String) (types : SolanaTypeClosureV1)
+/-- Lower the parameter table consumed by the sole production callable pass.
+    Exposed as a kernel-replayable stage; body lowering still uses this exact
+    function. -/
+def makeParamsV1 (owner : String) (types : SolanaTypeClosureV1)
     (typeDecls : Array TypeDeclV1) (params : Array ParameterV1) :
     CompileResult (Array Param × Array LoweredValueV1) := do
   if params.size > maxParams then
@@ -1715,6 +1761,20 @@ private def findStateLeafFieldsV1 (account : StateAccount)
       let field ← findFieldV1 account id
       pure #[field]
 
+/-- Replay the production logical-state lookup for a canonical scalar row.
+    The hypotheses are exact carrier projections, not a replacement layout
+    algorithm. -/
+theorem findStateLeafFieldsV1_singleton_eq
+    (account : StateAccount) (id : StateIdV1) (fieldIndex : Nat)
+    (field : StateField)
+    (hleaves : account.stateLeaves[id.toNat]? = some #[fieldIndex])
+    (hfield : account.fields[fieldIndex]? = some field)
+    (hsource : field.sourceId = id.toNat) :
+    findStateLeafFieldsV1 account id = .ok #[field] := by
+  unfold findStateLeafFieldsV1
+  rw [hleaves]
+  simp [hfield, hsource, Pure.pure, Except.pure, Bind.bind, Except.bind]
+
 /-- Require a compile-time UInt32/UInt64 literal index for ArrayState
     IndexGet/IndexSet (dynamic index needs a Plan select surface). -/
 private def literalIndexNatV1 (v : LoweredValueV1) : CompileResult Nat := do
@@ -1801,9 +1861,43 @@ private def currentValueWithArmsV1
       "unsupported Solana semantic shape: computed ValueId crosses an effect boundary"
   findValueV1 values id
 
+/-- A value defined before the current block is readable independently of
+    effect-segment and match-arm state. -/
+theorem currentValueWithArmsV1_eq_of_lt
+    (values : Array LoweredValueV1) (blockEntry segmentStart : Nat)
+    (armReadables : Array ValueIdV1) (id : ValueIdV1)
+    (value : LoweredValueV1) (hbefore : id.toNat < blockEntry)
+    (hget : values[id.toNat]? = some value) :
+    currentValueWithArmsV1 values blockEntry segmentStart armReadables id =
+      .ok value := by
+  unfold currentValueWithArmsV1 findValueV1
+  simp [Nat.not_le.mpr hbefore, hget]
+
+/-- A value in the current open segment is readable before an effect seals
+    that segment. -/
+theorem currentValueWithArmsV1_eq_of_segment_le
+    (values : Array LoweredValueV1) (blockEntry segmentStart : Nat)
+    (armReadables : Array ValueIdV1) (id : ValueIdV1)
+    (value : LoweredValueV1) (hopen : segmentStart ≤ id.toNat)
+    (hget : values[id.toNat]? = some value) :
+    currentValueWithArmsV1 values blockEntry segmentStart armReadables id =
+      .ok value := by
+  unfold currentValueWithArmsV1 findValueV1
+  simp [Nat.not_lt.mpr hopen, hget]
+
 /-- Admitted body UInt widths for Solana sBPF (T9e: includes UInt128/256). -/
 private def isSolanaBodyUintWidth (w : Nat) : Bool :=
   EnvelopeV1.isSolanaBodyUintWidth w
+
+/-- The callable lowerer uses exactly the shared Solana body-width policy. -/
+theorem isSolanaBodyUintWidth_eq_envelopeV1 (w : Nat) :
+    isSolanaBodyUintWidth w = EnvelopeV1.isSolanaBodyUintWidth w := by
+  rfl
+
+/-- UInt64 is admitted by the shared callable body-width policy. -/
+theorem isSolanaBodyUintWidth_uint64V1 :
+    isSolanaBodyUintWidth 64 = true := by
+  decide
 
 /-- Reserve the complete `pf.crypto` namespace from generic hashed/empty-meta
     CPI lowering. SYS-S5-SOLANA admits the exact sha256 / keccak256 UInt256
@@ -1873,6 +1967,17 @@ private def admitUIntWidthResultTypeV1
       throw <| .planInvariant .solana
         "unsupported Solana semantic shape: arithmetic/bitwise result must be admitted UInt width"
 
+/-- Exact successful replay equation for the generic UInt result admission
+    stage used by binary lowering. -/
+theorem admitUIntWidthResultTypeV1_eq_ok
+    (types : SolanaTypeClosureV1) (resultTypeId : TypeIdV1) (width : Nat)
+    (hwidth : types.uintWidthOf resultTypeId = some width)
+    (hadmitted : EnvelopeV1.isSolanaBodyUintWidth width = true) :
+    admitUIntWidthResultTypeV1 types resultTypeId =
+      .ok (resultTypeId, width) := by
+  unfold admitUIntWidthResultTypeV1 isSolanaBodyUintWidth
+  simp [hwidth, hadmitted, Pure.pure, Except.pure, Bind.bind, Except.bind]
+
 private def admitIntWidthResultTypeV1
     (types : SolanaTypeClosureV1) (resultTypeId : TypeIdV1) :
     CompileResult (TypeIdV1 × Nat) := do
@@ -1934,6 +2039,32 @@ private def makeCheckedAddValueV1
     makeBinaryTreeValueV1 (mkSignedCheckedAdd bitWidth) lhsId rhsId lhs rhs false bitWidth (isInt := true)
   else
     makeBinaryTreeValueV1 (mkCheckedAdd bitWidth) lhsId rhsId lhs rhs false bitWidth
+
+/-- Exact UInt64 checked-add leaf used by the production expression pass.
+    The theorem is contract-independent and retains all depth/node bounds. -/
+theorem makeCheckedAddValueV1_uint64_eq
+    (lhsId rhsId : ValueIdV1) (lhs rhs : LoweredValueV1)
+    (hlhsInt : lhs.isInt = false) (hrhsInt : rhs.isInt = false)
+    (hlhsWidth : lhs.bitWidth = 64) (hrhsWidth : rhs.bitWidth = 64)
+    (hdepth : 1 + max lhs.depth rhs.depth ≤ maxExprDepth)
+    (hlhsNodes : lhs.expandedNodes ≤ maxPlanNodes - 1)
+    (hrhsNodes : rhs.expandedNodes ≤
+      maxPlanNodes - 1 - lhs.expandedNodes) :
+    makeCheckedAddValueV1 64 lhsId rhsId lhs rhs = .ok {
+      expr := .checkedAdd lhs.expr rhs.expr
+      depth := 1 + max lhs.depth rhs.depth
+      expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
+      dependencies := #[lhsId, rhsId]
+      isBool := false
+      isInt := false
+      bitWidth := 64
+    } := by
+  unfold makeCheckedAddValueV1 makeBinaryTreeValueV1 mkCheckedAdd
+  simp [hlhsInt, hrhsInt, hlhsWidth, hrhsWidth,
+    Nat.not_lt.mpr hdepth, Nat.not_lt.mpr hlhsNodes,
+    Nat.not_lt.mpr hrhsNodes, Pure.pure, Except.pure, Bind.bind, Except.bind,
+    isSolanaBodyUintWidth, ProofForgeV2.Targets.EnvelopeV1.isSolanaBodyUintWidth,
+    ProofForgeV2.Targets.EnvelopeV1.isSolanaAbiUintWidth]
 
 private def makeCheckedSubValueV1
     (bitWidth : Nat)
@@ -2326,6 +2457,42 @@ private def consumeCurrentSegmentV1
         "unsupported Solana semantic shape: dead or reordered value instructions"
     pure rootValue.expr
 
+/-- Consume a dominating pure leaf when the current production segment is
+    empty. This is the first branch of `consumeCurrentSegmentV1`, exposed as a
+    reusable equation for staged callable certificates. -/
+theorem consumeCurrentSegmentV1_eq_of_dominating_leaf
+    (values : Array LoweredValueV1) (blockEntry segmentStart : Nat)
+    (root : ValueIdV1) (value : LoweredValueV1)
+    (hbefore : root.toNat < segmentStart)
+    (hempty : segmentStart = values.size)
+    (hget : values[root.toNat]? = some value)
+    (hdependencies : value.dependencies.isEmpty = true) :
+    consumeCurrentSegmentV1 values blockEntry segmentStart root =
+      .ok value.expr := by
+  unfold consumeCurrentSegmentV1 findValueV1
+  rw [if_pos hbefore]
+  simp [hempty, hget, hdependencies, Pure.pure, Except.pure,
+    Bind.bind, Except.bind]
+
+/-- Compose exact current-value and dependency-walk equations into the
+    production current-segment result. The walk remains the sole
+    implementation; certificates only retain its kernel-checked outcome. -/
+theorem consumeCurrentSegmentV1_eq_of_complete_walk
+    (values : Array LoweredValueV1) (blockEntry segmentStart : Nat)
+    (root : ValueIdV1) (rootValue : LoweredValueV1)
+    (hopen : segmentStart ≤ root.toNat)
+    (hcurrent : currentValueV1 values blockEntry segmentStart root =
+      .ok rootValue)
+    (hvisited : visitSegmentDependenciesV1 values blockEntry segmentStart
+      (segmentDependencyWalkFuelV1 values segmentStart #[root.toNat])
+      (Array.replicate (values.size - segmentStart) false)
+      #[root.toNat] 0 = .ok (values.size - segmentStart)) :
+    consumeCurrentSegmentV1 values blockEntry segmentStart root =
+      .ok rootValue.expr := by
+  unfold consumeCurrentSegmentV1
+  rw [if_neg (Nat.not_lt.mpr hopen), hcurrent]
+  simp [hvisited, Pure.pure, Except.pure, Bind.bind, Except.bind]
+
 /-- B-RET-ABI: segment consume that returns the full `LoweredValueV1` (with
 aggregate leaves) instead of just the head expr. Same segment discipline as
 `consumeCurrentSegmentV1`. -/
@@ -2389,6 +2556,19 @@ private def appendResultValueV1
     throw <| .planInvariant .solana s!"Solana value table exceeds node limit {maxPlanNodes}"
   pure (values.push value)
 
+/-- Append one canonical SSA result through the exact production table gate. -/
+theorem appendResultValueV1_eq_ok
+    (expectedTypeId : TypeIdV1) (values : Array LoweredValueV1)
+    (result : ValueDefV1) (value : LoweredValueV1)
+    (hid : result.valueId.toNat = values.size)
+    (htype : result.typeId = expectedTypeId)
+    (hsize : values.size < maxPlanNodes) :
+    appendResultValueV1 expectedTypeId values result value =
+      .ok (values.push value) := by
+  unfold appendResultValueV1
+  simp [hid, htype, Nat.not_le.mpr hsize, Pure.pure, Except.pure,
+    Bind.bind, Except.bind]
+
 private def comparisonOpOfV1 : BinaryOpV1 → Option ComparisonOp
   | .eq => some .eq
   | .ne => some .ne
@@ -2398,17 +2578,49 @@ private def comparisonOpOfV1 : BinaryOpV1 → Option ComparisonOp
   | .ge => some .ge
   | _ => none
 
-private inductive SemanticCallableModeV1 where
+/-- Kernel-replayable branch classifications for the generic checked-add
+    production path. -/
+theorem binaryOpAddClassificationsV1 :
+    (BinaryOpV1.add == .and) = false ∧
+    (BinaryOpV1.add == .or) = false ∧
+    (BinaryOpV1.add == .shl) = false ∧
+    (BinaryOpV1.add == .shr) = false ∧
+    (BinaryOpV1.add == .add) = true ∧
+    (BinaryOpV1.add == .sub) = false ∧
+    (BinaryOpV1.add == .mul) = false ∧
+    (BinaryOpV1.add == .div) = false ∧
+    (BinaryOpV1.add == .mod) = false ∧
+    (BinaryOpV1.add == .bitAnd) = false ∧
+    (BinaryOpV1.add == .bitOr) = false ∧
+    (BinaryOpV1.add == .bitXor) = false := by
+  decide
+
+/-- Effect mode consumed by the sole production callable pass. -/
+inductive SemanticCallableModeV1 where
   | initialize
   | mutate
   | view
   deriving BEq
 
-private structure LoweredCallableV1 where
+/-- A mutating callable cannot enter a view-only effect branch. -/
+theorem semanticCallableModeMutate_ne_viewV1 :
+    (SemanticCallableModeV1.mutate == .view) = false := by
+  decide
+
+/-- Kernel-replayable classifications shared by UInt64 public Handler
+    construction. -/
+theorem publicUInt64HandlerClassificationsV1 :
+    (VisibilityV1.public_ == .public_) = true ∧
+    (ResultKind.u64 == .bool) = false := by
+  decide
+
+/-- Exact parameter/body result of the sole production callable pass. -/
+structure LoweredCallableV1 where
   params : Array Param
   body : Array Statement
 
-private structure LoweredBlockV1 where
+/-- Exact instruction-stage result consumed by production region emission. -/
+structure LoweredBlockV1 where
   statements : Array Statement
   values : Array LoweredValueV1
   segmentStart : Nat
@@ -2418,8 +2630,10 @@ private structure LoweredBlockV1 where
     walker). Each block starts a fresh effect segment; dominating pure SSA
     (callable params, pre-allocated block-param slots, earlier blocks) remains
     readable. Block parameters are only legal on loop headers and are slotted
-    before instruction lowering (see `allocateBlockParamSlotsV1`). -/
-private def lowerBlockInstructionsV1
+    before instruction lowering (see `allocateBlockParamSlotsV1`). This is a
+    staged certificate boundary over the sole production expression and
+    effect-segment implementation. -/
+def lowerBlockInstructionsV1
     (owner : String)
     (mode : SemanticCallableModeV1)
     (types : SolanaTypeClosureV1)
@@ -3847,8 +4061,9 @@ private def decodeSwitchCaseValueV1 (scrutIsBool : Bool) (bitWidth : Nat)
   else
     decodeUInt64LiteralV1 bytes
 
-/-- Region exit: forward join, path closed, or latch back-edge update. -/
-private inductive RegionExitV1 where
+/-- Region exit retained by the production emitter: forward join, path
+    closed, or latch back-edge update. -/
+inductive RegionExitV1 where
   | join (blockId : Nat)
   | closed
   | latch (update : Expr)
@@ -3864,8 +4079,9 @@ private def isLoopHeaderV1 (loopBounds : Array LoopBoundV1) (blockId : Nat) : Bo
 /-- Pre-allocate canonical block-parameter ValueId slots as plan `.temp`
     placeholders. Normalize places all block params (BlockId order) after
     callable params and before instruction results; only loop headers may
-    carry the single UInt64 induction parameter. -/
-private def allocateBlockParamSlotsV1
+    carry the single UInt64 induction parameter. This is the allocation stage
+    of the sole production callable pass. -/
+def allocateBlockParamSlotsV1
     (types : SolanaTypeClosureV1)
     (loopBounds : Array LoopBoundV1)
     (blocks : Array BlockV1)
@@ -3928,8 +4144,10 @@ mutual
     `enclosingHeaders` is the stack of active loop header ids (innermost last);
     a jump back to the innermost header ends the body with a latch update.
     Nested loop headers expand recursively. Returns (statements, values, exit).
-    Mutually recursive with `lowerForLoopV1`. -/
-private def emitRegionV1
+    Mutually recursive with `lowerForLoopV1`. The explicit fuel and fail-closed
+    result are unchanged; public visibility supports staged kernel certificates
+    rather than a second CFG lowerer. -/
+def emitRegionV1
     (owner : String)
     (mode : SemanticCallableModeV1)
     (expectsBoolReturn : Bool)
@@ -4336,7 +4554,10 @@ termination_by fuel
 decreasing_by all_goals exact remainingFuel.property
 end
 
-private def lowerCallableV1
+/-- Lower one validated Semantic callable through the sole production CFG/body
+    implementation. This is a staged certificate boundary, not a second
+    callable lowerer. -/
+def lowerCallableV1
     (owner : String)
     (mode : SemanticCallableModeV1)
     (expectsBoolReturn : Bool)
@@ -4431,7 +4652,8 @@ private def lowerCallableV1
     throw <| .planInvariant .solana s!"{owner} body exceeds profile limit {maxBodyStatements}"
   pure { params, body }
 
-private def makeInitializerV1
+/-- Build the initializer Handler used by the sole production Plan pass. -/
+def makeInitializerV1
     (types : SolanaTypeClosureV1)
     (typeDecls : Array TypeDeclV1)
     (account : StateAccount)
@@ -4460,7 +4682,8 @@ private def makeInitializerV1
   }
   pure { handler with discriminator := instructionDiscriminator handler.name handler.params }
 
-private def makeEntryV1
+/-- Build an entry/view Handler used by the sole production Plan pass. -/
+def makeEntryV1
     (types : SolanaTypeClosureV1)
     (typeDecls : Array TypeDeclV1)
     (account : StateAccount)
@@ -4791,6 +5014,50 @@ def certifyPlanLoweringV1
               plan
               finishSuccess
             }
+
+/-- Successful production stages guarantee that the retained lowering
+    certificate constructor succeeds. This theorem eliminates only the
+    dependent `match` plumbing; its premises remain the exact production
+    equations. -/
+theorem certifyPlanLoweringV1_toOption_isSome_of_stages
+    (source : SemanticProgramDataV1)
+    (admitCallerRole admitProductExternalCall : Bool)
+    (context : PlanLoweringContextV1)
+    (callables : PlanCallableLoweringStateV1)
+    (plan : Plan)
+    (hcontext : preparePlanLoweringContextV1 source admitCallerRole
+      admitProductExternalCall = .ok context)
+    (hcallables : lowerPlanCallableBodiesV1 context source.callables =
+      .ok callables)
+    (hfinish : finishPlanLoweringV1 context callables = .ok plan) :
+    (certifyPlanLoweringV1 source admitCallerRole
+      admitProductExternalCall).toOption.isSome = true := by
+  unfold certifyPlanLoweringV1
+  split
+  next compileError heq =>
+    rw [hcontext] at heq
+    contradiction
+  next actualContext heq =>
+    have hactualContext : actualContext = context := by
+      exact Except.ok.inj (heq.symm.trans hcontext)
+    subst actualContext
+    split
+    next compileError heq =>
+      rw [hcallables] at heq
+      contradiction
+    next actualCallables heq =>
+      have hactualCallables : actualCallables = callables := by
+        exact Except.ok.inj (heq.symm.trans hcallables)
+      subst actualCallables
+      split
+      next compileError heq =>
+        rw [hfinish] at heq
+        contradiction
+      next actualPlan heq =>
+        have hactualPlan : actualPlan = plan := by
+          exact Except.ok.inj (heq.symm.trans hfinish)
+        subst actualPlan
+        rfl
 
 /-- Compose retained production stage equations into the exact private
     data-to-Plan result used by capability-gated materialization. -/
