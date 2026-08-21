@@ -28,11 +28,11 @@ zero-tool finalize（默认 profile；无 prove；ADR-0045）；opt-in `openvm-g
 XRPL Q0：Bedrock-shaped `{name}.rs` + zero-tool finalize（ADR-0049）；opt-in
 `xrpl-bedrock-wasm-u64-v1` 经 ambient rustc 产出 `.wasm` extra（ADR-0050；仍非 AlphaNet/主网）；
 host 三键 ADR-0052 proposed（TIME/CALLER 符号冻、SHA keep-FC；叶未开）；
-ADR-0053 proposed（call-bind v1 Wave 1–3 engineering done：三叶 exact endpoint / missing-row FC，EVM 空账户 void CALL FC；Solana 支持子集完成 AccountMeta + outer AccountInfo join + product residual 清零 + Mollusk；identity digest 与 unsupported shapes 仍 FC/open）；
+ADR-0053 accepted（call-bind v1 Wave 1–3 engineering done：三叶 exact endpoint / missing-row FC，EVM 空账户 void CALL FC；Solana 支持子集完成 AccountMeta + outer AccountInfo join + product residual 清零 + Mollusk；identity digest 与 unsupported shapes 仍 FC/open）；
 CosmWasm：WAT + locked check + mock 28 tests +
 wasmd Docker rung-1；TON：Tolk/BoC + sandbox 16 it（新增 1 条本机未执行；schedule `createMessage` PARTIAL）。**Accepted PRD Phase 1 仍为四目标**
-（EVM/Solana/NEAR/Noir）；其余 engineering leaves 由 **ADR-0036**（仍 `proposed`；现 13+0）与 **ADR-0044/0045/0046/0047/0049/0050**
-主张收口为非 accepted 扩面，formal lighthouse=EVM-first。不得把 ADR-0036 写成 accepted。Normalize 为扩展中的
+（EVM/Solana/NEAR/Noir）；其余 engineering leaves 由 **accepted ADR-0036**（现 13+0）与 **ADR-0044/0045/0046/0047/0049/0050**
+收口为非 accepted 扩面，formal lighthouse=EVM-first。Normalize 为扩展中的
 子集（超出最初 Counter-only S1，仍非完整语言面）。前端监督层已于 2026-08-01 移除。
 
 EVM formal 缺口盘点（非 normative、不代签 TASK/TST）：
@@ -52,11 +52,12 @@ Solana ADR-0048 D4 剩余证书（非 formal TASK-D5）：
 [`prompt-next-wave.md`](../.grok/goals/prompt-next-wave.md) 与 `next-wave-runner`
 **已退役（refuse-exit）**，不要再 launch。
 全仓对账：[research/28-project-wide-honesty-audit.md](research/28-project-wide-honesty-audit.md)。
-**下一刀（治理，非 formal）**：能力层 waves 已全闭合（2026-08-19：CAP-1a…5 /
+**下一刀（四目标工程 DoD，非 formal）**：能力层 waves 已全闭合（2026-08-19：CAP-1a…5 /
 CAP-X-BYTES / CAP-X-MERKLE / 诚实边界波）；Call-bind Wave 1–3 的工程 DoD 已于
-2026-08-21 闭合支持子集。当前按序评审 **ADR-0036 / ADR-0053**：正文与事实已
-对账，但 acceptance metadata 仍缺，不能自动翻 `accepted`；批准后才进入 accepted
-四目标工程 DoD。COMP-1-NORMALIZE-RESIDUAL FC 针
+2026-08-21 闭合支持子集；ADR-0036 / ADR-0053 同日已由 owner directive accepted。
+当前按 EVM → Solana → NEAR → Noir 对账。EVM endpoint binding 已闭；identity digest
+verification 仍须先冻结 callee artifact / receipt 来源，不能由 bind row 自证。
+COMP-1-NORMALIZE-RESIDUAL FC 针
 （Field/Principal 源字面量、Bytes 嵌套穿透）与 COMP-1-SYS-CAP-L2
 attachedValue inspect/Targets 诚实表面、official `cryptoHonesty` 闭表、
 ICP/TON `engineeringValidationResidual`、XRPL ContextRead/Commit 矩阵针与 ecdsa
@@ -64,7 +65,7 @@ ICP/TON `engineeringValidationResidual`、XRPL ContextRead/Commit 矩阵针与 e
 Field/Principal 字面量，**不**开官方 program 新叶，**不**把 static engineering validation
 label 当成 dynamic maturity 或 release qualification。
 当前剩余人拍项已排进 [`plan/remaining-owner-waves.md`](plan/remaining-owner-waves.md)
-（B-CALL-SEM / ADR-0051 / ADR-0036 / ADR-0053 / D3-E8 / DOC-JUST-CONTROL / RES-1B /
+（B-CALL-SEM / ADR-0051 / D3-E8 / DOC-JUST-CONTROL / RES-1B /
 B-COMMIT-ZK / SOR-1 / QUINT-2 / XRPL TIME·CALLER / zkVM / formal D1–D4）；
 **不**自动接受 ADR，**不**开 XRPL 叶，**不**标 formal done。
 完善度队列 [`plan/completeness-phased-roadmap.md`](plan/completeness-phased-roadmap.md) ·

@@ -27,7 +27,7 @@ normative: true
 > 2. **Engineering implemented leaves** 另有 `aleo` / `psy` / `cosmwasm` / `ton` /
 >    `quint` / `soroban` / `openvm` / `icp` / `xrpl`（十三个 materializer 均已可寻址并
 >    materialize，**不**等于 accepted 产品范围已扩）。二者
->    边界由 **ADR-0036**（**仍 `proposed`**，engineering 13+0 / accepted PRD 仍四目标）主张收口；不得因表格「implement」字样静默扩大
+>    边界由 **accepted ADR-0036**（engineering 13+0 / accepted PRD 仍四目标）收口；不得因表格「implement」字样静默扩大
 >    accepted scope。`quint` 为 ADR-0026 冻结并已接线的 source-only model surface；
 >    `soroban` 为 ADR-0044 source-only S0（`.rs` recipe，zero-tool）；
 >    `openvm` 为 ADR-0045/0046 O0 guest-source + opt-in O1 ELF；
@@ -65,8 +65,8 @@ normative: true
 > design-only**。十三个 materializer：`evm` / `solana` / `near` / `noir` / `aleo` /
 > `psy` / `quint` / `cosmwasm` / `ton` / `soroban` / `openvm` / `icp` / `xrpl`。
 > 其中 **accepted PRD Phase 1** 仍仅前四；其余 engineering leaves（含 Soroban S0、
-> OpenVM O0/O1、ICP、XRPL Q0）由 **proposed** ADR-0036 与 ADR-0044/0045/0046/0047/0049/0050
-> 主张收口为非 accepted 扩面，formal lighthouse=EVM-first。ADR-0036 仍 `proposed`，不得写成 accepted。
+> OpenVM O0/O1、ICP、XRPL Q0）由 **accepted ADR-0036** 与 ADR-0044/0045/0046/0047/0049/0050
+> 收口为非 accepted 扩面，formal lighthouse=EVM-first。
 > Registry 的 `engineeringValidationLabel`（如 CosmWasm `wasm-validated-alpha`、TON/Quint/
 > Soroban/OpenVM/XRPL `source-only`）只是静态工程分类；它不是 `TargetMaturity` 或
 > `MaturitySnapshot`。compile / mock / sandbox / 模型检查不得写成 formal、hermetic 或 release 完成。

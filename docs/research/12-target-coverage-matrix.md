@@ -35,7 +35,7 @@ normative: false
 >
 > **双轨**：accepted PRD Phase 1 范围仍为 **EVM/Solana/NEAR/Noir**；
 > 其余九个为 engineering leaves，**不**自动扩 accepted scope
->（ADR-0036——**仍 `proposed`**——主张 engineering 13+0 不静默改写 accepted scope，formal lighthouse=EVM-first）。
+>（accepted ADR-0036 收口 engineering 13+0 不静默改写 accepted scope，formal lighthouse=EVM-first）。
 
 ## 1. 语义 op 覆盖矩阵（wire Op × target；原六 materializer 细格）
 
@@ -228,7 +228,7 @@ normative: false
 
 | ID | 缺口 | 现状 | wave 归属 |
 |---|---|---|---|
-| **D-1** | registry target 表 | **已随 XRPL ADR-0049/0050 刷新**：engineering seed = **13 implemented + 0 design-only**（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`/`quint`/`cosmwasm`/`ton`/`soroban`/`openvm`/`icp`/`xrpl`）；十三 materializer 均有 Plan/IR/dispatch；resolver 17 rows（EVM×2、Noir×2、OpenVM×2、XRPL×2、其余各一）。**proposed** ADR-0036 主张 accepted Phase-1 四-target 不静默扩面，formal lighthouse=EVM-first；ADR-0036 仍 `proposed`，不得写成 accepted | MatrixSync + ADR-0044/45/46/47/49/50 |
+| **D-1** | registry target 表 | **已随 XRPL ADR-0049/0050 刷新**：engineering seed = **13 implemented + 0 design-only**（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`/`quint`/`cosmwasm`/`ton`/`soroban`/`openvm`/`icp`/`xrpl`）；十三 materializer 均有 Plan/IR/dispatch；resolver 17 rows（EVM×2、Noir×2、OpenVM×2、XRPL×2、其余各一）。accepted ADR-0036 收口 accepted Phase-1 四-target 不静默扩面，formal lighthouse=EVM-first | MatrixSync + ADR-0036/44/45/46/47/49/50 |
 | **D-2** | 成熟度声明 | **已闭合并随 ADR-0035 + 后三 target 刷新**：EVM locked solc + G4 Anvil 工程差分；NEAR locked `wat2wasm` + near-sandbox receipt；Solana SBPF+Mollusk；Noir locked nargo compile-only；Aleo sole `aleo-instructions-v1` zero-tool Instructions；Psy sole `psy-dpn-v1` zero-tool DPN；**CosmWasm** WAT+wat2wasm+check+mock + wasmd rung-1；**TON** Tolk/BoC+sandbox；**Quint** `.qnt` zero-tool；**Soroban** S0 source-only `.rs` zero-tool（auth/TTL/Wasm FC）；**OpenVM** O0 guest-source zero-tool + opt-in O1 locked `cargo-openvm` ELF/VmExe（prove FC）；**ICP** locked wat2wasm `.wasm`+`.did` + host-optional PocketIC。以上均**非** formal/hermetic/Stage-0 maturity | MatrixSync + ADR-0044/45/46/47 |
 
 ## 4. Wave 队列（按优先级 + 可并行性）

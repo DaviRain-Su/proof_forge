@@ -464,10 +464,10 @@ registry digest。
 | `aleo` | `aleo-instructions-v1` | `research.aleo.v1` | engineering leaf | `specified` | Direct canonical Aleo Instructions + query descriptor; zero-tool, non-deployable |
 | `psy` | `psy-dpn-v1` | `phase1.psy-u64.v1` | engineering leaf | `specified` | Direct versioned DPN package; zero-tool, non-deployable |
 
-> **当前工程偏离（2026-08-10；不构成本规范或 accepted scope 的升格）**：engineering
-> `TargetRegistryV1` seed 为 12 registry-implemented + 0 design-only。Aleo/Psy 分别只有
+> **当前工程偏离（2026-08-21；不构成本规范或 accepted scope 的升格）**：engineering
+> `TargetRegistryV1` seed 为 13 registry-implemented + 0 design-only。Aleo/Psy 分别只有
 > `aleo-instructions-v1` 与 `psy-dpn-v1` direct zero-tool profile；旧 Leo、Psy source/Dargo
-> profile 和 runtime/network lane 已删除。ADR-0036（仍 `proposed`）主张 accepted Phase-1
+> profile 和 runtime/network lane 已删除。accepted ADR-0036 收口 accepted Phase-1
 > 四-target 范围与 engineering 扩面的正式 reconciliation；不得据 engineering label 推断
 > artifact/runtime maturity。
 

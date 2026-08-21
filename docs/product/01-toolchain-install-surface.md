@@ -100,7 +100,7 @@ PROOF_FORGE_TOOL_ROOT/   # default: ~/.cache/proof-forge-v2/tool-root/<platform>
 
 - **Implemented（可 install 编译档 / zero-tool leaf）**：`evm`、`solana`、`near`、`noir`、`aleo`、`psy`、`quint`、`cosmwasm`、`ton`、`soroban`、`openvm`、`icp`、`xrpl`（与 `TargetRegistryV1` 十三个 materializer 一致；OpenVM 默认 profile 为零工具 guest-source，opt-in `openvm-guest-elf-v1` 锁定 `cargo-openvm`；ICP Finalize 锁定 `wat2wasm`，PocketIC 为 host-optional runtime；XRPL 默认 source-only Q0，opt-in WASM extra 走 ambient rustc）。
 - **Design-only（`unsupported`，不可 install）**：无。
-- Accepted PRD Phase 1 文案仍为四目标；engineering 十三 target 扩面不自动改写 accepted 范围（**proposed** ADR-0036 / ADR-0044 / ADR-0045 / ADR-0046 / ADR-0047 / ADR-0049 / ADR-0050）。
+- Accepted PRD Phase 1 文案仍为四目标；engineering 十三 target 扩面不自动改写 accepted 范围（**accepted ADR-0036** / ADR-0044 / ADR-0045 / ADR-0046 / ADR-0047 / ADR-0049 / ADR-0050）。
 
 ### 4.3 编译档 vs runtime 档
 

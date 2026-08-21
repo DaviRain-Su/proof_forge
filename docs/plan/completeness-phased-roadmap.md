@@ -21,10 +21,10 @@ normative: false
 > XRPL context 矩阵针）已部分落地；部署地址绑定、新官方叶与 Field/Principal
 > 字面量开放仍 pending。ADR-0053 Wave 3 已闭合 Solana 支持子集的 outer
 > AccountInfo join；unsupported shape 与 identity digest verification 仍 FC/open。
-> ADR 仍 `proposed`。
+> ADR-0053 已于 2026-08-21 accepted；上述 residual 不因 acceptance 自动关闭。
 
 范围边界：[`../adr/0036-engineering-scope-and-evm-formal-lighthouse.md`](../adr/0036-engineering-scope-and-evm-formal-lighthouse.md)
-（工程 **13+0**，仍 `proposed`）。SPEC 分裂收口：
+（accepted；工程 **13+0**，accepted PRD 仍四目标）。SPEC 分裂收口：
 [`../adr/0051-spec-honesty-external-call-return.md`](../adr/0051-spec-honesty-external-call-return.md)
 （仍 `proposed`；accepted 前不得改 `semantic-core.md`）。
 
@@ -120,7 +120,7 @@ Capability 横切（2026-08-19）：`sha256Bytes` 五叶已开；`merkleVerifyKe
 |---|---|---|---|
 | **COMP-0-CALL-SEM** | call/schedule「完成」是部署地址、hashed stub + 文档诚实、还是按族拆？ | **按族拆**。已是 AGENTS caveat：EVM 真实 CALL + hashed stub PARTIAL；schedule = 同笔 tx fire-and-forget；Solana product sync CPI、async FC；NEAR promise / CW SubMsg / TON message；Noir relation slot；Aleo 双拒。**禁止** resolver 支持键冒充跨平台 call 完成。部署地址绑定另 ADR，见 [`evm-call-addr-gap.md`](evm-call-addr-gap.md) | owner-directed 2026-08-19（按族拆诚实已开刀；ADR 仍 proposed） |
 | **COMP-0-NOIR-PROVE** | 是否推翻 C-4「不升格 prove」？ | **不推翻**。nargo compile-only 保持。Phase-1 DoD 字面（Noir witness/prove/verify）**仍未满足**；若长期保持 compile-only，须另开 PRD 修订，不得假装已满足 | proposed / 等人拍 |
-| **COMP-0-ADR-0036** | ADR-0036 `proposed` → `accepted`，并改 12+0 为 13+0？ | **工程事实改为 13+0**（本审查已改 ADR 正文计数；含 XRPL ADR-0049/0050）。**status 仍 `proposed`**。accepted PRD 仍四目标 | 计数已对齐；acceptance 等人拍 |
+| **COMP-0-ADR-0036** | ADR-0036 `proposed` → `accepted`，并改 12+0 为 13+0？ | **工程事实为 13+0**（含 XRPL ADR-0049/0050）；accepted PRD 仍四目标 | **done** — owner directive accepted 2026-08-21；review commit `239e335ac4272f7b292eb87c913e46c8c805c0b9` |
 | **COMP-0-SPEC-HONESTY** | semantic-core void-call 旧句 vs 产品 N-CALL-RET：改 SPEC 还是改叙事？ | **改 SPEC**，采纳已起草的 ADR-0051（typed return 一等；schedule 维持 void）。**accepted 前不得改 semantic-core** | ADR-0051 proposed；acceptance 等人拍 |
 
 附带可并行拍板（不阻塞阶段 1 文档，但阻塞对应叶编码）：
@@ -225,10 +225,12 @@ Capability 横切（2026-08-19）：`sha256Bytes` 五叶已开；`merkleVerifyKe
 
 ## 9. 下一刀
 
-当前顺序进入 **ADR-0036 / ADR-0053 governance**：两份正文与工程事实已对账，
-但 acceptance metadata 仍缺，不能自动翻 `accepted`。批准后才进入 accepted 四目标
-工程 DoD。B-CALL-SEM 仍不标 closed：identity digest verification、Solana unsupported
-shape、target inspect static residual 与其它 target family 边界继续 open/FC。
+ADR-0036 / ADR-0053 已由 owner directive 于 2026-08-21 accepted，当前进入
+**阶段 2：accepted 四目标工程 DoD**。按 EVM → Solana → NEAR → Noir 对账；第一项
+`COMP-2-EVM-ADDR` 的 endpoint binding 已闭，identity digest verification 仍须先冻结
+可验证的 callee artifact / receipt 来源，不能仅凭 bind row 自证。B-CALL-SEM 仍不标
+closed：Solana unsupported shape、target inspect static residual 与其它 target family
+边界继续 open/FC。
 COMP-1 inspect 标签（call / attachedValue / crypto / engineeringValidationResidual）与 NORMALIZE FC
 针 / XRPL context 矩阵 / ecdsa 十二叶第一道门针已部分落地；字面量/Bytes 穿透开放、
 TypeKey SPEC rank 与其它 ADR 仍 proposed。

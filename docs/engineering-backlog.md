@@ -114,7 +114,7 @@ D1–D4 = 0/27 done。
 | FR-005 target 不改语义 | 架构遵守；跨 target reference trace 矩阵未做满 | R-1、C-* |
 | FR-006 exact capability | engineering resolver 有；formal SupportClaim 未 | D3-E2、B-3 |
 | FR-007 typed Plan/IR | 十三个 materializer 有 target-owned 类型（含 Quint/CosmWasm/TON/Soroban/OpenVM/ICP/XRPL）；formal schema/hash 不齐 | D4-E*、T9d、B-CALL-SEM |
-| FR-008 accepted 四-target + runtime/proof | accepted PRD 仍四目标；工程 registry 已 13 implemented + 0 design-only（含 Quint/CosmWasm/TON/Soroban/OpenVM/ICP/XRPL materializer；**proposed** ADR-0036 与 ADR-0044/0045/0046/0047/0049/0050 主张非静默扩面并选择 EVM-first formal lighthouse；ADR-0036 仍 `proposed`，不得写成 accepted）；EVM/Solana runtime 较强、NEAR/CosmWasm/TON 有工程 runtime 门、ICP host-optional PocketIC、Quint/Soroban/OpenVM/XRPL source-only（XRPL 另有 opt-in WASM extra）、Noir 无 prove | C-1/C-4/C-6、ADR-0036、ADR-0044、ADR-0045、ADR-0046、ADR-0047、ADR-0049、ADR-0050、PRD-DoD、B-CALL-SEM || FR-009 manifest 全 hash 链 | engineering output 部分；plan/IR/tool 不齐 | D3-E3/E4、T9d |
+| FR-008 accepted 四-target + runtime/proof | accepted PRD 仍四目标；工程 registry 已 13 implemented + 0 design-only（含 Quint/CosmWasm/TON/Soroban/OpenVM/ICP/XRPL materializer；**accepted ADR-0036** 收口非静默扩面并选择 EVM-first formal lighthouse）；EVM/Solana runtime 较强、NEAR/CosmWasm/TON 有工程 runtime 门、ICP host-optional PocketIC、Quint/Soroban/OpenVM/XRPL source-only（XRPL 另有 opt-in WASM extra）、Noir 无 prove | C-1/C-4/C-6、ADR-0036、ADR-0044、ADR-0045、ADR-0046、ADR-0047、ADR-0049、ADR-0050、PRD-DoD、B-CALL-SEM || FR-009 manifest 全 hash 链 | engineering output 部分；plan/IR/tool 不齐 | D3-E3/E4、T9d |
 | FR-010 multi-program `--program` | Loader 有 | 回归保持 |
 | FR-011 CLI JSON | 主命令有；flag 面未满 | D3-E5 |
 | FR-012 private/authority/custody | disclosure 有；**T-1 工程 authority/custody 子集有**（非 formal TST-VIS-002 / 完整 owner-key custody） | T-1 **done**、N-3 |
@@ -250,7 +250,7 @@ D1–D4 = 0/27 done。
 | **B-COMMIT-ZK** | Commit × Noir/Psy | target leaf | EVM/Solana/NEAR/Aleo 身份透传已开；Noir/Psy FC。Psy 在开放 identity 前必须先冻结 proof/public-input/commitment binding；仅把 operand 作为普通 Felt 透传会过度声明密码学承诺能力 | pending |
 | **B-CALL-SEM** | call/schedule capability 与真实平台语义对齐 | 产品决策 + target leaf | **#111 Solana legacy honesty 已接线**；resolver 支持键不得冒充跨平台 call 完成。十三 kind `callScheduleFamilyTagV1` / static residual 已在 inspect 露出但不进 SupportClaim。**ADR-0053 Wave 1/2/2a/2b/2c** 已交付 versioned `--bindings`、三叶 missing-row FC、EVM empty-code void CALL FC、Solana AccountMeta 与 program-level residual。**Wave 3（2026-08-21）** 闭合 Solana 支持子集：state-bearing、单一 generic callee、同步 void CALL、1..8 个 non-alias rows、无 frozen CPI site；Plan/IDL/IR/client 投影 exact outer roles，SBPF 校验 key/signer/writable/executable，传 bound accounts + callee program AccountInfos，产品 caller/callee 过 8 项 Mollusk。该子集 residual=`null`；identity digest 仍 parse-only，Solana unsupported shapes 与其它 target family 边界保持 FC，target inspect residual 仍静态 | **open**（call-bind 支持子集 engineering done；identity verification / unsupported families / static inspect / formal / C-3 仍开） |
 | **CW-ABI-FREEZE** | CosmWasm A1 runtime/ABI design-exit | 产品/target semantics 决策 | 已由 **CW-5** 闭合：versioned std/vm/check 3.0.9 + wasmvm 3.0.7 + wasmd v0.70.3 dispatcher 语义冻结；structural-WAT 工程先导批准；`wasm-validated-alpha` 限定 mock 子集。历史 A0/no-dispatch 叙述作废 | **done**（见 CW-5；非 formal） |
-| **ADR-0036** | accepted 范围与工程控制面 reconciliation | 文档/产品决策 | accepted PRD 仍以 EVM/Solana/NEAR/Noir 为 Phase 1；engineering 现 **13 implemented + 0 design-only**（Soroban ADR-0044 + OpenVM ADR-0045/0046 + ICP ADR-0047 + XRPL ADR-0049/0050）不静默扩 accepted scope；B11/B12 contained frontend 保持退役；formal lighthouse=EVM-first。**ADR-0036 仍 `proposed`**，不得写成 accepted | **done（2026-08-10 owner direction；ADR-0036 proposed，accepted PRD 未静默改写；2026-08-14 计数随 ICP implemented 更新为 12+0；2026-08-19 随 XRPL 为 13+0）** |
+| **ADR-0036** | accepted 范围与工程控制面 reconciliation | 文档/产品决策 | accepted PRD 仍以 EVM/Solana/NEAR/Noir 为 Phase 1；engineering 现 **13 implemented + 0 design-only**（Soroban ADR-0044 + OpenVM ADR-0045/0046 + ICP ADR-0047 + XRPL ADR-0049/0050）不静默扩 accepted scope；B11/B12 contained frontend 保持退役；formal lighthouse=EVM-first | **done**（owner directive accepted 2026-08-21；review commit `239e335ac4272f7b292eb87c913e46c8c805c0b9`；非 independent review） |
 | **ADR-0045** | OpenVM guest-source O0 engineering leaf | 文档/工程 | sole default `openvm-guest-source-v1`；受控 Rust guest + catalog；zero-tool finalize；4-key capability；无 prove | **done（2026-08-14；proposed）** |
 | **ADR-0046** | OpenVM guest-elf O1 dual-profile engineering leaf | 文档/工程 | 共享 Plan/IR 的 opt-in `openvm-guest-elf-v1`：锁定 `cargo-openvm` 2.0.1 build/transpile guest → RV32IM ELF + `.vmexe` extras；默认 `openvm-guest-source-v1` 仍 zero-tool；resolver 当时 15 rows（EVM×2、Noir×2、OpenVM×2、其余各一，含 ICP；**当前 17 rows**，XRPL×2）；无 keygen/execute/prove/verify | **done（2026-08-14；proposed）** |
 | **DOC-JUST-CONTROL** | 文档引用不存在的 governance/release recipes | 文档/发布决策 | `AGENTS`/`RECOVERY`/README/CONTRIBUTING/qualification inventory 曾把 `just governance-check` / `just release-check` 写成当前命令，但本分支及已知 `origin/main` 的 `justfile` 均无 recipe。现已纠正当前文档为“不可执行”；若要恢复，必须显式设计 recipe、测试与资格边界，禁止临时拼装命令冒充 gate | pending（**产品/发布决策**） |
@@ -456,8 +456,8 @@ D1–D4 = 0/27 done。
 （`PLAN-COMPLETENESS-ROADMAP`）。格子仍以
 [`research/12-target-coverage-matrix.md`](research/12-target-coverage-matrix.md) 为准。
 本表是 **COMP-\*** 勾选真源（DOC-DEDUP：不另开 research gap 清单）。
-本切片只登记队列；**不**把 ADR-0036/0051 标 `accepted`、**不**改 `semantic-core.md`、
-**不**关 formal 0/27。2026-08-19 owner 继续指令后，**COMP-1-CALL-SEM-LAND**
+ADR-0036 / ADR-0053 已于 2026-08-21 accepted；ADR-0051 仍 proposed，故仍
+**不**改 `semantic-core.md`、**不**关 formal 0/27。2026-08-19 owner 继续指令后，**COMP-1-CALL-SEM-LAND**
 第一刀（十三 kind inspect 表面针 + 三项地址 residual 标签 + xrpl 针）已部分落地；
 **COMP-1-SYS-CAP-L2** attachedValue / crypto / engineeringValidationResidual inspect
 与 ecdsa 十二叶第一道门针已部分落地；地址绑定与官方 program catalog 新叶仍 pending。
@@ -471,7 +471,7 @@ Cairo / RISC0 / SP1 / Move / 比特币 **不进本队列**。
 |---|---|---|
 | **COMP-0-CALL-SEM** | B-CALL-SEM：按族拆（resolver 支持 ≠ 跨平台 call 完成）；部署地址另 ADR | owner-directed 2026-08-19（按族拆诚实已开刀；ADR 仍 proposed） |
 | **COMP-0-NOIR-PROVE** | 不推翻 C-4；nargo compile ≠ prove；Phase-1 DoD 字面仍未满足 | proposed |
-| **COMP-0-ADR-0036** | 工程计数改为 **13+0（含 XRPL）**；status 仍 `proposed`；accepted PRD 仍四目标 | 计数已对齐；acceptance 等人拍 |
+| **COMP-0-ADR-0036** | 工程计数为 **13+0（含 XRPL）**；accepted PRD 仍四目标 | **done** — owner directive accepted 2026-08-21；review commit `239e335ac4272f7b292eb87c913e46c8c805c0b9` |
 | **COMP-0-SPEC-HONESTY** | 采纳已起草 ADR-0051（typed return 一等；schedule void）；accepted 前不改 SPEC | ADR-0051 proposed |
 
 ### 12.1 阶段 1 — 共享核（串行；CALL-SEM / attachedValue / crypto inspect + NORMALIZE FC 针已部分落地）
@@ -528,10 +528,10 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 next-wave / master / business-formalization Goal 与对应 runner **已退役（refuse-exit）**。
 **不要**再 `/goal @.grok/goals/prompt-next-wave.md` 或 `/workflow next-wave-runner`。
 新的有界切片用 `proof-forge-engineering-slice` / `develop-review-commit`。
-能力层 waves（CAP-1a…5、CAP-X-BYTES、CAP-X-MERKLE）与诚实边界波均 **done（2026-08-19）**。ADR-0053 Wave 3 已于 2026-08-21 闭合 Solana 支持子集的 outer AccountInfo join 与产品 runtime 门。当前顺序进入 **ADR-0036 / ADR-0053 governance**；正文与事实已对账，但 acceptance metadata 仍缺，不能自动翻 `accepted`。批准后才进入 accepted 四目标工程 DoD。**不**标 B-CALL-SEM closed：identity digest、Solana unsupported shapes、其它 target families、target static inspect、formal/C-3 仍开。剩余人拍项见 [`docs/plan/remaining-owner-waves.md`](plan/remaining-owner-waves.md)（Wave 0–8；不自动接受 ADR，不开 XRPL TIME/CALLER，不标 formal done）。完善度队列见 [`plan/completeness-phased-roadmap.md`](plan/completeness-phased-roadmap.md) 与上文 **§12**。
+能力层 waves（CAP-1a…5、CAP-X-BYTES、CAP-X-MERKLE）与诚实边界波均 **done（2026-08-19）**。ADR-0053 Wave 3 已于 2026-08-21 闭合 Solana 支持子集的 outer AccountInfo join 与产品 runtime 门；ADR-0036 / ADR-0053 同日已由 owner directive accepted。当前进入 accepted 四目标工程 DoD，按 **EVM → Solana → NEAR → Noir** 对账；EVM identity verification 先阻塞于 callee artifact / receipt 来源冻结。**不**标 B-CALL-SEM closed：identity digest、Solana unsupported shapes、其它 target families、target static inspect、formal/C-3 仍开。剩余人拍项见 [`docs/plan/remaining-owner-waves.md`](plan/remaining-owner-waves.md)（Wave 0–8；不开 XRPL TIME/CALLER，不标 formal done）。完善度队列见 [`plan/completeness-phased-roadmap.md`](plan/completeness-phased-roadmap.md) 与上文 **§12**。
 
 ```text
-1. EVM formal lighthouse（ADR-0036，仍 proposed；LH-1…28 + Track F **engineering-done**；**不要**把 TASK/TST 标 done）：
+1. EVM formal lighthouse（ADR-0036 accepted；LH-1…28 + Track F **engineering-done**；**不要**把 TASK/TST 标 done）：
    - shared D2/D3 formal 前置仍 pending：TASK-D2-07 / TST-SEM-002/003 —— **资格/formal 轴，不是 Goal drain**
      · **LH-1…LH-7 packaging done**（engineering only；**不**关闭 formal TASK/TST）：
        · LH-1：OutcomeWireV1 / `pf.reference-outcome.v1`

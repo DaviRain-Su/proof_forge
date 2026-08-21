@@ -37,8 +37,9 @@ empty-row、多个 generic callee、与 frozen CPI site 混合、generic result-
 继续 fail closed 或保留 residual。target `inspect <target>` 仍是静态 kind 闭表，
 不按 program 清。
 
-不关闭 `B-CALL-SEM` 全表。不接受 ADR-0036 / 0051。不改
-`semantic-core.md`。不声称 formal / C-3 / Anvil lossless / CREATE / CREATE2。
+不关闭 `B-CALL-SEM` 全表。本 ADR 不自动接受其它 ADR；ADR-0036 已由同日另行
+owner directive accepted，ADR-0051 仍 proposed。不改 `semantic-core.md`。不声称
+formal / C-3 / Anvil lossless / CREATE / CREATE2。
 
 ## 背景
 
