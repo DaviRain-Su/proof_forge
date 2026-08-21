@@ -104,10 +104,13 @@ wire whitelist，但任何显式 `--minimum-evidence` 请求都在 source open /
 
 `--bindings` 是 build-only、opt-in 的编译期对端绑定表路径（ADR-0053）。只接受
 `--target evm|solana|cosmwasm`；`check` 与其余十叶给该 flag 均为 usage / exit 2。
-文件必须是 PF-JCS `proof-forge.call-bind.v1`。**Wave 1** 只 parse + 与 `--target`
-join，然后丢弃表；产品 emit 仍走 hashed QN / QN stub。无 `--bindings` 时行为与
-今天完全相同。Wave 2 才把「无行 = fail closed」接到三叶 Lower/Emit。不把产品
-`build` 接到 Anvil / wasmd / 任何网络。
+文件必须是 PF-JCS `proof-forge.call-bind.v1`。**EVM Wave 2 叶**会把表传入产品
+materializer：每个 generic void/result call 与 schedule 必须 exact QN 命中 EVM 行，
+否则 `PF-PLAN-INVARIANT` fail closed；行中的 20-byte 地址进入 Plan / plan digest /
+EngineeringBuildIdentity / engineering OutputSet identity，并由 Yul `CALL` 使用。没有
+`--bindings` 时仍保持历史 hashed-QN Plan 编码与 emit。Solana/CosmWasm 目前仍只
+parse + target join，表不改变其 emit。不把产品 `build` 接到 Anvil / wasmd / 任何网络；
+也不据此声明 code-at-address / deployment receipt 已 join。
 
 `--resource-limit` 是 repeatable、逐 stage/field 的 lower-only override。CLI 名称固定映射到
 SPEC-COMMON-001，不创建第二套 resource profile：

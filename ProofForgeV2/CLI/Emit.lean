@@ -354,7 +354,8 @@ private def renderIntoStaging (capability : Targets.ResolvedEngineeringBuildV1)
 def emitProgram (capability : Targets.ResolvedEngineeringBuildV1)
     (outputDir : FilePath)
     (resourceLimits : Array ResourceLimitOverrideV1 := #[])
-    (wallStartedMs : Option Nat := none) :
+    (wallStartedMs : Option Nat := none)
+    (callBindings : Option CallBindV1.CallBindTableV1 := none) :
     IO EmitReceiptV1 := do
   let publishedBytesLimit := effectivePublishedBytesLimitV1 resourceLimits
   let compiled := Targets.ResolvedEngineeringBuildV1.compiledOf capability
@@ -365,7 +366,7 @@ def emitProgram (capability : Targets.ResolvedEngineeringBuildV1)
   unless validArtifactName programName do
     throw <| IO.userError s!"PF-OUTPUT-PATH: unsafe program artifact name '{programName}'"
   -- Target materializers emit only their canonical target-owned artifacts.
-  let artifacts ← Targets.materialize capability
+  let artifacts ← Targets.materialize capability callBindings
   validateMaterializedCarrier compiled artifacts
   let name ← match outputDir.fileName with
     | some name => pure name
@@ -423,8 +424,9 @@ RES-1 enforces wall clocks (build: pre-rename inside emitProgram; check:
 post-success path). The RES-1B output-only slice enforces
 `artifact-output.published-bytes` before publication. Product preflight rejects
 `memory-bytes` / `processes` / `protocol-bytes` / `stderr-bytes` (parsed, no
-in-process producer). ADR-0053 Wave 1: `--bindings` is build-only for
-evm|solana|cosmwasm; the table is parsed at product build and discarded.
+in-process producer). ADR-0053: `--bindings` is build-only for
+evm|solana|cosmwasm; Wave 2 consumes EVM rows during materialization while
+Solana/CosmWasm remain parse-only.
 Structural ambient ProofBundle product flags remain deleted; product proof
 gating is the in-process inline certifier. -/
 structure BuildOptions where
@@ -439,8 +441,8 @@ structure BuildOptions where
   json : Bool := false
   resourceLimits : Array ResourceLimitOverrideV1 := #[]
   minimumEvidence : Option String := none
-  /-- ADR-0053 Wave 1: path only. Table is parsed at product build and
-      discarded (emit still uses hashed QN / QN stubs). -/
+  /-- ADR-0053 call-binding table path. EVM consumes the decoded table during
+      materialization; Solana/CosmWasm currently remain parse-only. -/
   bindings : Option String := none
   deriving Repr
 

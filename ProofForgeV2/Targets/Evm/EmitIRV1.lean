@@ -1640,17 +1640,18 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
           output := output ++ s!"{indent}mstore({4 + 32 * index}, {rendered.value})\n"
         output := output ++ s!"{indent}mstore(0, 0x{padded})\n"
         output := output ++ s!"{indent}revert(0, {4 + 32 * args.size})\n"
-    | .externalCall callee args argBitWidths =>
+    | .externalCall callee args argBitWidths boundAddress =>
         -- Static QualifiedName → fixed CALL address + selector (AddressBearing).
-        -- Target path = all but last component (joined by "."); method = last.
-        -- Address = last 20 bytes of keccak256(UTF-8 target path).
+        -- ADR-0053 bound plans use the exact pre-placed 20-byte address;
+        -- unbound plans retain the historical QN hash derivation.
+        -- Target path = all but last component; method = last.
         -- Selector = first 4 bytes of the exact per-argument UInt ABI signature.
         let method := callee[callee.size - 1]!
         let targetParts := callee.extract 0 (callee.size - 1)
         let targetPath := String.intercalate "." targetParts.toList
-        -- Address = last 20 bytes of keccak256(UTF-8 target path) as hex.
-        let addrHex := Keccak.keccak256Hex targetPath.toUTF8
-        let addr20 := addrHex.drop 24
+        let addr20 := match boundAddress with
+          | some address => CallBindV1.encodeLowerHexBytesV1 address
+          | none => ((Keccak.keccak256Hex targetPath.toUTF8).drop 24).toString
         let sel := Keccak.selector method (externalUIntAbiTypesV1 args argBitWidths)
         let padded := sel ++ String.ofList (List.replicate 56 '0')
         for index in [0:args.size] do
@@ -1664,7 +1665,7 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
         output := output ++
           s!"{indent}let {okName} := call(gas(), 0x{addr20}, 0, 0, {4 + 32 * args.size}, 0, 0)\n" ++
           s!"{indent}if iszero({okName}) \{ revert(0, 0) }\n"
-    | .externalCallResult callee args result =>
+    | .externalCallResult callee args result boundAddress =>
         -- N-CALL-RET/B-CALL-SEM: real CALL with 32-byte returndata capture,
         -- RETURNDATASIZE guard, and first-word read. UInt8/16/32/64 use exact
         -- maximum-value guards; UInt128 requires a zero high half; UInt256
@@ -1673,8 +1674,9 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
         let method := callee[callee.size - 1]!
         let targetParts := callee.extract 0 (callee.size - 1)
         let targetPath := String.intercalate "." targetParts.toList
-        let addrHex := Keccak.keccak256Hex targetPath.toUTF8
-        let addr20 := addrHex.drop 24
+        let addr20 := match boundAddress with
+          | some address => CallBindV1.encodeLowerHexBytesV1 address
+          | none => ((Keccak.keccak256Hex targetPath.toUTF8).drop 24).toString
         let sel := Keccak.selector method
           (externalUIntAbiTypesV1 args result.argBitWidths)
         let padded := sel ++ String.ofList (List.replicate 56 '0')
@@ -1828,13 +1830,15 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
         output := output ++
           s!"{indent}mstore(64, {computedName})\n" ++
           s!"{indent}let t{resultTemp} := eq(mload(64), {rootR.value})\n"
-    | .schedule callee args argBitWidths =>
-        -- Fire-and-forget: same static address/selector, CALL success ignored.
+    | .schedule callee args argBitWidths boundAddress =>
+        -- Fire-and-forget: same bound-or-historical address/selector, CALL
+        -- success ignored.
         let method := callee[callee.size - 1]!
         let targetParts := callee.extract 0 (callee.size - 1)
         let targetPath := String.intercalate "." targetParts.toList
-        let addrHex := Keccak.keccak256Hex targetPath.toUTF8
-        let addr20 := addrHex.drop 24
+        let addr20 := match boundAddress with
+          | some address => CallBindV1.encodeLowerHexBytesV1 address
+          | none => ((Keccak.keccak256Hex targetPath.toUTF8).drop 24).toString
         let sel := Keccak.selector method (externalUIntAbiTypesV1 args argBitWidths)
         let padded := sel ++ String.ofList (List.replicate 56 '0')
         for index in [0:args.size] do
@@ -2399,7 +2403,7 @@ private partial def statementHelperNeedsV1 : Statement → PhaseHelperNeedsV1
   | .assert c => exprHelperNeedsV1 c
   | .emitEvent _ args | .revertError _ args =>
       args.foldl (fun acc e => mergeHelperNeeds acc (exprHelperNeedsV1 e)) {}
-  | .externalCall _ args _ | .schedule _ args _ | .externalCallResult _ args _ =>
+  | .externalCall _ args _ _ | .schedule _ args _ _ | .externalCallResult _ args _ _ =>
       args.foldl (fun acc e => mergeHelperNeeds acc (exprHelperNeedsV1 e)) {}
   | .sha256Precompile input _ | .keccak256Opcode input _ => exprHelperNeedsV1 input
   | .sha256BytesPrecompile byteLeaves _ =>
@@ -2928,16 +2932,20 @@ private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) := do
     `ResolvedEngineeringBuildV1`; returns typed TargetIR without emitting files.
     Not a residual Plan→IR bypass. Chain: materialize → validatePlan → render →
     validateIR. -/
-def irFromCapability (capability : ResolvedEngineeringBuildV1) : CompileResult IR := do
-  let plan ← materializePlanFromCapabilityV1 capability
+def irFromCapability
+    (capability : ResolvedEngineeringBuildV1)
+    (callBindings : Option CallBindV1.CallBindTableV1 := none) : CompileResult IR := do
+  let plan ← materializePlanFromCapabilityV1 capability callBindings
   lower plan
 
 /-- Capability-gated public materialize entry. Sole path from the retained
     SemanticProgramV1-native EVM Plan body to emitted files for this target.
     Chain: irFromCapability (includes validateIR) → emitFromIR (re-checks IR). -/
-def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
+def buildFromCapability
+    (capability : ResolvedEngineeringBuildV1)
+    (callBindings : Option CallBindV1.CallBindTableV1 := none) :
     CompileResult (Array OutputFile) := do
-  let ir ← irFromCapability capability
+  let ir ← irFromCapability capability callBindings
   emitFromIR ir
 
 end ProofForgeV2.Targets.Evm

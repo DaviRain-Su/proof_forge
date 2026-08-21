@@ -3,7 +3,7 @@ id: ADR-0053
 title: Call-bind v1 — compile-time opt-in callee address table
 status: proposed
 owner: architecture
-updated: 2026-08-20
+updated: 2026-08-21
 normative: true
 ---
 
@@ -13,10 +13,11 @@ normative: true
 
 proposed
 
-本 ADR 冻结 CALL-BIND 大切片的五句产品口径与表 schema。**Wave 1 只解析**
-`--bindings` 与 `proof-forge.call-bind.v1`；**不改** EVM / Solana / CosmWasm
-emit。无 `--bindings` 时产品行为与今天完全相同（hashed QN / QN stub 仍是
-隐式默认）。Wave 2 才把「无行 = fail closed」接到三叶 Lower/Emit。
+本 ADR 冻结 CALL-BIND 大切片的五句产品口径与表 schema。**Wave 1 已完成**
+`--bindings` / `proof-forge.call-bind.v1` 解析与 target join；**Wave 2 的 EVM
+单叶已完成**：有表时 EVM generic call/schedule 必须命中 exact QN 行，地址进入
+Plan identity 并由 Yul 消费。Solana / CosmWasm 仍为 parse-only。无 `--bindings`
+时产品行为与历史相同（hashed QN / QN stub 仍是隐式默认）。
 
 不关闭 `B-CALL-SEM` 全表。不接受 ADR-0036 / 0051。不改
 `semantic-core.md`。不声称 formal / C-3 / Anvil lossless / CREATE / CREATE2。
@@ -41,8 +42,8 @@ portable 互通停在 NetworkProfile；本 ADR **不**走那条路。
    `SemanticProgramV1`。
 2. **EVM 地址种类 = 预置 20 字节。** 人手填 / 测试夹具。本切片不做 CREATE /
    CREATE2 mint。三种地址不可互换。
-3. **空账户 void CALL 将在 Wave 2a 改成 fail closed。** Wave 1 不改 Yul。
-   这是语义变化，必须单独立测。
+3. **空账户 void CALL 将在 Wave 2a 改成 fail closed。** 本 EVM 地址绑定叶不改
+   该 runtime 语义；这是独立语义变化，必须单独立测。
 4. **`schedule` 仍是同笔 tx fire-and-forget。** 本 ADR 不改 catalog 键
    `effect.asynchronous-workflow`（改键另批，与 ADR-0051 亲戚）。
 5. **Bool / Int / Bytes returndata 继续 fail closed。** 本切片只绑地址。
@@ -51,10 +52,13 @@ portable 互通停在 NetworkProfile；本 ADR **不**走那条路。
 
 - `pf.crypto.*` 与 `pf.assets` **不走**这张表。
 - 无 `identity` 字段 = 只绑地址，**不得**写成已 join 链上代码。
-- Wave 1：无 `--bindings` = 今天的 stub 路径。有 flag = 解析并保留表，emit
-  仍走 stub（表对产品物化仍 inert）。
-- Wave 2：有 `--bindings` 时，三叶 generic `call`/`schedule` 无匹配行 →
-  fail closed；hashed / QN stub **不再当隐式默认**。
+- Wave 1（done）：无 `--bindings` = 历史 stub 路径；有 flag = 解析并保留表。
+- Wave 2 EVM 叶（done）：有 EVM 表时，generic void/result call 与 schedule 无
+  matching row → `PF-PLAN-INVARIANT` fail closed；exact 20-byte address 进入 EVM
+  Plan、Plan digest、EngineeringBuildIdentity / engineering OutputSet identity 与 Yul。
+  此时 hashed QN **不再当隐式默认**。
+- Wave 2 Solana/CosmWasm 叶（open）：产品 materializer 仍不消费表，emit 仍是
+  当前 callee/outer-account 与 QN `contract_addr` 边界。
 - 其余十叶（noir / near / ton / icp / quint / soroban / openvm / aleo / psy /
   xrpl）给了 `--bindings` → usage / fail closed（本表只服务三叶）。
 - `check` 不接受 `--bindings`。
@@ -107,6 +111,9 @@ portable 互通停在 NetworkProfile；本 ADR **不**走那条路。
 
 ## 后果
 
-Wave 1 落地后：CLI 认识 `--bindings`；表可解码、可查 QN；产品 emit 不变。
-Wave 2 三叶各自消费同一 `CallBindTableV1`。inspect residual 只在 Wave 2
-「该 program 全部 generic call 有行」时才清。
+CLI 认识 `--bindings`，表可解码、可查 QN。EVM 产品 build 现在消费同一
+`CallBindTableV1`：同表重复 build 确定；缺行 fail closed；bound/unbound Plan digest
+不同；无表的历史编码与 emit 不变。Solana/CosmWasm 仍 parse-only。
+
+本叶不清静态 inspect residual，不证明地址上存在代码，不加入 deployment receipt /
+Anvil / NetworkProfile，也不关闭 B-CALL-SEM、formal 或 C-3。

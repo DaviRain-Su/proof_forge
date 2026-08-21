@@ -7,6 +7,7 @@ import ProofForgeV2.Targets.Evm.ValidatePlanV1
 import ProofForgeV2.Targets.Evm.PlanSchemaV1
 import ProofForgeV2.Targets.Evm.ValidateIRV1
 import ProofForgeV2.Targets.Evm.EmitIRV1
+import ProofForgeV2.Targets.CallBindV1
 
 /-!
 # ProofForgeV2.Targets.Evm — public façade
@@ -36,8 +37,10 @@ def descriptor : TargetDescriptor := DescriptorDataV1.evm
     SemanticProgramV1, never residual alpha.
     Authority chain: semanticV1Of → makePlanFromSemanticV1 → validatePlan
     (validateSemanticProgramV1 already ran at capability mint). -/
-def planFromCapability (capability : ResolvedEngineeringBuildV1) : CompileResult Plan := do
-  let plan ← materializePlanFromCapabilityV1 capability
+def planFromCapability
+    (capability : ResolvedEngineeringBuildV1)
+    (callBindings : Option CallBindV1.CallBindTableV1 := none) : CompileResult Plan := do
+  let plan ← materializePlanFromCapabilityV1 capability callBindings
   validatePlan plan
   return plan
 

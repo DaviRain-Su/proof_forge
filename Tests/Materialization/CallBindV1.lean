@@ -1,20 +1,28 @@
 /-
-  Tests.Materialization.CallBindV1 — ADR-0053 Wave 1 parser + CLI flags.
+  Tests.Materialization.CallBindV1 — ADR-0053 parser, CLI, and EVM Wave 2.
 
-  Pure parse of `proof-forge.call-bind.v1` and `--bindings` preflight.
-  Does not change EVM / Solana / CosmWasm emit. Not formal / C-3.
+  Pure parse of `proof-forge.call-bind.v1`, `--bindings` preflight, and the EVM
+  Plan/digest/Yul/product-materialization binding path. Solana/CosmWasm remain
+  parse-only. Not formal / C-3.
 -/
 import ProofForgeV2.CLI.Emit
+import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.TargetIdentityV1
+import ProofForgeV2.Language.Loader
 import ProofForgeV2.Targets.CallBindV1
+import ProofForgeV2.Targets.Evm.PlanSchemaV1
+import ProofForgeV2.Targets.BuildSelectionV1
+import Tests.Language.ParserSession
 
 namespace Tests.Materialization.CallBindV1
 
 open ProofForgeV2
 open ProofForgeV2.CLI
+open ProofForgeV2.Compiler
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Targets.CallBindV1
+open ProofForgeV2.Targets.BuildSelectionV1
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
@@ -83,6 +91,7 @@ private def cosmwasmDoc (bindings : Array PfJson) : PfJson :=
 
 private def zero20 : String := "0x" ++ String.ofList (List.replicate 40 '0')
 private def ones20 : String := "0x" ++ String.ofList (List.replicate 40 '1')
+private def twos20 : String := "0x" ++ String.ofList (List.replicate 40 '2')
 private def zero32 : String := String.ofList (List.replicate 64 '0')
 private def ones32 : String := String.ofList (List.replicate 64 '1')
 private def digest0 : String := "sha256:" ++ String.ofList (List.replicate 64 '0')
@@ -90,7 +99,158 @@ private def digest0 : String := "sha256:" ++ String.ofList (List.replicate 64 '0
 private def expectBuildOpts (label : String) (args : List String) : IO BuildOptions :=
   expectOk label (parseBuildArgsExcept args)
 
-def run : IO Unit := do
+private def liftCompile (label : String) (result : CompileResult α) : IO α :=
+  match result with
+  | .ok value => pure value
+  | .error error => throw <| IO.userError s!"{label}: {error.render}"
+
+/-- Wave 2 EVM leaf: exact table addresses live in Plan identity and emitted
+    Yul; omission preserves the historical QN-derived address; a present table
+    with a missing row fails closed. -/
+private unsafe def testEvmWave2Materialization : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BoundCallEvm where\n" ++
+    "  entry probe(k : UInt64) : UInt64 do\n" ++
+    "    call Oracle.feed(k)\n" ++
+    "    let x : UInt64 := call Oracle.quote(k)\n" ++
+    "    return x\n" ++
+    "  entry later(k : UInt64) : UInt64 do\n" ++
+    "    schedule Ledger.daily(k)\n" ++
+    "    return k\n"
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftCompile "call-bind EVM source" (← session.selectProgramV1
+    sourceText "<call-bind-evm-wave2>" "Tests.CallBindEvmWave2" none)
+  let compiled ← liftCompile "call-bind EVM compile" <|
+    Compiler.compileValidatedSourceV1 source
+  let selection ← liftCompile "call-bind EVM selection" <|
+    resolveBuildSelectionV1 TargetId.evm none
+  let capability ← liftCompile "call-bind EVM capability" <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+
+  let tableText ← liftJcs "call-bind EVM Wave 2 table" <| evmDoc #[
+    evmBinding "Oracle.feed" zero20,
+    evmBinding "Oracle.quote" ones20,
+    evmBinding "Ledger.daily" twos20]
+  let table ← expectOk "call-bind EVM Wave 2 table" <|
+    parseCallBindTableV1 tableText
+  let feedAddress ← expectOk "feed address" <|
+    decodeLowerHexBytesV1 zero20 20 true "feed address"
+  let quoteAddress ← expectOk "quote address" <|
+    decodeLowerHexBytesV1 ones20 20 true "quote address"
+  let ledgerAddress ← expectOk "ledger address" <|
+    decodeLowerHexBytesV1 twos20 20 true "ledger address"
+
+  let unboundPlan ← liftCompile "unbound EVM plan" <|
+    Targets.Evm.planFromCapability capability
+  let boundPlan ← liftCompile "bound EVM plan" <|
+    Targets.Evm.planFromCapability capability (some table)
+  let boundPlanAgain ← liftCompile "bound EVM plan repeat" <|
+    Targets.Evm.planFromCapability capability (some table)
+  expect (unboundPlan.entries.all fun e => e.body.all fun stmt =>
+      match stmt with
+      | .externalCall _ _ _ none | .externalCallResult _ _ _ none |
+          .schedule _ _ _ none => true
+      | .externalCall .. | .externalCallResult .. | .schedule .. => false
+      | _ => true)
+    "omitted EVM bindings must retain unbound Plan statements"
+  expect (boundPlan.entries.any fun e => e.body.any fun stmt =>
+      match stmt with
+      | .externalCall #["Oracle", "feed"] _ _ (some address) =>
+          address == feedAddress
+      | _ => false)
+    "EVM void call Plan must carry the exact bound address"
+  expect (boundPlan.entries.any fun e => e.body.any fun stmt =>
+      match stmt with
+      | .externalCallResult #["Oracle", "quote"] _ _ (some address) =>
+          address == quoteAddress
+      | _ => false)
+    "EVM result call Plan must carry the exact bound address"
+  expect (boundPlan.entries.any fun e => e.body.any fun stmt =>
+      match stmt with
+      | .schedule #["Ledger", "daily"] _ _ (some address) =>
+          address == ledgerAddress
+      | _ => false)
+    "EVM schedule Plan must carry the exact bound address"
+
+  let unboundBytes ← expectOk "unbound EVM Plan bytes" <|
+    Targets.Evm.encodeEngineeringEvmPlanBytesV1 unboundPlan
+  let boundBytes ← expectOk "bound EVM Plan bytes" <|
+    Targets.Evm.encodeEngineeringEvmPlanBytesV1 boundPlan
+  let boundBytesAgain ← expectOk "bound EVM Plan bytes repeat" <|
+    Targets.Evm.encodeEngineeringEvmPlanBytesV1 boundPlanAgain
+  expect (!(unboundBytes == boundBytes))
+    "bound and unbound EVM Plans must have distinct identity bytes"
+  expect (boundBytes == boundBytesAgain)
+    "the same EVM bind table must produce deterministic Plan bytes"
+  let unboundDigest ← expectOk "unbound EVM Plan digest" <|
+    Targets.Evm.engineeringEvmPlanDigestV1 unboundPlan
+  let boundDigest ← expectOk "bound EVM Plan digest" <|
+    Targets.Evm.engineeringEvmPlanDigestV1 boundPlan
+  expect (!(unboundDigest.bytes == boundDigest.bytes))
+    "bound and unbound EVM Plan digests must differ"
+
+  let unboundIr ← liftCompile "unbound EVM IR" <|
+    Targets.Evm.irFromCapability capability
+  let boundIr ← liftCompile "bound EVM IR" <|
+    Targets.Evm.irFromCapability capability (some table)
+  let oracleHistorical :=
+    ((Targets.Evm.Keccak.keccak256Hex "Oracle".toUTF8).drop 24).toString
+  let ledgerHistorical :=
+    ((Targets.Evm.Keccak.keccak256Hex "Ledger".toUTF8).drop 24).toString
+  expect (unboundIr.yul.contains s!"call(gas(), 0x{oracleHistorical}," &&
+      unboundIr.yul.contains s!"call(gas(), 0x{ledgerHistorical},")
+    "omitted EVM bindings must preserve historical QN-derived CALL addresses"
+  for exact in [zero20.drop 2, ones20.drop 2, twos20.drop 2] do
+    expect (boundIr.yul.contains s!"call(gas(), 0x{exact},")
+      s!"bound EVM Yul must use exact address 0x{exact}"
+
+  -- Registry must use the same bound Plan for both emitted bytes and the
+  -- EngineeringBuildIdentity plan-digest slot.
+  let unboundArtifacts ← liftCompile "unbound EVM artifacts" <|
+    Targets.materializeResult capability
+  let boundArtifacts ← liftCompile "bound EVM artifacts" <|
+    Targets.materializeResult capability (some table)
+  let unboundIdentity := MaterializedArtifactsV1.buildIdentityOf unboundArtifacts
+  let boundIdentity := MaterializedArtifactsV1.buildIdentityOf boundArtifacts
+  expect (!(ProofForgeV2.Targets.EngineeringBuildIdentityV1.EngineeringBuildIdentityV1.planDigestOf
+        unboundIdentity ==
+      ProofForgeV2.Targets.EngineeringBuildIdentityV1.EngineeringBuildIdentityV1.planDigestOf
+        boundIdentity))
+    "EVM binding must change the materialized build identity plan digest"
+  let some boundYul := (MaterializedArtifactsV1.filesOf boundArtifacts).find?
+      (·.path == "BoundCallEvm.yul") |
+    throw <| IO.userError "bound EVM Registry output is missing Yul"
+  expect (boundYul.contents == boundIr.yul)
+    "Registry EVM output and bound IR must use the same Plan binding"
+
+  let emptyTable := CallBindTableV1.empty .evm
+  match Targets.Evm.planFromCapability capability (some emptyTable) with
+  | .error error =>
+      expect (error.code == "PF-PLAN-INVARIANT" &&
+          hasSubstr error.message "call-bind: no evm row for callee 'Oracle.feed'")
+        s!"missing EVM binding row must fail closed, got {error.render}"
+  | .ok _ => throw <| IO.userError "present EVM bind table accepted a missing callee row"
+
+  -- Parser normally prevents this, but Plan validation independently rejects
+  -- a malformed direct Plan constructor.
+  let malformedPlan := {
+    unboundPlan with
+    entries := unboundPlan.entries.map fun e => {
+      e with body := e.body.map fun stmt =>
+        match stmt with
+        | .externalCall callee args widths _ =>
+            .externalCall callee args widths (some ByteArray.empty)
+        | other => other }
+  }
+  match Targets.Evm.validatePlan malformedPlan with
+  | .error error =>
+      expect (hasSubstr error.message "bound EVM external call address must be exactly 20 bytes")
+        s!"malformed bound EVM Plan address diagnostic, got {error.render}"
+  | .ok _ => throw <| IO.userError "EVM Plan accepted a malformed bound address"
+
+unsafe def run : IO Unit := do
   -- Canonical empty table (all three targets).
   for (label, doc, expected) in
       #[("evm-empty", evmDoc #[], CallBindTargetV1.evm),
@@ -288,6 +448,8 @@ def run : IO Unit := do
   | .build opts =>
       expect (opts.bindings == some "a.json") "product build keeps path"
   | other => throw <| IO.userError s!"expected build command, got {repr other}"
+
+  testEvmWave2Materialization
 
   IO.println "Tests.Materialization.CallBindV1: ok"
 

@@ -3,10 +3,12 @@
   (ADR-0053 Wave 1 parse + Wave 2 lookup).
 
   Parses `proof-forge.call-bind.v1` PF-JCS into a private-ctor table.
-  Wave 2: when a table is present, generic `call`/`schedule` on
-  evm/solana/cosmwasm must match a row or fail closed. Missing table keeps
-  hashed QN / QN stubs. `pf.crypto.*` and `pf.assets` never consult this
-  table. Identity fields are join metadata only (do not change emit).
+  Wave 2 EVM leaf: when a table is present, generic EVM `call`/`schedule`
+  must match a row or fail closed. Missing table keeps the historical hashed
+  QN path. Solana/CosmWasm product materialization remains parse-only even
+  though their target-specific lookup contracts are staged here.
+  `pf.crypto.*` and `pf.assets` never consult this table. Identity fields are
+  join metadata only (do not change emit).
 
   Not SemanticProgramV1. Not NetworkProfile. Not formal / C-3.
   Not Wave 2a empty-account EVM CALL.
@@ -363,9 +365,10 @@ def requireEvmAddressV1 (table : CallBindTableV1) (callee : Array String) :
           pure address
       | _ => throw (wrongSiteError "evm" callee)
 
-/-- Wave 2 Solana lookup. Nonempty `accounts` is Wave 2b (outer AccountMeta
-    ABI) and fail-closed here so a half-wired program-id is never claimed
-    complete. Empty accounts → program id only (empty-meta packing stays). -/
+/-- Staged Solana lookup contract (not yet wired to product materialization).
+    Nonempty `accounts` is Wave 2b (outer AccountMeta ABI) and fail-closed here
+    so a half-wired program-id is never claimed complete. Empty accounts →
+    program id only (empty-meta packing stays). -/
 def requireSolanaProgramIdV1 (table : CallBindTableV1) (callee : Array String) :
     Except String ByteArray := do
   let some name := qualifiedNameOfComponents? callee |
@@ -383,7 +386,8 @@ def requireSolanaProgramIdV1 (table : CallBindTableV1) (callee : Array String) :
           pure programId
       | _ => throw (wrongSiteError "solana" callee)
 
-/-- Wave 2 CosmWasm lookup. Present table + missing/wrong-site → error. -/
+/-- Staged CosmWasm lookup contract (not yet wired to product materialization).
+    Present table + missing/wrong-site → error. -/
 def requireCosmWasmAddressV1 (table : CallBindTableV1) (callee : Array String) :
     Except String String := do
   let some name := qualifiedNameOfComponents? callee |

@@ -3,7 +3,7 @@ id: PLAN-REMAINING-OWNER-WAVES
 title: Remaining owner-decision waves (post daily-engineering drain)
 status: draft
 owner: engineering
-updated: 2026-08-20
+updated: 2026-08-21
 normative: false
 ---
 
@@ -57,18 +57,25 @@ void CALL stays until Wave 2a. `schedule` stays same-tx fire-and-forget.
 Bool/Int/Bytes returndata stay fail closed. `pf.crypto.*` / `pf.assets`
 never consult the table.
 
-**Wave 1 (this slice): parse only.** CLI accepts `--bindings`; table
-decodes; product emit still uses hashed QN / QN stubs. No `--bindings`
-keeps today’s behavior.
+**Wave 1（done）：parse + target join。** CLI accepts `--bindings` and decodes
+the table. No `--bindings` keeps the historical target behavior.
 
-**Wave 2 (next coding slice, not this commit):** with `--bindings`,
-generic `call`/`schedule` on evm/solana/cosmwasm without a matching row
-fails closed. Then empty-account void CALL fail-closed as its own
-semantic change. Inspect residuals clear only when that program’s
-generic calls all have rows.
+**Wave 2 EVM leaf（done，2026-08-21）：** with an EVM table, every generic
+`call` / result-bearing `call` / `schedule` must have an exact QN row or Plan
+fails closed. The exact pre-placed 20-byte address is carried by EVM Plan,
+therefore changes Plan digest / EngineeringBuildIdentity / engineering
+OutputSet identity, and is the sole address consumed by Yul. Without a table,
+the historical hashed-QN Plan encoding and Yul path remain unchanged.
 
-Open remainder: resolver support keys must not be read as
-“cross-platform call done.” Code one leaf at a time after Wave 1.
+**Wave 2 remainder（open）：** Solana and CosmWasm are still parse-only; wire
+their callee identity / outer AccountMeta and `contract_addr` one leaf at a
+time. Empty-account EVM void CALL fail-closed remains the separate Wave 2a
+semantic change. Static inspect residual labels remain unchanged until their
+honesty contract can represent a program-complete binding.
+
+Open remainder: resolver support keys must not be read as “cross-platform call
+done.” EVM deployment/code-at-address receipts, Solana outer accounts,
+CosmWasm address validation, and formal C-3 are not closed by this leaf.
 
 ### Decisions (inventory 2026-08-16 + evm-call-addr-gap §3)
 

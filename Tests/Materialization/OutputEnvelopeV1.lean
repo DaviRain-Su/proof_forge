@@ -327,7 +327,7 @@ private unsafe def testDeletionPins : IO Unit := do
   -- materializeResult returns MaterializedArtifactsV1 (signature may span lines).
   let matOut ← IO.Process.output {
     cmd := "rg"
-    args := #["--glob", "*.lean", "-n", "--no-heading", "-A", "2",
+    args := #["--glob", "*.lean", "-n", "--no-heading", "-A", "4",
       "def materializeResult", "ProofForgeV2/Targets"]
   }
   expect (matOut.exitCode == 0)

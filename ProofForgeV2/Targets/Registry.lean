@@ -87,11 +87,12 @@ def descriptor? (target : TargetId) : CompileResult (Option TargetDescriptor) :=
     target Plan schema digests from capability; Psy (and any residual
     design-only targets) bind `engineeringAbsentPlanDigestV1`. -/
 private def planDigestForCapabilityV1
-    (capability : ResolvedEngineeringBuildV1) : CompileResult Digest := do
+    (capability : ResolvedEngineeringBuildV1)
+    (callBindings : Option CallBindV1.CallBindTableV1 := none) : CompileResult Digest := do
   let selection := ResolvedEngineeringBuildV1.selectionOf capability
   match selection.kind with
   | .evm =>
-      let plan ← Evm.planFromCapability capability
+      let plan ← Evm.planFromCapability capability callBindings
       match Evm.engineeringEvmPlanDigestV1 plan with
       | .ok d => pure (d : Digest)
       | .error e =>
@@ -184,13 +185,15 @@ private def planDigestForCapabilityV1
 
     Pure materialize. Aleo emits Instructions plus its query descriptor; Psy
     emits DPN JSON. Neither target has a source-language debug lane. -/
-def materializeResult (capability : ResolvedEngineeringBuildV1) :
+def materializeResult
+    (capability : ResolvedEngineeringBuildV1)
+    (callBindings : Option CallBindV1.CallBindTableV1 := none) :
     CompileResult MaterializedArtifactsV1 := do
   let selection := ResolvedEngineeringBuildV1.selectionOf capability
-  let planDigest ← planDigestForCapabilityV1 capability
+  let planDigest ← planDigestForCapabilityV1 capability callBindings
   match selection.kind with
   | .evm =>
-      let files ← Evm.buildFromCapability capability
+      let files ← Evm.buildFromCapability capability callBindings
       mintMaterializedArtifactsV1 capability Evm.descriptor files planDigest
   | .solana =>
       let files ← Solana.buildFromCapability capability
@@ -230,9 +233,11 @@ def materializeResult (capability : ResolvedEngineeringBuildV1) :
       mintMaterializedArtifactsV1 capability Xrpl.descriptor files planDigest
 
 /-- IO wrapper over the sole pure materializer. -/
-def materialize (capability : ResolvedEngineeringBuildV1) :
+def materialize
+    (capability : ResolvedEngineeringBuildV1)
+    (callBindings : Option CallBindV1.CallBindTableV1 := none) :
     IO MaterializedArtifactsV1 := do
-  match materializeResult capability with
+  match materializeResult capability callBindings with
   | .ok output => pure output
   | .error error => throw <| IO.userError error.render
 
