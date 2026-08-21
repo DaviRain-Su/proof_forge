@@ -786,13 +786,16 @@ s1-target-semantic-plan-deletion-gate:
       rg -q 'makeCheckedSubValueV1' "$source"
       # Wave C: per-block lowering (reached from lowerCallableV1 via
       # emitRegionV1) owns checked add/sub and effect-segment consumption.
-      rg -Uq '(?s)private def lowerBlockInstructionsV1.*?makeCheckedAddValueV1.*?makeCheckedSubValueV1.*?consumeCurrentSegmentV1' "$source"
       # Solana's region walk is now explicitly fuel-bounded and total. Near
       # and Noir retain their current partial definitions until their own
-      # totalization slices land.
+      # totalization slices land. Solana's three coherent stages are public so
+      # kernel certificates can retain exact production equations; the gate
+      # still pins that single implementation and its checked/effect logic.
       if [[ "$target" == "Solana" ]]; then
-        rg -Uq '(?s)private def lowerBlockInstructionsV1.*?private def emitRegionV1.*?private def lowerCallableV1' "$source"
+        rg -Uq '(?s)def lowerBlockInstructionsV1.*?makeCheckedAddValueV1.*?makeCheckedSubValueV1.*?consumeCurrentSegmentV1' "$source"
+        rg -Uq '(?s)def lowerBlockInstructionsV1.*?def emitRegionV1.*?def lowerCallableV1' "$source"
       else
+        rg -Uq '(?s)private def lowerBlockInstructionsV1.*?makeCheckedAddValueV1.*?makeCheckedSubValueV1.*?consumeCurrentSegmentV1' "$source"
         rg -Uq '(?s)private def lowerBlockInstructionsV1.*?private partial def emitRegionV1.*?private def lowerCallableV1' "$source"
       fi
       rg -Uq '(?s)if op == \.add then.*?else if op == \.sub then.*?makeCheckedSubValueV1' "$source"

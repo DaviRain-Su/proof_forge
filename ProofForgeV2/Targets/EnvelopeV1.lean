@@ -778,10 +778,14 @@ def PilotTypeClosureV1.requireUInt64
   | some tid => pure tid
   | none => throw (mkErr (shapeMsg label "UInt64 type is missing"))
 
-private def widthAdmitted (policy : PilotUintWidthPolicy) (width : Nat) : Bool :=
+/-- Test one unsigned width against a target policy. Public only so target
+    certificates can replay the production type-closure decision. -/
+def widthAdmitted (policy : PilotUintWidthPolicy) (width : Nat) : Bool :=
   policy.admittedWidths.contains width
 
-private def intWidthAdmitted (policy : PilotIntWidthPolicy) (width : Nat) : Bool :=
+/-- Test one signed width against a target policy. Public only so target
+    certificates can replay the production type-closure decision. -/
+def intWidthAdmitted (policy : PilotIntWidthPolicy) (width : Nat) : Bool :=
   policy.admittedWidths.contains width
 
 private def duplicateUintDetail
