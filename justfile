@@ -1190,10 +1190,10 @@ product-negative: build
 target-cli-positive: build
 	mkdir -p build
 	lake env .lake/build/bin/proof-forge-next list-targets > build/list-targets.stdout
-	printf '%b' 'aleo\tinstructions-only\ncosmwasm\twasm-validated-alpha\nevm\truntime-validated-alpha\nicp\tsource-only\nnear\twasm-validated-alpha\nnoir\tsource-only\nopenvm\tsource-only\npsy\tdpn-only\nquint\tsource-only\nsolana\truntime-validated-alpha\nsoroban\tsource-only\nton\tsource-only\nxrpl\tsource-only\n' > build/list-targets.expected
+	printf '%b' 'aleo\tdevelopment-build=available\tproduct-scope=engineering-extension\tcompiler-local-runtime=unavailable\tengineering-validation=instructions-only\trelease-qualification=not-evaluated\ncosmwasm\tdevelopment-build=available\tproduct-scope=engineering-extension\tcompiler-local-runtime=available\tengineering-validation=wasm-validated-alpha\trelease-qualification=not-evaluated\nevm\tdevelopment-build=available\tproduct-scope=accepted-phase1\tcompiler-local-runtime=available\tengineering-validation=runtime-validated-alpha\trelease-qualification=not-evaluated\nicp\tdevelopment-build=available\tproduct-scope=engineering-extension\tcompiler-local-runtime=available\tengineering-validation=source-only\trelease-qualification=not-evaluated\nnear\tdevelopment-build=available\tproduct-scope=accepted-phase1\tcompiler-local-runtime=available\tengineering-validation=wasm-validated-alpha\trelease-qualification=not-evaluated\nnoir\tdevelopment-build=available\tproduct-scope=accepted-phase1\tcompiler-local-runtime=unavailable\tengineering-validation=source-only\trelease-qualification=not-evaluated\nopenvm\tdevelopment-build=available\tproduct-scope=engineering-extension\tcompiler-local-runtime=unavailable\tengineering-validation=source-only\trelease-qualification=not-evaluated\npsy\tdevelopment-build=available\tproduct-scope=engineering-extension\tcompiler-local-runtime=unavailable\tengineering-validation=dpn-only\trelease-qualification=not-evaluated\nquint\tdevelopment-build=available\tproduct-scope=engineering-extension\tcompiler-local-runtime=unavailable\tengineering-validation=source-only\trelease-qualification=not-evaluated\nsolana\tdevelopment-build=available\tproduct-scope=accepted-phase1\tcompiler-local-runtime=available\tengineering-validation=runtime-validated-alpha\trelease-qualification=not-evaluated\nsoroban\tdevelopment-build=available\tproduct-scope=engineering-extension\tcompiler-local-runtime=unavailable\tengineering-validation=source-only\trelease-qualification=not-evaluated\nton\tdevelopment-build=available\tproduct-scope=engineering-extension\tcompiler-local-runtime=available\tengineering-validation=source-only\trelease-qualification=not-evaluated\nxrpl\tdevelopment-build=available\tproduct-scope=engineering-extension\tcompiler-local-runtime=unavailable\tengineering-validation=source-only\trelease-qualification=not-evaluated\n' > build/list-targets.expected
 	cmp -s build/list-targets.expected build/list-targets.stdout
 	lake env .lake/build/bin/proof-forge-next list-targets --all > build/list-targets-all.stdout
-	printf '%b' 'aleo\tinstructions-only\ncosmwasm\twasm-validated-alpha\nevm\truntime-validated-alpha\nicp\tsource-only\nnear\twasm-validated-alpha\nnoir\tsource-only\nopenvm\tsource-only\npsy\tdpn-only\nquint\tsource-only\nsolana\truntime-validated-alpha\nsoroban\tsource-only\nton\tsource-only\nxrpl\tsource-only\n' > build/list-targets-all.expected
+	printf '%b' 'aleo\tdevelopment-build=available\tproduct-scope=engineering-extension\tcompiler-local-runtime=unavailable\tengineering-validation=instructions-only\trelease-qualification=not-evaluated\ncosmwasm\tdevelopment-build=available\tproduct-scope=engineering-extension\tcompiler-local-runtime=available\tengineering-validation=wasm-validated-alpha\trelease-qualification=not-evaluated\nevm\tdevelopment-build=available\tproduct-scope=accepted-phase1\tcompiler-local-runtime=available\tengineering-validation=runtime-validated-alpha\trelease-qualification=not-evaluated\nicp\tdevelopment-build=available\tproduct-scope=engineering-extension\tcompiler-local-runtime=available\tengineering-validation=source-only\trelease-qualification=not-evaluated\nnear\tdevelopment-build=available\tproduct-scope=accepted-phase1\tcompiler-local-runtime=available\tengineering-validation=wasm-validated-alpha\trelease-qualification=not-evaluated\nnoir\tdevelopment-build=available\tproduct-scope=accepted-phase1\tcompiler-local-runtime=unavailable\tengineering-validation=source-only\trelease-qualification=not-evaluated\nopenvm\tdevelopment-build=available\tproduct-scope=engineering-extension\tcompiler-local-runtime=unavailable\tengineering-validation=source-only\trelease-qualification=not-evaluated\npsy\tdevelopment-build=available\tproduct-scope=engineering-extension\tcompiler-local-runtime=unavailable\tengineering-validation=dpn-only\trelease-qualification=not-evaluated\nquint\tdevelopment-build=available\tproduct-scope=engineering-extension\tcompiler-local-runtime=unavailable\tengineering-validation=source-only\trelease-qualification=not-evaluated\nsolana\tdevelopment-build=available\tproduct-scope=accepted-phase1\tcompiler-local-runtime=available\tengineering-validation=runtime-validated-alpha\trelease-qualification=not-evaluated\nsoroban\tdevelopment-build=available\tproduct-scope=engineering-extension\tcompiler-local-runtime=unavailable\tengineering-validation=source-only\trelease-qualification=not-evaluated\nton\tdevelopment-build=available\tproduct-scope=engineering-extension\tcompiler-local-runtime=available\tengineering-validation=source-only\trelease-qualification=not-evaluated\nxrpl\tdevelopment-build=available\tproduct-scope=engineering-extension\tcompiler-local-runtime=unavailable\tengineering-validation=source-only\trelease-qualification=not-evaluated\n' > build/list-targets-all.expected
 	cmp -s build/list-targets-all.expected build/list-targets-all.stdout
 	lake env .lake/build/bin/proof-forge-next inspect evm > build/inspect-evm.stdout
 	rg -q '^target=evm$' build/inspect-evm.stdout
@@ -1208,14 +1208,14 @@ target-cli-positive: build
 	rg -q '^target=aleo$' build/inspect-aleo.stdout
 	rg -q '^profile=aleo-instructions-v1$' build/inspect-aleo.stdout
 	rg -q '^requirements=#\[failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic\]$' build/inspect-aleo.stdout
-	rg -q '^maturity=instructions-only$' build/inspect-aleo.stdout
+	rg -q '^engineeringValidationLabel=instructions-only$' build/inspect-aleo.stdout
 	rg -q '^registryRootDigest=sha256:[0-9a-f]{64}$' build/inspect-aleo.stdout
 	rg -q '^supportClaimDigest=sha256:[0-9a-f]{64}$' build/inspect-aleo.stdout
 	lake env .lake/build/bin/proof-forge-next inspect psy > build/inspect-psy.stdout
 	rg -q '^target=psy$' build/inspect-psy.stdout
 	rg -q '^profile=psy-dpn-v1$' build/inspect-psy.stdout
 	rg -q '^requirements=#\[effect.event, effect.synchronous-call, failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic\]$' build/inspect-psy.stdout
-	rg -q '^maturity=dpn-only$' build/inspect-psy.stdout
+	rg -q '^engineeringValidationLabel=dpn-only$' build/inspect-psy.stdout
 	rg -q '^registryRootDigest=sha256:[0-9a-f]{64}$' build/inspect-psy.stdout
 	rg -q '^supportClaimDigest=sha256:[0-9a-f]{64}$' build/inspect-psy.stdout
 	lake env .lake/build/bin/proof-forge-next inspect cosmwasm > build/inspect-cosmwasm.stdout
@@ -1223,7 +1223,7 @@ target-cli-positive: build
 	rg -q '^profile=cosmwasm-wasm-u64-v1$' build/inspect-cosmwasm.stdout
 	rg -q '^requirements=#\[effect.asynchronous-workflow, effect.event, effect.synchronous-call, extension.pf-assets, failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic\]$' build/inspect-cosmwasm.stdout
 	rg -q '^status=implemented$' build/inspect-cosmwasm.stdout
-	rg -q '^maturity=wasm-validated-alpha$' build/inspect-cosmwasm.stdout
+	rg -q '^engineeringValidationLabel=wasm-validated-alpha$' build/inspect-cosmwasm.stdout
 	rg -q '^registryRootDigest=sha256:[0-9a-f]{64}$' build/inspect-cosmwasm.stdout
 	rg -q '^supportClaimDigest=sha256:[0-9a-f]{64}$' build/inspect-cosmwasm.stdout
 	rg -q '^buildIdentityDomain=pf.build-identity.engineering.v1$' build/inspect-cosmwasm.stdout
@@ -1232,7 +1232,7 @@ target-cli-positive: build
 	rg -q '^profile=quint-source-u64-model-v1$' build/inspect-quint.stdout
 	rg -q '^requirements=#\[effect.synchronous-call, extension.pf-assets, failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic\]$' build/inspect-quint.stdout
 	rg -q '^status=implemented$' build/inspect-quint.stdout
-	rg -q '^maturity=source-only$' build/inspect-quint.stdout
+	rg -q '^engineeringValidationLabel=source-only$' build/inspect-quint.stdout
 	rg -q '^registryRootDigest=sha256:[0-9a-f]{64}$' build/inspect-quint.stdout
 	rg -q '^supportClaimDigest=sha256:[0-9a-f]{64}$' build/inspect-quint.stdout
 	rg -q '^buildIdentityDomain=pf.build-identity.engineering.v1$' build/inspect-quint.stdout
@@ -1242,7 +1242,7 @@ target-cli-positive: build
 	rg -q '^requirements=#\[effect.asynchronous-workflow, effect.event, failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic\]$' build/inspect-ton.stdout
 	rg -q '^profiles=#\[ton-tolk-boc-v1\]$' build/inspect-ton.stdout
 	rg -q '^status=implemented$' build/inspect-ton.stdout
-	rg -q '^maturity=source-only$' build/inspect-ton.stdout
+	rg -q '^engineeringValidationLabel=source-only$' build/inspect-ton.stdout
 	rg -q '^registryRootDigest=sha256:[0-9a-f]{64}$' build/inspect-ton.stdout
 	rg -q '^supportClaimDigest=sha256:[0-9a-f]{64}$' build/inspect-ton.stdout
 	rg -q '^buildIdentityDomain=pf.build-identity.engineering.v1$' build/inspect-ton.stdout
@@ -1251,7 +1251,7 @@ target-cli-positive: build
 	rg -q '^profile=soroban-source-u64-v1$' build/inspect-soroban.stdout
 	rg -q '^requirements=#\[failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic\]$' build/inspect-soroban.stdout
 	rg -q '^status=implemented$' build/inspect-soroban.stdout
-	rg -q '^maturity=source-only$' build/inspect-soroban.stdout
+	rg -q '^engineeringValidationLabel=source-only$' build/inspect-soroban.stdout
 	rg -q '^registryRootDigest=sha256:[0-9a-f]{64}$' build/inspect-soroban.stdout
 	rg -q '^supportClaimDigest=sha256:[0-9a-f]{64}$' build/inspect-soroban.stdout
 	rg -q '^buildIdentityDomain=pf.build-identity.engineering.v1$' build/inspect-soroban.stdout
@@ -1260,7 +1260,7 @@ target-cli-positive: build
 	rg -q '^profile=icp-wasm-candid-u64-v1$' build/inspect-icp.stdout
 	rg -q '^requirements=#\[effect.asynchronous-workflow, failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic\]$' build/inspect-icp.stdout
 	rg -q '^status=implemented$' build/inspect-icp.stdout
-	rg -q '^maturity=source-only$' build/inspect-icp.stdout
+	rg -q '^engineeringValidationLabel=source-only$' build/inspect-icp.stdout
 	rg -q '^registryRootDigest=sha256:[0-9a-f]{64}$' build/inspect-icp.stdout
 	rg -q '^supportClaimDigest=sha256:[0-9a-f]{64}$' build/inspect-icp.stdout
 	rg -q '^buildIdentityDomain=pf.build-identity.engineering.v1$' build/inspect-icp.stdout
@@ -1269,7 +1269,7 @@ target-cli-positive: build
 	rg -q '^profile=xrpl-bedrock-source-u64-v1$' build/inspect-xrpl.stdout
 	rg -q '^requirements=#\[failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic\]$' build/inspect-xrpl.stdout
 	rg -q '^status=implemented$' build/inspect-xrpl.stdout
-	rg -q '^maturity=source-only$' build/inspect-xrpl.stdout
+	rg -q '^engineeringValidationLabel=source-only$' build/inspect-xrpl.stdout
 	rg -q '^registryRootDigest=sha256:[0-9a-f]{64}$' build/inspect-xrpl.stdout
 	rg -q '^supportClaimDigest=sha256:[0-9a-f]{64}$' build/inspect-xrpl.stdout
 	rg -q '^buildIdentityDomain=pf.build-identity.engineering.v1$' build/inspect-xrpl.stdout
