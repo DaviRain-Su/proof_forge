@@ -12,6 +12,19 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-21 — ADR-0036 / ADR-0053 acceptance control-plane sync
+
+- owner directive 已接受 ADR-0036 / ADR-0053；两份记录绑定 review commit
+  `239e335ac4272f7b292eb87c913e46c8c805c0b9`，`openFindings: none`，且明确
+  **不是 independent review**。accepted PRD 仍为 EVM / Solana / NEAR / Noir，工程
+  registry 仍为 13 implemented + 0 design-only，formal lighthouse 仍 EVM-first。
+- 活控制面已从 ADR governance 切换到 accepted 四目标工程 DoD，顺序为 EVM →
+  Solana → NEAR → Noir。EVM exact endpoint binding 已闭；identity digest verification
+  仍须先冻结 callee artifact / receipt 来源，bind row 不可自证。
+- 不关闭 `B-CALL-SEM`、formal/C-3 或 release：Solana unsupported shapes、其它 target
+  families、target static inspect 与 identity digest 继续 open/FC。验证：
+  `just docs-check`、`git diff --check`。
+
 ## 2026-08-21 — ADR-0053 Wave 3 Solana outer AccountInfo join
 
 - 对 state-bearing、single generic callee、synchronous void CALL、1..8 non-alias

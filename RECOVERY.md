@@ -140,7 +140,7 @@ materialize）→ capability Plan/publish。历史上的 B9–B12 监督层与 s
 `Frontend/ProtocolV1` 与 `WorkerV1` 不是产品 CLI 源权威。D1-04 shared IntegerLiteral 与
 ProgramV1 command/export/v2 仍为 sole 源表面。
 
-**当前执行指针 = ADR-0036 / ADR-0053 governance（2026-08-21）**：Goal-auto
+**当前执行指针 = accepted 四目标工程 DoD（2026-08-21）**：Goal-auto
 drain 已空（LH-1…28 + Track F engineering-done；不要再开 `prompt-next-wave` /
 `next-wave-runner`；活索引 [`.grok/README.md`](.grok/README.md)）。formal
 `TASK-D2-07` / `TST-SEM-002/003` **仍 pending，不是下一刀编码**。Call-bind
@@ -150,9 +150,11 @@ join、Plan/IDL/IR/client exact role projection、product residual 清零与 8 �
 identity digest、Solana unsupported shapes、其它 target families、target static inspect、
 formal/C-3 仍 open/FC；**不**把 B-CALL-SEM 全表标 closed。
 
-ADR-0036 / ADR-0053 正文已与事实对账，但 acceptance metadata 仍缺，状态保持
-`proposed`；不得自动接受。owner 明确批准并记录 approver/date/review commit/link/
-open findings 后，才按顺序进入 accepted 四目标工程 DoD。完善度队列见
+ADR-0036 / ADR-0053 已由 owner directive accepted，review commit 为
+`239e335ac4272f7b292eb87c913e46c8c805c0b9`，`openFindings: none`；不声称
+independent review。当前按 EVM → Solana → NEAR → Noir 进入阶段 2。EVM endpoint
+binding 已闭，但 identity digest verification 仍须先冻结可验证的 callee artifact /
+receipt 来源，bind row 不能自证。完善度队列见
 [`docs/plan/completeness-phased-roadmap.md`](docs/plan/completeness-phased-roadmap.md)
 与 [`docs/engineering-backlog.md`](docs/engineering-backlog.md) §12；owner packet 见
 [`docs/plan/remaining-owner-waves.md`](docs/plan/remaining-owner-waves.md)。
@@ -162,7 +164,7 @@ open findings 后，才按顺序进入 accepted 四目标工程 DoD。完善度�
 **13 = 13 implemented + 0 design-only**，resolver **17** rows。LH-1…28
 engineering packaging/corpus pin 已完成（含 LH-13 Sem003 trap+unconsumed `218ddc447`）；
 **不**关闭 formal TST。完整 ProgramV1→Semantic 表面与 Reference 全 op 仍未闭合。formal D1–D4 仍为 0/27；
-C-3 / Anvil lossless 仍 blocked/fail closed（FC）；ADR-0036 仍 proposed。
+C-3 / Anvil lossless 仍 blocked/fail closed（FC）；ADR-0036 acceptance 不改变该状态。
 **不是** D4–D7 formal 完成。
 
 并发规则：`main` 是唯一集成权威。允许从 exact clean `main` 创建临时隔离 worktree 推进接口已冻结、文件 allowlist 完全不重叠的 leaf lanes；worker 不编辑 `AGENTS.md`、`RECOVERY.md`、`MIGRATION_MATRIX.md`、实现日志、umbrella、suite注册、`lakefile.lean`、justfile或SBOM pin。主代理只读审查并串行集成，聚合门禁通过后立即删除临时 worktree/branch。shared-core cutover、文档、package pin与提交始终串行。

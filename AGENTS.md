@@ -35,10 +35,11 @@
 > EVM/CosmWasm 精确 endpoint 与 missing-row FC 已接线；Solana 支持子集完成
 > AccountMeta + outer AccountInfo join、Plan/IDL/IR/client exact projection、program
 > residual 清零与 8 项 Mollusk。identity digest、Solana unsupported shapes、其它
-> target families、static inspect、formal/C-3 仍 open/FC。当前按序进行
-> **ADR-0036 / ADR-0053 governance**；两份正文已对账但 acceptance metadata 缺失，
-> 保持 `proposed`。owner 明确批准并记录完整 review metadata 后，才进入 accepted
-> 四目标工程 DoD；不得自动接受或把 B-CALL-SEM 全表标 closed。
+> target families、static inspect、formal/C-3 仍 open/FC。ADR-0036 / ADR-0053 已由
+> owner directive accepted，review commit=`239e335ac4272f7b292eb87c913e46c8c805c0b9`，
+> `openFindings: none`；不得声称 independent review。当前按 EVM → Solana → NEAR → Noir
+> 进入 accepted 四目标工程 DoD；EVM endpoint binding 已闭，identity digest verification
+> 仍须先冻结 callee artifact / receipt 来源。不得把 B-CALL-SEM 全表标 closed。
 
 > **2026-08-02/03 correctness/audit update**：普通 CI 已补注册 Authority/Custody、
 > Context/Extension、ProofSubject、InvariantTheorem 与 ResourceFlags 关键 suite。

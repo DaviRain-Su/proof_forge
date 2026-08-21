@@ -9,7 +9,8 @@ normative: false
 
 # Remaining owner-decision waves
 
-Sequencing plan only. **Does not** accept ADR-0036 / 0051 / 0052 / 0053,
+Sequencing plan only. ADR-0036 / ADR-0053 were accepted by owner directive on
+2026-08-21. This plan **does not** accept ADR-0051 / 0052,
 open XRPL TIME/CALLER leaves, mark formal TASK/TST done, or reopen
 Goal drain. Recommended defaults are **recommendations**; each wave
 starts only after the owner pick for that wave (or an explicit
@@ -19,7 +20,8 @@ Live checkpoint this plan assumes (2026-08-21): Goal queue empty;
 CAP-1a…5 / CAP-X-BYTES / CAP-X-MERKLE / honesty-boundary wave done;
 registry **13 implemented + 0 design-only / 17 resolver rows**;
 formal D1–D4 = **0/27**; ADR-0053 Wave 1–3 engineering DoD is green;
-ADR-0036 / 0053 acceptance records are still absent.
+ADR-0036 / 0053 acceptance records bind review commit
+`239e335ac4272f7b292eb87c913e46c8c805c0b9` with no open findings.
 
 Authorities this file does not replace: accepted ADR → PRD →
 architecture → SPEC → code fact. Conflict: those win.
@@ -41,8 +43,8 @@ No product-behavior change except honesty of status fields.
 | ID | Recommended pick | Follow-on | Must not |
 |---|---|---|---|
 | **ADR-0051** | Accept as written | One SPEC-SEM-001 text revision (`ExternalResponseV1.returnValue?`; schedule stays void). No code. | Close TST-SEM-002; decide EVM address binding |
-| **ADR-0036** | Accept current text with live count **13+0** | Add exact approval metadata; accepted PRD stays four targets; formal lighthouse stays EVM-first | Expand accepted PRD; mark D1–D4 done |
-| **ADR-0053** | Accept current text and its explicit Wave 3 support boundary | Add exact approval metadata; keep identity digests parse-only and unsupported Solana shapes FC | Read runtime green as C-3/formal/release; close all B-CALL-SEM |
+| **ADR-0036** | **Accepted 2026-08-21** with live count **13+0** | accepted PRD stays four targets; formal lighthouse stays EVM-first | Expand accepted PRD; mark D1–D4 done |
+| **ADR-0053** | **Accepted 2026-08-21** with its explicit Wave 3 support boundary | identity digests remain parse-only and unsupported Solana shapes FC | Read runtime green as C-3/formal/release; close all B-CALL-SEM |
 | **ADR-0052** | Accept as written | SHA keep-FC stays; TIME/CALLER symbols frozen | Open Plan/IR/Emit leaves (Wave 6) |
 | **DOC-JUST-CONTROL** | Keep recipes absent | Current “不可执行” honesty stays | Fake `just governance-check` / `release-check` |
 | **Hash endian** (`sha256*` UInt256) | Document target-local integer interpretation | EVM BE-word vs Solana/NEAR LE-image pins stay | Flip emitters in this wave |
@@ -111,7 +113,7 @@ Recommended conservative honesty:
 
 ### After the pick
 
-ADR-0036 / 0053 approval record → accepted four-target engineering DoD。
+ADR-0036 / 0053 approval record 已完成；当前进入 accepted four-target engineering DoD。
 若后续扩大 call-bind，只能在 identity digest verification 或已列 Solana unsupported
 shape 中一次选一项，不能据支持子集声称 cross-platform call complete。Does not close
 formal D2/D4 or C-3.
@@ -237,7 +239,7 @@ DOC-JUST-CONTROL — no recipe today.
 | **NEAR GLIBC Tool Lock** | product decision, no option table |
 | **wasmd rung-2** | only if product needs it; rung-1 closed |
 | **INV-2 / ADR-0027 / 0034** | engineering done; do not supersede 0027 from EvenCounter positives |
-| **ADR status batch** | most ADRs still `proposed`; do **not** silently include 0036/0051/0052 in a batch |
+| **ADR status batch** | most ADRs still `proposed`; ADR-0036 / 0053 已单独 accepted，do **not** silently include 0051/0052 in a batch |
 | **EVM-BC-RESEARCH** | research-only pause; not Active |
 | **EA-P1-5** | contributor incremental compile; not the external-author path |
 | **TGT-MOVE-DOSSIER** | wontfix |

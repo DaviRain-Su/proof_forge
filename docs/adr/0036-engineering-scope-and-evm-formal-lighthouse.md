@@ -1,17 +1,22 @@
 ---
 id: ADR-0036
 title: Engineering target scope and EVM-first formal lighthouse
-status: proposed
+status: accepted
 owner: architecture
 updated: 2026-08-21
 normative: true
+approvers: davirain
+approvedAt: 2026-08-21
+reviewCommit: 239e335ac4272f7b292eb87c913e46c8c805c0b9
+reviewLink: https://github.com/DaviRain-Su/proof_forge/commit/239e335ac4272f7b292eb87c913e46c8c805c0b9
+openFindings: none
 ---
 
 # ADR-0036：Engineering target scope and EVM-first formal lighthouse
 
 ## Status
 
-`proposed`
+`accepted`（2026-08-21）
 
 ## Context
 
@@ -84,11 +89,9 @@ accepted Phase 1 or formal scope. OpenVM O0/O1 does not claim proof, VK, or
 
 本版 decision 已与当前工程事实对账：registry 为 **13 implemented + 0
 design-only**，accepted PRD 仍是 EVM / Solana / NEAR / Noir 四目标，retired
-frontend 不恢复，formal lighthouse 保持 EVM-first。当前没有发现需要改写上述
-decision 的技术 finding；建议按本版正文接受。
+frontend 不恢复，formal lighthouse 保持 EVM-first。owner `davirain` 已对 review
+commit `239e335ac4272f7b292eb87c913e46c8c805c0b9` 的本版正文明确批准，
+`openFindings: none`。本次 acceptance 是 owner directive，不声称 independent review。
 
-状态仍保持 `proposed`，因为仓库中没有对**本版正文**可核验的完整 acceptance
-record。翻为 `accepted` 必须取得 owner 明确批准，并在 frontmatter 记录
-`approvers`、`approvedAt`、`reviewCommit`、`reviewLink` 与 `openFindings`。
-工程计数对齐、ordinary CI 或其它 target runtime evidence 均不能代签该治理批准，
-也不能借 status flip 扩写 accepted PRD 或关闭 formal D1–D4。
+该批准不扩写 accepted PRD，不关闭 formal D1–D4，也不以工程计数、ordinary CI
+或其它 target runtime evidence 代签 formal 或 release qualification。

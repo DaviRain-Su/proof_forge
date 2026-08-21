@@ -54,7 +54,7 @@ ADR，并在旧 ADR frontmatter 中记录 `successor`，不得静默改写历史
 | [ADR-0033](0033-miniamm-asset-transaction-model.md) | MiniAMM 真实资产事务模型冻结（pre-fund + vault credit；无 transferFrom；M0 数学面 / MiniAmmAssets 资产面分工） | proposed |
 | [ADR-0034](0034-preservation-abi.md) | Preservation ABI（proposed extension/amendment to ADR-0027；L1 step-preservation；通用 ABI + kind plumbing + **EvenCounter + ZeroCounter（P=`count==0`）preserving product positive GREEN**；业务主路径 D10 vs 工具 formal track 2；wave-2 通用性门闭合；supersession/MiniAmm P1 pending；禁止 MiniAmm 特例；ADR-0027 仍为 inline base authority） | proposed |
 | [ADR-0035](0035-direct-native-artifact-materializers.md) | Aleo Instructions + Psy DPN direct-only materializers；删除 source/compiler lanes | proposed |
-| [ADR-0036](0036-engineering-scope-and-evm-formal-lighthouse.md) | Engineering 13+0 scope（含 XRPL）、retired frontend boundary 与 EVM-first formal lighthouse | proposed |
+| [ADR-0036](0036-engineering-scope-and-evm-formal-lighthouse.md) | Engineering 13+0 scope（含 XRPL）、retired frontend boundary 与 EVM-first formal lighthouse | accepted |
 | [ADR-0037](0037-developer-cli-pf.md) | Rust Developer CLI `pf` 与 compiler CLI 权威分离；Aleo-first 安全编排 | proposed |
 | [ADR-0038](0038-evm-hashed-map-storage-profile.md) | EVM hashed-Map storage profile folded into the product default | proposed |
 | [ADR-0039](0039-psy-hash-gadgets-gate.md) | Psy hash gadgets；hashNoPad/twoToOne/keccak open；hashPad emit-only | proposed |
@@ -71,4 +71,4 @@ ADR，并在旧 ADR frontmatter 中记录 `successor`，不得静默改写历史
 | [ADR-0050](0050-xrpl-bedrock-wasm-q1.md) | XRPL Bedrock opt-in WASM Q1：`xrpl-bedrock-wasm-u64-v1` 经 ambient rustc 产出 `.wasm` extra；默认 source 仍 zero-tool；无 AlphaNet/主网 | proposed |
 | [ADR-0051](0051-spec-honesty-external-call-return.md) | SPEC-honesty：external call typed return 收口（SPEC-SEM-001 `ExternalResponseV1` 升级 `returnValue?`；schedule 维持 void；accepted 后才修订 semantic-core 旧句；不关 formal TST） | proposed |
 | [ADR-0052](0052-xrpl-host-capability-keys.md) | XRPL host 三键：冻 `get_parent_ledger_time` / `get_account`；`sha256` keep-FC（无 host）；**不开叶** | proposed |
-| [ADR-0053](0053-call-bind-v1.md) | Call-bind v1：编译期 opt-in `proof-forge.call-bind.v1`；Wave 1–3 engineering done；三叶 endpoint binding / missing-row FC；Solana 支持子集 exact outer AccountInfo join + Mollusk；identity digest / unsupported shapes 仍 FC/open | proposed |
+| [ADR-0053](0053-call-bind-v1.md) | Call-bind v1：编译期 opt-in `proof-forge.call-bind.v1`；Wave 1–3 engineering done；三叶 endpoint binding / missing-row FC；Solana 支持子集 exact outer AccountInfo join + Mollusk；identity digest / unsupported shapes 仍 FC/open | accepted |

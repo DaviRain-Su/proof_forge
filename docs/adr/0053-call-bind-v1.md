@@ -1,17 +1,22 @@
 ---
 id: ADR-0053
 title: Call-bind v1 — compile-time opt-in callee address table
-status: proposed
+status: accepted
 owner: architecture
 updated: 2026-08-21
 normative: true
+approvers: davirain
+approvedAt: 2026-08-21
+reviewCommit: 239e335ac4272f7b292eb87c913e46c8c805c0b9
+reviewLink: https://github.com/DaviRain-Su/proof_forge/commit/239e335ac4272f7b292eb87c913e46c8c805c0b9
+openFindings: none
 ---
 
 # ADR-0053：Call-bind v1（编译期 opt-in 对端绑定表）
 
 ## 状态
 
-proposed
+`accepted`（2026-08-21）
 
 本 ADR 冻结 CALL-BIND 大切片的五句产品口径与表 schema。**Wave 1** 解析
 `--bindings` 与 `proof-forge.call-bind.v1`。**Wave 2** 把表显式接到三叶
@@ -34,8 +39,9 @@ empty-row、多个 generic callee、与 frozen CPI site 混合、generic result-
 继续 fail closed 或保留 residual。target `inspect <target>` 仍是静态 kind 闭表，
 不按 program 清。
 
-不关闭 `B-CALL-SEM` 全表。不接受 ADR-0036 / 0051。不改
-`semantic-core.md`。不声称 formal / C-3 / Anvil lossless / CREATE / CREATE2。
+不关闭 `B-CALL-SEM` 全表。本 ADR 不自动接受其它 ADR；ADR-0036 已由同日另行
+owner directive accepted，ADR-0051 仍 proposed。不改 `semantic-core.md`。不声称
+formal / C-3 / Anvil lossless / CREATE / CREATE2。
 
 ## 背景
 
@@ -182,7 +188,10 @@ qualification 或 ADR acceptance。
 
 ## Acceptance gate
 
-本 ADR 的正文与实现证据已可评审，但状态保持 `proposed`。翻为 `accepted` 必须对
-**本版正文**取得 owner 明确批准，并在 frontmatter 记录 `approvers`、`approvedAt`、
-`reviewCommit`、`reviewLink` 与 `openFindings`。当前没有可核验的完整 acceptance
-record，故不伪造这些字段，也不以“测试通过”代签治理批准。
+owner `davirain` 已对 review commit
+`239e335ac4272f7b292eb87c913e46c8c805c0b9` 的本版正文明确批准，
+`openFindings: none`。本次 acceptance 是 owner directive，不声称 independent review，
+也不以“测试通过”代签治理批准。
+
+该批准不关闭 `B-CALL-SEM` 全表、formal / C-3 / Anvil lossless，不把 identity
+digest 视为已验证，也不开放本 ADR 明列为 fail-closed 的 Solana shapes。
