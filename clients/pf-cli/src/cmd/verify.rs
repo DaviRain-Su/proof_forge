@@ -66,7 +66,11 @@ pub fn run(
                     .into(),
             ));
         }
-        targets::TargetId::Other => {
+        targets::TargetId::Soroban
+        | targets::TargetId::Icp
+        | targets::TargetId::OpenVm
+        | targets::TargetId::Xrpl
+        | targets::TargetId::Unknown => {
             return Err(PfError::NotImplemented(format!(
                 "target '{target}': {}",
                 targets::capability_note(&target)

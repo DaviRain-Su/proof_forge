@@ -3,7 +3,7 @@ id: SPEC-REG-001
 title: Target 与 Profile 注册表
 status: proposed
 owner: targets
-updated: 2026-08-10
+updated: 2026-08-21
 normative: true
 ---
 
@@ -149,6 +149,14 @@ compute schedule、failure/commit 以及可观察 ABI 意义都在该 payload �
 `semantics,displayName,acceptanceProfile,supportClaims,codegenProfiles,defaultCodegen`；
 claims 按 requirement key，profile ID 按 ASCII bytes 排序并拒绝 duplicate。它不存在
 `maturity` 或 `maturitySnapshot` 字段。
+
+当前 engineering `TargetRegistryV1` 的产品 inspection carrier 另外显式报告：development
+build membership、accepted Phase 1 / engineering-extension scope、compiler-local runtime 入口与
+`engineeringValidationLabel`。这些是工程 surface 元数据，**不是**本节 formal
+`TargetDescriptor` 的 maturity/evidence 字段。产品 inspection 的 `maturitySnapshot=null`、
+`releaseQualification=not-evaluated`；禁止从静态 label 推导二者。accepted Phase 1 固定为
+`evm` / `solana` / `near` / `noir`，engineering registry 当前为十三个 development target；
+二者不得混写。
 
 ## Codegen、Build 与 Network identity
 

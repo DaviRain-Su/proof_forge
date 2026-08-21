@@ -3,7 +3,7 @@ id: PRODUCT-TOOLCHAIN-INSTALL-SURFACE
 title: Product surface ladder — install / doctor / CLI / MCP
 status: draft
 owner: product+engineering
-updated: 2026-08-10
+updated: 2026-08-21
 normative: false
 ---
 
@@ -21,7 +21,7 @@ Tool Lock 规范：[`specs/toolchains.md`](../specs/toolchains.md)（`proof-forg
 | **I0 doctor** | **done**（`scripts/proof_forge_doctor.py` + `proof-forge-next doctor`；schema `proof-forge.doctor.v1`；缺 Tool Root → `PF-TOOLCHAIN-MISSING`） |
 | **I1 install** | **done**（`scripts/proof_forge_install.py` + `proof-forge-next install`；schema `proof-forge.install.v1`；`--targets`/`--all-core` + `--yes`；delegate `toolchain_assets` provision/materialize；digest 幂等 skip；无 PATH fallback；`--dry-run` 计划-only） |
 | I1b CLI wire residual | **done with I1**（CLI 薄包装 + parse 覆盖 + `scripts/install_smoke.sh`；若后续扩 usage 文案仍可叠） |
-| I2 local/network 统一包装 | **done / narrowed**（`local` 仅保留 EVM/Solana runtime wrappers；`network` 对全部 target fail closed；`scripts/local_network_smoke.sh`） |
+| I2 local/network 统一包装 | **done / narrowed**（`local` 仅为 EVM/Solana/NEAR/CosmWasm/TON/ICP 提供 package-owned runtime wrappers；其余 target fail closed；`network` 子命令已删除；`scripts/local_network_smoke.sh`） |
 | **MCP-V0** | **done** (stdio) + **remote edge** `clients/pf-mcp` → https://proof-forge-mcp.davirain-yin.workers.dev/mcp（`tools/mcp/proof_forge_mcp_server.py` stdio MCP；tools: `pf_list_targets`/`pf_doctor`/`pf_install`/`pf_build`/`pf_artifacts`；仅 spawn 产品 CLI/引擎 JSON；无 network broadcast 工具；`tools/mcp/README.md` Agent 接线；`scripts/mcp_smoke.sh`） |
 | **SDK-V0** | **done**（Python `tools/sdk/proof_forge_sdk.py`：`ProofForgeClient` spawn `proof-forge-next` + parse doctor/install/list-targets JSON + `load_output_manifest` for engineering `proof-forge.output.v1`；非第二编译器；`tools/sdk/README.md`；`scripts/sdk_smoke.sh`） |
 | **Close** | **done**（本文 + index 成熟度诚实；剩余 backlog：交互式 install UI、全链 runtime pack、N3 前 `deployable=true` 禁改） |
@@ -63,8 +63,8 @@ Tool Lock 规范：[`specs/toolchains.md`](../specs/toolchains.md)（`proof-forg
 | I0 | `I0-DOCTOR` | `proof-forge-next doctor` | **done**：每 implemented target 报告 ok/missing/mismatch/partial；`--json`=`proof-forge.doctor.v1`；无 Tool Root → `PF-TOOLCHAIN-MISSING`；引擎 `scripts/proof_forge_doctor.py`；CLI 薄包装 |
 | I1 | `I1-INSTALL` | 非交互 `install --targets a,b --yes` | **done**：`scripts/proof_forge_install.py`；复用 `toolchain_assets` provision/materialize；只装 lock 内 asset；digest 校验；幂等 skip；`--dry-run`/`--json`；`scripts/install_smoke.sh` |
 | I1b | `I1b-CLI-WIRE` | CLI 子命令接到 Exe；`--json`；usage | **done with I1**：`proof-forge-next install` 薄包装 + parse 覆盖 |
-| I2 | `I2-LOCAL-CMDS` | 统一本机入口包装 | **done / narrowed**：`local --target evm|solana` 调现有 runtime 脚本；`network` 全 target fail closed；`scripts/local_network_smoke.sh` |
-| MCP | `MCP-V0` | 最小 MCP server | **done**：`tools/mcp/proof_forge_mcp_server.py`；tools 含 `pf_local`（仅 EVM/Solana）+ build/doctor；拒 network broadcast；见 §8 |
+| I2 | `I2-LOCAL-CMDS` | 统一本机入口包装 | **done / narrowed**：`local --target evm|solana|near|cosmwasm|ton|icp` 调 package-owned runtime 脚本；其余 target fail closed；`network` 子命令已删除；`scripts/local_network_smoke.sh` |
+| MCP | `MCP-V0` | 最小 MCP server | **done**：`tools/mcp/proof_forge_mcp_server.py`；tools 含 `pf_local`（六个 compiler-local runtime target）+ build/doctor；拒 network broadcast；见 §8 |
 | SDK | `SDK-V0` | 可选薄 SDK（TS 或 Python 选一） | **done**（Python）：`tools/sdk/proof_forge_sdk.py`；spawn CLI + `local` 通用 API + parse manifest；非第二编译器；见 §9 |
 | Close | `Close` | AGENTS/backlog 指针 | **done**：成熟度诚实；不声称 formal / hermetic / mainnet；剩余见 §0 Close 行 |
 
@@ -184,12 +184,12 @@ proof-forge-next install --all-core --yes   # 所有 implemented target 的非�
 
 ## 7. 本机包装（I2）
 
-**已实现并收窄**。`local` 只保留 EVM/Solana 已有 runtime wrapper；Aleo/Psy 及其它 target
-fail closed。已删除无实现 target 的 `network` 子命令：
+**已实现并收窄**。`local` 只保留六个 package-owned runtime wrapper；其余 target fail
+closed。已删除无实现 target 的 `network` 子命令：
 
 ```bash
-proof-forge-next local --target solana [--mode runtime] [--json] [--] [script-args...]
-proof-forge-next local --target evm [--mode runtime] [--json] [--] [script-args...]
+proof-forge-next local --target <evm|solana|near|cosmwasm|ton|icp> \
+  [--mode runtime] [--json] [--] [script-args...]
 ```
 
 | Target | `local` 模式（默认） | 包装脚本 | 等价工程入口 |
@@ -199,6 +199,7 @@ proof-forge-next local --target evm [--mode runtime] [--json] [--] [script-args.
 | `near` | `runtime`（默认） | `scripts/pf_near_test.sh`（artifact 快路径或 full corpus） | near-sandbox；Promise=async；sync call FC |
 | `cosmwasm` | `runtime`（默认） | `scripts/pf_cosmwasm_test.sh` | cosmwasm-vm mock；sync call FC；SubMsg never |
 | `ton` | `runtime`（默认） | `scripts/pf_ton_test.sh` | @ton/sandbox；sync call FC；createMessage |
+| `icp` | `runtime`（默认） | `scripts/pf_icp_test.sh` | PocketIC StateCell engineering gate；wat2wasm finalize 独立 |
 | 其它 implemented（除 solana/evm/near/cosmwasm/ton/icp runtime） | — | fail closed（无产品 script path） | 见 target dossier |
 | design-only | — | fail closed `unsupported` | 不可 install/local |
 
@@ -216,15 +217,16 @@ proof-forge-next local --target evm [--mode runtime] [--json] [--] [script-args.
 
 | Tool | 映射 |
 |---|---|
-| `pf_list_targets` | `list-targets [--all] --json` → `proof-forge.cli.list-targets.v1` |
+| `pf_list_targets` | `list-targets [--all] --json` → `proof-forge.cli.list-targets.v2`（development/scope/local-runtime/static-label 分离；maturity null，release not-evaluated） |
 | `pf_doctor` | `doctor --json` → `proof-forge.doctor.v1` |
 | `pf_install` | `install --targets … --yes`（或 `--dry-run`）`--json` → `proof-forge.install.v1` |
 | `pf_build` | `build` source `--module` `--target` `-o` `--json`（**拒** broadcast/network 参数） |
 | `pf_artifacts` | `inspect --output-dir <dir> --json` 或 `inspect <target> --json` |
-| `pf_local` | `local --target … [--mode sandbox]` + 透传 script args；Aleo sandbox **通用** 须 `source`+`module`（可选 `root`/`runs`/`golden`/`skipRun`；有 `root` 时传为 product `--root`）；**拒** broadcast / private-key |
+| `pf_local` | `local --target <evm|solana|near|cosmwasm|ton|icp> [--mode runtime]` + 透传 script args；其它 target fail closed；**拒** broadcast / private-key |
 | `pf_chain_catalog` | 静态 `docs/product/chain-client-catalog.v1.json`（前后端分工元数据；不装前端包、不 broadcast） |
 
-V0+ 已暴露 `pf_local` 与 `pf_chain_catalog`；**仍不**暴露 network broadcast 工具（network 必须显式 `network --broadcast`，不经 MCP 默认面）。Hello 剧本见 [`03-hello-dapp-agent-playbook.md`](03-hello-dapp-agent-playbook.md)。
+V0+ 已暴露 `pf_local` 与 `pf_chain_catalog`；**不**暴露 network broadcast 工具，且产品
+`network` 子命令当前不存在。Hello 剧本见 [`03-hello-dapp-agent-playbook.md`](03-hello-dapp-agent-playbook.md)。
 返回包装 schema：`proof-forge.mcp.tool-result.v1`（`ok`/`exitCode`/`command`/`stdout`/`stderr`/`parsed`/`error`）。
 Env：`PROOF_FORGE_ROOT` / `PROOF_FORGE_CLI` / `PROOF_FORGE_TOOL_ROOT`（继承 doctor/install/build 契约）。
 MCP **只** spawn 产品 CLI 并解析 JSON/manifest，不内嵌 solc/leo/nargo；不 PATH fallback 写 Tool Root；不改 `deployable`。
@@ -236,12 +238,12 @@ MCP **只** spawn 产品 CLI 并解析 JSON/manifest，不内嵌 solc/leo/nargo�
 
 | API | 映射 |
 |---|---|
-| `ProofForgeClient.list_targets` | `list-targets [--all] --json` → `proof-forge.cli.list-targets.v1` |
+| `ProofForgeClient.list_targets` | `list-targets [--all] --json` → `proof-forge.cli.list-targets.v2` |
 | `ProofForgeClient.doctor` | `doctor --json` → `proof-forge.doctor.v1`（exit 3 + body 仍 `ok` 给 Agent） |
 | `ProofForgeClient.install` | `install --yes`/`--dry-run --json` → `proof-forge.install.v1` |
 | `ProofForgeClient.build` / `check` | 产品 `build`/`check --json`；**拒** design-only target；**无** network/broadcast |
 | `ProofForgeClient.inspect_artifacts` / `inspect_target` | `inspect --output-dir` / `inspect <target> --json` |
-| `ProofForgeClient.local` | `local --target …`；Aleo sandbox 透传 `--source`/`--module`/`--root`/`--run`（通用；有 `root=` 时传为 product `--root`；拒 broadcast/signer） |
+| `ProofForgeClient.local` | `local --target <evm|solana|near|cosmwasm|ton|icp>`；package-owned runtime wrapper；其它 target fail closed；拒 broadcast/signer |
 | `ProofForgeClient.chain_catalog` | 静态 chain client catalog（`proof-forge.chain-client-catalog.v1`） |
 | `load_output_manifest` / `client.load_output_manifest` | 读 on-disk `manifest.json` 的 engineering `schemaVersion=proof-forge.output.v1`（**不**重走 exact disk closure；closure 用 `inspect_artifacts`） |
 
@@ -257,10 +259,10 @@ MCP **只** spawn 产品 CLI 并解析 JSON/manifest，不内嵌 solc/leo/nargo�
 | `scripts/toolchain_assets.py` | install 引擎（I1 复用） |
 | `toolchains*.lock.json` | 唯一可装 tool 菜单 |
 | `just toolchains-*` | 工程/CI 旁路；产品 CLI 成后文档主推 CLI |
-| `proof-forge-next` 现有 | `build` / `check` / `inspect` / `list-targets` / **`doctor`** / **`install`** / **`local`** / **`network`** |
+| `proof-forge-next` 现有 | `build` / `check` / `inspect` / `list-targets` / **`doctor`** / **`install`** / **`local`**；无 `network` 子命令 |
 | `tools/mcp/proof_forge_mcp_server.py` | MCP-V0 stdio 薄封装（仅 spawn 上列 CLI JSON） |
 | `tools/sdk/proof_forge_sdk.py` | SDK-V0 Python 薄客户端（spawn CLI + parse JSON/manifest） |
-| `scripts/solana_runtime_test.sh` / `scripts/evm_anvil_differential.sh` | I2 `local --target solana|evm`；`just solana-runtime` / Anvil 工程 lane 仍可用 |
+| 六个 package runtime scripts | I2 `local --target evm|solana|near|cosmwasm|ton|icp`；host-heavy 工程 lanes，不是 release evidence |
 
 ## 12. 验证
 

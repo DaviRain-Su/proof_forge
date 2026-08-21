@@ -364,7 +364,7 @@ def tool_pf_build(repo_root: Path, cli: Path, args: Dict[str, Any]) -> Dict[str,
                 "exitCode": 2,
                 "command": [],
                 "stdout": "",
-                "stderr": "pf_build does not support network/broadcast; use product CLI network --broadcast explicitly",
+                "stderr": "pf_build does not support network/broadcast; use an explicitly authorized developer workflow outside MCP",
                 "parsed": None,
                 "error": "usage",
             },
@@ -410,10 +410,9 @@ def tool_pf_artifacts(repo_root: Path, cli: Path, args: Dict[str, Any]) -> Dict[
 
 
 def tool_pf_local(repo_root: Path, cli: Path, args: Dict[str, Any]) -> Dict[str, Any]:
-    """Product local host-heavy scripts (Aleo generic sandbox, etc.).
+    """Product compiler-local host-heavy scripts for the registered six-target subset.
 
-    Never accepts network broadcast or raw private keys. Aleo sandbox requires
-    source + module (no default program).
+    Never accepts network broadcast or raw private keys.
     """
     target = args.get("target")
     if not target:
@@ -425,6 +424,24 @@ def tool_pf_local(repo_root: Path, cli: Path, args: Dict[str, Any]) -> Dict[str,
                 "command": [],
                 "stdout": "",
                 "stderr": "pf_local requires target",
+                "parsed": None,
+                "error": "usage",
+            },
+            is_error=True,
+        )
+    target = str(target)
+    if target not in ("evm", "solana", "near", "cosmwasm", "ton", "icp"):
+        return _tool_result_text(
+            {
+                "schema": SCHEMA_WRAP,
+                "ok": False,
+                "exitCode": 2,
+                "command": [],
+                "stdout": "",
+                "stderr": (
+                    f"target '{target}' has no compiler-local runtime entry point; "
+                    "pf_local supports evm, solana, near, cosmwasm, ton, and icp"
+                ),
                 "parsed": None,
                 "error": "usage",
             },
@@ -451,7 +468,7 @@ def tool_pf_local(repo_root: Path, cli: Path, args: Dict[str, Any]) -> Dict[str,
                     "stdout": "",
                     "stderr": (
                         "pf_local does not support network/broadcast or signer secrets; "
-                        "use product CLI network --broadcast outside MCP"
+                        "use an explicitly authorized developer workflow outside MCP"
                     ),
                     "parsed": None,
                     "error": "usage",
@@ -462,26 +479,8 @@ def tool_pf_local(repo_root: Path, cli: Path, args: Dict[str, Any]) -> Dict[str,
     mode = args.get("mode")
     source = args.get("source") or args.get("sourcePath") or args.get("source_path")
     module = args.get("module")
-    if str(target) == "aleo" and (mode is None or str(mode) in ("", "sandbox")):
-        if not source or not module:
-            return _tool_result_text(
-                {
-                    "schema": SCHEMA_WRAP,
-                    "ok": False,
-                    "exitCode": 2,
-                    "command": [],
-                    "stdout": "",
-                    "stderr": (
-                        "pf_local aleo sandbox requires source and module "
-                        "(generic path; no default program)"
-                    ),
-                    "parsed": None,
-                    "error": "usage",
-                },
-                is_error=True,
-            )
 
-    argv: List[str] = ["local", "--target", str(target), "--json"]
+    argv: List[str] = ["local", "--target", target, "--json"]
     if mode:
         argv.extend(["--mode", str(mode)])
     tail: List[str] = []
@@ -1000,11 +999,10 @@ def tool_definitions() -> List[Dict[str, Any]]:
             "description": (
                 "Run product local host-heavy scripts. "
                 "Runtime: evm (Anvil), solana (Mollusk), near (near-sandbox), "
-                "cosmwasm (cosmwasm-vm mock), ton (@ton/sandbox). "
+                "cosmwasm (cosmwasm-vm mock), ton (@ton/sandbox), icp (PocketIC). "
                 "NEAR also supports product pf run (one-shot sandbox); CosmWasm uses pf test only. "
-                "Aleo sandbox: pass source + module + optional runs (no default program). "
                 "Does NOT broadcast network or accept private keys. "
-                "Maps to: proof-forge-next local --target … [--mode runtime|sandbox] …"
+                "Maps to: proof-forge-next local --target … [--mode runtime] …"
             ),
             "inputSchema": {
                 "type": "object",
@@ -1012,19 +1010,21 @@ def tool_definitions() -> List[Dict[str, Any]]:
                 "properties": {
                     "target": {
                         "type": "string",
-                        "description": "Implemented target id (evm, solana, near, aleo, …).",
+                        "enum": ["evm", "solana", "near", "cosmwasm", "ton", "icp"],
+                        "description": "Target with a compiler-local runtime entry point.",
                     },
                     "mode": {
                         "type": "string",
-                        "description": "Local mode (evm/solana/near/cosmwasm/ton: runtime; aleo: sandbox|devnet).",
+                        "enum": ["runtime"],
+                        "description": "Local mode; currently only runtime.",
                     },
                     "source": {
                         "type": "string",
-                        "description": "Path to source .pf (or .lean) ProgramV1 file (required for aleo sandbox).",
+                        "description": "Optional package-script argument forwarded as --source.",
                     },
                     "module": {
                         "type": "string",
-                        "description": "Lean module name (required for aleo sandbox).",
+                        "description": "Optional package-script argument forwarded as --module.",
                     },
                     "root": {
                         "type": "string",

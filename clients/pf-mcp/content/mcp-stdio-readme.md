@@ -13,13 +13,13 @@ Authority: [`docs/product/01-toolchain-install-surface.md`](../../docs/product/0
 | `pf_install` | `proof-forge-next install --targets … --yes --json` |
 | `pf_build` | `proof-forge-next build <source> --module … --target … -o … --json` |
 | `pf_artifacts` | `proof-forge-next inspect --output-dir <dir> --json` |
-| `pf_local` | `proof-forge-next local --target … [--mode sandbox] -- --source … --module … [--root …]` |
+| `pf_local` | `proof-forge-next local --target <evm|solana|near|cosmwasm|ton|icp> [--mode runtime] [--] [script args…]` |
 | `pf_chain_catalog` | static `docs/product/chain-client-catalog.v1.json` (client/frontend metadata) |
 | `pf_network_info` | static `docs/product/networks.v1.json` (Anvil / X Layer / placeholders) |
 | `pf_onchainos_guide` | OKX OnchainOS dual-MCP map + P0–P2 (from networks catalog ecosystems) |
 
-- **No** default network broadcast tool (use product CLI `network --broadcast` explicitly if needed).
-- Aleo `pf_local` is **generic**: requires `source` + `module`; optional `root` / `runs` / `golden` / `skipRun` — no default program. When `root` is provided it is passed through as product `--root` after `--`, so repo-external source paths resolve against that project root.
+- **No** network broadcast tool; the compiler product has no `network` subcommand.
+- `pf_local` exposes only the six compiler-local package-owned runtime entry points. Other registered build targets fail closed; this availability is not runtime or release evidence.
 - Hello agent playbook: [`docs/product/03-hello-dapp-agent-playbook.md`](../../docs/product/03-hello-dapp-agent-playbook.md).
 - X Layer / OnchainOS: [`docs/product/13-xlayer-onchainos.md`](../../docs/product/13-xlayer-onchainos.md). DEX quotes use **official** `https://web3.okx.com/api/v1/onchainos-mcp` (not this server).
 - Tools **only** spawn the product CLI / package engines (except catalog tools, which read package JSON); they do **not** reimplement solc/leo/nargo.

@@ -51,7 +51,7 @@ private def usage : String :=
   "  --profile selects a registered codegen profile for the target (default profile when omitted).\n" ++
   "  build --network is not supported (no network registry).\n" ++
   "  --resource-limit is lower-only; check rejects external-tool/artifact-output; only wall-ms and build artifact-output.published-bytes are enforced in-process (RES-1 / output-only RES-1B); memory-bytes/processes/protocol-bytes/stderr-bytes are rejected at preflight (no in-process producer).\n" ++
-  "  --minimum-evidence is build-only (specified|artifact_validated|local_runtime|network_or_proof_validated).\n" ++
+  "  --minimum-evidence recognizes specified|artifact_validated|local_runtime|network_or_proof_validated but currently rejects every explicit request until candidate-bound evidence evaluation is implemented.\n" ++
   "  --bindings is build-only (evm|solana|cosmwasm); Wave 1 parses proof-forge.call-bind.v1 and discards it (emit still uses hashed QN / QN stubs).\n" ++
   "  --json emits deterministic PF-JCS on stdout for list-targets/inspect/check/build;\n" ++
   "    version --json emits proof-forge.cli.version.v1;\n" ++
@@ -381,7 +381,7 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
         | error => throw error
       if options.json then
         IO.println (← liftCompileResult
-          (renderBuildOkJsonV1 receipt options.resourceLimits options.minimumEvidence))
+          (renderBuildOkJsonV1 receipt options.resourceLimits))
       else
         IO.println (renderBuildOkHumanV1 receipt)
 
@@ -644,7 +644,7 @@ private def renderHostHeavyJsonV1
       ("scriptStderr", .string publicStderr)
     ]
 
-/-- Product local: thin spawn of package-owned Solana/EVM runtime scripts.
+/-- Product local: thin spawn of the six package-owned runtime scripts.
     Inherits process env including PROOF_FORGE_TOOL_ROOT.
     Never invents PATH tools. Host-heavy; exit codes forwarded from script. -/
 private def runLocal (options : LocalOptions) : IO Unit := do

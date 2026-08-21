@@ -23,7 +23,11 @@ pub enum TargetId {
     Ton,
     Noir,
     Quint,
-    Other,
+    Soroban,
+    Icp,
+    OpenVm,
+    Xrpl,
+    Unknown,
 }
 
 impl TargetId {
@@ -38,7 +42,11 @@ impl TargetId {
             "ton" => Self::Ton,
             "noir" => Self::Noir,
             "quint" => Self::Quint,
-            _ => Self::Other,
+            "soroban" => Self::Soroban,
+            "icp" => Self::Icp,
+            "openvm" => Self::OpenVm,
+            "xrpl" => Self::Xrpl,
+            _ => Self::Unknown,
         }
     }
 }
@@ -80,7 +88,19 @@ pub fn capability_note(target: &str) -> &'static str {
         TargetId::Quint => {
             "build source-only `.qnt` + `pf test` (artifact smoke; no Quint CLI) + `pf deploy` (save-only model package; --broadcast refused; ADR-0026)"
         }
-        TargetId::Other => "unsupported developer operation in pf v0 (fail closed)",
+        TargetId::Icp => {
+            "compiler build + `proof-forge-next local --target icp` runtime entry point; `pf test` adapter not implemented"
+        }
+        TargetId::Soroban => {
+            "compiler build supported; no compiler local runtime entry point and no `pf test` adapter"
+        }
+        TargetId::OpenVm => {
+            "compiler build supported; no compiler local runtime entry point and no `pf test` adapter"
+        }
+        TargetId::Xrpl => {
+            "compiler build supported; no compiler local runtime entry point and no `pf test` adapter"
+        }
+        TargetId::Unknown => "unknown target; unsupported developer operation in pf v0 (fail closed)",
     }
 }
 
@@ -109,5 +129,21 @@ mod tests {
         assert!(capability_note("noir").contains("broadcast refused"));
         assert!(capability_note("quint").contains("pf test"));
         assert!(capability_note("quint").contains("ADR-0026"));
+        assert!(capability_note("icp").contains("compiler build"));
+        assert!(capability_note("icp").contains("pf test` adapter not implemented"));
+        assert!(capability_note("soroban").contains("no compiler local runtime"));
+        assert!(capability_note("openvm").contains("no `pf test` adapter"));
+        assert!(capability_note("xrpl").contains("no `pf test` adapter"));
+    }
+
+    #[test]
+    fn all_engineering_registry_targets_are_classified() {
+        for target in [
+            "aleo", "cosmwasm", "evm", "icp", "near", "noir", "openvm", "psy", "quint",
+            "solana", "soroban", "ton", "xrpl",
+        ] {
+            assert_ne!(TargetId::parse(target), TargetId::Unknown, "{target}");
+        }
+        assert_eq!(TargetId::parse("not-a-target"), TargetId::Unknown);
     }
 }

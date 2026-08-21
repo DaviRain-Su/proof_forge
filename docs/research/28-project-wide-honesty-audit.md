@@ -82,7 +82,13 @@ normative: false
 
 AGENTS Program 行曾把 ICP 与 Aleo/Psy/Soroban/OpenVM 一并写成「zero-tool/non-deployable」——本波已拆开。CW/NEAR「sync 拒」过粗（pf.assets sync 已 admit）。Quint「仅 4-key」过时（现 6-key）。
 
-**deployable ≠ maturity ≠ host runtime**（`expectedMaturityLabelOfKindV1`）：evm/solana `runtime-validated-alpha`；near/cosmwasm `wasm-validated-alpha`；noir/quint/ton/soroban/openvm/**icp** `source-only`；aleo `instructions-only`；psy `dpn-only`。ICP/TON 可以 Finalize `deployable=true` 而 label 仍是 `source-only`。产品 `inspect` 现以 inspect-only `maturityResidual` 命名该裂缝（icp=`deployable-wasm-vs-source-only-label`、ton=`conditional-boc-deployable-vs-source-only-label`）；**不**改 label、**不**进 SupportClaim。GHA 另有 path-filtered `solana-runtime` / `near-runtime` / `cosmwasm-runtime`，不等于 ordinary `just ci`。
+**deployable ≠ dynamic maturity ≠ compiler-local runtime ≠ release qualification**：静态
+`engineeringValidationLabel` 可为 `runtime-validated-alpha` / `wasm-validated-alpha` /
+`source-only` / `instructions-only` / `dpn-only`，但它不是 `TargetMaturity` 或
+candidate-bound `MaturitySnapshot`。ICP/TON 可以 Finalize `deployable=true` 而静态 label 仍为
+`source-only`；`engineeringValidationResidualV1` 只命名该工程裂缝。产品 `inspect` 报告
+`maturitySnapshot=null`、`releaseQualification=not-evaluated`，不从 label 推导二者。GHA 另有
+path-filtered runtime lanes，也不等于 ordinary `just ci` 或 release evidence。
 
 ### 5. Formal vs engineering
 

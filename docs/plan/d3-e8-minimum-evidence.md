@@ -3,7 +3,7 @@ id: PLAN-D3-E8
 title: D3-E8 — minimum-evidence flag wiring plan
 status: draft
 owner: engineering
-updated: 2026-08-19
+updated: 2026-08-21
 normative: false
 ---
 
@@ -17,17 +17,17 @@ Normative intent lives in [`specs/cli.md`](../specs/cli.md),
 [`specs/output-contract.md`](../specs/output-contract.md). Owner must decide
 before resolver/manifest enforcement.
 
-## Current state (2026-08-19)
+## Current state (2026-08-21)
 
 | Layer | Behavior |
 |---|---|
 | Parse | `parseBuildArgsExcept` stores raw string in `BuildOptions.minimumEvidence` |
-| Preflight | `validateBuildOptionsCliV1`: build-only; closed wire whitelist via `isValidMinimumEvidenceGradeV1`; check rejects |
-| Product build | **No read** of `minimumEvidence` after parse — build succeeds regardless of grade |
+| Preflight | `validateBuildOptionsCliV1`: build-only; closed wire whitelist via `isValidMinimumEvidenceGradeV1`; every explicit request then fails closed because no evaluator exists; check rejects |
+| Product build | No explicit request can reach source open, resolver, materialization, or staging |
 | Resolver | `resolveEngineeringRequirementsV1` has no minimum-evidence parameter |
 | Registry / profile | Engineering `CodegenProfile` / `TargetDescriptor` **lack** `minimumEvidence` field |
 | Manifest / OutputSet | Engineering `proof-forge.output.v1` has no `support.minimumEvidence` |
-| Build JSON | Echoes CLI request; `minimumEvidenceEnforcement: parse-only-not-enforced` (honesty slice) |
+| Build JSON | Successful build has request/effective fields `null`; `minimumEvidenceEnforcement: unavailable-fail-closed` |
 
 D3-E5 marked CLI **syntax** done; D3-E8 is the **semantics + enforcement** slice.
 
@@ -40,13 +40,14 @@ argv
        → parseCliCommandV1 → parseBuildArgsExcept
             [--minimum-evidence <grade>] → BuildOptions.minimumEvidence := some grade
   → validateBuildOptionsCliV1 (.build)
-       → isValidMinimumEvidenceGradeV1 (whitelist only)
+       → isValidMinimumEvidenceGradeV1
+       → explicit request → usage / exit 2 (evaluator unavailable)
   → buildSource (Main.lean)
        → compile → certifyInlineProofV1
        → resolveBuildSelectionForCli
        → resolveEngineeringRequirementsV1  ← no minimumEvidence
        → emitProgram                       ← no minimumEvidence
-       → renderBuildOkJsonV1(..., minimumEvidenceRequested)  ← observability only
+       → renderBuildOkJsonV1(..., none)  ← no explicit request can reach success
 ```
 
 **Not on path today:** `RequirementResolverV1`, `EngineeringSupportClaimV1`,
@@ -64,8 +65,8 @@ formal `EvidenceResolver.resolveSupport`.
 4. **Manifest binding** — when `support.minimumEvidence` and
    `support-decisions.json` enter engineering OutputSet identity (D3-E4 gap).
 
-Until (1)–(4) are decided, **must not** treat JSON echo or successful build as
-evidence gating.
+Until (1)–(4) are decided, every explicit request remains fail-closed. An ordinary
+successful build without the flag is not evidence gating.
 
 ## Phased implementation (post-decision)
 
@@ -95,15 +96,16 @@ evidence gating.
 - Replace engineering claim/decision types with formal `SupportClaim` /
   `ResolvedSupportDecision` / candidate evidence-set injection.
 
-## Honesty slice delivered without Phase A–C
+## Fail-closed honesty slice delivered without Phase A–C
 
-Following RES-1B pattern (parse but no producer → explicit rejection or label):
+Following RES-1B pattern (parse but no producer → explicit rejection):
 
-- Build JSON adds `minimumEvidenceEnforcement: "parse-only-not-enforced"`.
-- Renames observability: `minimumEvidenceRequested` = CLI flag value;
-  `minimumEvidence` = `null` until effective minimum is wired (avoids implying
-  SPEC-effective field is populated).
-- Tests pin renderer + optional product build with high grade still exit 0.
+- The closed whitelist preserves stable wire spelling and rejects unknown grades.
+- Every recognized explicit request reports the evaluator is unavailable and exits 2
+  before source open / resolver / staging.
+- Successful build JSON retains the fields for schema stability but reports both
+  request/effective grade as `null`, with enforcement `unavailable-fail-closed`.
+- Tests pin parser validation, renderer, and product subprocess rejection.
 
 ## Verification
 
@@ -113,7 +115,8 @@ just dev-check   # or focused shard containing Tests.CLI.ResourceFlagsV1
 ```
 
 Product subprocess test (binary present): build Counter with
-`--minimum-evidence network_or_proof_validated` must succeed — proves no gate.
+`--minimum-evidence network_or_proof_validated` must exit 2 and leave the destination
+unchanged.
 
 ## References
 

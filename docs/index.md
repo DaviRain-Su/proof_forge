@@ -57,9 +57,10 @@ CAP-X-BYTES / CAP-X-MERKLE / 诚实边界波）。COMP-1-CALL-SEM-LAND 第一刀
 （inspect family-tag + 地址 residual）、COMP-1-NORMALIZE-RESIDUAL FC 针
 （Field/Principal 源字面量、Bytes 嵌套穿透）与 COMP-1-SYS-CAP-L2
 attachedValue inspect/Targets 诚实表面、official `cryptoHonesty` 闭表、
-ICP/TON `maturityResidual`、XRPL ContextRead/Commit 矩阵针与 ecdsa
+ICP/TON `engineeringValidationResidual`、XRPL ContextRead/Commit 矩阵针与 ecdsa
 十二叶第一道门针已部分落地，**不**把 B-CALL-SEM 标 closed，**不**开放
-Field/Principal 字面量，**不**开官方 program 新叶，**不**改 registry maturity 标签。
+Field/Principal 字面量，**不**开官方 program 新叶，**不**把 static engineering validation
+label 当成 dynamic maturity 或 release qualification。
 当前剩余人拍项已排进 [`plan/remaining-owner-waves.md`](plan/remaining-owner-waves.md)
 （B-CALL-SEM / ADR-0051 / ADR-0036 / D3-E8 / DOC-JUST-CONTROL / RES-1B /
 B-COMMIT-ZK / SOR-1 / QUINT-2 / XRPL TIME·CALLER / zkVM / formal D1–D4）；

@@ -18,15 +18,15 @@
 
   Disambiguation for positional `inspect <arg>`:
     * If `<arg>` is a registered TargetId (frozen registry membership), treat as
-      target inspect (`proof-forge.cli.inspect.v1`).
+      target inspect (`proof-forge.cli.inspect.v2`).
     * Otherwise treat as output-dir inspect (`proof-forge.cli.inspect-output.v1`).
     * Explicit `inspect --output-dir <dir>` always selects output-dir mode.
     * Ambiguous names that are both a registered target and a directory prefer
       the registry target (document this; use `--output-dir` to force a path).
 
   Stable JSON uses sole PF-JCS (`renderPfJcs` / `PfJson`). Schemas:
-    proof-forge.cli.list-targets.v1
-    proof-forge.cli.inspect.v1
+    proof-forge.cli.list-targets.v2
+    proof-forge.cli.inspect.v2
     proof-forge.cli.inspect-output.v1
     proof-forge.cli.check.v1
     proof-forge.cli.build.v1
@@ -416,8 +416,9 @@ def emitProgram (capability : Targets.ResolvedEngineeringBuildV1)
 `output`/`root` are `Option` so duplicate flags are detectable (defaults applied
 at product path: `build/v2` and `.`). `json` selects PF-JCS stdout.
 D3-E5: `resourceLimits` / `minimumEvidence` are parsed and validated fail-closed
-before source open. D3-E8 honesty: build JSON exposes requested grade and
-`minimumEvidenceEnforcement: parse-only-not-enforced`; no resolver gate yet.
+before source open. Until D3-E8 has a candidate-bound evaluator, any explicit
+`--minimum-evidence` request is rejected; successful build JSON therefore keeps
+the requested/effective values null and reports `unavailable-fail-closed`.
 RES-1 enforces wall clocks (build: pre-rename inside emitProgram; check:
 post-success path). The RES-1B output-only slice enforces
 `artifact-output.published-bytes` before publication. Product preflight rejects
@@ -711,10 +712,10 @@ def isValidMinimumEvidenceGradeV1 (grade : String) : Bool :=
   grade == "local_runtime" ||
   grade == "network_or_proof_validated"
 
-/-- Build JSON honesty: flag is parsed/observable only until D3-E8 wires resolver
-and manifest effective minimum (owner decision). Must not imply enforcement. -/
+/-- Build JSON honesty: explicit requests fail preflight until D3-E8 wires a
+    candidate-bound evaluator and manifest effective minimum. -/
 def minimumEvidenceEnforcementWireV1 : String :=
-  "parse-only-not-enforced"
+  "unavailable-fail-closed"
 
 /-- Post-parse validation for check vs build (SPEC-CLI resource/evidence).
 Runs before source open / materialize. Wall-clock **enforcement** is RES-1
@@ -750,6 +751,7 @@ def validateBuildOptionsCliV1
       | .build =>
           unless isValidMinimumEvidenceGradeV1 grade do
             throw s!"unknown --minimum-evidence grade '{grade}'"
+          throw "--minimum-evidence is unavailable until candidate-bound evidence evaluation is implemented; omit it"
   -- ADR-0053 Wave 1: --bindings is build-only; emit still ignores the table.
   match options.bindings with
   | none => pure ()
@@ -847,9 +849,25 @@ def resolveSelectionFromFlags (flags : BuildSelectionCliFlags) :
   | .ok selection => pure selection
   | .error error => throw <| IO.userError error.render
 
-/-- One `list-targets` line: `id\tmaturityLabel`. -/
+/-- Static development availability. It does not imply runtime or release
+    qualification. -/
+private def developmentBuildWireV1 (implemented : Bool) : String :=
+  if implemented then "available" else "unavailable"
+
+/-- Release is candidate/evidence-bound and is never inferred from static
+    target registration or engineering validation labels. -/
+def releaseQualificationWireV1 : String :=
+  "not-evaluated"
+
+/-- One explicit target-surface line. The static engineering validation label
+    is kept distinct from the dynamic maturity snapshot. -/
 def renderListTargetLine (reg : TargetRegistrationDataV1) : String :=
-  s!"{reg.targetId}\t{reg.maturityLabel}"
+  s!"{reg.targetId}" ++
+    s!"\tdevelopment-build={developmentBuildWireV1 reg.implemented}" ++
+    s!"\tproduct-scope={(targetProductScopeOfKindV1 reg.kind).toWire}" ++
+    s!"\tcompiler-local-runtime={(compilerLocalRuntimeEntryPointOfKindV1 reg.kind).toWire}" ++
+    s!"\tengineering-validation={reg.engineeringValidationLabel}" ++
+    s!"\trelease-qualification={releaseQualificationWireV1}"
 
 /-- Pure list body against a supplied validated registry (rows only). -/
 def listTargetLinesInRegistry (includeDesignOnly : Bool) (registry : TargetRegistryV1) :
@@ -1101,20 +1119,31 @@ def renderCliJsonV1 (value : PfJson) : CompileResult String :=
   | .ok text => pure text
   | .error error => throw <| .registryInvalid s!"cli json render failed: {error}"
 
-/-- Product list-targets JSON (`proof-forge.cli.list-targets.v1`). -/
+/-- Product list-targets JSON (`proof-forge.cli.list-targets.v2`). Static
+    development/runtime surfaces are explicit; dynamic maturity stays null and
+    release qualification stays not-evaluated. -/
 def listTargetsJsonInRegistry
     (includeDesignOnly : Bool) (registry : TargetRegistryV1) : CompileResult String := do
   let regs :=
     if includeDesignOnly then TargetRegistryV1.registrationsOf registry
     else implementedRegistrationsInRegistry registry
   let targets := regs.map fun reg =>
+    let scope := targetProductScopeOfKindV1 reg.kind
     PfJson.object #[
       ("id", .string reg.targetId.toString),
-      ("maturity", .string reg.maturityLabel)
+      ("implemented", .bool reg.implemented),
+      ("developmentBuild", .string (developmentBuildWireV1 reg.implemented)),
+      ("productScope", .string scope.toWire),
+      ("acceptedPhase1", .bool (scope == .acceptedPhase1)),
+      ("compilerLocalRuntimeEntryPoint",
+        .string (compilerLocalRuntimeEntryPointOfKindV1 reg.kind).toWire),
+      ("engineeringValidationLabel", .string reg.engineeringValidationLabel),
+      ("maturitySnapshot", .null),
+      ("releaseQualification", .string releaseQualificationWireV1)
     ]
   renderCliJsonV1 <|
     PfJson.object #[
-      ("schema", .string "proof-forge.cli.list-targets.v1"),
+      ("schema", .string "proof-forge.cli.list-targets.v2"),
       ("includeAll", .bool includeDesignOnly),
       ("targets", .array targets)
     ]
@@ -1238,22 +1267,25 @@ private def cryptoCatalogResidualJsonV1 (kind : TargetKind) : PfJson :=
   | some tag => .string tag
   | none => .null
 
-/-- Inspect-only maturity residual line. Empty when label and deployable agree. -/
-private def maturityResidualTextSuffixV1 (kind : TargetKind) : String :=
-  match maturityResidualV1 kind with
-  | some tag => s!"\nmaturityResidual={tag}"
+/-- Inspect-only engineering validation residual line. Empty when the static
+    engineering label and deployable bit agree. -/
+private def engineeringValidationResidualTextSuffixV1 (kind : TargetKind) : String :=
+  match engineeringValidationResidualV1 kind with
+  | some tag => s!"\nengineeringValidationResidual={tag}"
   | none => ""
 
-/-- Inspect JSON maturity residual: string tag or `null`. -/
-private def maturityResidualJsonV1 (kind : TargetKind) : PfJson :=
-  match maturityResidualV1 kind with
+/-- Inspect JSON engineering validation residual: string tag or `null`. -/
+private def engineeringValidationResidualJsonV1 (kind : TargetKind) : PfJson :=
+  match engineeringValidationResidualV1 kind with
   | some tag => .string tag
   | none => .null
 
 /-- Product `inspect` human body — registry descriptor + identity chain summary.
-Covers former describe-target fields plus profiles, maturity, status, registry
+Covers former describe-target fields plus explicit development/product/runtime
+surfaces, a static engineering validation label, null dynamic maturity, registry
 root digest, support-claim digest (implemented default profile), and the
-engineering build-identity domain shape (no mint without a compiled program). -/
+engineering build-identity domain shape (no mint without a compiled program).
+Release qualification is never inferred from target registration. -/
 def inspectRegistrationText
     (registry : TargetRegistryV1) (reg : TargetRegistrationDataV1) :
     CompileResult String := do
@@ -1282,8 +1314,14 @@ def inspectRegistrationText
           cryptoCatalogResidualTextSuffixV1 reg.kind ++
           s!"\nprofiles={formatProfileList reg.profiles}" ++
           s!"\nstatus=implemented" ++
-          s!"\nmaturity={reg.maturityLabel}" ++
-          maturityResidualTextSuffixV1 reg.kind ++
+          s!"\ndevelopmentBuild={developmentBuildWireV1 reg.implemented}" ++
+          s!"\nproductScope={(targetProductScopeOfKindV1 reg.kind).toWire}" ++
+          s!"\nacceptedPhase1={targetProductScopeOfKindV1 reg.kind == .acceptedPhase1}" ++
+          s!"\ncompilerLocalRuntimeEntryPoint={(compilerLocalRuntimeEntryPointOfKindV1 reg.kind).toWire}" ++
+          s!"\nengineeringValidationLabel={reg.engineeringValidationLabel}" ++
+          engineeringValidationResidualTextSuffixV1 reg.kind ++
+          s!"\nmaturitySnapshot=none" ++
+          s!"\nreleaseQualification={releaseQualificationWireV1}" ++
           s!"\nregistryRootDigest={rootDigest}" ++
           s!"\nsupportClaimDigest={claimDigest}" ++
           s!"\nbuildIdentityDomain={domain}"
@@ -1291,12 +1329,18 @@ def inspectRegistrationText
     pure <|
       s!"target={reg.targetId}" ++
       s!"\nstatus=research-only" ++
-      s!"\nmaturity={reg.maturityLabel}" ++
+      s!"\ndevelopmentBuild={developmentBuildWireV1 reg.implemented}" ++
+      s!"\nproductScope={(targetProductScopeOfKindV1 reg.kind).toWire}" ++
+      s!"\nacceptedPhase1={targetProductScopeOfKindV1 reg.kind == .acceptedPhase1}" ++
+      s!"\ncompilerLocalRuntimeEntryPoint={(compilerLocalRuntimeEntryPointOfKindV1 reg.kind).toWire}" ++
+      s!"\nengineeringValidationLabel={reg.engineeringValidationLabel}" ++
+      s!"\nmaturitySnapshot=none" ++
+      s!"\nreleaseQualification={releaseQualificationWireV1}" ++
       s!"\nprofiles={formatProfileList reg.profiles}" ++
       s!"\nregistryRootDigest={rootDigest}" ++
       s!"\nbuildIdentityDomain={domain}"
 
-/-- Product `inspect` JSON (`proof-forge.cli.inspect.v1`). -/
+/-- Product `inspect` JSON (`proof-forge.cli.inspect.v2`). -/
 def inspectRegistrationJson
     (registry : TargetRegistryV1) (reg : TargetRegistrationDataV1) :
     CompileResult String := do
@@ -1320,9 +1364,10 @@ def inspectRegistrationJson
         let s2Ids ← supportedS2RequestIdsForRegistrationV1 reg
         let claimDigest ← supportClaimDigestForRegistrationV1 registry reg
         let reqJson := s2Ids.map PfJson.string
+        let scope := targetProductScopeOfKindV1 reg.kind
         renderCliJsonV1 <|
           PfJson.object #[
-            ("schema", .string "proof-forge.cli.inspect.v1"),
+            ("schema", .string "proof-forge.cli.inspect.v2"),
             ("target", .string reg.targetId.toString),
             ("defaultProfile", .string profile.toString),
             ("profiles", .array profiles),
@@ -1334,22 +1379,40 @@ def inspectRegistrationJson
             ("cryptoHonesty", .string (cryptoCatalogFamilyTagV1 reg.kind)),
             ("cryptoResidual", cryptoCatalogResidualJsonV1 reg.kind),
             ("implemented", .bool true),
-            ("maturity", .string reg.maturityLabel),
-            ("maturityResidual", maturityResidualJsonV1 reg.kind),
+            ("developmentBuild", .string (developmentBuildWireV1 reg.implemented)),
+            ("productScope", .string scope.toWire),
+            ("acceptedPhase1", .bool (scope == .acceptedPhase1)),
+            ("compilerLocalRuntimeEntryPoint",
+              .string (compilerLocalRuntimeEntryPointOfKindV1 reg.kind).toWire),
+            ("engineeringValidationLabel", .string reg.engineeringValidationLabel),
+            ("engineeringValidationResidual",
+              engineeringValidationResidualJsonV1 reg.kind),
+            ("maturitySnapshot", .null),
+            ("releaseQualification", .string releaseQualificationWireV1),
             ("registryRootDigest", .string rootDigest),
             ("supportClaimDigest", .string claimDigest),
             ("buildIdentityDomain", .string engineeringBuildIdentityDomainV1)
           ]
   else
+    let scope := targetProductScopeOfKindV1 reg.kind
     renderCliJsonV1 <|
       PfJson.object #[
-        ("schema", .string "proof-forge.cli.inspect.v1"),
+        ("schema", .string "proof-forge.cli.inspect.v2"),
         ("target", .string reg.targetId.toString),
         ("defaultProfile", .null),
         ("profiles", .array profiles),
         ("requirements", .null),
         ("implemented", .bool false),
-        ("maturity", .string reg.maturityLabel),
+        ("developmentBuild", .string (developmentBuildWireV1 reg.implemented)),
+        ("productScope", .string scope.toWire),
+        ("acceptedPhase1", .bool (scope == .acceptedPhase1)),
+        ("compilerLocalRuntimeEntryPoint",
+          .string (compilerLocalRuntimeEntryPointOfKindV1 reg.kind).toWire),
+        ("engineeringValidationLabel", .string reg.engineeringValidationLabel),
+        ("engineeringValidationResidual",
+          engineeringValidationResidualJsonV1 reg.kind),
+        ("maturitySnapshot", .null),
+        ("releaseQualification", .string releaseQualificationWireV1),
         ("registryRootDigest", .string rootDigest),
         ("supportClaimDigest", .null),
         ("buildIdentityDomain", .string engineeringBuildIdentityDomainV1)
@@ -1451,22 +1514,18 @@ def renderCheckOkJsonV1
 
 /-- Product build success human body (includes selected profile). -/
 def renderBuildOkHumanV1 (receipt : EmitReceiptV1) : String :=
-  s!"built target={receipt.target} profile={receipt.codegenProfile} deployable={receipt.deployable}"
+  s!"built target={receipt.target} profile={receipt.codegenProfile} deployable={receipt.deployable}" ++
+    s!" surface=development releaseQualification={releaseQualificationWireV1}"
 
 /-- Product build success JSON (`proof-forge.cli.build.v1`).
-`minimumEvidence` stays null until profile effective minimum is wired (D3-E8).
-`minimumEvidenceRequested` mirrors the CLI flag; `minimumEvidenceEnforcement`
-labels parse-only honesty (see docs/plan/d3-e8-minimum-evidence.md). -/
+Explicit `--minimum-evidence` requests fail preflight until D3-E8 is wired, so
+both evidence values stay null and `minimumEvidenceEnforcement` records the
+fail-closed boundary (see docs/plan/d3-e8-minimum-evidence.md). -/
 def renderBuildOkJsonV1
     (receipt : EmitReceiptV1)
-    (resourceLimits : Array ResourceLimitOverrideV1 := #[])
-    (minimumEvidenceRequested : Option String := none) :
+    (resourceLimits : Array ResourceLimitOverrideV1 := #[]) :
     CompileResult String :=
   let limitsJson := PfJson.array (resourceLimits.map renderResourceLimitJsonV1)
-  let requestedJson :=
-    match minimumEvidenceRequested with
-    | some g => PfJson.string g
-    | none => PfJson.null
   renderCliJsonV1 <|
     PfJson.object #[
       ("schema", .string "proof-forge.cli.build.v1"),
@@ -1475,8 +1534,10 @@ def renderBuildOkJsonV1
       ("deployable", .bool receipt.deployable),
       ("resourceLimits", limitsJson),
       ("minimumEvidence", PfJson.null),
-      ("minimumEvidenceRequested", requestedJson),
-      ("minimumEvidenceEnforcement", .string minimumEvidenceEnforcementWireV1)
+      ("minimumEvidenceRequested", PfJson.null),
+      ("minimumEvidenceEnforcement", .string minimumEvidenceEnforcementWireV1),
+      ("surface", .string "development"),
+      ("releaseQualification", .string releaseQualificationWireV1)
     ]
 
 -- ---------------------------------------------------------------------------

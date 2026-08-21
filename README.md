@@ -167,6 +167,10 @@ Resolve → Materialize。失败 **fail closed**，禁止降级或 legacy fallba
   **不得**把后九者静默读成 accepted Phase 1 范围扩张。
 - **Engineering registry（代码事实）**：**13 = 13 implemented + 0 design-only**。十三个
   materializer：EVM、Solana、NEAR、Noir、Aleo、Psy、Quint、CosmWasm、TON、Soroban、OpenVM、ICP、XRPL；design-only：无。
+- **命令面不是成熟度**：`list-targets` / `inspect <target>` 分开报告 development build、
+  accepted scope、compiler-local runtime 入口和 release qualification。静态
+  `engineeringValidationLabel` 不是 `MaturitySnapshot`；当前 snapshot 为 `null`，release 为
+  `not-evaluated`。
 
   locked `wat2wasm` + `cosmwasm-check` + cosmwasm-vm mock；TON 工程面为 Tolk + real BoC +
   `@ton/sandbox`。
@@ -181,7 +185,7 @@ Resolve → Materialize。失败 **fail closed**，禁止降级或 legacy fallba
 | 预览 | 源文件 | 说明 |
 |---|---|---|
 | [PNG](docs/diagrams/04-requirements-support.png) · [Excalidraw](docs/diagrams/04-requirements-support.excalidraw) | Requirements + SupportClaim 求解（fail closed） |
-| [PNG](docs/diagrams/05-target-landscape.png) · [Excalidraw](docs/diagrams/05-target-landscape.excalidraw) | Phase 1 vs design-only + 成熟度阶梯 |
+| [PNG](docs/diagrams/05-target-landscape.png) · [Excalidraw](docs/diagrams/05-target-landscape.excalidraw) | 历史 Phase 1 / design-only 与成熟度示意；当前范围与资格以代码化 target surface 为准 |
 | [PNG](docs/diagrams/06-repo-layout.png) · [Excalidraw](docs/diagrams/06-repo-layout.excalidraw) | 历史布局图；当前根 = V2，v1 `active/` 仅存于 Git 历史 |
 | [PNG](docs/diagrams/07-module-boundaries.png) · [Excalidraw](docs/diagrams/07-module-boundaries.excalidraw) | 模块边界与禁止依赖 |
 
@@ -231,11 +235,16 @@ portable command，不 elaboration / 执行用户文件中的任意 Lean command
 
 ---
 
-## 目标与成熟度（诚实表）
+## Target surface 与证据边界（诚实表）
 
 > **双轨**：表中「本阶段」区分 **accepted PRD Phase 1 四目标**（EVM/Solana/NEAR/Noir）与
-> **engineering implemented leaves**（Aleo/Psy/Quint/CosmWasm/TON；scope 边界见
-> [ADR-0036](docs/adr/0036-engineering-scope-and-evm-formal-lighthouse.md)）。后五行 **不是** accepted Phase 1 范围扩张；formal lighthouse 为 EVM-first。
+> **engineering implemented leaves**（Aleo/Psy/Quint/CosmWasm/TON/Soroban/OpenVM/ICP/XRPL；scope 边界见
+> [ADR-0036](docs/adr/0036-engineering-scope-and-evm-formal-lighthouse.md)）。后九者 **不是** accepted Phase 1 范围扩张；formal lighthouse 为 EVM-first。
+>
+> 三类入口必须分开读：13 个 registry target 都有 development build；编译器 package-owned
+> `local` runtime 入口只有 EVM/Solana/NEAR/CosmWasm/TON/ICP；release 资格只能来自
+> candidate-bound evidence evaluator，当前全部 `not-evaluated`。`pf test` 是另一个 developer
+> adapter 子集，不等同于上述 compiler-local runtime 集合。
 
 | Target | 角色 | 本阶段 | 证据状态（不得夸大） |
 |---|---|---|---|
@@ -246,9 +255,10 @@ portable command，不 elaboration / 执行用户文件中的任意 Lean command
 | `aleo` | ZK application chain | engineering implemented (scope ADR open) | sole `aleo-instructions-v1`：target-owned Plan → canonical Aleo Instructions `.aleo` + query descriptor；zero-tool、non-deployable；**无** VM/prove/deploy/network query |
 | `psy` | ZK application chain | engineering implemented (scope ADR open) | sole `psy-dpn-v1`：target-owned Plan → canonical DPN `.dpn.json`；zero-tool、non-deployable；**无** DPN execution/local VM/proof/UPS/network/deploy |
 | `quint` | executable specification / model | engineering implemented (scope ADR open) | target-owned Q0 Plan/structured IR → `.qnt`；zero-tool finalize、`deployable=false`；host Quint 0.32 仅 optional observation，**非** Tool Lock / ITF / MBT / verify / formal |
-| `cosmwasm` | Wasm host | engineering implemented (scope ADR open) | Plan/IR→WAT；UInt8/16/32、named state、bounded aggregate/Array/Option return；Binary SubMsg PARTIAL；locked check + mock 28 tests + wasmd Docker rung-1；label=`wasm-validated-alpha`；**非** 主网/formal |
-| `ton` | TVM stack-account | engineering implemented (scope ADR open) | Plan/IR→Tolk + real BoC；UInt8/16/32、named/container state、bounded view returns；schedule `createMessage` PARTIAL；sandbox 16 it（新增 1 条本机未执行）；label=`source-only`；**非** 主网/formal |
+| `cosmwasm` | Wasm host | engineering implemented (scope ADR open) | Plan/IR→WAT；UInt8/16/32、named state、bounded aggregate/Array/Option return；Binary SubMsg PARTIAL；locked check + mock 28 tests + wasmd Docker rung-1；engineering validation label=`wasm-validated-alpha`；**非** dynamic maturity / 主网 / formal |
+| `ton` | TVM stack-account | engineering implemented (scope ADR open) | Plan/IR→Tolk + real BoC；UInt8/16/32、named/container state、bounded view returns；schedule `createMessage` PARTIAL；sandbox 16 it（新增 1 条本机未执行）；engineering validation label=`source-only`；**非** dynamic maturity / 主网 / formal |
 | Soroban / OpenVM / ICP | source-only / source-only / source-only | engineering implemented | ADR-0044 / ADR-0045–0046 / ADR-0047；非 formal/mainnet |
+| `xrpl` | XRPL smart features | engineering implemented (scope ADR open) | default Bedrock-shaped Rust source + opt-in ambient-rustc Wasm；`deployable=false`；无 `pf test` adapter；非 accepted Phase 1/formal |
 
 详情：[`docs/targets/README.md`](docs/targets/README.md)。
 

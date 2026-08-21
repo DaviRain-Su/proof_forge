@@ -86,7 +86,7 @@ private def mkEvmReg
   implemented := true
   displayName := "EVM"
   acceptanceProfileId := "phase1.evm-u64.v1"
-  maturityLabel := "runtime-validated-alpha"
+  engineeringValidationLabel := "runtime-validated-alpha"
   semantics := evmAxes
   profiles
   defaultProfile
@@ -100,7 +100,7 @@ private def mkNearReg
   implemented := true
   displayName := "NEAR"
   acceptanceProfileId := "phase1.near-u64.v1"
-  maturityLabel := "wasm-validated-alpha"
+  engineeringValidationLabel := "wasm-validated-alpha"
   semantics := {
     targetId := TargetId.near
     executionHost := .nearWasm
@@ -122,7 +122,7 @@ private def mkAleoReg
   implemented := false
   displayName := "Aleo"
   acceptanceProfileId := "research.aleo.v1"
-  maturityLabel := "research-only"
+  engineeringValidationLabel := "research-only"
   semantics := {
     targetId := TargetId.aleo
     executionHost := .aleoVm
@@ -144,7 +144,7 @@ private def mkSolanaReg
   implemented := true
   displayName := "Solana"
   acceptanceProfileId := "phase1.solana-u64.v1"
-  maturityLabel := "runtime-validated-alpha"
+  engineeringValidationLabel := "runtime-validated-alpha"
   semantics := {
     targetId := TargetId.solana
     executionHost := .svm
@@ -473,10 +473,11 @@ private def testRegistryNegatives : IO Unit := do
   let badImplemented := { mkEvmReg #[] none with implemented := false }
   expectErrorCode (createTargetRegistryV1 #[badImplemented])
     "PF-REGISTRY-INVALID" "implemented closed policy"
-  let badMaturity := { mkEvmReg #[CodegenProfileId.evmYulSolc0834V1]
-      (some CodegenProfileId.evmYulSolc0834V1) with maturityLabel := "forged" }
-  expectErrorCode (createTargetRegistryV1 #[badMaturity])
-    "PF-REGISTRY-INVALID" "maturityLabel closed policy"
+  let badValidationLabel := { mkEvmReg #[CodegenProfileId.evmYulSolc0834V1]
+      (some CodegenProfileId.evmYulSolc0834V1) with
+      engineeringValidationLabel := "forged" }
+  expectErrorCode (createTargetRegistryV1 #[badValidationLabel])
+    "PF-REGISTRY-INVALID" "engineeringValidationLabel closed policy"
   let badDisplayName := { mkEvmReg #[CodegenProfileId.evmYulSolc0834V1]
       (some CodegenProfileId.evmYulSolc0834V1) with displayName := "Forged" }
   expectErrorCode (createTargetRegistryV1 #[badDisplayName])
@@ -576,28 +577,23 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
   | Except.ok _ => throw <| IO.userError "product preflight must reject duplicate --target"
   let defaultList ← liftResult <| ProofForgeV2.CLI.listTargetLines false
   expect (defaultList.size == 13) "default list-targets is implemented-only"
-  expect (defaultList == #["aleo\tinstructions-only", "cosmwasm\twasm-validated-alpha",
-      "evm\truntime-validated-alpha", "icp\tsource-only", "near\twasm-validated-alpha",
-      "noir\tsource-only", "openvm\tsource-only", "psy\tdpn-only", "quint\tsource-only",
-      "solana\truntime-validated-alpha", "soroban\tsource-only", "ton\tsource-only",
-      "xrpl\tsource-only"])
-    s!"default list-targets exact lines, got {defaultList}"
+  let expectedIds :=
+    #["aleo", "cosmwasm", "evm", "icp", "near", "noir", "openvm", "psy",
+      "quint", "solana", "soroban", "ton", "xrpl"]
+  expect (defaultList.map (fun line => (line.splitOn "\t").headD "") == expectedIds)
+    s!"default list-targets canonical ids, got {defaultList}"
+  for line in defaultList do
+    expect (hasSubstr line "development-build=available")
+      s!"list target must expose development build availability: {line}"
+    expect (hasSubstr line "engineering-validation=")
+      s!"list target must label static engineering validation: {line}"
+    expect (hasSubstr line "release-qualification=not-evaluated")
+      s!"list target must not infer release qualification: {line}"
+    expect (!hasSubstr line "\tmaturity=")
+      s!"list target must not expose a static maturity value: {line}"
   let allList ← liftResult <| ProofForgeV2.CLI.listTargetLines true
-  expect (allList == #[
-      "aleo\tinstructions-only",
-      "cosmwasm\twasm-validated-alpha",
-      "evm\truntime-validated-alpha",
-      "icp\tsource-only",
-      "near\twasm-validated-alpha",
-      "noir\tsource-only",
-      "openvm\tsource-only",
-      "psy\tdpn-only",
-      "quint\tsource-only",
-      "solana\truntime-validated-alpha",
-      "soroban\tsource-only",
-      "ton\tsource-only",
-      "xrpl\tsource-only"])
-    s!"list-targets --all canonical TargetId order, got {allList}"
+  expect (allList == defaultList)
+    s!"list-targets --all equals default when no design-only rows, got {allList}"
   match ProofForgeV2.CLI.parseCliCommandV1 ["list-targets"] with
   | .ok (.listTargets opts) =>
       expect (!opts.includeDesignOnly && !opts.json) "parse list-targets default"
@@ -825,8 +821,8 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
         s!"inspect evm crypto family tag, got {text}"
       expect (!hasSubstr text "cryptoResidual")
         "inspect evm has no official-crypto residual"
-      expect (!hasSubstr text "maturityResidual")
-        "inspect evm has no maturity residual"
+      expect (!hasSubstr text "engineeringValidationResidual")
+        "inspect evm has no engineering validation residual"
   | .error e => throw <| IO.userError s!"inspect evm: {e.render}"
   match ProofForgeV2.CLI.inspectTargetText "aleo" with
   | .ok text =>
@@ -836,8 +832,8 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
           "requirements=#[failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic]")
         s!"inspect aleo requirements, got {text}"
       expect (hasSubstr text "status=implemented") "aleo is implemented"
-      expect (hasSubstr text "maturity=instructions-only")
-        "aleo exposes only canonical Aleo Instructions"
+      expect (hasSubstr text "engineeringValidationLabel=instructions-only")
+        "aleo exposes only the static canonical Aleo Instructions label"
       expect (hasSubstr text "callScheduleHonesty=aleo-dual-fc")
         s!"inspect aleo family tag, got {text}"
       expect (!hasSubstr text "callScheduleResidual")
@@ -852,16 +848,16 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
         s!"inspect aleo crypto family tag, got {text}"
       expect (!hasSubstr text "cryptoResidual")
         "inspect aleo has no official-crypto residual"
-      expect (!hasSubstr text "maturityResidual")
-        "inspect aleo has no maturity residual"
+      expect (!hasSubstr text "engineeringValidationResidual")
+        "inspect aleo has no engineering validation residual"
   | .error e => throw <| IO.userError s!"inspect aleo: {e.render}"
   match ProofForgeV2.CLI.inspectTargetText "psy" with
   | .ok text =>
       expect (hasSubstr text "target=psy\nprofile=psy-dpn-v1\n")
         s!"inspect psy prefix, got {text}"
       expect (hasSubstr text "status=implemented") "psy is implemented"
-      expect (hasSubstr text "maturity=dpn-only")
-        "psy exposes only canonical DPN packages"
+      expect (hasSubstr text "engineeringValidationLabel=dpn-only")
+        "psy exposes only the static canonical DPN package label"
       expect (hasSubstr text "callScheduleHonesty=psy-void-sync-async-fc")
         s!"inspect psy family tag, got {text}"
       expect (!hasSubstr text "callScheduleResidual")
@@ -877,8 +873,8 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       expect (hasSubstr text
           "cryptoResidual=keccak-gadget-not-sha2")
         s!"inspect psy crypto residual, got {text}"
-      expect (!hasSubstr text "maturityResidual")
-        "inspect psy has no maturity residual"
+      expect (!hasSubstr text "engineeringValidationResidual")
+        "inspect psy has no engineering validation residual"
   | .error e => throw <| IO.userError s!"inspect psy: {e.render}"
   -- Legacy three-line helper remains for S2 exact-string join tests.
   match ProofForgeV2.CLI.describeTargetText "aleo" with
@@ -1026,4 +1022,3 @@ Hint: Additional diagnostic information may be available using the `set_option d
 -/
 #guard_msgs in
 #synth Inhabited NetworkProfileId
-

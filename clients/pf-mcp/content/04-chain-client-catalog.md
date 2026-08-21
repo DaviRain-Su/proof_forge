@@ -3,7 +3,7 @@ id: PRODUCT-CHAIN-CLIENT-CATALOG
 title: Chain client / frontend catalog (metadata for agents)
 status: draft
 owner: product+engineering
-updated: 2026-08-10
+updated: 2026-08-21
 normative: false
 ---
 
@@ -32,7 +32,7 @@ MCP：`pf_chain_catalog` · `pf_network_info` · `pf_onchainos_guide` · SDK：`
 |---|---|
 | `id` | `TargetId` |
 | `implemented` | registry implemented vs design-only |
-| `maturityLabel` | 工程成熟度文案（非 formal） |
+| `maturityLabel` | legacy catalog wire key；内容仅为 engineering validation 文案，不是 `TargetMaturity` / `MaturitySnapshot`，不得推导 release qualification |
 | `role` | `backend-contracts` / circuits / model / design-only |
 | `pfSurface` | build/localModes/network/mcpTools/template |
 | `frontendClients[]` | 生态客户端名；`shippedByProofForge=false` |

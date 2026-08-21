@@ -45,8 +45,8 @@ print(client.install(targets=["quint"], dry_run=True).parsed)
 # After a product build:
 # r = client.build("Examples/Counter.lean", module="Examples.Counter",
 #                  target="quint", output="/tmp/pf-out")
-# External ProgramV1 tree: pass root=... through build/check/local.
-# r = client.local(target="aleo", source="src/Hello.pf", module="Hello", root="/tmp/external-pf")
+# Compiler-local runtime entry point (host-heavy; availability is not release evidence):
+# r = client.local(target="near", mode="runtime")
 # manifest = client.load_output_manifest("/tmp/pf-out")
 ```
 
@@ -61,7 +61,7 @@ print(client.install(targets=["quint"], dry_run=True).parsed)
 | `check(source, module=…)` | `check … --json` |
 | `inspect_artifacts(output_dir)` | `inspect --output-dir … --json` |
 | `inspect_target(target)` | `inspect <target> --json` |
-| `local(target=…, mode=…, source=…, module=…, root=…, runs=…)` | `local --target … -- --source … --module … [--root …]` (Aleo sandbox generic; passes external project root when provided; no broadcast) |
+| `local(target=…, mode="runtime", script_args=…)` | `local --target <evm|solana|near|cosmwasm|ton|icp> --mode runtime [--] [script args…]`; other registered build targets fail closed; no broadcast |
 | `chain_catalog(target=…)` | static chain client/frontend catalog (`proof-forge.chain-client-catalog.v1`) |
 | `network_catalog(id=… / target_family=… / env=… / chain_id=…)` | static network catalog (`proof-forge.network-catalog.v1`, X Layer / Anvil) |
 | `load_output_manifest(output_dir)` | parse `manifest.json` (`schemaVersion=proof-forge.output.v1`) |
@@ -83,16 +83,15 @@ print(client.install(targets=["quint"], dry_run=True).parsed)
 
 ## Boundaries
 
-- Target menu = `TargetRegistryV1` implemented only; no design-only targets remain
-  (ICP is ADR-0047 engineering leave with wat2wasm finalize + host-optional PocketIC).
-  stay unsupported. OpenVM is engineering source-only / opt-in guest-elf
-  (no prove install).
+- Target menu = the 13-target `TargetRegistryV1` development/build surface; accepted
+  Phase 1 remains EVM/Solana/NEAR/Noir. The compiler-local runtime subset is
+  independently the six targets listed above. OpenVM remains engineering
+  source-only / opt-in guest-elf (no prove install).
 - Install never PATH-falls tools into `PROOF_FORGE_TOOL_ROOT`.
 - Aleo snarkos remains I3 honesty (not Tool Lock; `features=test_network`).
 - Does **not** set `deployable=true`; success is **not** formal / hermetic /
   mainnet evidence.
-- No default network broadcast helper (use product CLI
-  `network --broadcast` explicitly).
+- No network broadcast helper; the compiler product has no `network` subcommand.
 
 ## Smoke
 

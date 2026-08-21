@@ -4,7 +4,7 @@
     {
       "id": "01-toolchain-install-surface.md",
       "title": "Product surface ladder — install / doctor / CLI / MCP",
-      "bytes": 19978,
+      "bytes": 20264,
       "kind": "markdown"
     },
     {
@@ -22,7 +22,7 @@
     {
       "id": "04-chain-client-catalog.md",
       "title": "Chain client / frontend catalog (metadata for agents)",
-      "bytes": 4367,
+      "bytes": 4482,
       "kind": "markdown"
     },
     {
@@ -64,7 +64,7 @@
     {
       "id": "10-psy.md",
       "title": "Psy DPN target dossier",
-      "bytes": 8008,
+      "bytes": 8033,
       "kind": "markdown"
     },
     {
@@ -136,7 +136,7 @@
     {
       "id": "mcp-stdio-readme.md",
       "title": "ProofForge MCP-V0",
-      "bytes": 5005,
+      "bytes": 4902,
       "kind": "markdown"
     },
     {

@@ -116,11 +116,11 @@ assert expected <= tools, tools
 text3 = by_id[3]["result"]["content"][0]["text"]
 body3 = json.loads(text3)
 assert body3["ok"] is True, body3
-assert body3["parsed"]["schema"] == "proof-forge.cli.list-targets.v1"
+assert body3["parsed"]["schema"] == "proof-forge.cli.list-targets.v2"
 ids = {t["id"] for t in body3["parsed"]["targets"]}
-assert "evm" in ids and "solana" in ids and "quint" in ids
-# design-only must not appear without includeAll
-assert "soroban" not in ids
+assert ids == {"aleo", "cosmwasm", "evm", "icp", "near", "noir", "openvm", "psy", "quint", "solana", "soroban", "ton", "xrpl"}
+assert all(t["maturitySnapshot"] is None for t in body3["parsed"]["targets"])
+assert all(t["releaseQualification"] == "not-evaluated" for t in body3["parsed"]["targets"])
 # doctor
 text4 = by_id[4]["result"]["content"][0]["text"]
 body4 = json.loads(text4)
@@ -129,7 +129,7 @@ assert body4.get("parsed", {}).get("schema") == "proof-forge.doctor.v1"
 text5 = by_id[5]["result"]["content"][0]["text"]
 body5 = json.loads(text5)
 assert body5["ok"] is True
-assert body5["parsed"]["schema"] == "proof-forge.cli.inspect.v1"
+assert body5["parsed"]["schema"] == "proof-forge.cli.inspect.v2"
 assert body5["parsed"]["target"] == "quint"
 # install dry-run
 text6 = by_id[6]["result"]["content"][0]["text"]
@@ -143,10 +143,12 @@ PY
 cat >"$tmp/session2.jsonl" <<'EOF'
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"mcp-smoke","version":"0.0.1"}}}
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"pf_build","arguments":{"source":"Examples/StateCell.lean","module":"Examples.StateCell","target":"quint","broadcast":true}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"pf_local","arguments":{"target":"aleo"}}}
 EOF
-echo "mcp-smoke: pf_build rejects broadcast"
+echo "mcp-smoke: pf_build rejects broadcast; pf_local rejects target without compiler runtime entry point"
 run_session "$tmp/session2.jsonl" >"$tmp/resp2.json"
 rg -q 'does not support network/broadcast|broadcast' "$tmp/resp2.json"
+rg -q 'no compiler-local runtime entry point' "$tmp/resp2.json"
 rg -q '"isError": true|"ok": false|usage' "$tmp/resp2.json"
 
 # Optional: real zero-tool quint build if the neutral StateCell source is present

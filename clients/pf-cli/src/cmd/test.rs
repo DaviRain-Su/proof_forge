@@ -404,7 +404,11 @@ fn run_one(target: &str, dir: &Path) -> PfResult<TargetReport> {
                 })),
             })
         }
-        targets::TargetId::Other => Err(PfError::NotImplemented(format!(
+        targets::TargetId::Soroban
+        | targets::TargetId::Icp
+        | targets::TargetId::OpenVm
+        | targets::TargetId::Xrpl
+        | targets::TargetId::Unknown => Err(PfError::NotImplemented(format!(
             "target '{target}': {}",
             targets::capability_note(target)
         ))),

@@ -3,7 +3,7 @@
   pure wall-ms enforce/product CLI PF-RESOURCE-TIME, RES-1B artifact-output
   published-bytes enforcement/PF-RESOURCE-OUTPUT, RES-1B honesty preflight
   rejection of the four no-producer --resource-limit fields, and D3-E8 honesty
-  (minimum-evidence parse-only-not-enforced; no resolver/manifest gate).
+  (minimum-evidence explicit requests fail closed; no resolver/manifest gate).
 
   Drives shipped pure parse + product preflight (`parseProductCliCommandV1` /
   `parseBuildArgsExcept` / `validateBuildOptionsCliV1` / `parseResourceLimitSpecV1`),
@@ -80,8 +80,15 @@ def run : IO Unit := do
   expect (buildOpts.resourceLimits.size == 1) "one resource limit"
   expect (buildOpts.minimumEvidence == some "artifact_validated") "minimum evidence"
 
-  let buildOk ← expectOk "build validate"
+  expectErr "build minimum-evidence unavailable"
     (validateBuildOptionsCliV1 .build buildOpts)
+    "unavailable until candidate-bound evidence evaluation is implemented"
+  let buildWithoutEvidence ← expectOk "build parse without evidence"
+    (parseBuildArgsExcept
+      ["Examples/StateCell.lean", "--module", "Examples.StateCell", "--target", "evm",
+        "--resource-limit", "compiler-core.wall-ms=1000"])
+  let buildOk ← expectOk "build validate without evidence"
+    (validateBuildOptionsCliV1 .build buildWithoutEvidence)
   expect (buildOk.resourceLimits[0]!.value == 1000) "validated build keeps limit"
 
   -- Pure parse still accepts the four no-producer fields (hard-max remains).
@@ -233,32 +240,30 @@ def run : IO Unit := do
       | .error e => throw <| IO.userError s!"check json PF-JCS: {e}"
       | .ok _ => pure ()
 
-  -- D3-E8 honesty: build JSON separates requested grade from enforcement.
+  -- D3-E8 honesty: successful build JSON cannot carry an evidence request and
+  -- records the fail-closed unavailable boundary.
   let receipt : EmitReceiptV1 :=
     { target := TargetId.evm
       codegenProfile := CodegenProfileId.evmYulSolc0834V1
       deployable := false }
-  match renderBuildOkJsonV1 receipt #[] (some "artifact_validated") with
+  match renderBuildOkJsonV1 receipt #[] with
   | .error e => throw <| IO.userError s!"render build json: {e.render}"
   | .ok text =>
-      expect (hasSubstr text "minimumEvidenceRequested")
-        "build json must expose minimumEvidenceRequested"
-      expect (hasSubstr text "artifact_validated")
-        "build json must echo requested grade"
+      expect (hasSubstr text "\"minimumEvidenceRequested\":null")
+        "successful build json cannot carry a rejected evidence request"
       expect (hasSubstr text "minimumEvidenceEnforcement")
         "build json must expose minimumEvidenceEnforcement"
-      expect (hasSubstr text "parse-only-not-enforced")
-        "build json must label parse-only honesty"
+      expect (hasSubstr text "unavailable-fail-closed")
+        "build json must label fail-closed evidence boundary"
       expect (hasSubstr text "\"minimumEvidence\":null")
         "build json must not pretend effective minimumEvidence is set"
+      expect (hasSubstr text "\"surface\":\"development\"")
+        "build json must classify successful build as development"
+      expect (hasSubstr text "\"releaseQualification\":\"not-evaluated\"")
+        "build json must not infer release qualification"
       match parsePfJcs text with
       | .error e => throw <| IO.userError s!"build json PF-JCS: {e}"
       | .ok _ => pure ()
-  match renderBuildOkJsonV1 receipt #[] none with
-  | .error e => throw <| IO.userError s!"render build json no flag: {e.render}"
-  | .ok text =>
-      expect (hasSubstr text "\"minimumEvidenceRequested\":null")
-        "build json must null requested when flag omitted"
 
   -- RES-1 pure wall enforce (shipped)
   match enforceWallMsLimitV1 "frontend" none 999999 with
@@ -375,8 +380,9 @@ def run : IO Unit := do
     expect wallStagingLeft.isEmpty
       "RES-1 wall zero-publish: wall limit must clean sibling staging"
 
-    -- D3-E8 honesty: high minimum-evidence must not gate product build.
-    let minEvOut := FilePath.mk "build/v2/d3e8-min-evidence-no-gate"
+    -- D3-E8 honesty: any explicit minimum-evidence request fails closed before
+    -- source compilation or output publication.
+    let minEvOut := FilePath.mk "build/v2/d3e8-min-evidence-fail-closed"
     if ← minEvOut.pathExists then IO.FS.removeDirAll minEvOut
     let minEv ← IO.Process.output {
       cmd := absoluteCli.toString
@@ -385,14 +391,15 @@ def run : IO Unit := do
         "--output", minEvOut.toString,
         "--minimum-evidence", "network_or_proof_validated", "--json"]
     }
-    expect (minEv.exitCode == 0)
-      s!"D3-E8 honesty: high grade must not gate build, exit={minEv.exitCode}"
-    expect (hasSubstr minEv.stdout "minimumEvidenceEnforcement")
-      s!"D3-E8 honesty: build --json must expose enforcement field"
-    expect (hasSubstr minEv.stdout "parse-only-not-enforced")
-      s!"D3-E8 honesty: build --json must label parse-only"
-    expect (hasSubstr minEv.stdout "network_or_proof_validated")
-      s!"D3-E8 honesty: build --json must echo requested grade"
+    expect (minEv.exitCode == 2)
+      s!"D3-E8 honesty: explicit evidence request must exit 2, got {minEv.exitCode}"
+    expect minEv.stdout.isEmpty
+      s!"D3-E8 honesty: rejected request must not emit success JSON: {minEv.stdout}"
+    expect (hasSubstr minEv.stderr
+        "unavailable until candidate-bound evidence evaluation is implemented")
+      s!"D3-E8 honesty: rejection must explain unavailable evaluator: {minEv.stderr}"
+    expect (!(← minEvOut.pathExists))
+      "D3-E8 honesty: rejected evidence request must not publish output"
   else
     IO.println "Tests.CLI.ResourceFlagsV1: skip product resource CLI (binary absent)"
 

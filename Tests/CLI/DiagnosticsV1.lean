@@ -532,8 +532,16 @@ private def testInspectDigests : IO Unit := do
     s!"inspect evm crypto family tag: {stdout}"
   expect (!containsSubstr stdout "cryptoResidual")
     s!"inspect evm has no crypto residual: {stdout}"
-  expect (!containsSubstr stdout "maturityResidual")
-    s!"inspect evm has no maturity residual: {stdout}"
+  expect (!containsSubstr stdout "engineeringValidationResidual")
+    s!"inspect evm has no engineering validation residual: {stdout}"
+  expect (containsSubstr stdout "productScope=accepted-phase1")
+    s!"inspect evm accepted scope: {stdout}"
+  expect (containsSubstr stdout "compilerLocalRuntimeEntryPoint=available")
+    s!"inspect evm compiler local runtime entry point: {stdout}"
+  expect (containsSubstr stdout "maturitySnapshot=none")
+    s!"inspect evm dynamic maturity must be absent: {stdout}"
+  expect (containsSubstr stdout "releaseQualification=not-evaluated")
+    s!"inspect evm release must be not evaluated: {stdout}"
   let (ec2, stdout2, _) ← runCli #["inspect", "evm"]
   expect (ec2 == 0 && stdout2 == stdout)
     "inspect must be deterministic"
@@ -542,8 +550,8 @@ private def testInspectDigests : IO Unit := do
     s!"inspect icp must exit 0, got {ec3}\n{stderr3}"
   expect (containsSubstr stdout3 "status=implemented")
     s!"inspect icp status: {stdout3}"
-  expect (containsSubstr stdout3 "maturity=source-only")
-    s!"inspect icp maturity: {stdout3}"
+  expect (containsSubstr stdout3 "engineeringValidationLabel=source-only")
+    s!"inspect icp engineering validation label: {stdout3}"
   expect (containsSubstr stdout3 "profile=icp-wasm-candid-u64-v1")
     s!"inspect icp profile: {stdout3}"
   expect (containsSubstr stdout3 "supportClaimDigest=sha256:")
@@ -564,8 +572,8 @@ private def testInspectDigests : IO Unit := do
   expect (!containsSubstr stdout3 "cryptoResidual")
     s!"inspect icp has no crypto residual: {stdout3}"
   expect (containsSubstr stdout3
-      "maturityResidual=deployable-wasm-vs-source-only-label")
-    s!"inspect icp maturity residual: {stdout3}"
+      "engineeringValidationResidual=deployable-wasm-vs-source-only-label")
+    s!"inspect icp engineering validation residual: {stdout3}"
   let (ec4, stdout4, stderr4) ← runCli #["inspect", "aleo"]
   expect (ec4 == 0)
     s!"inspect aleo must exit 0, got {ec4}\n{stderr4}"
@@ -583,8 +591,8 @@ private def testInspectDigests : IO Unit := do
     s!"inspect aleo crypto family tag: {stdout4}"
   expect (!containsSubstr stdout4 "cryptoResidual")
     s!"inspect aleo has no crypto residual: {stdout4}"
-  expect (!containsSubstr stdout4 "maturityResidual")
-    s!"inspect aleo has no maturity residual: {stdout4}"
+  expect (!containsSubstr stdout4 "engineeringValidationResidual")
+    s!"inspect aleo has no engineering validation residual: {stdout4}"
   let (ec5, stdout5, stderr5) ← runCli #["inspect", "cosmwasm"]
   expect (ec5 == 0)
     s!"inspect cosmwasm must exit 0, got {ec5}\n{stderr5}"
@@ -622,8 +630,8 @@ private def testInspectDigests : IO Unit := do
     s!"inspect solana crypto family tag: {stdout6}"
   expect (!containsSubstr stdout6 "cryptoResidual")
     s!"inspect solana has no crypto residual: {stdout6}"
-  expect (!containsSubstr stdout6 "maturityResidual")
-    s!"inspect solana has no maturity residual: {stdout6}"
+  expect (!containsSubstr stdout6 "engineeringValidationResidual")
+    s!"inspect solana has no engineering validation residual: {stdout6}"
   let (ec7, stdout7, stderr7) ← runCli #["inspect", "near"]
   expect (ec7 == 0)
     s!"inspect near must exit 0, got {ec7}\n{stderr7}"
@@ -638,8 +646,8 @@ private def testInspectDigests : IO Unit := do
     s!"inspect near crypto family tag: {stdout7}"
   expect (!containsSubstr stdout7 "cryptoResidual")
     s!"inspect near has no crypto residual: {stdout7}"
-  expect (!containsSubstr stdout7 "maturityResidual")
-    s!"inspect near has no maturity residual: {stdout7}"
+  expect (!containsSubstr stdout7 "engineeringValidationResidual")
+    s!"inspect near has no engineering validation residual: {stdout7}"
   let (ec8, stdout8, stderr8) ← runCli #["inspect", "xrpl"]
   expect (ec8 == 0)
     s!"inspect xrpl must exit 0, got {ec8}\n{stderr8}"
@@ -649,31 +657,39 @@ private def testInspectDigests : IO Unit := do
   expect (containsSubstr stdout8
       "cryptoResidual=sha512-half-not-sha256")
     s!"inspect xrpl crypto residual: {stdout8}"
-  expect (!containsSubstr stdout8 "maturityResidual")
-    s!"inspect xrpl has no maturity residual: {stdout8}"
+  expect (!containsSubstr stdout8 "engineeringValidationResidual")
+    s!"inspect xrpl has no engineering validation residual: {stdout8}"
   let (ec9, stdout9, stderr9) ← runCli #["inspect", "ton"]
   expect (ec9 == 0)
     s!"inspect ton must exit 0, got {ec9}\n{stderr9}"
-  expect (containsSubstr stdout9 "maturity=source-only")
-    s!"inspect ton maturity: {stdout9}"
+  expect (containsSubstr stdout9 "engineeringValidationLabel=source-only")
+    s!"inspect ton engineering validation label: {stdout9}"
   expect (containsSubstr stdout9
-      "maturityResidual=conditional-boc-deployable-vs-source-only-label")
-    s!"inspect ton maturity residual: {stdout9}"
+      "engineeringValidationResidual=conditional-boc-deployable-vs-source-only-label")
+    s!"inspect ton engineering validation residual: {stdout9}"
 
 private def testJsonSurface : IO Unit := do
   let (ec, stdout, stderr) ← runCli #["list-targets", "--json"]
   expect (ec == 0)
     s!"list-targets --json exit, got {ec}\n{stderr}"
   expectCanonicalJson "list-targets" stdout
-  expect (containsSubstr stdout "\"schema\":\"proof-forge.cli.list-targets.v1\"")
+  expect (containsSubstr stdout "\"schema\":\"proof-forge.cli.list-targets.v2\"")
     s!"list-targets schema: {stdout}"
   expect (containsSubstr stdout "\"id\":\"evm\"")
     s!"list-targets must include evm: {stdout}"
+  expect (containsSubstr stdout "\"productScope\":\"accepted-phase1\"")
+    s!"list-targets must distinguish accepted Phase 1: {stdout}"
+  expect (containsSubstr stdout "\"productScope\":\"engineering-extension\"")
+    s!"list-targets must distinguish engineering extensions: {stdout}"
+  expect (containsSubstr stdout "\"maturitySnapshot\":null")
+    s!"list-targets must not infer dynamic maturity: {stdout}"
+  expect (containsSubstr stdout "\"releaseQualification\":\"not-evaluated\"")
+    s!"list-targets must not infer release qualification: {stdout}"
   let (ec2, stdout2, stderr2) ← runCli #["inspect", "evm", "--json"]
   expect (ec2 == 0)
     s!"inspect --json exit, got {ec2}\n{stderr2}"
   expectCanonicalJson "inspect" stdout2
-  expect (containsSubstr stdout2 "\"schema\":\"proof-forge.cli.inspect.v1\"")
+  expect (containsSubstr stdout2 "\"schema\":\"proof-forge.cli.inspect.v2\"")
     s!"inspect schema: {stdout2}"
   expect (containsSubstr stdout2 "\"registryRootDigest\":\"sha256:")
     s!"inspect json digest: {stdout2}"
@@ -696,22 +712,27 @@ private def testJsonSurface : IO Unit := do
       "\"cryptoResidual\":null")
     s!"inspect json evm crypto residual null: {stdout2}"
   expect (containsSubstr stdout2
-      "\"maturityResidual\":null")
-    s!"inspect json evm maturity residual null: {stdout2}"
+      "\"engineeringValidationResidual\":null")
+    s!"inspect json evm engineering validation residual null: {stdout2}"
+  expect (containsSubstr stdout2 "\"maturitySnapshot\":null")
+    s!"inspect json evm dynamic maturity null: {stdout2}"
+  expect (containsSubstr stdout2
+      "\"releaseQualification\":\"not-evaluated\"")
+    s!"inspect json evm release not evaluated: {stdout2}"
   let (ecIcp, stdoutIcp, stderrIcp) ← runCli #["inspect", "icp", "--json"]
   expect (ecIcp == 0)
     s!"inspect icp --json exit, got {ecIcp}\n{stderrIcp}"
   expectCanonicalJson "inspect-icp" stdoutIcp
   expect (containsSubstr stdoutIcp
-      "\"maturityResidual\":\"deployable-wasm-vs-source-only-label\"")
-    s!"inspect json icp maturity residual: {stdoutIcp}"
+      "\"engineeringValidationResidual\":\"deployable-wasm-vs-source-only-label\"")
+    s!"inspect json icp engineering validation residual: {stdoutIcp}"
   let (ecTon, stdoutTon, stderrTon) ← runCli #["inspect", "ton", "--json"]
   expect (ecTon == 0)
     s!"inspect ton --json exit, got {ecTon}\n{stderrTon}"
   expectCanonicalJson "inspect-ton" stdoutTon
   expect (containsSubstr stdoutTon
-      "\"maturityResidual\":\"conditional-boc-deployable-vs-source-only-label\"")
-    s!"inspect json ton maturity residual: {stdoutTon}"
+      "\"engineeringValidationResidual\":\"conditional-boc-deployable-vs-source-only-label\"")
+    s!"inspect json ton engineering validation residual: {stdoutTon}"
   let (ec3, stdout3, stderr3) ← runCli #[
     "check", "Examples/StateCell.lean",
     "--module", "Examples.StateCell", "--json"

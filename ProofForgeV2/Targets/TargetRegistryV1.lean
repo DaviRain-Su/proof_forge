@@ -202,12 +202,44 @@ structure TargetRegistrationDataV1 where
   implemented : Bool
   displayName : String
   acceptanceProfileId : String
-  /-- Inspection/list label only — not a formal maturity snapshot field. -/
-  maturityLabel : String
+  /-- Static engineering validation label only. It is not `TargetMaturity`, a
+      candidate-bound maturity snapshot, or release qualification. -/
+  engineeringValidationLabel : String
   semantics : TargetSemanticsAxesV1
   profiles : Array CodegenProfileId
   defaultProfile : Option CodegenProfileId
   deriving BEq, Repr
+
+/-- Accepted product scope and engineering registry membership are separate
+    axes. The accepted Phase 1 membership is fixed by accepted PRD FR-008;
+    `engineeringExtension` remains buildable without expanding that scope. -/
+inductive TargetProductScopeV1 where
+  | acceptedPhase1
+  | engineeringExtension
+  deriving BEq, DecidableEq, Repr
+
+namespace TargetProductScopeV1
+
+def toWire : TargetProductScopeV1 → String
+  | .acceptedPhase1 => "accepted-phase1"
+  | .engineeringExtension => "engineering-extension"
+
+end TargetProductScopeV1
+
+/-- Availability of the compiler CLI's package-owned `local --target ...`
+    runtime entry point. Availability is not evidence that a run passed. -/
+inductive CompilerLocalRuntimeEntryPointV1 where
+  | available
+  | unavailable
+  deriving BEq, DecidableEq, Repr
+
+namespace CompilerLocalRuntimeEntryPointV1
+
+def toWire : CompilerLocalRuntimeEntryPointV1 → String
+  | .available => "available"
+  | .unavailable => "unavailable"
+
+end CompilerLocalRuntimeEntryPointV1
 
 /-- Validated static registry. Private constructor — use `createTargetRegistryV1`.
     **No** root digest field (wire is not formal registry payload). -/
@@ -233,7 +265,9 @@ structure RegistryTargetInspectionV1 where
   implemented : Bool
   displayName : String
   acceptanceProfileId : String
-  maturityLabel : String
+  engineeringValidationLabel : String
+  productScope : TargetProductScopeV1
+  compilerLocalRuntimeEntryPoint : CompilerLocalRuntimeEntryPointV1
   profiles : Array CodegenProfileId
   defaultProfile : Option CodegenProfileId
   /-- Inspection-only; never product-bound. -/
@@ -275,8 +309,9 @@ def expectedImplementedOfKindV1 : TargetKind → Bool
   | .evm | .solana | .near | .noir | .aleo | .psy | .quint | .cosmwasm | .ton
   | .soroban | .icp | .openvm | .xrpl => true
 
-/-- Closed kind → exact list/describe maturity label. -/
-def expectedMaturityLabelOfKindV1 : TargetKind → String
+/-- Closed kind → exact static engineering validation label. These strings are
+    deliberately not values of the formal `TargetMaturity` enum. -/
+def expectedEngineeringValidationLabelOfKindV1 : TargetKind → String
   | .evm => "runtime-validated-alpha"
   | .solana => "runtime-validated-alpha"
   | .near => "wasm-validated-alpha"
@@ -290,6 +325,20 @@ def expectedMaturityLabelOfKindV1 : TargetKind → String
   | .icp => "source-only"
   | .openvm => "source-only"
   | .xrpl => "source-only"
+
+/-- Accepted PRD Phase 1 membership. This policy does not control engineering
+    build selection; all current registry rows remain independently buildable. -/
+def targetProductScopeOfKindV1 : TargetKind → TargetProductScopeV1
+  | .evm | .solana | .near | .noir => .acceptedPhase1
+  | .aleo | .psy | .quint | .cosmwasm | .ton | .soroban | .icp | .openvm
+  | .xrpl => .engineeringExtension
+
+/-- Package-owned compiler `local` runtime entry-point availability. This is a
+    command-surface fact, not a runtime result or release-evidence grade. -/
+def compilerLocalRuntimeEntryPointOfKindV1 : TargetKind →
+    CompilerLocalRuntimeEntryPointV1
+  | .evm | .solana | .near | .cosmwasm | .ton | .icp => .available
+  | .noir | .aleo | .psy | .quint | .soroban | .openvm | .xrpl => .unavailable
 
 /-- Closed kind → exact acceptance profile id string. -/
 def expectedAcceptanceProfileIdOfKindV1 : TargetKind → String
@@ -361,9 +410,10 @@ def validateRegistrationClosedPolicyV1
   unless reg.implemented == expectedImplementedOfKindV1 reg.kind do
     throw <| .registryInvalid
       s!"implemented flag for '{reg.targetId}' must match closed kind policy"
-  unless reg.maturityLabel == expectedMaturityLabelOfKindV1 reg.kind do
+  unless reg.engineeringValidationLabel ==
+      expectedEngineeringValidationLabelOfKindV1 reg.kind do
     throw <| .registryInvalid
-      s!"maturityLabel for '{reg.targetId}' must match closed kind policy"
+      s!"engineeringValidationLabel for '{reg.targetId}' must match closed kind policy"
   unless reg.displayName == expectedDisplayNameOfKindV1 reg.kind do
     throw <| .registryInvalid
       s!"displayName for '{reg.targetId}' must match closed kind policy"
@@ -622,7 +672,9 @@ def inspectTargetV1 (registry : TargetRegistryV1) (target : TargetId) :
     implemented := reg.implemented
     displayName := reg.displayName
     acceptanceProfileId := reg.acceptanceProfileId
-    maturityLabel := reg.maturityLabel
+    engineeringValidationLabel := reg.engineeringValidationLabel
+    productScope := targetProductScopeOfKindV1 reg.kind
+    compilerLocalRuntimeEntryPoint := compilerLocalRuntimeEntryPointOfKindV1 reg.kind
     profiles := reg.profiles
     defaultProfile := reg.defaultProfile
     engineeringSemanticsDigest := engDig
@@ -701,7 +753,7 @@ def semanticsAxesOfKindV1 : TargetKind → TargetSemanticsAxesV1
     implemented := expectedImplementedOfKindV1 kind
     displayName := expectedDisplayNameOfKindV1 kind
     acceptanceProfileId := expectedAcceptanceProfileIdOfKindV1 kind
-    maturityLabel := expectedMaturityLabelOfKindV1 kind
+    engineeringValidationLabel := expectedEngineeringValidationLabelOfKindV1 kind
     semantics
     profiles
     defaultProfile

@@ -3,7 +3,7 @@ id: SPEC-CLI-001
 title: CLI 契约
 status: proposed
 owner: cli
-updated: 2026-08-20
+updated: 2026-08-21
 normative: true
 ---
 
@@ -90,14 +90,16 @@ negotiation、unknown exact、disabled/revoked 与 non-unique current-major defa
 `PF-LANGUAGE-VERSION-UNKNOWN` / `PF-LANGUAGE-VERSION-DISABLED` / `PF-LANGUAGE-DEFAULT`）。
 **`languageVersion` 永不进入** ProgramV1 `programIdentity` / `sourceHashV1` / `NodeId` preimage。
 `--minimum-evidence` 只接受
-`specified | artifact_validated | local_runtime | network_or_proof_validated`；有效值是
+`specified | artifact_validated | local_runtime | network_or_proof_validated`；目标语义是
 `max(profile.minimumEvidence, cliRequested)`，CLI 不得降低 profile 下限。
 
-**Engineering 诚实边界（D3-E8，2026-08-19）**：当前产品只 parse + preflight 白名单 +
-build JSON 可观测（`minimumEvidenceRequested`、`minimumEvidenceEnforcement:
-parse-only-not-enforced`；`minimumEvidence` 仍为 null）。**不参与** capability resolve、
-support decision、manifest identity 或 exit 4 门禁；不得以成功 build 暗示已达
-`artifact_validated` / `local_runtime` / `network_or_proof_validated`。接线计划见
+**Engineering 诚实边界（D3-E8，2026-08-21）**：evaluator、profile default 与
+candidate-bound evidence 尚未接入产品 build。为避免接受后不执行，当前 parser 保留 closed
+wire whitelist，但任何显式 `--minimum-evidence` 请求都在 source open / resolver / staging 前
+以 usage / exit 2 **fail closed**。未显式请求的成功 build JSON 中
+`minimumEvidenceRequested` 与 `minimumEvidence` 均为 `null`，
+`minimumEvidenceEnforcement="unavailable-fail-closed"`。不得以成功 build 暗示已达
+`specified` / `artifact_validated` / `local_runtime` / `network_or_proof_validated`。接线计划见
 [`docs/plan/d3-e8-minimum-evidence.md`](../plan/d3-e8-minimum-evidence.md)。
 
 `--bindings` 是 build-only、opt-in 的编译期对端绑定表路径（ADR-0053）。只接受
@@ -208,6 +210,13 @@ engineering gate 代签。Noir `prove --inputs` 的 ZK proof 与本 certificatio
 schema、`status:"error"`, `diagnostics:[...]`。不混入日志；输入/输出皆 UTF-8，JSON duplicate
 key 拒绝。human output 不作为稳定 API。当前 in-process `check`/`build` **不**输出
 `receipts`，也不得伪造 `contained` assurance。
+
+`list-targets --format json` 与 `inspect <target> --format json` 使用
+`proof-forge.cli.list-targets.v2` / `proof-forge.cli.inspect.v2`。两者将 development build
+surface、accepted Phase 1 scope、compiler-local runtime 入口与 engineering validation label
+分字段报告；`maturitySnapshot` 为 `null`，`releaseQualification="not-evaluated"`。静态
+engineering label 不是 `TargetMaturity`，不得由它推导 candidate maturity 或 release 资格。
+`inspect <output-dir>` 仍检查 OutputSet，不等同于 target inspection。
 
 若后续恢复 supervised 产品路径，success/failure object 应另含与 `diagnostics` 并列的顶层
 `receipts`，且 assurance class 必须可区分、不得 silent 升格。

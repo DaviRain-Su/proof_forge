@@ -3,7 +3,7 @@ id: SPEC-CLI-DEV-001
 title: Developer CLI `pf` contract
 status: proposed
 owner: cli
-updated: 2026-08-15
+updated: 2026-08-21
 normative: true
 ---
 
@@ -43,7 +43,7 @@ Compiler CLI 契约仍见 [SPEC-CLI-001](cli.md)（`proof-forge-next` only）。
 缺 `PROOF_FORGE_CLI` 时解析顺序：`env` → 与 `pf` 同目录 `proof-forge-next` →
 `$PROOF_FORGE_ROOT/.lake/build/bin/proof-forge-next` → error。
 
-## 3. 命令面（v0 / Aleo-first，cargo-like）
+## 3. 命令面（v0 / multi-target，默认 Aleo，cargo-like）
 
 项目文件：`pf.toml`（`pf new` 生成）。默认 target=`aleo`，默认输出=`build/<target>/`。
 
@@ -70,7 +70,7 @@ pf check
 pf run -- <fn> [inputs...]                 # = local run；默认 build/<target>/
 pf inspect
 pf verify [-t solana] [--artifact DIR] [--adapter transfer-sol-v1]
-pf test   [-t evm|solana|aleo|evm,solana] [--artifact DIR]
+pf test   [-t <target[,target...]>] [--artifact DIR]
 pf deploy [-n testnet|devnet] [--broadcast] [--private-key-env NAME]   # Aleo only
 pf execute [-n …] [--broadcast] -- <fn> [inputs...]
 pf doctor | pf setup [--target …] [--yes] | pf version | pf list-targets
@@ -90,7 +90,7 @@ pf build <source.pf|.lean> --module <Lean.Name> -t aleo -o build/aleo
 | `build` | spawn compiler build；校验 OutputSet 存在 `*.aleo`（aleo） |
 | `local run` | Aleo Wave-B：imports 钉扎 PF bytecode → `leo run --offline` |
 | `verify` | **Solana only（D7a）**：spawn `proof-forge-solana-client verify-artifacts`；offline，无 RPC/wallet/deploy |
-| `test` | 单/多 target（`-t evm,solana`）；EVM Anvil / Solana Mollusk / Aleo leo smoke；统一 report；skip ≠ pass |
+| `test` | 单/多 target；adapter 当前为 EVM/Solana/Aleo/Psy/NEAR/CosmWasm/TON/Noir/Quint；Soroban/ICP/OpenVM/XRPL 是已注册 build target 但无 `pf test` adapter，返回明确 not-implemented；未注册 ID 单独报 unknown；统一 report；skip ≠ pass |
 | `setup` | doctor checklist + 可选 `proof-forge-next install --yes`；打印短路径 next steps |
 | `deploy` | **Aleo** twin+leo save；**EVM/Solana** 默认 save-only package；`--broadcast` 仅 `--network local` |
 | `execute` | 默认 save-only；`leo execute --save`（可 `--skip-execute-proof`） |

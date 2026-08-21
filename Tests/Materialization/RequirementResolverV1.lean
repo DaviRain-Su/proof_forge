@@ -1276,8 +1276,8 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
         s!"inspect must surface EVM crypto family tag, got {text}"
       expect (!hasSubstr text "cryptoResidual")
         "EVM inspect has no official-crypto residual"
-      expect (!hasSubstr text "maturityResidual")
-        "EVM inspect has no maturity residual (label and deployable agree)"
+      expect (!hasSubstr text "engineeringValidationResidual")
+        "EVM inspect has no engineering validation residual"
   | .error e => throw <| IO.userError e.render
   match ProofForgeV2.CLI.inspectTargetText "solana" with
   | .ok text =>
@@ -1532,8 +1532,8 @@ def testInspectCallScheduleHonestySurface : IO Unit := do
         s!"describe must stay three-line without crypto family tag, got {text}"
       expect (!hasSubstr text "cryptoResidual")
         s!"describe must stay three-line without crypto residual, got {text}"
-      expect (!hasSubstr text "maturityResidual")
-        s!"describe must stay three-line without maturity residual, got {text}"
+      expect (!hasSubstr text "engineeringValidationResidual")
+        s!"describe must stay three-line without engineering validation residual, got {text}"
   | .error e => throw <| IO.userError e.render
 
 /-- Closed 13-kind SYS-S4 inspect surface: every implemented target exposes
@@ -1660,29 +1660,29 @@ def testInspectCryptoCatalogHonestySurface : IO Unit := do
               s!"inspect {tid} JSON crypto residual null, got {json}"
     | .error e => throw <| IO.userError e.render
 
-/-- Pins the closed inspect-only maturity residual table. Registry
-    maturityLabel stays source-only for ICP/TON; this tag names the
-    Finalize deployable=true crack without changing the label. -/
-def testMaturityResiduals : IO Unit := do
-  assert! maturityResidualV1 .icp == some "deployable-wasm-vs-source-only-label"
-  assert! maturityResidualV1 .ton ==
+/-- Pins the closed inspect-only engineering validation residual table. The
+    static label stays source-only for ICP/TON; this tag names the Finalize
+    deployable=true crack without changing that engineering label. -/
+def testEngineeringValidationResiduals : IO Unit := do
+  assert! engineeringValidationResidualV1 .icp == some "deployable-wasm-vs-source-only-label"
+  assert! engineeringValidationResidualV1 .ton ==
     some "conditional-boc-deployable-vs-source-only-label"
-  assert! maturityResidualV1 .evm == none
-  assert! maturityResidualV1 .solana == none
-  assert! maturityResidualV1 .near == none
-  assert! maturityResidualV1 .noir == none
-  assert! maturityResidualV1 .aleo == none
-  assert! maturityResidualV1 .psy == none
-  assert! maturityResidualV1 .quint == none
-  assert! maturityResidualV1 .cosmwasm == none
-  assert! maturityResidualV1 .soroban == none
-  assert! maturityResidualV1 .openvm == none
-  assert! maturityResidualV1 .xrpl == none
+  assert! engineeringValidationResidualV1 .evm == none
+  assert! engineeringValidationResidualV1 .solana == none
+  assert! engineeringValidationResidualV1 .near == none
+  assert! engineeringValidationResidualV1 .noir == none
+  assert! engineeringValidationResidualV1 .aleo == none
+  assert! engineeringValidationResidualV1 .psy == none
+  assert! engineeringValidationResidualV1 .quint == none
+  assert! engineeringValidationResidualV1 .cosmwasm == none
+  assert! engineeringValidationResidualV1 .soroban == none
+  assert! engineeringValidationResidualV1 .openvm == none
+  assert! engineeringValidationResidualV1 .xrpl == none
 
-/-- Closed 13-kind inspect surface for the ICP/TON deployable≠label residual.
+/-- Closed 13-kind inspect surface for the ICP/TON deployable≠engineering-label residual.
     Human residual line only when `some`; JSON always (`null` otherwise).
     describe stays three-line exact join. -/
-def testInspectMaturityResidualSurface : IO Unit := do
+def testInspectEngineeringValidationResidualSurface : IO Unit := do
   let needles : Array (String × Option String) := #[
     ("evm", none),
     ("solana", none),
@@ -1702,25 +1702,33 @@ def testInspectMaturityResidualSurface : IO Unit := do
   for (tid, residual) in needles do
     match ProofForgeV2.CLI.inspectTargetText tid with
     | .ok text =>
-        expect (hasSubstr text "maturity=")
-          s!"inspect {tid} still exposes registry maturityLabel, got {text}"
+        expect (hasSubstr text "engineeringValidationLabel=")
+          s!"inspect {tid} must expose the static engineering label, got {text}"
+        expect (hasSubstr text "maturitySnapshot=none")
+          s!"inspect {tid} must not infer a dynamic maturity snapshot, got {text}"
+        expect (hasSubstr text "releaseQualification=not-evaluated")
+          s!"inspect {tid} must not infer release qualification, got {text}"
         match residual with
         | some tag =>
-            expect (hasSubstr text s!"maturityResidual={tag}")
-              s!"inspect {tid} maturity residual tag, got {text}"
+            expect (hasSubstr text s!"engineeringValidationResidual={tag}")
+              s!"inspect {tid} engineering validation residual tag, got {text}"
         | none =>
-            expect (!hasSubstr text "maturityResidual")
-              s!"inspect {tid} must omit maturity residual line, got {text}"
+            expect (!hasSubstr text "engineeringValidationResidual")
+              s!"inspect {tid} must omit engineering validation residual line, got {text}"
     | .error e => throw <| IO.userError e.render
     match ProofForgeV2.CLI.inspectTargetText tid true with
     | .ok json =>
+        expect (hasSubstr json "\"maturitySnapshot\":null")
+          s!"inspect {tid} JSON dynamic maturity must be null, got {json}"
+        expect (hasSubstr json "\"releaseQualification\":\"not-evaluated\"")
+          s!"inspect {tid} JSON release qualification must be not-evaluated, got {json}"
         match residual with
         | some tag =>
-            expect (hasSubstr json s!"\"maturityResidual\":\"{tag}\"")
-              s!"inspect {tid} JSON maturity residual tag, got {json}"
+            expect (hasSubstr json s!"\"engineeringValidationResidual\":\"{tag}\"")
+              s!"inspect {tid} JSON engineering validation residual tag, got {json}"
         | none =>
-            expect (hasSubstr json "\"maturityResidual\":null")
-              s!"inspect {tid} JSON maturity residual null, got {json}"
+            expect (hasSubstr json "\"engineeringValidationResidual\":null")
+              s!"inspect {tid} JSON engineering validation residual null, got {json}"
     | .error e => throw <| IO.userError e.render
 
 private def testDescriptorParityNegatives : IO Unit := do
@@ -1736,7 +1744,7 @@ private def testDescriptorParityNegatives : IO Unit := do
     implemented := true
     displayName := "EVM"
     acceptanceProfileId := "phase1.evm-u64.v1"
-    maturityLabel := "runtime-validated-alpha"
+    engineeringValidationLabel := "runtime-validated-alpha"
     semantics := {
       targetId := TargetId.evm
       executionHost := .evm
@@ -2075,8 +2083,8 @@ unsafe def run : IO Unit := do
   testCryptoCatalogFamilyTags
   testCryptoCatalogResiduals
   testInspectCryptoCatalogHonestySurface
-  testMaturityResiduals
-  testInspectMaturityResidualSurface
+  testEngineeringValidationResiduals
+  testInspectEngineeringValidationResidualSurface
   testDescriptorParityNegatives
   testRequestResolveNegativesOnInspection
   testBackendSupportDefense

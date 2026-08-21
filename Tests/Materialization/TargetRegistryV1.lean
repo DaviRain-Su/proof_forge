@@ -48,6 +48,27 @@ private def testSoleMembershipSource : IO Unit := do
   let expectedIds :=
     #["aleo", "cosmwasm", "evm", "icp", "near", "noir", "openvm", "psy", "quint", "solana", "soroban", "ton", "xrpl"]
   expect (regs.map (·.targetId.toString) == expectedIds) "canonical TargetId order"
+  let acceptedIds := regs.filterMap fun reg =>
+    if targetProductScopeOfKindV1 reg.kind == .acceptedPhase1 then
+      some reg.targetId.toString
+    else
+      none
+  expect (acceptedIds == #["evm", "near", "noir", "solana"])
+    "accepted PRD Phase 1 is exactly EVM/Solana/NEAR/Noir in registry order"
+  let compilerLocalRuntimeIds := regs.filterMap fun reg =>
+    if compilerLocalRuntimeEntryPointOfKindV1 reg.kind == .available then
+      some reg.targetId.toString
+    else
+      none
+  expect (compilerLocalRuntimeIds == #["cosmwasm", "evm", "icp", "near", "solana", "ton"])
+    "compiler local runtime entry point is the exact six-target subset"
+  for reg in regs do
+    let inspection ← liftResult (inspectTargetV1 registry reg.targetId)
+    expect (inspection.productScope == targetProductScopeOfKindV1 reg.kind)
+      s!"inspection product-scope join {reg.targetId}"
+    expect (inspection.compilerLocalRuntimeEntryPoint ==
+        compilerLocalRuntimeEntryPointOfKindV1 reg.kind)
+      s!"inspection compiler-local-runtime join {reg.targetId}"
   -- Product selection binds the same frozen seed.
   for reg in impl do
     let sel ← liftResult <| resolveBuildSelectionV1 reg.targetId none
@@ -201,7 +222,7 @@ private def testDefaultProfileFailClosed : IO Unit := do
     implemented := true
     displayName := "EVM"
     acceptanceProfileId := "phase1.evm-u64.v1"
-    maturityLabel := "runtime-validated-alpha"
+    engineeringValidationLabel := "runtime-validated-alpha"
     semantics := {
       targetId := TargetId.evm
       executionHost := .evm

@@ -63,9 +63,9 @@ open System
 def allRegistrations : CompileResult (Array TargetRegistrationDataV1) :=
   productRegistrations
 
-def maturityLabel (target : TargetId) : CompileResult (Option String) := do
+def engineeringValidationLabel (target : TargetId) : CompileResult (Option String) := do
   let reg? ← registration? target
-  return reg?.map (·.maturityLabel)
+  return reg?.map (·.engineeringValidationLabel)
 
 /-- Engineering descriptor for an implemented kind (shared DescriptorDataV1). -/
 def descriptorForKind? : TargetKind → Option TargetDescriptor :=

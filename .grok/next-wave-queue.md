@@ -321,7 +321,7 @@ Leave these `blocked` / `decision`. Goal must **skip**, not implement.
 | C-3 | formal-blocked | Reference↔Anvil formal; Track A only prepares |
 | B-CALL-SEM | decision | callee deployment-address + cross-chain call honesty |
 | B-COMMIT-ZK | decision | Psy/Noir commitment binding freeze first |
-| D3-E8 | decision | `--minimum-evidence` grade semantics not frozen |
+| D3-E8 | decision | grade semantics not frozen；显式 `--minimum-evidence` 当前 fail closed，不再 parse 后静默通过 |
 | DOC-JUST-CONTROL | decision | restore `release-check` recipe or keep absent |
 | QUINT-2 | decision | Tool Lock + ITF/MBT/verify; no silent product Quint |
 | NS-2 / EXT-CRYPTO | gated | language/crypto catalog not ready |

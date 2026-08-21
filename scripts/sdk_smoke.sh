@@ -33,7 +33,7 @@ export PROOF_FORGE_CLI="$cli"
 echo "sdk-smoke: list-targets via SDK"
 lt="$("${sdk[@]}" list-targets)"
 echo "$lt" | rg -q '"ok": true'
-echo "$lt" | rg -q 'proof-forge.cli.list-targets.v1'
+echo "$lt" | rg -q 'proof-forge.cli.list-targets.v2'
 echo "$lt" | rg -q '"id": "evm"'
 echo "$lt" | rg -q '"id": "quint"'
 

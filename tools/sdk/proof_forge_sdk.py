@@ -7,11 +7,11 @@ Authority: docs/product/01-toolchain-install-surface.md §9.
   contracts). Never reimplements solc/leo/nargo/sbpf/etc.
 - Never invents PATH fallback toolchain tools into ``PROOF_FORGE_TOOL_ROOT``.
 - Never rewrites ``deployable`` maturity.
-- No default network broadcast API (use product CLI ``network --broadcast``).
+- No network broadcast API; the compiler product has no ``network`` command.
 - Success is not formal / hermetic / mainnet / Stage-0 evidence.
 
 Schemas consumed (parse-only; product CLI remains authority):
-  - proof-forge.cli.list-targets.v1
+  - proof-forge.cli.list-targets.v2
   - proof-forge.doctor.v1
   - proof-forge.install.v1
   - proof-forge.output.v1 (on-disk engineering manifest ``schemaVersion``)
@@ -40,7 +40,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Union
 
 SCHEMA_RESULT = "proof-forge.sdk.result.v1"
-SCHEMA_LIST_TARGETS = "proof-forge.cli.list-targets.v1"
+SCHEMA_LIST_TARGETS = "proof-forge.cli.list-targets.v2"
 SCHEMA_DOCTOR = "proof-forge.doctor.v1"
 SCHEMA_INSTALL = "proof-forge.install.v1"
 SCHEMA_OUTPUT = "proof-forge.output.v1"
@@ -62,6 +62,7 @@ IMPLEMENTED_TARGETS = (
     "soroban",
     "icp",
     "openvm",
+    "xrpl",
 )
 DESIGN_ONLY_TARGETS: tuple[str, ...] = ()
 
@@ -609,7 +610,7 @@ class ProofForgeClient:
     ) -> CliResult:
         """Product build. ``source`` must end in ``.pf`` or ``.lean``.
 
-        Rejects network/broadcast (use CLI network --broadcast).
+        Does not accept network/broadcast arguments.
         """
         if target in DESIGN_ONLY_TARGETS:
             return CliResult(
@@ -689,16 +690,19 @@ class ProofForgeClient:
         ton → @ton/sandbox; icp → PocketIC host-optional; each chain keeps its
         sync/async honesty — see ``docs/product/near-sync-async-api.md``).
 
-        For Aleo sandbox, pass ``source`` + ``module`` (generic; no default
-        program). Optional ``runs`` become ``--run`` lines; ``skip_run`` skips
-        leo run. Never accepts network broadcast or raw private keys.
+        Other registered build targets have no compiler-local runtime entry
+        point and fail closed here. Never accepts network broadcast or raw
+        private keys.
         """
-        if target in DESIGN_ONLY_TARGETS:
+        if target not in ("evm", "solana", "near", "cosmwasm", "ton", "icp"):
             return CliResult(
                 ok=False,
                 exit_code=2,
                 command=[],
-                stderr=f"target '{target}' is design-only (unsupported for local)",
+                stderr=(
+                    f"target '{target}' has no compiler-local runtime entry point; "
+                    "local supports evm, solana, near, cosmwasm, ton, and icp"
+                ),
                 error="usage",
             )
         forbidden = []
@@ -724,8 +728,8 @@ class ProofForgeClient:
                 exit_code=2,
                 command=[],
                 stderr=(
-                    "local SDK rejects signer/broadcast args; use product CLI "
-                    "network --broadcast explicitly outside the SDK"
+                    "local SDK rejects signer/broadcast args; use an explicitly "
+                    "authorized developer workflow outside the SDK"
                 ),
                 error="usage",
             )
@@ -975,10 +979,14 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
 
     p_loc = sub.add_parser(
         "local",
-        help="product local (Aleo sandbox: --source/--module; no broadcast)",
+        help="compiler-local package runtime wrapper (no broadcast)",
     )
-    p_loc.add_argument("--target", required=True)
-    p_loc.add_argument("--mode", default=None)
+    p_loc.add_argument(
+        "--target",
+        required=True,
+        choices=("evm", "solana", "near", "cosmwasm", "ton", "icp"),
+    )
+    p_loc.add_argument("--mode", default=None, choices=("runtime",))
     p_loc.add_argument("--source", default=None)
     p_loc.add_argument("--module", default=None)
     p_loc.add_argument(

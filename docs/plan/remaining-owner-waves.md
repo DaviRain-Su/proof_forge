@@ -95,9 +95,11 @@ Does not close formal D2/D4 or C-3.
 
 ## Wave 2 — D3-E8 enforcement
 
-Honesty slice (2026-08-19) already shipped: parse + whitelist +
-`minimumEvidenceEnforcement: parse-only-not-enforced`. Does **not**
-enter resolver / claim / manifest / exit 4.
+Fail-closed honesty slice (2026-08-21) already shipped: parser retains the closed
+wire whitelist, but every explicit request exits 2 before source open / resolver /
+staging because no evaluator exists. Successful builds without the flag report
+`minimumEvidenceEnforcement: unavailable-fail-closed` and null request/effective
+grades. The flag still does **not** enter resolver / claim / manifest / exit 4.
 
 Owner freeze (from the D3-E8 plan):
 

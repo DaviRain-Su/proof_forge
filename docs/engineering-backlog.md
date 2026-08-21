@@ -361,7 +361,7 @@ D1–D4 = 0/27 done。
 | **D3-E5** | CLI 剩余 flag：evidence/resource override 等 SPEC-CLI 面 | **done**（2026-08-02：`--resource-limit`…；`--minimum-evidence` build-only；**2026-08-04**：structural `--proof-bundle*` 产品 flag 已删，sole proof gate = inline certifier；check/build JSON 可观测 `resourceLimits`；非 formal SPEC-CLI） |
 | **D3-E6** | stage supervisor / receipt（compiler-core/tool/output）——与 D1 监督层移除决策协调 | **done**（2026-08-02：**永久进程内** — 不恢复 SafeOpen/supervisor 产品路径；sole Loader 进程内；RES-1 wall 与 RES-1B published-bytes 均进程内，其余 resource producer 仍 pending；见 `RECOVERY.md` D3-E6） |
 | **D3-E7** | artifact 内容绑定与 post-publish inspect closure | **done**（2026-08-03：`ArtifactContentV1` sole walker/stable-read/hash → private canonical inventory；engineering manifest `files` 原子迁为 `role/path/size/contentSha256` descriptor，并绑定 exact evidence UTF-8 `evidenceSha256`；pure OutputSet mint；publisher sidecar 前后 inventory compare + manifest-last closure；`inspect <output-dir>` 重开 artifacts并重走 no-follow/single-link exact disk closure；legacy path-only fail closed；Python validator同构；**仅 stable observation，非 race-free/hermetic/formal OutputSetV1**） |
-| **D3-E8** | `--minimum-evidence` 进入 resolver/claim | **pending（honesty slice 2026-08-19）**：parse + build-only 白名单 + JSON 诚实字段（`minimumEvidenceRequested`、`minimumEvidenceEnforcement: parse-only-not-enforced`；`minimumEvidence` null）；**不**进 resolver/claim/manifest/exit 4；完整接线需 owner 拍 profile default + achieved grade + 失败模式；计划 [`plan/d3-e8-minimum-evidence.md`](plan/d3-e8-minimum-evidence.md) |
+| **D3-E8** | `--minimum-evidence` 进入 resolver/claim | **pending（fail-closed honesty slice 2026-08-21）**：parse + build-only closed whitelist；因 evaluator/profile/candidate evidence 未接线，任何显式请求在 source open/resolver/staging 前 usage/exit 2；成功 build JSON 的 requested/effective 均 null，enforcement=`unavailable-fail-closed`；完整接线仍需 owner 拍 profile default + achieved grade + 失败模式；计划 [`plan/d3-e8-minimum-evidence.md`](plan/d3-e8-minimum-evidence.md) |
 | **D3-E9** | Protocol descriptor axes ↔ TargetRegistry axes 一致性门 | **done**（2026-08-03：`TargetDescriptor` 直接复用 registry-owned `*V1` 六轴；`semanticsAxesOfKindV1` 为 frozen product seed，八个 registry-implemented descriptors（含 CosmWasm/TON Plan/materializer leaf）补 profile/artifact-encoding metadata；`validateDescriptorAxesJoinV1` 在 capability resolve、artifact mint、CLI target inspect 前 exact join；Protocol 重复 axis inductive 物理删除并由 `TargetRegistryV1` suite/deletion gate 固定；**非** formal TargetSemantics payload/digest） |
 
 ---
@@ -459,7 +459,7 @@ D1–D4 = 0/27 done。
 本切片只登记队列；**不**把 ADR-0036/0051 标 `accepted`、**不**改 `semantic-core.md`、
 **不**关 formal 0/27。2026-08-19 owner 继续指令后，**COMP-1-CALL-SEM-LAND**
 第一刀（十三 kind inspect 表面针 + 三项地址 residual 标签 + xrpl 针）已部分落地；
-**COMP-1-SYS-CAP-L2** attachedValue / crypto / maturityResidual inspect
+**COMP-1-SYS-CAP-L2** attachedValue / crypto / engineeringValidationResidual inspect
 与 ecdsa 十二叶第一道门针已部分落地；地址绑定与官方 program catalog 新叶仍 pending。
 
 三条完成轴互不代签：工程 13 叶 ≠ accepted PRD 四目标 ≠ formal/release。
@@ -482,7 +482,7 @@ Cairo / RISC0 / SP1 / Move / 比特币 **不进本队列**。
 | **COMP-1-NORMALIZE-RESIDUAL** | 嵌套穿透赋值 / 更深 pattern / Field·Principal 源字面量（开则十三叶 Lower 或命名 FC） | **partial** — Field/Principal 源字面量 + Bytes 嵌套穿透产品 FC 针；Map 穿透已是 N-NEST-IDX；开放另批 |
 | **COMP-1-TYPEKEY-REST** | TypeKey 剩余 usage-closure → StructureV1（不关 TASK-D2-06） | **partial** — Stage D `usageClosure` 已接线 StructureV1；剩余是 SPEC 匿名 rank 字节序（会打爆 hand-built fixture，须人拍）+ formal |
 | **COMP-1-CALL-SEM-LAND** | resolver/文档/针，再按 COMP-0 做 EVM 地址、Solana 外层账户、CW `contract_addr` | **partial** — 十三 kind inspect 表面针（human+JSON）+ evm/solana/cosmwasm `callScheduleResidual` + ExtFlow/LaterFlow xrpl 针；地址绑定仍 pending |
-| **COMP-1-SYS-CAP-L2** | 官方 program catalog：有 host 一行一叶，无 host 命名 FC | **partial** — SYS-S4 attachedValue inspect + `cryptoHonesty` 十三 kind 闭表 + cw/xrpl/psy residual + ICP/TON `maturityResidual` + XRPL ContextRead/Commit 矩阵 + Targets.lean ecdsa 十二叶第一道门针（EVM-only 叶；与 merkle 同纪律）；新官方叶仍 pending |
+| **COMP-1-SYS-CAP-L2** | 官方 program catalog：有 host 一行一叶，无 host 命名 FC | **partial** — SYS-S4 attachedValue inspect + `cryptoHonesty` 十三 kind 闭表 + cw/xrpl/psy residual + ICP/TON `engineeringValidationResidual` + XRPL ContextRead/Commit 矩阵 + Targets.lean ecdsa 十二叶第一道门针（EVM-only 叶；与 merkle 同纪律）；新官方叶仍 pending |
 | **COMP-1-COMMIT-ZK** | Psy/Noir Commit 设计钉；未冻 binding 前继续 FC | pending |
 | **COMP-1-D3-E8** | evidence grade 语义冻结后再进 resolver | pending |
 
