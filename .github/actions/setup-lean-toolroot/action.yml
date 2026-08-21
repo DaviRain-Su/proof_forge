@@ -42,7 +42,7 @@ runs:
     - name: Cache linux tool root
       id: tool-root-cache
       if: inputs.provision-tool-root == 'true'
-      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
       with:
         path: ${{ inputs.tool-root }}
         key: ${{ runner.os }}-toolroot-${{ hashFiles('toolchains-linux-x86_64.lock.json', 'toolchains.lock.json', 'host-profiles.lock.json', 'host-bootstrap-linux.lock') }}
@@ -64,7 +64,7 @@ runs:
 
     - name: Cache Lake build products
       if: inputs.cache-key-suffix != ''
-      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
       with:
         path: |
           .lake/build

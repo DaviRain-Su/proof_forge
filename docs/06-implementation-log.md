@@ -17126,3 +17126,18 @@ normative: false
   unknown，使 `targets-host-fast` 在测试执行前编译失败。
 - 测试模块现直接声明所消费 fixture 的 owner import；不改 Psy Plan/DPN/product 行为，也不增加
   产品依赖或 fallback。该修复按 focused module、host target shard 与 ordinary CI 验证。
+
+## 2026-08-21 — GitHub Actions Node 24 runtime 迁移
+
+- hosted run `32455055677` 已对 Node 20 action runtime 发出弃用警告，并给出 2027-04-14
+  强制切换与 2027-06-02 失败日期；这不是当前 Lean/target 测试失败，但属于有明确截止日的
+  CI 基础设施风险。
+- 全部 workflow 与共享 composite action 中的 first-party GitHub actions 统一迁到 Node 24
+  release：checkout v7.0.1、cache v6.1.0、upload-artifact v7.0.1、
+  download-artifact v8.0.1、setup-python v7.0.0。所有引用继续使用 immutable 40-hex
+  commit SHA；每个 tag/SHA 经 `git ls-remote` 与 GitHub API 核对，未改第三方 action pin。
+- download-artifact v8 的 digest mismatch 默认改为 error；本项目不覆盖该安全默认值，故跨 job
+  CLI/SDK artifact join 保持 fail closed。workflow inputs、cache keys、artifact names、retention、
+  job dependencies 与产品/正式成熟度均不改变。
+- Verification：action pin 全库 exact/一致性检查、checksum-verified actionlint v1.7.12、
+  `git diff --check` 通过；Node 24 hosted execution 必须由 push 后的新 run 提供最终证据。
