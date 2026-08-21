@@ -225,6 +225,70 @@ def sha256DigestHex (digest : ByteArray) : String :=
 def sha256Hex (input : ByteArray) : String :=
   sha256DigestHex (sha256 input)
 
+private theorem hexDigit_isLowerHex (value : Nat) (bounded : value < 16) :
+    "0123456789abcdef".contains (hexDigit value) = true := by
+  rw [String.contains_char_eq]
+  have cases :
+      value = 0 ∨ value = 1 ∨ value = 2 ∨ value = 3 ∨
+      value = 4 ∨ value = 5 ∨ value = 6 ∨ value = 7 ∨
+      value = 8 ∨ value = 9 ∨ value = 10 ∨ value = 11 ∨
+      value = 12 ∨ value = 13 ∨ value = 14 ∨ value = 15 := by
+    omega
+  rcases cases with h | h | h | h | h | h | h | h |
+    h | h | h | h | h | h | h | h <;> subst value <;> decide
+
+private theorem byteHexDigits_areLowerHex (byte : UInt8) :
+    "0123456789abcdef".contains (hexDigit (byte.toNat / 16)) = true ∧
+    "0123456789abcdef".contains (hexDigit (byte.toNat % 16)) = true := by
+  constructor
+  · apply hexDigit_isLowerHex
+    have byteBound : byte.toNat < 256 := byte.toNat_lt
+    omega
+  · apply hexDigit_isLowerHex
+    exact Nat.mod_lt _ (by decide)
+
+private theorem bytesToHex_length
+    (bytes : ByteArray) (count index : Nat) (output : String) :
+    (bytesToHex bytes count index output).length = output.length + 2 * count := by
+  induction count generalizing index output with
+  | zero => rfl
+  | succ count inductionHypothesis =>
+      simp only [bytesToHex]
+      rw [inductionHypothesis]
+      simp only [String.length_push]
+      omega
+
+private theorem bytesToHex_areLowerHex
+    (bytes : ByteArray) (count index : Nat) (output : String)
+    (outputLowerHex : output.toList.all (fun character =>
+      "0123456789abcdef".contains character) = true) :
+    (bytesToHex bytes count index output).toList.all (fun character =>
+      "0123456789abcdef".contains character) = true := by
+  induction count generalizing index output with
+  | zero => exact outputLowerHex
+  | succ count inductionHypothesis =>
+      simp only [bytesToHex]
+      apply inductionHypothesis
+      rw [String.toList_push, String.toList_push, List.all_append, List.all_append]
+      simp only [outputLowerHex, Bool.true_and, List.all_cons, List.all_nil, Bool.and_true]
+      rw [Bool.and_eq_true]
+      exact byteHexDigits_areLowerHex bytes[index]!
+
+/-- The canonical SHA-256 renderer always emits exactly 64 characters. -/
+theorem sha256Hex_length (input : ByteArray) : (sha256Hex input).length = 64 := by
+  unfold sha256Hex sha256DigestHex
+  rw [bytesToHex_length]
+  decide
+
+/-- Every character emitted by the canonical SHA-256 renderer is lower-case
+    hexadecimal. Consumers can validate prefixes without replaying compression. -/
+theorem sha256Hex_areLowerHex (input : ByteArray) :
+    (sha256Hex input).toList.all (fun character =>
+      "0123456789abcdef".contains character) = true := by
+  unfold sha256Hex sha256DigestHex
+  apply bytesToHex_areLowerHex
+  decide
+
 /-- Proof-carrying bytes-to-SHA-256 identity. The raw digest equation keeps
     expensive block compression separate from the cheap canonical rendering
     equation while both refer to the sole production SHA implementation. -/

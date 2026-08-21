@@ -552,6 +552,49 @@ def instructionDiscriminator (name : String) (params : Array Param) : String :=
   ((Crypto.sha256Hex (discriminatorDomain ++ signature name params).toUTF8).take
     (2 * discriminatorBytes)).copy
 
+/-- Every prefix produced by the sole SHA-256 discriminator renderer satisfies
+    the Plan's structural discriminator contract. This fact is independent of
+    the instruction signature and does not replay SHA-256 compression. -/
+theorem validDiscriminator_sha256Prefix (input : ByteArray) :
+    validDiscriminator ((Crypto.sha256Hex input).take
+      (2 * discriminatorBytes)).copy = true := by
+  generalize hashEq : Crypto.sha256Hex input = digest
+  have digestLength : digest.length = 64 := by
+    rw [← hashEq]
+    exact Crypto.sha256Hex_length input
+  have prefixListLength :
+      (digest.take (2 * discriminatorBytes)).copy.toList.length =
+        2 * discriminatorBytes := by
+    rw [String.toList_copy_take, List.length_take]
+    simp only [String.length_toList, digestLength, discriminatorBytes]
+    decide
+  have prefixLength : (digest.take (2 * discriminatorBytes)).copy.length =
+      2 * discriminatorBytes := by
+    rw [← String.length_toList]
+    exact prefixListLength
+  have digestLowerHex : digest.toList.all (fun character =>
+      "0123456789abcdef".contains character) = true := by
+    rw [← hashEq]
+    exact Crypto.sha256Hex_areLowerHex input
+  have prefixLowerHex :
+      (digest.take (2 * discriminatorBytes)).copy.toList.all
+        (fun character => "0123456789abcdef".contains character) = true := by
+    rw [String.toList_copy_take]
+    rw [List.all_eq_true] at digestLowerHex ⊢
+    intro character member
+    exact digestLowerHex character
+      (List.Sublist.mem member (List.take_sublist _ _))
+  unfold validDiscriminator
+  rw [prefixLength, prefixLowerHex]
+  decide
+
+/-- Production instruction discriminators are structurally valid for every
+    name and ABI parameter list. -/
+theorem instructionDiscriminator_isValid (name : String) (params : Array Param) :
+    validDiscriminator (instructionDiscriminator name params) = true := by
+  unfold instructionDiscriminator
+  exact validDiscriminator_sha256Prefix _
+
 /-- Static-callee program id stub: SHA-256(UTF-8 of target path) as 64 hex
     chars (32 bytes). Target path = all-but-last QN components joined by `.`.
     Deployment must rewrite to a real program id; honesty class matches the

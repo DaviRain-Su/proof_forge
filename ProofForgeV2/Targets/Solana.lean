@@ -25,6 +25,7 @@ import ProofForgeV2.Targets.Solana.SbpfStateCellIncrementOverflowV1
 import ProofForgeV2.Targets.Solana.SbpfStateCellCapabilityV1
 import ProofForgeV2.Targets.Solana.SbpfStateCellPlanV1
 import ProofForgeV2.Targets.Solana.SbpfStateCellPlanCertificateV1
+import ProofForgeV2.Targets.Solana.SbpfStateCellPlanValidationV1
 import ProofForgeV2.Targets.Solana.SbpfStateCellProductionSubjectsV1
 import ProofForgeV2.Targets.Solana.SbpfOptionStateProductionV1
 import ProofForgeV2.Targets.Solana.ProductFrameV1
