@@ -12,6 +12,30 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-21 — ADR-0053 Wave 4 EVM static artifact identity evidence
+
+- 新增 EVM-only build input `--binding-evidence` 与 canonical PF-JCS
+  `proof-forge.call-bind-evidence.v1`。EVM bind row 带 optional `identity` 时 evidence
+  必需；无 identity、非 EVM、`check`、无 `--bindings`、duplicate/missing value 均在
+  product surface fail closed。evidence 必须 exact 覆盖全部且仅全部 identity rows，
+  并独立重复 exact callee/address。
+- evidence 的 safe canonical relative `outputDir` 指向既有 engineering OutputSet。
+  产品复用 `inspectEngineeringOutputDirV1` 完整重验 manifest/evidence identity、exact
+  disk closure、逐文件 raw-byte SHA-256 与 `outputSetDigest`；目录还必须 target=EVM、
+  deployable，且 callee 倒数第二分量等于 `artifactProgramName`。bind identity 的
+  optional source/semantic 与 mandatory published `{artifactProgramName}.bin` raw-file
+  SHA-256（含 publisher 尾随换行）逐项对回；identity metadata 不可自证。
+- identity-bearing EVM rows 经 PF-JCS 排序后以
+  `pf.call-bind.evm-identity.v1` domain digest；digest 进入 EVM Plan encoding /
+  planDigest / caller engineering build identity 与 OutputSet provenance。无 identity
+  时不追加 suffix，历史 Plan bytes 保持；Yul 内容不因 identity evidence 改变。
+- 测试覆盖 canonical evidence parser、presence/coverage、endpoint/output identity 与
+  digest mismatch、unsafe/noncanonical path、完整 OutputSet 成功路径，以及落盘 `.bin`
+  mutation 被逐文件重算捕获。**边界：**这是 caller-supplied static
+  artifact/address attestation；不查 deployment receipt、RPC、block identity、
+  `eth_getCode` / `EXTCODEHASH`，不关闭 B-CALL-SEM、formal/C-3、CREATE/CREATE2、
+  NetworkProfile 或 Solana/CosmWasm identity。
+
 ## 2026-08-21 — ADR-0036 / ADR-0053 acceptance control-plane sync
 
 - owner directive 已接受 ADR-0036 / ADR-0053；两份记录绑定 review commit
@@ -19,10 +43,12 @@ normative: false
   **不是 independent review**。accepted PRD 仍为 EVM / Solana / NEAR / Noir，工程
   registry 仍为 13 implemented + 0 design-only，formal lighthouse 仍 EVM-first。
 - 活控制面已从 ADR governance 切换到 accepted 四目标工程 DoD，顺序为 EVM →
-  Solana → NEAR → Noir。EVM exact endpoint binding 已闭；identity digest verification
-  仍须先冻结 callee artifact / receipt 来源，bind row 不可自证。
+  Solana → NEAR → Noir。EVM exact endpoint 与 static OutputSet/raw `.bin` identity
+  evidence 已闭；deployment receipt / block / code-at-address 来源仍须另行冻结，
+  bind/evidence 两份 caller-supplied input 不可自证链上部署。
 - 不关闭 `B-CALL-SEM`、formal/C-3 或 release：Solana unsupported shapes、其它 target
-  families、target static inspect 与 identity digest 继续 open/FC。验证：
+  families、target static inspect、Solana/CW identity 与 EVM code-at-address 继续
+  open/FC。验证：
   `just docs-check`、`git diff --check`。
 
 ## 2026-08-21 — ADR-0053 Wave 3 Solana outer AccountInfo join

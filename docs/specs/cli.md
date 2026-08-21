@@ -52,7 +52,7 @@ proof-forge-next check <source> --module <lean-module-name> [--language-version 
   [--format human|json]
 proof-forge-next build <source> --module <lean-module-name> --target <id> [--profile <id>]
   [--language-version <semver>] [--minimum-evidence <grade>]
-  [--bindings <path>]
+  [--bindings <path>] [--binding-evidence <path>]
   [--program <qualified>] [--resource-limit <stage>.<field>=<n>]...
   --output <dir> [--force] [--format human|json]
 proof-forge-next inspect <output-dir> [--format human|json]
@@ -122,8 +122,34 @@ residual 仍存在时多一行。
 target `inspect` 仍静态报告 kind 闭表；inspect-output / manifest / evidence
 不加该字段。Solana Wave 3 的 outer role 顺序为既有 roles、bind row source order、
 executable callee program；`cpiSites` 不因 generic call-bind 伪造。identity digest
-metadata 仍 parse-only，不参与 emit/SupportClaim。不把产品 `build` 接到 Anvil /
-wasmd / 任何网络。
+在 Solana/CosmWasm 仍是 parse-only，不参与 emit/SupportClaim。不把产品 `build` 接到
+Anvil / wasmd / 任何网络。
+
+EVM `identity` 不再允许由 bind row 自证。任一 EVM row 带 `identity` 时，build 必须
+同时给 `--binding-evidence <path>`；无 identity row 时该 flag 反而 usage / exit 2。
+evidence 必须是 canonical PF-JCS `proof-forge.call-bind-evidence.v1`：
+
+```json
+{"bindings":[{"address":"0x1111111111111111111111111111111111111111","callee":"Oracle.feed","outputDir":"outputs/Oracle"}],"schema":"proof-forge.call-bind-evidence.v1","target":"evm"}
+```
+
+`bindings` 必须恰好覆盖 bind table 中全部且仅全部 identity-bearing rows；callee 与
+address 必须在两输入间 exact 相等，`outputDir` 必须是 evidence 文件父目录下的
+canonical safe relative path。每个目录先经 `inspectEngineeringOutputDirV1` 完整验证：
+EVM target、deployable、manifest/evidence identity、exact disk closure、逐文件 raw-byte
+SHA-256 与 `outputSetDigest` 重算。随后 `sourceHash` / `semanticHash`（若在 identity
+中出现）与 output manifest 比较；`artifactSha256` 对 EVM identity 必填，精确定义为
+published `{artifactProgramName}.bin` 文件原始 bytes 的 SHA-256（包含 publisher
+尾随换行），不是 decoded bytecode 或 Yul。callee 的倒数第二个分量必须等于
+`artifactProgramName`。
+
+通过验证的 identity-bearing rows 以 domain `pf.call-bind.evm-identity.v1` canonical
+digest 进入 EVM Plan / plan digest / caller OutputSet provenance；identity-less table
+不追加 Plan bytes，保持历史 encoding。evidence 文件与 callee OutputSet 本身不复制进
+caller output。该机制是 caller-supplied static artifact/address attestation；CLI 不查
+deployment receipt、RPC、`eth_getCode` 或 `EXTCODEHASH`，所以**不证明链上
+code-at-address**。`--binding-evidence` 是 EVM-only；`check`、非 EVM target 以及没有
+`--bindings` 的调用都拒绝。
 
 `--resource-limit` 是 repeatable、逐 stage/field 的 lower-only override。CLI 名称固定映射到
 SPEC-COMMON-001，不创建第二套 resource profile：

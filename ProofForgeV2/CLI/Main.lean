@@ -46,7 +46,7 @@ private def usage : String :=
   "  proof-forge-next inspect <output-dir> [--json]\n" ++
   "  proof-forge-next inspect --output-dir <dir> [--json]\n" ++
   "  proof-forge-next check <source.pf|.lean> --module <Lean.Name> [--root <dir>] [--program <Name>] [--target <target>] [--profile <id>] [--language-version <semver>] [--resource-limit <stage>.<field>=<n>]... [--json]\n" ++
-  "  proof-forge-next build <source.pf|.lean> --module <Lean.Name> --target <target> [-o <dir>] [--program <Name>] [--root <dir>] [--profile <id>] [--language-version <semver>] [--minimum-evidence <grade>] [--bindings <path>] [--resource-limit <stage>.<field>=<n>]... [--json]\n" ++
+  "  proof-forge-next build <source.pf|.lean> --module <Lean.Name> --target <target> [-o <dir>] [--program <Name>] [--root <dir>] [--profile <id>] [--language-version <semver>] [--minimum-evidence <grade>] [--bindings <path>] [--binding-evidence <path>] [--resource-limit <stage>.<field>=<n>]... [--json]\n" ++
   "\n" ++
   "Notes:\n" ++
   "  version / --version prints engineering product identity (not formal Stage-0 release).\n" ++
@@ -55,6 +55,7 @@ private def usage : String :=
   "  --resource-limit is lower-only; check rejects external-tool/artifact-output; only wall-ms and build artifact-output.published-bytes are enforced in-process (RES-1 / output-only RES-1B); memory-bytes/processes/protocol-bytes/stderr-bytes are rejected at preflight (no in-process producer).\n" ++
   "  --minimum-evidence recognizes specified|artifact_validated|local_runtime|network_or_proof_validated but currently rejects every explicit request until candidate-bound evidence evaluation is implemented.\n" ++
   "  --bindings is build-only (evm|solana|cosmwasm); Wave 2 threads proof-forge.call-bind.v1 into emit (missing generic-call row fail closed; no flag keeps hashed QN / QN stubs).\n" ++
+  "  EVM identity-bearing bind rows require --binding-evidence proof-forge.call-bind-evidence.v1; each row maps the same callee/address to a deployable inspected engineering output directory. Static artifact verification only: no code-at-address query.\n" ++
   "  --json emits deterministic PF-JCS on stdout for list-targets/inspect/check/build;\n" ++
   "    version --json emits proof-forge.cli.version.v1;\n" ++
   "    doctor --json emits proof-forge.doctor.v1 (Tool Lock health + exact-set closure under PROOF_FORGE_TOOL_ROOT);\n" ++
@@ -330,6 +331,35 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
           match decodeCallBindTableForTargetV1 text target with
           | .ok table => pure (some table)
           | .error msg => failUsage msg
+  -- Identity values in --bindings are expectations, never their own proof.
+  -- EVM identity-bearing rows require a separate canonical evidence document;
+  -- Solana/CosmWasm identity metadata remains outside this slice.
+  let bindingEvidence ← match bindingsTable, options.bindingEvidence, options.target with
+  | none, none, _ =>
+      pure (none : Option (EvmCallBindEvidenceV1 × FilePath))
+  | none, some _, _ => failUsage "--binding-evidence requires --bindings"
+  | some table, none, some target =>
+      if target == TargetId.evm && hasIdentityRowsV1 table then
+        failUsage "EVM identity-bearing --bindings rows require --binding-evidence"
+      else
+        pure none
+  | some table, some evidencePath, some target =>
+      unless target == TargetId.evm do
+        failUsage "--binding-evidence is only accepted with --target evm"
+      unless hasIdentityRowsV1 table do
+        failUsage "--binding-evidence requires at least one identity-bearing EVM bind row"
+      let evidenceFile := FilePath.mk evidencePath
+      let text ←
+        try IO.FS.readFile evidenceFile
+        catch _ => failUsage s!"--binding-evidence could not read '{evidencePath}'"
+      let evidence ← match parseEvmCallBindEvidenceV1 text with
+        | .ok value => pure value
+        | .error message => failUsage message
+      match validateEvmCallBindEvidenceShapeV1 table evidence with
+      | .ok () => pure ()
+      | .error message => failUsage message
+      pure (some (evidence, evidenceFile.parent.getD "."))
+  | some _, _, none => failUsage "--binding-evidence requires --target evm"
   let _languageVersion ← resolveLanguageVersionForCli options.languageVersion
   let source ← match options.source with
     | some source => pure source
@@ -363,6 +393,10 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
             else
               pure ordinaryCapability
         | .notRequired => pure ordinaryCapability
+      match bindingsTable, bindingEvidence with
+      | some table, some (evidence, evidenceBaseDir) =>
+          verifyEvmCallBindEvidenceV1 table evidence evidenceBaseDir
+      | _, _ => pure ()
       let requestedOutput := FilePath.mk (options.output.getD "build/v2")
       let outputPath :=
         if requestedOutput.isAbsolute then requestedOutput else root / requestedOutput

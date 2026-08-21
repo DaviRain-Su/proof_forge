@@ -3,14 +3,16 @@ id: PLAN-EVM-CALL-ADDR-GAP
 title: EVM static-QN hashed address vs deployment-address binding
 status: draft
 owner: engineering
-updated: 2026-08-20
+updated: 2026-08-21
 normative: false
 ---
 
 # EVM-CALL-ADDR-GAP：hashed QN ≠ 部署地址
 
 > Engineering inventory. Wave 2a changed generic void CALL (empty-account
-> `extcodesize` fail closed). Still does **not** close `B-CALL-SEM`,
+> `extcodesize` fail closed); Wave 4 validates optional identity against a
+> static engineering output directory. Still does **not** validate on-chain
+> code-at-address or close `B-CALL-SEM`,
 > formal TASK/TST, C-3, Anvil lossless, accepted-PRD expansion, or
 > CREATE/CREATE2 binding. Does **not** invent a new `TASK-*`.
 
@@ -81,9 +83,13 @@ closed:
    binding exists.
 2. **Which EVM address it is** — CREATE, CREATE2 (initcode+salt), or a
    pre-placed Anvil/`cast` address. Those three are not interchangeable.
-3. **Identity join** — callee `sourceHash` / `semanticHash` / artifact
-   digest must equal the code at that address. A bare hex in Yul is not a
-   join.
+3. **Identity join** — **static half done (Wave 4):** an independent canonical
+   evidence document maps exact callee/address to a fully inspected EVM
+   engineering output; optional source/semantic and mandatory raw published
+   `.bin` SHA-256 expectations are rechecked, and the expected identity table
+   digest enters Plan/build/OutputSet provenance. **Deployment half open:** no
+   receipt/RPC/block identity/code-at-address observation proves those `.bin`
+   bytes are currently at the endpoint. A bare hex in Yul remains insufficient.
 4. **Product `build` vs test-only** — product materialize must not start
    consuming Anvil placement. Tests may place code at the hashed address
    without claiming binding.
@@ -102,13 +108,16 @@ Do **not** treat Principal storage, `context.caller` / `context.self`
 2. **Inspect residual** — **done 2026-08-19**: product `inspect` /
    `inspect --json` surfaces `callScheduleResidual=hashed-qn-no-deploy-bind`
    (inspect-only; not SupportClaim). Still not a deployment binding.
-3. **B-CALL-SEM binding** (decision, skip): versioned address table +
-   identity join. Do not start from Goal/drain.
+3. **B-CALL-SEM binding** — endpoint table and static artifact identity are
+   done (ADR-0053 Wave 2/4). The remaining deployment-address join must first
+   freeze receipt/block/code-at-address evidence; do not infer it from static
+   evidence and do not start from Goal/drain.
 4. Sparse Solana 55-step certificates for initialize / increment / overflow
    stay later and are not this EVM leaf.
 
 ## Non-claims
 
-Not `B-CALL-SEM` closed. Not CREATE/CREATE2. Not Anvil callee placement.
-Not a second call semantics. Not formal D4 / C-3. Not accepted-PRD
-expansion. Not an emitter or capability change.
+Not `B-CALL-SEM` closed. Not CREATE/CREATE2. Not Anvil callee placement or
+on-chain code-at-address validation. Not a second call semantics. Not formal
+D4 / C-3. Not accepted-PRD expansion. Wave 4 changes Plan/provenance and CLI
+prepublication validation, not emitted Yul or capability claims.

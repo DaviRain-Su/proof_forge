@@ -61,6 +61,7 @@ namespace ProofForgeV2.Targets.Evm
 
 open ProofForgeV2
 open ProofForgeV2.Compiler
+open ProofForgeV2.Core.Common
 open ProofForgeV2.Core.RequirementIdsV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.DescriptorDataV1
@@ -543,6 +544,11 @@ structure Plan where
   /-- When true, Map state uses hashed storage (1 base slot per Map; entries at
       keccak256). Product EVM profiles always set true. -/
   hashedMapStorage : Bool := false
+  /-- Canonical expected identity digest for identity-bearing EVM call-bind
+      rows. `none` preserves historical Plan bytes. Product CLI independently
+      validates those expectations against deployable engineering outputs;
+      this field does not claim code-at-address observation. -/
+  callBindIdentityDigest : Option Digest := none
   deriving BEq, Inhabited, Repr
 private def planError (message : String) : CompileResult α :=
   .error <| .planInvariant .evm message
@@ -5698,6 +5704,9 @@ private def bindPlanCallsV1
   match CallBindV1.requireCompatibleTarget table TargetId.evm with
   | .error message => throw <| .planInvariant .evm message
   | .ok () => pure ()
+  let callBindIdentityDigest ← match CallBindV1.evmIdentityDigestV1 table with
+    | .ok digest => pure digest
+    | .error message => throw <| .planInvariant .evm message
   let constructor ← match plan.constructor with
     | none => pure none
     | some value =>
@@ -5706,7 +5715,7 @@ private def bindPlanCallsV1
     pure { entry with body := ← entry.body.mapM (bindStatementCallsV1 table) }
   let fns ← plan.fns.mapM fun fn => do
     pure { fn with body := ← fn.body.mapM (bindStatementCallsV1 table) }
-  pure { plan with constructor, entries, fns }
+  pure { plan with constructor, entries, fns, callBindIdentityDigest }
 
 /-- Internal Evm family phase entry: capability → Plan (pre-canonicity). -/
 def materializePlanFromCapabilityV1

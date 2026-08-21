@@ -54,6 +54,13 @@ private def encodeString (value : String) : Except String ByteArray := do
   let header ← encodeNatAsU32le raw.size
   pure (header.append raw)
 
+private def encodeDigestWire (label : String) (digest : Digest) :
+    Except String ByteArray := do
+  match validateDigest digest with
+  | .ok () => pure ()
+  | .error error => throw s!"evm plan {label} digest is invalid: {error}"
+  encodeString (← renderDigest digest)
+
 private def encodeBool (value : Bool) : ByteArray :=
   encodeU8 (if value then 1 else 0)
 
@@ -573,7 +580,10 @@ private def encodeFnBinding (f : FnBinding) : Except String ByteArray := do
 /-- Canonical engineering EVM Plan preimage bytes.
 
     Layout: objectName, runtimeObjectName, storageLayout[], events[], errors[],
-    constructor option, entries[], fns[], hashedMapStorage bool — length-framed, LE u32, closed Expr/Stmt tags.
+    constructor option, entries[], fns[], hashedMapStorage bool, then an
+    optional identity-bearing call-bind suffix — length-framed, LE u32, closed
+    Expr/Stmt tags. The suffix is absent for `none`, preserving historical Plan
+    bytes; present form is `0x01 || String(renderDigest(identityDigest))`.
 -/
 def encodeEngineeringEvmPlanBytesV1 (plan : Plan) : Except String ByteArray := do
   let mut out := ByteArray.empty
@@ -596,6 +606,13 @@ def encodeEngineeringEvmPlanBytesV1 (plan : Plan) : Except String ByteArray := d
   for f in plan.fns do out := out.append (← encodeFnBinding f)
   -- Hashed-Map storage flag (appended; historical dense plans encode false=0x00).
   out := out.append (encodeBool plan.hashedMapStorage)
+  -- Optional CALL-BIND identity suffix. Absence appends no byte so every
+  -- identity-less historical Plan remains byte-identical.
+  match plan.callBindIdentityDigest with
+  | none => pure ()
+  | some digest =>
+      out := out.append (encodeU8 1)
+      out := out.append (← encodeDigestWire "call-bind identity" digest)
   pure out
 
 def engineeringEvmPlanDigestV1 (plan : Plan) : Except String Digest := do

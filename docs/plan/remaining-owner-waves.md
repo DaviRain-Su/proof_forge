@@ -19,7 +19,7 @@ override).
 Live checkpoint this plan assumes (2026-08-21): Goal queue empty;
 CAP-1a…5 / CAP-X-BYTES / CAP-X-MERKLE / honesty-boundary wave done;
 registry **13 implemented + 0 design-only / 17 resolver rows**;
-formal D1–D4 = **0/27**; ADR-0053 Wave 1–3 engineering DoD is green;
+formal D1–D4 = **0/27**; ADR-0053 Wave 1–4 engineering DoD is green;
 ADR-0036 / 0053 acceptance records bind review commit
 `239e335ac4272f7b292eb87c913e46c8c805c0b9` with no open findings.
 
@@ -44,7 +44,7 @@ No product-behavior change except honesty of status fields.
 |---|---|---|---|
 | **ADR-0051** | Accept as written | One SPEC-SEM-001 text revision (`ExternalResponseV1.returnValue?`; schedule stays void). No code. | Close TST-SEM-002; decide EVM address binding |
 | **ADR-0036** | **Accepted 2026-08-21** with live count **13+0** | accepted PRD stays four targets; formal lighthouse stays EVM-first | Expand accepted PRD; mark D1–D4 done |
-| **ADR-0053** | **Accepted 2026-08-21** with its explicit Wave 3 support boundary | identity digests remain parse-only and unsupported Solana shapes FC | Read runtime green as C-3/formal/release; close all B-CALL-SEM |
+| **ADR-0053** | **Accepted 2026-08-21**；Wave 1–4 engineering boundary 已落地 | EVM static identity 不冒充 code-at-address；Solana/CW identity 与 unsupported Solana shapes FC | Read runtime green as C-3/formal/release; close all B-CALL-SEM |
 | **ADR-0052** | Accept as written | SHA keep-FC stays; TIME/CALLER symbols frozen | Open Plan/IR/Emit leaves (Wave 6) |
 | **DOC-JUST-CONTROL** | Keep recipes absent | Current “不可执行” honesty stays | Fake `just governance-check` / `release-check` |
 | **Hash endian** (`sha256*` UInt256) | Document target-local integer interpretation | EVM BE-word vs Solana/NEAR LE-image pins stay | Flip emitters in this wave |
@@ -91,20 +91,31 @@ positive/negative/rollback suite. The supported program residual is
 generic result-bearing forms remain FC or retain
 `callee-identity-outer-account-open`.
 
+**Wave 4 (engineering done 2026-08-21):** EVM optional identity is no longer
+parse-only. An identity-bearing row requires EVM-only canonical
+`proof-forge.call-bind-evidence.v1` / `--binding-evidence`; each row maps exact
+callee/address to a deployable EVM engineering output directory. Product
+validation rechecks sidecars, per-file SHA-256, exact disk closure and
+`outputSetDigest`, then compares optional source/semantic and mandatory raw
+published `.bin` SHA-256. The expected identity-table digest enters EVM Plan /
+planDigest / caller OutputSet provenance; no identity keeps historical Plan
+bytes. This is static artifact/address attestation, not deployment receipt /
+RPC / code-at-address validation.
+
 Open remainder: resolver support keys must not be read as
-“cross-platform call done.” Identity digest metadata is still parse-only;
-target inspect residual stays static; EVM/CW no-table stubs and all
-unsupported target families retain their documented boundaries.
+“cross-platform call done.” EVM on-chain code-at-address, Solana/CosmWasm
+identity, target inspect residual, EVM/CW no-table stubs and all unsupported
+target families retain their documented boundaries.
 
 ### Decisions (inventory 2026-08-16 + evm-call-addr-gap §3)
 
 Recommended conservative honesty:
 
-1. **EVM callee binding** — ADR-0053 已选择并交付 compile-time versioned table；有表用 exact pre-placed 20-byte address，endpoint 进入 EVM Plan/digest/build identity；无表继续 historical Plan tags 与 hashed-QN stub，有表缺行 FC。Product `build` 不消费 Anvil placement；CREATE/CREATE2/NetworkProfile 不混入。identity digest vs code-at-address 仍未验证。Empty-account void CALL 由 Wave 2a `extcodesize` fail closed。
+1. **EVM callee binding** — ADR-0053 已选择并交付 compile-time versioned table；有表用 exact pre-placed 20-byte address，endpoint 进入 EVM Plan/digest/build identity；无表继续 historical Plan tags 与 hashed-QN stub，有表缺行 FC。Wave 4 已将 optional identity 对到完整重验的 static EVM OutputSet 和 raw `.bin` digest。Product `build` 仍不消费 Anvil placement，且未做 receipt/RPC/code-at-address join；CREATE/CREATE2/NetworkProfile 不混入。Empty-account void CALL 由 Wave 2a `extcodesize` fail closed。
 2. **EVM `schedule` spelling** — same-tx fire-and-forget must not keep advertising `effect.asynchronous-workflow` without a distinct caveat.
 3. **EVM returndata residual** — Bool / Int / Bytes stay FC.
-4. **Solana product CPI** — Wave 3 closes the exact outer AccountInfo join only for its stated product subset; async, generic result-bearing, empty-row/state, multi-callee, mixed frozen-site, and identity-digest verification stay FC/open.
-5. **CosmWasm** — ADR-0053 已令有表的 `SubMsg.contract_addr` 使用 exact row；无表 QN stub 不变。bech32 与 identity digest verification 仍 open。
+4. **Solana product CPI** — Wave 3 closes the exact outer AccountInfo join only for its stated product subset; async, generic result-bearing, empty-row/state, multi-callee, mixed frozen-site, and Solana identity verification stay FC/open.
+5. **CosmWasm** — ADR-0053 已令有表的 `SubMsg.contract_addr` 使用 exact row；无表 QN stub 不变。bech32 与 CosmWasm identity verification 仍 open。
 6. **Noir** — keep witness-binding only; result-bearing FC until a response-witness contract exists.
 7. **NEAR / TON / ICP / Psy / Aleo / Soroban / OpenVM / Quint** — keep current per-target honesty (no silent expansion).
 8. **ADR-0029** portable branch stays proposed; accepting it does not close B-CALL-SEM.
@@ -114,9 +125,10 @@ Recommended conservative honesty:
 ### After the pick
 
 ADR-0036 / 0053 approval record 已完成；当前进入 accepted four-target engineering DoD。
-若后续扩大 call-bind，只能在 identity digest verification 或已列 Solana unsupported
-shape 中一次选一项，不能据支持子集声称 cross-platform call complete。Does not close
-formal D2/D4 or C-3.
+若后续扩大 call-bind，只能在「EVM deployment receipt / block / code-at-address evidence」
+或已列 Solana unsupported shape 中经 owner 决策一次选一项；不得把 Wave 4 static
+artifact evidence 写成链上 deployment join，也不能据支持子集声称 cross-platform
+call complete。Does not close formal D2/D4 or C-3.
 
 ---
 

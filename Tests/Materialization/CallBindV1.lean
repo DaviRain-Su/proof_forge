@@ -1,5 +1,5 @@
 /-
-  Tests.Materialization.CallBindV1 — ADR-0053 Wave 1 parser + Wave 2 emit.
+  Tests.Materialization.CallBindV1 — ADR-0053 Wave 1–4 engineering slices.
 
   Pure parse of `proof-forge.call-bind.v1`, `--bindings` preflight, and
   three-leaf emit consume (missing row fail closed; bound address appears
@@ -8,7 +8,9 @@
   Wave 2b pins Solana compile-time AccountMeta (nonempty accounts).
   Wave 2c pins program-level callScheduleResidual (build only; target
   inspect stays the closed kind table). Wave 3 pins Solana bound-account
-  outer AccountInfo join. Not formal / C-3.
+  outer AccountInfo join. Wave 4 pins EVM static engineering OutputSet/raw
+  `.bin` identity evidence and Plan provenance. Not code-at-address, formal,
+  or C-3.
 -/
 import ProofForgeV2.CLI.Emit
 import ProofForgeV2.Compiler.Pipeline
@@ -49,6 +51,11 @@ private def expectOk (label : String) (r : Except String α) : IO α :=
   | .ok v => pure v
   | .error msg => throw <| IO.userError s!"{label}: unexpected error: {msg}"
 
+private def expectCompile (label : String) (r : CompileResult α) : IO α :=
+  match r with
+  | .ok v => pure v
+  | .error error => throw <| IO.userError s!"{label}: unexpected error: {error.render}"
+
 private def expectErr (label : String) (r : Except String α) (needle : String) : IO Unit :=
   match r with
   | .ok _ => throw <| IO.userError s!"{label}: expected error containing '{needle}'"
@@ -68,6 +75,20 @@ private def evmDoc (bindings : Array PfJson) : PfJson :=
   .object #[
     ("bindings", .array bindings),
     ("schema", .string schemaIdV1),
+    ("target", .string "evm")
+  ]
+
+private def evmEvidenceBinding (callee address outputDir : String) : PfJson :=
+  .object #[
+    ("address", .string address),
+    ("callee", .string callee),
+    ("outputDir", .string outputDir)
+  ]
+
+private def evmEvidenceDoc (bindings : Array PfJson) : PfJson :=
+  .object #[
+    ("bindings", .array bindings),
+    ("schema", .string evmCallBindEvidenceSchemaV1),
     ("target", .string "evm")
   ]
 
@@ -108,6 +129,9 @@ private def ones20 : String := "0x" ++ String.ofList (List.replicate 40 '1')
 private def zero32 : String := String.ofList (List.replicate 64 '0')
 private def ones32 : String := String.ofList (List.replicate 64 '1')
 private def digest0 : String := "sha256:" ++ String.ofList (List.replicate 64 '0')
+private def digest1 : String := "sha256:" ++ String.ofList (List.replicate 64 '1')
+private def bareDigest0 : String := String.ofList (List.replicate 64 '0')
+private def bareDigest1 : String := String.ofList (List.replicate 64 '1')
 
 private def expectBuildOpts (label : String) (args : List String) : IO BuildOptions :=
   expectOk label (parseBuildArgsExcept args)
@@ -123,6 +147,40 @@ private def expectResidual
       expect (tag == expected)
         s!"{label}: residual {repr tag} ≠ {repr expected}"
   | .error msg => throw <| IO.userError s!"{label}: {msg}"
+
+/-- Publish a canonical engineering OutputSet fixture without invoking solc.
+    The product mints, scanners, sidecar renderers, and inspector remain real;
+    only the test bytecode payload is synthetic. -/
+private def publishEvmEvidenceFixture
+    (capability : Targets.ResolvedEngineeringBuildV1)
+    (artifacts : MaterializedArtifactsV1)
+    (outputDir : System.FilePath) : IO InspectedOutputManifestV1 := do
+  if ← outputDir.pathExists then IO.FS.removeDirAll outputDir
+  IO.FS.createDirAll outputDir
+  for file in MaterializedArtifactsV1.filesOf artifacts do
+    let path := outputDir / file.path
+    if let some parent := path.parent then
+      IO.FS.createDirAll parent
+    IO.FS.writeFile path file.contents
+  let programName := MaterializedArtifactsV1.artifactProgramNameOf artifacts
+  let binPath := programName ++ ".bin"
+  IO.FS.writeFile (outputDir / binPath) "60006000f3\n"
+  let finalized ← expectCompile "mint EVM evidence fixture finalization"
+    (mintFinalizedArtifactsV1 capability artifacts {
+      deployable := true
+      extraFiles := #[binPath]
+      evidenceNote := "test-only synthetic EVM bytecode fixture"
+    })
+  let inventory ← scanEngineeringArtifactContentOnlyV1 finalized outputDir
+  let outputSet ← expectCompile "mint EVM evidence fixture OutputSet"
+    (mintEngineeringOutputSetV1 finalized inventory)
+  let evidenceText ← expectOk "render EVM evidence fixture evidence"
+    (renderEngineeringOutputSetEvidenceV1 outputSet)
+  let manifestText ← expectOk "render EVM evidence fixture manifest"
+    (renderEngineeringOutputSetManifestV1 outputSet)
+  IO.FS.writeFile (outputDir / evidenceSidecarNameV1) evidenceText
+  IO.FS.writeFile (outputDir / manifestSidecarNameV1) manifestText
+  inspectEngineeringOutputDirV1 outputDir
 
 unsafe def run : IO Unit := do
   -- Canonical empty table (all three targets).
@@ -199,6 +257,178 @@ unsafe def run : IO Unit := do
           expect id.semanticHash.isNone "semanticHash omitted"
           expect id.artifactSha256.isNone "artifactSha256 omitted"
       | none => throw <| IO.userError "identity object must parse"
+
+  -- EVM identity evidence is an independent PF-JCS document. Every identity
+  -- row must be artifact-byte anchored; source-only metadata cannot self-prove.
+  let sourceOnlyEvidenceText ← liftJcs "source-only-evidence"
+    (evmEvidenceDoc #[evmEvidenceBinding "Feed.push" ones20 "outputs/Feed"])
+  let sourceOnlyEvidence ← expectOk "source-only-evidence"
+    (parseEvmCallBindEvidenceV1 sourceOnlyEvidenceText)
+  expectErr "source-only identity has no artifact anchor"
+    (validateEvmCallBindEvidenceShapeV1 idTable sourceOnlyEvidence)
+    "must include artifactSha256"
+
+  let fullIdDoc := evmDoc #[.object #[
+    ("address", .string ones20),
+    ("callee", .string "Feed.push"),
+    ("identity", .object #[
+      ("artifactSha256", .string digest0),
+      ("semanticHash", .string digest0),
+      ("sourceHash", .string digest0)])
+  ]]
+  let fullIdTable ← expectOk "full identity"
+    (parseCallBindTableV1 (← liftJcs "full identity" fullIdDoc))
+  let evidence ← expectOk "full evidence"
+    (parseEvmCallBindEvidenceV1 sourceOnlyEvidenceText)
+  let _ ← expectOk "full evidence shape"
+    (validateEvmCallBindEvidenceShapeV1 fullIdTable evidence)
+  expectErr "binding evidence wrong schema"
+    (parseEvmCallBindEvidenceV1 (← liftJcs "binding evidence wrong schema"
+      (.object #[
+        ("bindings", .array #[]),
+        ("schema", .string "proof-forge.call-bind-evidence.v0"),
+        ("target", .string "evm")])))
+    "schema must be"
+  expectErr "binding evidence wrong target"
+    (parseEvmCallBindEvidenceV1 (← liftJcs "binding evidence wrong target"
+      (.object #[
+        ("bindings", .array #[]),
+        ("schema", .string evmCallBindEvidenceSchemaV1),
+        ("target", .string "solana")])))
+    "target must be 'evm'"
+  expectErr "duplicate binding evidence callee"
+    (parseEvmCallBindEvidenceV1 (← liftJcs "duplicate binding evidence callee"
+      (evmEvidenceDoc #[
+        evmEvidenceBinding "Feed.push" ones20 "outputs/Feed",
+        evmEvidenceBinding "Feed.push" ones20 "outputs/Feed"])))
+    "duplicate binding evidence callee"
+  let wrongCalleeEvidence ← expectOk "wrong evidence callee"
+    (parseEvmCallBindEvidenceV1 (← liftJcs "wrong evidence callee"
+      (evmEvidenceDoc #[evmEvidenceBinding "Other.push" ones20 "outputs/Other"])))
+  expectErr "evidence callee mismatch"
+    (validateEvmCallBindEvidenceShapeV1 fullIdTable wrongCalleeEvidence)
+    "has no row"
+  let identityDigest ← expectOk "identity Plan digest"
+    (evmIdentityDigestV1 fullIdTable)
+  expect identityDigest.isSome "identity-bearing table must have an identity digest"
+  let noIdentityDigest ← expectOk "identity-less Plan digest"
+    (evmIdentityDigestV1 evmTable)
+  expect noIdentityDigest.isNone
+    "identity-less table must preserve historical Plan bytes"
+  let changedIdDoc := evmDoc #[.object #[
+    ("address", .string ones20),
+    ("callee", .string "Feed.push"),
+    ("identity", .object #[
+      ("artifactSha256", .string digest1),
+      ("semanticHash", .string digest0),
+      ("sourceHash", .string digest0)])
+  ]]
+  let changedIdTable ← expectOk "changed identity"
+    (parseCallBindTableV1 (← liftJcs "changed identity" changedIdDoc))
+  let changedIdentityDigest ← expectOk "changed identity Plan digest"
+    (evmIdentityDigestV1 changedIdTable)
+  expect (!(identityDigest == changedIdentityDigest))
+    "artifact identity mutation must change the EVM call-bind identity digest"
+
+  let mismatchedAddressEvidence ← expectOk "mismatched evidence address"
+    (parseEvmCallBindEvidenceV1 (← liftJcs "mismatched evidence address"
+      (evmEvidenceDoc #[evmEvidenceBinding "Feed.push" zero20 "outputs/Feed"])))
+  expectErr "evidence address mismatch"
+    (validateEvmCallBindEvidenceShapeV1 fullIdTable mismatchedAddressEvidence)
+    "address diverges"
+  let missingEvidence ← expectOk "missing evidence"
+    (parseEvmCallBindEvidenceV1 (← liftJcs "missing evidence" (evmEvidenceDoc #[])))
+  expectErr "missing evidence row"
+    (validateEvmCallBindEvidenceShapeV1 fullIdTable missingEvidence)
+    "exactly 1"
+  expectErr "unsafe evidence output path"
+    (parseEvmCallBindEvidenceV1 (← liftJcs "unsafe evidence output path"
+      (evmEvidenceDoc #[evmEvidenceBinding "Feed.push" ones20 "../Feed"])))
+    "safe relative path"
+  expectErr "noncanonical evidence output path"
+    (parseEvmCallBindEvidenceV1 (← liftJcs "noncanonical evidence output path"
+      (evmEvidenceDoc #[evmEvidenceBinding "Feed.push" ones20 "outputs//Feed"])))
+    "safe relative path"
+  expectErr "backslash evidence output path"
+    (parseEvmCallBindEvidenceV1 (← liftJcs "backslash evidence output path"
+      (evmEvidenceDoc #[evmEvidenceBinding "Feed.push" ones20 "outputs\\Feed"])))
+    "safe relative path"
+  expectErr "noncanonical evidence"
+    (parseEvmCallBindEvidenceV1 (sourceOnlyEvidenceText ++ " "))
+    "trailing data"
+
+  let expectedArtifact ← expectOk "expected artifact digest" (parseDigest digest0)
+  let validManifest : InspectedOutputManifestV1 := {
+    target := "evm"
+    codegenProfile := "evm-yul-solc-0.8.34-v1"
+    artifactProgramName := "Feed"
+    sourceHash := bareDigest0
+    semanticHash := bareDigest0
+    buildIdentityDigest := bareDigest0
+    planDigest := bareDigest0
+    supportClaimDigest := bareDigest0
+    engineeringRegistryRootDigest := bareDigest0
+    outputSetDigest := bareDigest0
+    evidenceSha256 := bareDigest0
+    deployable := true
+    files := #[{
+      role := .finalizedExtra
+      path := "Feed.bin"
+      size := 3
+      contentSha256 := expectedArtifact
+    }]
+  }
+  let fullIdentityRow ← match fullIdTable.rows[0]? with
+    | some row => pure row
+    | none => throw <| IO.userError "full identity row missing"
+  let _ ← expectOk "matching inspected output"
+    (validateEvmCallBindOutputManifestV1 fullIdentityRow validManifest)
+  expectErr "evidence target mismatch"
+    (validateEvmCallBindOutputManifestV1 fullIdentityRow
+      { validManifest with target := "solana" })
+    "not EVM"
+  expectErr "evidence nondeployable"
+    (validateEvmCallBindOutputManifestV1 fullIdentityRow
+      { validManifest with deployable := false })
+    "not deployable"
+  expectErr "evidence program mismatch"
+    (validateEvmCallBindOutputManifestV1 fullIdentityRow
+      { validManifest with artifactProgramName := "Other" })
+    "artifactProgramName diverges"
+  expectErr "evidence source mismatch"
+    (validateEvmCallBindOutputManifestV1 fullIdentityRow
+      { validManifest with sourceHash := bareDigest1 })
+    "sourceHash diverges"
+  expectErr "evidence semantic mismatch"
+    (validateEvmCallBindOutputManifestV1 fullIdentityRow
+      { validManifest with semanticHash := bareDigest1 })
+    "semanticHash diverges"
+  let otherArtifact ← expectOk "other artifact digest" (parseDigest digest1)
+  expectErr "evidence artifact mismatch"
+    (validateEvmCallBindOutputManifestV1 fullIdentityRow
+      { validManifest with files := #[{
+          role := .finalizedExtra
+          path := "Feed.bin"
+          size := 3
+          contentSha256 := otherArtifact
+        }] })
+    "artifactSha256 diverges"
+  expectErr "evidence artifact missing"
+    (validateEvmCallBindOutputManifestV1 fullIdentityRow
+      { validManifest with files := #[] })
+    "has no finalized"
+  -- IO composition: absent referenced output must fail with the stable evidence
+  -- family before materialization/publication.
+  try
+    verifyEvmCallBindEvidenceV1 fullIdTable evidence
+      (System.FilePath.mk "build/v2/call-bind-no-such-base")
+    throw <| IO.userError "missing evidence output directory must fail"
+  catch
+  | .userError message =>
+      expect (hasSubstr message "PF-CALL-BIND-EVIDENCE" &&
+          hasSubstr message "failed inspection")
+        s!"missing output evidence diagnostic, got: {message}"
+  | error => throw error
 
   -- Non-canonical JSON (trailing space) fail closed.
   expectErr "non-canonical"
@@ -293,6 +523,11 @@ unsafe def run : IO Unit := do
     ["Examples/StateCell.lean", "--module", "Examples.StateCell", "--target", "evm",
       "--bindings", "testdata/call-bind/evm.v1.json"]
   expect (withFlag.bindings == some "testdata/call-bind/evm.v1.json") "bindings path"
+  let withEvidence ← expectBuildOpts "with-evidence"
+    ["Examples/StateCell.lean", "--module", "Examples.StateCell", "--target", "evm",
+      "--bindings", "bindings.json", "--binding-evidence", "evidence.json"]
+  expect (withEvidence.bindingEvidence == some "evidence.json")
+    "binding evidence path"
   expectErr "dup-flag"
     (parseBuildArgsExcept
       ["Examples/StateCell.lean", "--module", "Examples.StateCell", "--target", "evm",
@@ -303,6 +538,17 @@ unsafe def run : IO Unit := do
       ["Examples/StateCell.lean", "--module", "Examples.StateCell", "--target", "evm",
         "--bindings"])
     "missing --bindings value"
+  expectErr "duplicate evidence flag"
+    (parseBuildArgsExcept
+      ["Examples/StateCell.lean", "--module", "Examples.StateCell", "--target", "evm",
+        "--bindings", "a.json", "--binding-evidence", "a.evidence.json",
+        "--binding-evidence", "b.evidence.json"])
+    "duplicate --binding-evidence"
+  expectErr "missing evidence value"
+    (parseBuildArgsExcept
+      ["Examples/StateCell.lean", "--module", "Examples.StateCell", "--target", "evm",
+        "--bindings", "a.json", "--binding-evidence"])
+    "missing --binding-evidence value"
 
   -- Product preflight: check rejects; unsupported target rejects; evm accepts path.
   expectErr "check-flag"
@@ -315,12 +561,31 @@ unsafe def run : IO Unit := do
       ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
         "--target", "noir", "--bindings", "a.json"])
     "only accepted with --target evm|solana|cosmwasm"
+  expectErr "evidence without bindings"
+    (parseProductCliCommandV1
+      ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
+        "--target", "evm", "--binding-evidence", "evidence.json"])
+    "requires --bindings"
+  expectErr "evidence non-evm"
+    (parseProductCliCommandV1
+      ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
+        "--target", "solana", "--bindings", "a.json",
+        "--binding-evidence", "evidence.json"])
+    "only accepted with --target evm"
+  expectErr "check evidence"
+    (parseProductCliCommandV1
+      ["check", "Examples/StateCell.lean", "--module", "Examples.StateCell",
+        "--target", "evm", "--binding-evidence", "evidence.json"])
+    "--binding-evidence is not accepted on check"
   match ← expectOk "build-ok"
       (parseProductCliCommandV1
         ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
-          "--target", "evm", "--bindings", "a.json"]) with
+          "--target", "evm", "--bindings", "a.json",
+          "--binding-evidence", "evidence.json"]) with
   | .build opts =>
       expect (opts.bindings == some "a.json") "product build keeps path"
+      expect (opts.bindingEvidence == some "evidence.json")
+        "product build keeps evidence path"
   | other => throw <| IO.userError s!"expected build command, got {repr other}"
 
   -- Wave 2 lookup helpers (table row is Oracle.quote).
@@ -395,6 +660,68 @@ unsafe def run : IO Unit := do
   let boundAddr := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   let resultAddr := "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
   let scheduleAddr := "0xcccccccccccccccccccccccccccccccccccccccc"
+
+  -- Full positive identity-evidence path: publish a real canonical engineering
+  -- output directory, independently inspect all sidecars/files, then bind its
+  -- source/semantic/artifact digests to Oracle.feed. Mutating the published
+  -- .bin must be caught by the inspector before the expected digest comparison.
+  let oracleText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Oracle where\n" ++
+    "  state last : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    last := initial\n" ++
+    "  entry feed(value : UInt64) : UInt64 do\n" ++
+    "    last := value\n" ++
+    "    return value\n"
+  let oracleSource ← expectCompile "load Oracle evidence fixture"
+    (← session.selectProgramV1 oracleText "<call-bind-oracle>" "Tests.Oracle" none)
+  let oracleCompiled ← expectCompile "compile Oracle evidence fixture"
+    (Compiler.compileValidatedSourceV1 oracleSource)
+  let oracleCapability ← expectCompile "resolve Oracle evidence fixture"
+    (Targets.resolveEngineeringRequirementsV1 callSel oracleCompiled)
+  let oracleArtifacts ← expectCompile "materialize Oracle evidence fixture"
+    (Targets.materializeResult oracleCapability)
+  let evidenceBase := System.FilePath.mk "build/v2/call-bind-evidence-positive"
+  let oracleOutput := evidenceBase / "Oracle"
+  if ← evidenceBase.pathExists then IO.FS.removeDirAll evidenceBase
+  let oracleManifest ←
+    publishEvmEvidenceFixture oracleCapability oracleArtifacts oracleOutput
+  let oracleBinPath := "Oracle.bin"
+  let oracleBin ← match oracleManifest.files.find? (fun file =>
+      file.role == .finalizedExtra && file.path == oracleBinPath) with
+    | some file => pure file
+    | none => throw <| IO.userError "Oracle evidence fixture has no finalized Oracle.bin"
+  let oracleArtifactDigest ← expectOk "render Oracle artifact digest"
+    (renderDigest oracleBin.contentSha256)
+  let oracleIdentityDoc := evmDoc #[.object #[
+    ("address", .string boundAddr),
+    ("callee", .string "Oracle.feed"),
+    ("identity", .object #[
+      ("artifactSha256", .string oracleArtifactDigest),
+      ("semanticHash", .string ("sha256:" ++ oracleManifest.semanticHash)),
+      ("sourceHash", .string ("sha256:" ++ oracleManifest.sourceHash))])
+  ]]
+  let oracleIdentityTable ← expectOk "Oracle identity bindings"
+    (parseCallBindTableV1 (← liftJcs "Oracle identity bindings" oracleIdentityDoc))
+  let oracleEvidence ← expectOk "Oracle binding evidence"
+    (parseEvmCallBindEvidenceV1 (← liftJcs "Oracle binding evidence"
+      (evmEvidenceDoc #[evmEvidenceBinding "Oracle.feed" boundAddr "Oracle"])))
+  verifyEvmCallBindEvidenceV1 oracleIdentityTable oracleEvidence evidenceBase
+  let oracleBinText ← IO.FS.readFile (oracleOutput / oracleBinPath)
+  IO.FS.writeFile (oracleOutput / oracleBinPath) (oracleBinText ++ "00")
+  try
+    verifyEvmCallBindEvidenceV1 oracleIdentityTable oracleEvidence evidenceBase
+    throw <| IO.userError "mutated Oracle.bin evidence must fail inspection"
+  catch
+  | .userError message =>
+      expect (hasSubstr message "PF-CALL-BIND-EVIDENCE" &&
+          hasSubstr message "failed inspection")
+        s!"mutated Oracle.bin evidence diagnostic, got: {message}"
+  | error => throw error
+  if ← evidenceBase.pathExists then IO.FS.removeDirAll evidenceBase
+
   let evmBindText ← liftJcs "evm-bind-emit"
     (evmDoc #[evmBinding "Oracle.feed" boundAddr,
       evmBinding "Oracle.quote" resultAddr,
@@ -429,27 +756,58 @@ unsafe def run : IO Unit := do
   let boundPlanAgain ← match Targets.Evm.planFromCapability callCap (some evmBindTable) with
     | .ok plan => pure plan
     | .error e => throw <| IO.userError s!"plan bound repeat: {e.render}"
+  let identityBindText ← liftJcs "evm-bind-identity-plan"
+    (evmDoc #[.object #[
+        ("address", .string boundAddr),
+        ("callee", .string "Oracle.feed"),
+        ("identity", .object #[("artifactSha256", .string digest0)])],
+      evmBinding "Oracle.quote" resultAddr,
+      evmBinding "Ledger.daily" scheduleAddr])
+  let identityBindTable ← expectOk "evm-bind-identity-plan"
+    (parseCallBindTableV1 identityBindText)
+  let identityBoundPlan ← match
+      Targets.Evm.planFromCapability callCap (some identityBindTable) with
+    | .ok plan => pure plan
+    | .error e => throw <| IO.userError s!"plan identity-bound: {e.render}"
+  expect identityBoundPlan.callBindIdentityDigest.isSome
+    "identity-bearing EVM bindings must enter Plan identity"
   let stubPlanBytes ← expectOk "evm stub Plan bytes"
     (Targets.Evm.encodeEngineeringEvmPlanBytesV1 stubPlan)
   let boundPlanBytes ← expectOk "evm bound Plan bytes"
     (Targets.Evm.encodeEngineeringEvmPlanBytesV1 boundPlan)
   let boundPlanBytesAgain ← expectOk "evm bound Plan bytes repeat"
     (Targets.Evm.encodeEngineeringEvmPlanBytesV1 boundPlanAgain)
+  let identityBoundPlanBytes ← expectOk "evm identity-bound Plan bytes"
+    (Targets.Evm.encodeEngineeringEvmPlanBytesV1 identityBoundPlan)
   expect (!(stubPlanBytes == boundPlanBytes))
     "EVM exact endpoints must change Plan identity bytes"
   expect (boundPlanBytes == boundPlanBytesAgain)
     "the same EVM bind table must produce deterministic Plan identity bytes"
+  expect (!(boundPlanBytes == identityBoundPlanBytes))
+    "verified identity expectations must change EVM Plan identity bytes"
   let stubArtifacts ← match Targets.materializeResult callCap none with
     | .ok artifacts => pure artifacts
     | .error e => throw <| IO.userError s!"materialize stub: {e.render}"
   let boundArtifacts ← match Targets.materializeResult callCap (some evmBindTable) with
     | .ok artifacts => pure artifacts
     | .error e => throw <| IO.userError s!"materialize bound: {e.render}"
+  let identityBoundArtifacts ← match
+      Targets.materializeResult callCap (some identityBindTable) with
+    | .ok artifacts => pure artifacts
+    | .error e => throw <| IO.userError s!"materialize identity-bound: {e.render}"
   let stubIdentity := MaterializedArtifactsV1.buildIdentityOf stubArtifacts
   let boundIdentity := MaterializedArtifactsV1.buildIdentityOf boundArtifacts
+  let identityBoundIdentity :=
+    MaterializedArtifactsV1.buildIdentityOf identityBoundArtifacts
   expect (!(EngineeringBuildIdentityV1.planDigestOf stubIdentity ==
       EngineeringBuildIdentityV1.planDigestOf boundIdentity))
     "EVM exact endpoints must change materialized build identity"
+  expect (!(EngineeringBuildIdentityV1.planDigestOf boundIdentity ==
+      EngineeringBuildIdentityV1.planDigestOf identityBoundIdentity))
+    "EVM identity expectations must change materialized build identity"
+  expect (MaterializedArtifactsV1.filesOf boundArtifacts ==
+      MaterializedArtifactsV1.filesOf identityBoundArtifacts)
+    "EVM identity evidence must not change emitted Yul artifacts"
   -- Wave 2c: program-level residual. Target inspect stays hashed-qn.
   let evmSemantic := Compiler.CompiledSemanticV1.semanticV1Of callCompiled
   expectResidual "evm none-table" .evm evmSemantic none

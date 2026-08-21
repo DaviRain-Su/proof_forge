@@ -39,6 +39,17 @@ empty-row、多个 generic callee、与 frozen CPI site 混合、generic result-
 继续 fail closed 或保留 residual。target `inspect <target>` 仍是静态 kind 闭表，
 不按 program 清。
 
+**Wave 4（2026-08-21，EVM static artifact identity）**：EVM bind row 一旦带
+`identity`，`build` 必须同时给独立 PF-JCS `--binding-evidence`。evidence 以
+callee/address 映射到一个既有 engineering output directory；产品复用
+`inspectEngineeringOutputDirV1` 重验 sidecar identity、逐文件 SHA-256、exact disk
+closure 与 `outputSetDigest`，并把该 output 的 source/semantic 与 raw published
+`{artifactProgramName}.bin` SHA-256 对回 bind row 的期望值。identity-bearing rows
+的 canonical digest 进入 EVM Plan / plan digest / caller OutputSet provenance；无
+identity 时不追加 Plan 字节，保持历史 bytes。该门只验证调用方提供的**静态
+artifact/address attestation**；它不查 RPC、不读取 `EXTCODEHASH`，因此绝不声称
+address 当前链上代码等于该 artifact。
+
 不关闭 `B-CALL-SEM` 全表。本 ADR 不自动接受其它 ADR；ADR-0036 已由同日另行
 owner directive accepted，ADR-0051 仍 proposed。不改 `semantic-core.md`。不声称
 formal / C-3 / Anvil lossless / CREATE / CREATE2。
@@ -90,6 +101,8 @@ target `inspect` 没有 program 或 bind table 输入，所以继续报告静态
   xrpl）给了 `--bindings` → usage / fail closed（本表只服务三叶）。
 - `check` 不接受 `--bindings`。
 - 不把产品 `build` 接到 Anvil 预置或任何网络。
+- EVM row 有 `identity` 时必须给 `--binding-evidence`；无 identity rows 时反而拒绝
+  该 flag。Solana/CosmWasm identity 仍是 parse-only metadata，且不接受该 flag。
 
 ## Schema `proof-forge.call-bind.v1`
 
@@ -123,19 +136,62 @@ target `inspect` 没有 program 或 bind table 输入，所以继续报告静态
 
 可选 `identity` 对象，键只能是 `sourceHash` / `semanticHash` /
 `artifactSha256`，值均为 `sha256:` + 64 小写 hex（`parseDigest`）。缺省 =
-不 join。当前三个 emitter 只消费 endpoint（address / programId / contractAddr）和
-Solana account rows；`identity` digest 即使存在也仍是 parse-only metadata，**不**参与
-artifact-to-endpoint 验证、SupportClaim 或 emit。
+不 join。Solana/CosmWasm 的 `identity` 仍是 parse-only metadata。EVM 的 identity
+必须由下节 evidence 闭合，且 `artifactSha256` 必填；`sourceHash` / `semanticHash`
+若出现也必须与 inspected output 精确一致。`artifactSha256` 定义为 EVM finalizer
+发布的 `{artifactProgramName}.bin` **原始文件字节** SHA-256（包含 publisher 写入的
+尾随换行），不是 hex 解码后的 bytecode，也不是 `.yul`。这些 identity 字段不进入
+SupportClaim，也不改变 Yul 发射内容。
 
 未知键、缺必填、跨 target 字段（例如 evm 行带 `programId`）、重复
 `callee`（同一表内 exact QN）、空 `callee` 分量 → fail closed。
+
+## Schema `proof-forge.call-bind-evidence.v1`（EVM only）
+
+`build --target evm --bindings <bindings> --binding-evidence <evidence>` 的 evidence
+也必须是 PF-JCS。根对象仍精确为 `bindings` / `schema` / `target`：
+
+```text
+{
+  "bindings":[
+    {
+      "address":"0x1111111111111111111111111111111111111111",
+      "callee":"Oracle.feed",
+      "outputDir":"outputs/Oracle"
+    }
+  ],
+  "schema":"proof-forge.call-bind-evidence.v1",
+  "target":"evm"
+}
+```
+
+| 字段 | 规则 |
+|---|---|
+| `schema` | 精确 `proof-forge.call-bind-evidence.v1` |
+| `target` | 精确 `evm` |
+| `bindings` | 恰好覆盖 `--bindings` 中全部且仅全部 identity-bearing EVM rows；duplicate / missing / extra callee fail closed |
+| `callee` | 与 bind row exact QualifiedName 相同；其倒数第二个分量必须等于 inspected output 的 `artifactProgramName` |
+| `address` | 与 bind row 同一精确 20-byte lowercase-hex endpoint；独立重复以捕获两输入分歧 |
+| `outputDir` | evidence 文件父目录下的 canonical safe relative path；`..`、absolute、空分量等拒绝 |
+
+每个目录必须通过既有 product output inspector：EVM target、`deployable=true`、
+manifest/evidence identity、descriptor inventory、每个 artifact 原始字节 SHA-256、
+固定 sidecars、无额外/缺失目录叶、`outputSetDigest` 重算全部精确一致。随后才比较
+`sourceHash` / `semanticHash` / `{artifactProgramName}.bin` SHA-256。evidence 文档本身
+不携带这些 digest，避免把 bind row 的期望值复制一遍后自证。
+
+这里的 `address` 仍是调用者提交的静态映射；schema 没有 deployment receipt、block
+identity、RPC endpoint 或 code-at-address observation。故通过该门只证明「本次 build
+校验过这份 artifact output，且两份输入同意 callee/address」，不证明该地址在任何链上
+已部署或仍运行这些 bytes。
 
 ## 非目标
 
 - 不关闭 `B-CALL-SEM`（Noir witness、NEAR promise、TON message、ICP
   advertise 保持现状）。
 - 不做 Token/ATA `artifactBinding`、wasmd rung-2、CREATE2、NetworkProfile。
-- 不把 identity digest metadata 当成已验证的链上代码身份。
+- 不把通过静态 output-dir evidence 当成已验证的链上代码身份；不做 receipt / RPC /
+  `eth_getCode` / `EXTCODEHASH` join。
 - 不开放 Solana schedule、generic result-bearing CALL、empty-state / empty-row /
   multi-callee / mixed frozen-site outer join。
 - 不改 Normalize / CheckV1 / Semantic wire。
@@ -153,17 +209,23 @@ outer AccountInfo join，并保持 empty rows 为旧 partial path。Wave 2c 的�
 露出 program-level `callScheduleResidual`（string 或 `null`）：无 generic call、
 EVM/CW 全覆盖、或 Solana Wave 3 支持子集全覆盖时为 `null`；其它 Solana
 形态保留 `callee-identity-outer-account-open`。target `inspect` 仍静态报告三条
-地址残差。不进 SupportClaim / manifest / evidence / inspect-output。
+地址残差。不进 SupportClaim / inspect-output。Wave 4 的 EVM expected identity table
+digest 进入 Plan digest，继而进入 caller 的 engineering build identity / manifest /
+OutputSet；独立 evidence 文件和被检查 callee OutputSet 不复制进 caller 输出。
 
 ## 工程 DoD 与复现证据（2026-08-21）
 
-Wave 1–3 的工程 DoD 已满足：
+Wave 1–4 的工程 DoD 已满足：
 
 - PF-JCS schema / target join / duplicate 与 malformed negatives；
 - 三叶有表消费与 missing-row FC；EVM exact endpoint Plan/digest/build-identity
   绑定及 empty-code void CALL FC；
 - Solana Plan / IDL / IR / SBPF / client verifier 的 exact outer-role projection；
 - Solana 支持子集的 program-level residual 清零，unsupported shape 保持 residual/FC；
+- EVM identity row 无 evidence、无 artifact digest、schema/target/callee/address/output
+  mismatch、unsafe path、missing/extra/duplicate row、non-EVM/nondeployable output、
+  source/semantic/artifact mismatch 全部 fail closed；canonical OutputSet 成功路径与
+  `.bin` 落盘 mutation 逐文件重算负例已钉；
 - 两个独立 product-built ELF 的真实 generic CPI：成功 source-order commit；wrong
   account key、signer、writable、program key、executable 与 inner failure 均回滚；
 - `sol_oneshot` 对 call-bind multi-role artifact 明确拒绝并指向 `pf test`。
@@ -193,5 +255,10 @@ owner `davirain` 已对 review commit
 `openFindings: none`。本次 acceptance 是 owner directive，不声称 independent review，
 也不以“测试通过”代签治理批准。
 
-该批准不关闭 `B-CALL-SEM` 全表、formal / C-3 / Anvil lossless，不把 identity
-digest 视为已验证，也不开放本 ADR 明列为 fail-closed 的 Solana shapes。
+Wave 4 的推荐切片由 owner 在同一 Amp thread 以「按推荐」明确指示实施；实施基线为
+`a581e879f43ca8394e86d69f69906ad2fd9de01a`。这同样不是 independent review；
+frontmatter 的原始 acceptance `reviewCommit` 保留，不伪造成对 Wave 4 commit 的事后复审。
+
+该批准不关闭 `B-CALL-SEM` 全表、formal / C-3 / Anvil lossless，不把 static identity
+evidence 视为链上 code-at-address 验证，也不开放本 ADR 明列为 fail-closed 的
+Solana shapes。

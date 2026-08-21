@@ -14,7 +14,7 @@
       [--profile] [--language-version] [--json]
     build <source.pf|.lean> --module <Name> --target <t> [-o <dir>]
       [--program] [--root] [--profile] [--language-version]
-      [--bindings <path>] [--json]
+      [--bindings <path>] [--binding-evidence <path>] [--json]
 
   Disambiguation for positional `inspect <arg>`:
     * If `<arg>` is a registered TargetId (frozen registry membership), treat as
@@ -431,6 +431,9 @@ post-success path). The RES-1B output-only slice enforces
 in-process producer). ADR-0053 Wave 2: `--bindings` is build-only for
 evm|solana|cosmwasm; the table is parsed at product build and threaded into
 emit (missing generic-call row fail closed). No flag keeps hashed QN / QN stubs.
+Identity-bearing EVM rows additionally require `--binding-evidence`; this
+separate document maps each callee/address to a deployable, fully inspected
+engineering output directory.
 Structural ambient ProofBundle product flags remain deleted; product proof
 gating is the in-process inline certifier. -/
 structure BuildOptions where
@@ -448,6 +451,9 @@ structure BuildOptions where
   /-- ADR-0053 Wave 2: path only at parse; product build threads the decoded
       table into emit. -/
   bindings : Option String := none
+  /-- EVM identity join: canonical evidence document path. Product build
+      validates referenced engineering output directories before emit. -/
+  bindingEvidence : Option String := none
   deriving Repr
 
 /-- Product-facing inline proof observation for check success output.
@@ -772,6 +778,21 @@ def validateBuildOptionsCliV1
               | some _ => pure ()
               | none =>
                   throw "--bindings is only accepted with --target evm|solana|cosmwasm"
+  -- The independent evidence input is EVM-only. Exact presence versus
+  -- identity-bearing rows is checked after the bind table is decoded.
+  match options.bindingEvidence with
+  | none => pure ()
+  | some _ =>
+      match kind with
+      | .check => throw "--binding-evidence is not accepted on check"
+      | .build =>
+          unless options.bindings.isSome do
+            throw "--binding-evidence requires --bindings"
+          match options.target with
+          | some target =>
+              unless target == TargetId.evm do
+                throw "--binding-evidence is only accepted with --target evm"
+          | none => throw "--binding-evidence requires --target evm"
   pure options
 
 /-- Shared build/check argument parser (pure Except).
@@ -779,6 +800,7 @@ def validateBuildOptionsCliV1
 `--json` is a bare flag. Duplicate selection and common flags fail closed.
 D3-E5: `--resource-limit` (repeatable), `--minimum-evidence`.
 ADR-0053 Wave 2: `--bindings` (build-only; evm|solana|cosmwasm).
+EVM identity join: `--binding-evidence` (build-only; requires EVM bindings).
 Legacy structural ambient ProofBundle product flags remain unknown options
 (inline certifier is the sole product proof gate). -/
 partial def parseBuildArgsExcept (args : List String) (options : BuildOptions := {}) :
@@ -823,6 +845,11 @@ partial def parseBuildArgsExcept (args : List String) (options : BuildOptions :=
       if value.startsWith "-" then throw "missing --bindings value"
       parseBuildArgsExcept rest { options with bindings := some value }
   | "--bindings" :: [] => throw "missing --bindings value"
+  | "--binding-evidence" :: value :: rest =>
+      if options.bindingEvidence.isSome then throw "duplicate --binding-evidence"
+      if value.startsWith "-" then throw "missing --binding-evidence value"
+      parseBuildArgsExcept rest { options with bindingEvidence := some value }
+  | "--binding-evidence" :: [] => throw "missing --binding-evidence value"
   | value :: rest =>
       if value.startsWith "-" then
         throw s!"unknown option '{value}'"
@@ -2174,6 +2201,206 @@ def inspectEngineeringOutputDirV1 (outputDir : FilePath) :
       throw <| IO.userError
         s!"artifact content diverges from manifest at '{pair.1.path}'"
   pure manifest
+
+/-! ## EVM call-bind artifact evidence -/
+
+/-- Independent canonical input for EVM optional call-bind identity fields. -/
+def evmCallBindEvidenceSchemaV1 : String :=
+  "proof-forge.call-bind-evidence.v1"
+
+/-- One evidence mapping. `outputDir` is a canonical relative path resolved
+    from the evidence document's parent directory. The address is repeated so
+    endpoint divergence between the two independent inputs fails closed. -/
+structure EvmCallBindEvidenceRowV1 where
+  callee : QualifiedName
+  address : ByteArray
+  outputDir : String
+
+structure EvmCallBindEvidenceV1 where
+  rows : Array EvmCallBindEvidenceRowV1
+
+private def dottedCallBindQnV1 (name : QualifiedName) : String :=
+  String.intercalate "." name.components.toArray.toList
+
+private def parseEvidenceCalleeV1 (value : String) : Except String QualifiedName := do
+  let parts := (value.splitOn ".").toArray
+  if parts.size < 2 then
+    throw "binding evidence callee must have at least two QualifiedName components"
+  if parts.any (· == "") then
+    throw "binding evidence callee must not contain an empty component"
+  parseQualifiedName parts
+
+/-- Parse canonical PF-JCS `proof-forge.call-bind-evidence.v1`.
+
+    This document intentionally carries no identity digest values: those are
+    expectations in `--bindings`. Evidence supplies only an independent
+    callee/address mapping to an inspected output directory. -/
+def parseEvmCallBindEvidenceV1 (input : String) :
+    Except String EvmCallBindEvidenceV1 := do
+  let value ← parsePfJcs input
+  let fields ← match jsonObjectFields? value with
+    | some value => pure value
+    | none => throw "binding evidence root must be a PF-JCS object"
+  exactKeySet fields #["bindings", "schema", "target"]
+  let schema ← expectJsonString "schema" (jsonField? fields "schema" |>.getD .null)
+  unless schema == evmCallBindEvidenceSchemaV1 do
+    throw s!"schema must be '{evmCallBindEvidenceSchemaV1}'"
+  let target ← expectJsonString "target" (jsonField? fields "target" |>.getD .null)
+  unless target == "evm" do
+    throw "binding evidence target must be 'evm'"
+  let items ← match jsonField? fields "bindings" with
+    | some (.array values) => pure values
+    | _ => throw "binding evidence bindings must be an array"
+  if items.size > maxEngineeringDiskClosureFilesV1 then
+    throw "binding evidence row count exceeds bound"
+  let mut rows : Array EvmCallBindEvidenceRowV1 := #[]
+  let mut seen : Array String := #[]
+  for item in items do
+    let rowFields ← match jsonObjectFields? item with
+      | some value => pure value
+      | none => throw "binding evidence bindings[] must be an object"
+    exactKeySet rowFields #["address", "callee", "outputDir"]
+    let calleeWire ← expectJsonString "callee"
+      (jsonField? rowFields "callee" |>.getD .null)
+    let callee ← parseEvidenceCalleeV1 calleeWire
+    let qn := dottedCallBindQnV1 callee
+    if seen.contains qn then
+      throw s!"duplicate binding evidence callee '{qn}'"
+    seen := seen.push qn
+    let addressWire ← expectJsonString "address"
+      (jsonField? rowFields "address" |>.getD .null)
+    unless addressWire.startsWith "0x" do
+      throw "binding evidence address must start with 0x"
+    let address ← CallBindV1.decodeLowerHexBytesV1 addressWire 20 true
+      "binding evidence address"
+    let outputDir ← expectJsonString "outputDir"
+      (jsonField? rowFields "outputDir" |>.getD .null)
+    unless safeRelativeArtifactPathV1 outputDir do
+      throw s!"binding evidence outputDir must be a safe relative path, got '{outputDir}'"
+    match parseProjectRelativePath outputDir with
+    | .ok _ => pure ()
+    | .error _ =>
+        throw s!"binding evidence outputDir must be a safe relative path, got '{outputDir}'"
+    rows := rows.push { callee, address, outputDir }
+  pure { rows }
+
+private def findEvmEvidenceRowV1
+    (evidence : EvmCallBindEvidenceV1) (callee : QualifiedName) :
+    Option EvmCallBindEvidenceRowV1 :=
+  let qn := dottedCallBindQnV1 callee
+  evidence.rows.find? (fun row => dottedCallBindQnV1 row.callee == qn)
+
+/-- Pure cross-input gate. Every and only identity-bearing EVM bind row must
+    have evidence, its endpoint must match, and `artifactSha256` is mandatory
+    so source/semantic metadata can never pass without an actual artifact-byte
+    anchor. -/
+def validateEvmCallBindEvidenceShapeV1
+    (table : CallBindV1.CallBindTableV1)
+    (evidence : EvmCallBindEvidenceV1) : Except String Unit := do
+  CallBindV1.requireCompatibleTarget table TargetId.evm
+  let identityRows := table.rows.filter (·.identity.isSome)
+  if identityRows.isEmpty then
+    throw "--binding-evidence requires at least one identity-bearing EVM bind row"
+  unless evidence.rows.size == identityRows.size do
+    throw s!"binding evidence must contain exactly {identityRows.size} identity rows"
+  for binding in identityRows do
+    let qn := dottedCallBindQnV1 binding.callee
+    let identity ← match binding.identity with
+      | some value => pure value
+      | none => throw "internal identity-row selection mismatch"
+    unless identity.artifactSha256.isSome do
+      throw s!"call-bind identity for '{qn}' must include artifactSha256"
+    let evidenceRow ← match findEvmEvidenceRowV1 evidence binding.callee with
+      | some value => pure value
+      | none => throw s!"binding evidence has no row for '{qn}'"
+    let expectedAddress ← match binding.site with
+      | .evm value => pure value
+      | _ => throw s!"call-bind row for '{qn}' is not an EVM site"
+    unless evidenceRow.address == expectedAddress do
+      throw s!"binding evidence address diverges for '{qn}'"
+  for evidenceRow in evidence.rows do
+    let qn := dottedCallBindQnV1 evidenceRow.callee
+    unless identityRows.any (fun row => dottedCallBindQnV1 row.callee == qn) do
+      throw s!"binding evidence has unexpected row '{qn}'"
+
+private def digestMatchesBareHexV1
+    (expected : Digest) (actualBareHex : String) : Except String Bool := do
+  let wire ← renderDigest expected
+  pure (wire == "sha256:" ++ actualBareHex)
+
+/-- Validate one already-inspected output against an identity-bearing bind row.
+    `artifactSha256` means the exact published `{artifactProgramName}.bin` file
+    bytes (including its publisher newline), not decoded bytecode and not Yul. -/
+def validateEvmCallBindOutputManifestV1
+    (binding : CallBindV1.CallBindRowV1)
+    (manifest : InspectedOutputManifestV1) : Except String Unit := do
+  let qn := dottedCallBindQnV1 binding.callee
+  let identity ← match binding.identity with
+    | some value => pure value
+    | none => throw s!"call-bind row '{qn}' has no identity to validate"
+  unless manifest.target == "evm" do
+    throw s!"binding evidence output for '{qn}' is not EVM"
+  unless manifest.deployable do
+    throw s!"binding evidence output for '{qn}' is not deployable"
+  let components := binding.callee.components.toArray
+  unless components.size ≥ 2 do
+    throw s!"call-bind callee '{qn}' is malformed"
+  let expectedProgramName := components[components.size - 2]!
+  unless manifest.artifactProgramName == expectedProgramName do
+    throw s!"binding evidence artifactProgramName diverges for '{qn}'"
+  match identity.sourceHash with
+  | none => pure ()
+  | some expected =>
+      unless ← digestMatchesBareHexV1 expected manifest.sourceHash do
+        throw s!"binding evidence sourceHash diverges for '{qn}'"
+  match identity.semanticHash with
+  | none => pure ()
+  | some expected =>
+      unless ← digestMatchesBareHexV1 expected manifest.semanticHash do
+        throw s!"binding evidence semanticHash diverges for '{qn}'"
+  let expectedArtifact ← match identity.artifactSha256 with
+    | some value => pure value
+    | none => throw s!"call-bind identity for '{qn}' must include artifactSha256"
+  let binPath := manifest.artifactProgramName ++ ".bin"
+  let descriptor ← match manifest.files.find? (fun file =>
+      file.role == .finalizedExtra && file.path == binPath) with
+    | some value => pure value
+    | none => throw s!"binding evidence output for '{qn}' has no finalized '{binPath}'"
+  unless descriptor.contentSha256.algorithm == expectedArtifact.algorithm &&
+      descriptor.contentSha256.bytes == expectedArtifact.bytes do
+    throw s!"binding evidence artifactSha256 diverges for '{qn}'"
+
+/-- Full product evidence gate: exact cross-input shape, then full engineering
+    output inspection (sidecars, descriptor rehash, exact disk closure,
+    outputSetDigest recompute) for each identity-bearing row. This verifies a
+    static artifact/address attestation only; it does not query EVM code at the
+    address. -/
+def verifyEvmCallBindEvidenceV1
+    (table : CallBindV1.CallBindTableV1)
+    (evidence : EvmCallBindEvidenceV1)
+    (evidenceBaseDir : FilePath) : IO Unit := do
+  match validateEvmCallBindEvidenceShapeV1 table evidence with
+  | .ok () => pure ()
+  | .error message =>
+      throw <| IO.userError s!"PF-CALL-BIND-EVIDENCE: {message}"
+  for binding in table.rows.filter (·.identity.isSome) do
+    let qn := dottedCallBindQnV1 binding.callee
+    let evidenceRow ← match findEvmEvidenceRowV1 evidence binding.callee with
+      | some value => pure value
+      | none =>
+          throw <| IO.userError
+            s!"PF-CALL-BIND-EVIDENCE: no evidence row for '{qn}'"
+    let manifest ← try
+        inspectEngineeringOutputDirV1 (evidenceBaseDir / evidenceRow.outputDir)
+      catch
+      | .userError message =>
+          throw <| IO.userError
+            s!"PF-CALL-BIND-EVIDENCE: output '{evidenceRow.outputDir}' for '{qn}' failed inspection: {message}"
+      | error => throw error
+    match validateEvmCallBindOutputManifestV1 binding manifest with
+    | .ok () => pure ()
+    | .error message =>
+        throw <| IO.userError s!"PF-CALL-BIND-EVIDENCE: {message}"
 
 /-- Whether `value` is a registered TargetId in the frozen product registry.
 Used solely for `inspect <arg>` disambiguation (registry wins over path). -/

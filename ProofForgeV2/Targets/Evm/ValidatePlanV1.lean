@@ -10,6 +10,7 @@ namespace ProofForgeV2.Targets.Evm
 
 open ProofForgeV2
 open ProofForgeV2.Compiler
+open ProofForgeV2.Core.Common
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.DescriptorDataV1
 open ProofForgeV2.Targets.EnvelopeV1
@@ -853,6 +854,14 @@ private partial def checkPlanStatementsV1
 
 /-- Validate the public `Evm.Plan` value before any Yul is produced. -/
 def validatePlan (plan : Plan) : CompileResult Unit := do
+  match plan.callBindIdentityDigest with
+  | none => pure ()
+  | some digest =>
+      match validateDigest digest with
+      | .ok () => pure ()
+      | .error error =>
+          throw <| .planInvariant .evm
+            s!"call-bind identity digest is invalid: {error}"
   unless isIdentifier plan.objectName do
     throw <| .planInvariant .evm s!"object name '{plan.objectName}' is not a safe EVM identifier"
   if plan.objectName.toUTF8.size > maxArtifactStemBytes then

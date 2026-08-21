@@ -6,7 +6,9 @@
   Wave 2: when a table is present, generic `call`/`schedule` on
   evm/solana/cosmwasm must match a row or fail closed. Missing table keeps
   hashed QN / QN stubs. `pf.crypto.*` and `pf.assets` never consult this
-  table. Identity fields are join metadata only (do not change emit).
+  table. EVM identity-bearing rows additionally contribute a canonical
+  table-level digest to the EVM Plan; product artifact verification remains
+  an explicit CLI boundary and does not change emitted Yul.
 
   Not SemanticProgramV1. Not NetworkProfile. Not formal / C-3.
   Wave 2a empty-account void CALL lives in Evm.EmitIRV1 (not this table).
@@ -30,6 +32,11 @@ private instance : Repr ByteArray where
     (Std.Format.text "ByteArray.size=").append (repr bytes.size)
 
 def schemaIdV1 : String := "proof-forge.call-bind.v1"
+
+/-- Domain for the canonical EVM identity-bearing bind-row digest. This binds
+    expected identity fields to callee + pre-placed address in Plan identity;
+    it is not evidence that code is present at that address. -/
+def evmIdentityDomainV1 : String := "pf.call-bind.evm-identity.v1"
 
 /-- Closed bind-table targets (ADR-0053). Other TargetId values fail closed. -/
 inductive CallBindTargetV1 where
@@ -335,6 +342,62 @@ def decodeCallBindTableForTargetV1 (input : String) (buildTarget : TargetId) :
   let table ← parseCallBindTableV1 input
   requireCompatibleTarget table buildTarget
   pure table
+
+/-- Whether the table contains at least one optional identity object. -/
+def hasIdentityRowsV1 (table : CallBindTableV1) : Bool :=
+  table.rows.any (·.identity.isSome)
+
+private def identityJsonV1 (identity : CallBindIdentityV1) : Except String PfJson := do
+  let mut fields : Array (String × PfJson) := #[]
+  -- UTF-16/PF-JCS key order: artifactSha256, semanticHash, sourceHash.
+  match identity.artifactSha256 with
+  | none => pure ()
+  | some digest => fields := fields.push ("artifactSha256", .string (← renderDigest digest))
+  match identity.semanticHash with
+  | none => pure ()
+  | some digest => fields := fields.push ("semanticHash", .string (← renderDigest digest))
+  match identity.sourceHash with
+  | none => pure ()
+  | some digest => fields := fields.push ("sourceHash", .string (← renderDigest digest))
+  if fields.isEmpty then
+    throw "call-bind: identity must contain at least one digest field"
+  pure (.object fields)
+
+/-- Canonical digest of all EVM identity-bearing rows, sorted by exact callee
+    QN. Each row binds `address + callee + expected identity`; identity-less
+    tables return `none`, preserving historical EVM Plan bytes. This is an
+    expectation digest only. Product CLI evidence validation independently
+    stable-reads a deployable engineering output before build publication. -/
+def evmIdentityDigestV1 (table : CallBindTableV1) : Except String (Option Digest) := do
+  unless table.target == .evm do
+    throw "call-bind: EVM identity digest requires an evm table"
+  let rows := (table.rows.filter (·.identity.isSome)).qsort fun a b =>
+    dottedQualifiedName a.callee < dottedQualifiedName b.callee
+  if rows.isEmpty then
+    pure none
+  else
+    let mut encodedRows : Array PfJson := #[]
+    for row in rows do
+      let identity ← match row.identity with
+        | some value => pure value
+        | none => throw "call-bind: internal identity-row selection mismatch"
+      let address ← match row.site with
+        | .evm value => pure value
+        | _ => throw "call-bind: identity-bearing EVM row is not an evm site"
+      unless address.size == 20 do
+        throw "call-bind: evm address must be exactly 20 bytes"
+      encodedRows := encodedRows.push <| .object #[
+        ("address", .string ("0x" ++ encodeLowerHexBytesV1 address)),
+        ("callee", .string (dottedQualifiedName row.callee)),
+        ("identity", ← identityJsonV1 identity)
+      ]
+    let document := PfJson.object #[
+      ("bindings", .array encodedRows),
+      ("schema", .string "proof-forge.call-bind-identity.v1"),
+      ("target", .string "evm")
+    ]
+    let canonical ← renderPfJcs document
+    pure (some (← domainSeparatedSha256 evmIdentityDomainV1 canonical.toUTF8))
 
 /-- Exact QN from Plan callee components. Empty / malformed → none. -/
 def qualifiedNameOfComponents? (components : Array String) : Option QualifiedName :=

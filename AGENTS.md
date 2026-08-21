@@ -31,15 +31,17 @@
 | Design-only targets | （无） |
 
 > **Current checkpoint（2026-08-21；覆盖上方 `Next task` 单元格内较早的
-> 2026-08-19/20 call-bind 细节）**：ADR-0053 Wave 1–3 engineering DoD 已闭合。
+> 2026-08-19/20 call-bind 细节）**：ADR-0053 Wave 1–4 engineering DoD 已闭合。
 > EVM/CosmWasm 精确 endpoint 与 missing-row FC 已接线；Solana 支持子集完成
 > AccountMeta + outer AccountInfo join、Plan/IDL/IR/client exact projection、program
-> residual 清零与 8 项 Mollusk。identity digest、Solana unsupported shapes、其它
-> target families、static inspect、formal/C-3 仍 open/FC。ADR-0036 / ADR-0053 已由
+> residual 清零与 8 项 Mollusk；EVM optional identity 已对到完整重验的 static
+> engineering OutputSet/raw `.bin` digest 并进入 Plan/OutputSet provenance。EVM
+> code-at-address、Solana/CW identity、Solana unsupported shapes、其它 target families、
+> static inspect、formal/C-3 仍 open/FC。ADR-0036 / ADR-0053 已由
 > owner directive accepted，review commit=`239e335ac4272f7b292eb87c913e46c8c805c0b9`，
 > `openFindings: none`；不得声称 independent review。当前按 EVM → Solana → NEAR → Noir
-> 进入 accepted 四目标工程 DoD；EVM endpoint binding 已闭，identity digest verification
-> 仍须先冻结 callee artifact / receipt 来源。不得把 B-CALL-SEM 全表标 closed。
+> 进入 accepted 四目标工程 DoD；EVM endpoint + static artifact identity 已闭，deployment
+> receipt/block/code-at-address evidence 仍须 owner 冻结。不得把 B-CALL-SEM 全表标 closed。
 
 > **2026-08-02/03 correctness/audit update**：普通 CI 已补注册 Authority/Custody、
 > Context/Extension、ProofSubject、InvariantTheorem 与 ResourceFlags 关键 suite。
@@ -281,7 +283,10 @@
 > **Capability caveat（2026-08-21 B-CALL-SEM / ADR-0053）**：`call` / `schedule` 的 resolver
 > support 不能等同于完整平台语义。EVM 无 `--bindings` 时仍为 static-QN→hashed-address
 > 的真实 `CALL`；有表时使用 exact pre-placed 20-byte address，missing row FC；result-bearing
-> unsigned 路径读取并校验 `RETURNDATA`（Bool/Int/Bytes 仍 FC），identity digest 仍 parse-only。
+> unsigned 路径读取并校验 `RETURNDATA`（Bool/Int/Bytes 仍 FC）。EVM optional identity
+> 由独立 `--binding-evidence` 对到完整重验的 deployable engineering OutputSet + raw `.bin`
+> digest，并进入 Plan/OutputSet provenance；这只是 caller-supplied static attestation，未查
+> receipt/RPC/code-at-address。
 > **EVM `schedule` 是同笔交易内同步执行的 fire-and-forget**
 > （结果丢弃，匹配 Reference 无 response cursor 契约，与 CW-4 SubMsg 同一接纳纪律），**不是**
 > 跨交易 deferred。**Solana 两个 legacy profile 已删除双键 support claim**，Plan/IR/SBPF 对旧
@@ -289,14 +294,15 @@
 > opt-in product profile 的 ADR-0053 Wave 3 已闭合 state-bearing / single-callee /
 > synchronous void CALL / 1..8 non-alias rows / no-frozen-site 子集的 exact outer AccountInfo
 > join 与 Mollusk。schedule、generic result-bearing、empty-row/state、multi-callee、mixed-site
-> 与 identity digest verification 仍 FC/open。Noir 两键为
+> 与 Solana identity verification 仍 FC/open。Noir 两键为
 > witness-binding relation（电路不执行调用、证明不 attest 链上调用发生，result-bearing 待
 > response-witness 契约仍 FC）；NEAR schedule 为原生 promise（无 sync）；TON 为真实异步
 > out-message（无 sync）；CW 为 same-tx SubMsg（reply_on=never，非跨 tx async；有 bind table
 > 时 `contract_addr` 用 exact row，identity/bech32 verification 仍不升格）；Psy DPN 仅为
 > void sync-call 结构 `InvokeExternalContractFunctionSync`（无 deployment/response/runtime 门），
 > schedule FC；Aleo 双键 + event 全 decline；Quint 全 FC。`B-CALL-SEM` 继续 open：上述
-> identity/unsupported family、Noir response-witness、static inspect 与 formal/C-3 未闭合前，
+> EVM on-chain identity、Solana/CW identity、unsupported family、Noir response-witness、
+> static inspect 与 formal/C-3 未闭合前，
 > 不得写成跨平台 call 已完成。
 
 `docs/04-task-breakdown.md` 与既有 evidence ledger 继续保存 D0/D1 release-qualification
