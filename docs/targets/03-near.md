@@ -3,7 +3,7 @@ id: TARGET-NEAR
 title: NEAR target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-19
+updated: 2026-08-21
 normative: true
 ---
 
@@ -44,8 +44,13 @@ Phase 1：实现
 - **Principal 9×KV leaf 存储（T12）**（wire identity 原样；**非** account-id）；
 - WAT 发射 + locked `wat2wasm` 结构编译；`NearWasmAcceptance` 另需 host-optional
   `wasm-interp`/`wasmtime`/`wasmer` 之一做 runtime load；locked near-sandbox 2.13.0 的
-  `runtime-tests/near` 已覆盖 StateCell init/mutate/view、overflow state-hold+recovery、
-  `negative_corpus`（unknown method / empty·short·long increment args + state-hold + recovery）、PairRet、
+  `runtime-tests/near` 已覆盖 StateCell init/mutate/view、overflow state-hold+recovery，及
+  显式 initializer 的 `CounterOverflow` fixture（与 Counter 相同的 nullary checked `+2`
+  body：boundary success、overflow receipt failure、unchanged state）。后者只证明该 target body/
+  receipt rollback 的工程行为；exact `Examples/Counter` 是 no-initializer subject，当前 NEAR KV
+  profile 在 Plan 阶段明确 fail closed，故不得把 fixture 叙述为 product Counter closure。
+  其余 corpus 包括 `negative_corpus`（unknown method / empty·short·long increment args +
+  state-hold + recovery）、PairRet、
   ArrayRet、OptionRet、OptionState、proof-bearing `VerifiedVaultPF`、TipJarAsync、TokenJarAsync、
   EnvReadJar、**EnvReadBalanceU128**（`pf.assets@1.2.0` full-width u128 ↔ RPC amount）、
   CallerCheck、低集成 `PoseTransform`（translate/rotate90/scale + Int64 overflow
@@ -674,9 +679,10 @@ transaction 调用不属于此 profile 的承诺。
 digest/version probe（Darwin near-sandbox 另闭合 xz/liblzma runtime）；`wasm-interp`、
 `wasmtime`、`wasmer` 不在 Tool Lock，NearWasmAcceptance 只把它们作为 host-optional runtime
 load engine。missing、PATH shadow、version/hash mismatch、unknown host import/export 或结构失败
-必须 fail closed。WABT 编译不能替代 NEAR host semantics；near-sandbox acceptance 也只是外置
-Counter receipt happy path，不能替代完整 protocol profile、Reference differential 或 formal
-Stage-0 evidence。Linux GLIBC 兼容启动由 `scripts/lib/near_sandbox_launch.sh` 统一：
+必须 fail closed。WABT 编译不能替代 NEAR host semantics；near-sandbox corpus 也只是外置
+engineering receipt observations，不能替代 exact product Counter closure、完整 protocol profile、
+Reference differential 或 formal Stage-0 evidence。Linux GLIBC 兼容启动由
+`scripts/lib/near_sandbox_launch.sh` 统一：
 direct exec → Tool Root `near-sandbox-glibc/`（`near_sandbox_glibc_materialize.sh`）→
 env `PF_NEAR_SANDBOX_LOADER` + `PF_NEAR_SANDBOX_LIBRARY_PATH`。只改变原始 locked
 executable 的启动方式；**不会**用 wrapper 替换 Tool Lock 路径。pack digests 尚未
@@ -686,11 +692,14 @@ executable 的启动方式；**不会**用 wrapper 替换 Tool Lock 路径。pac
 
 ## 7. 部署/证明流程
 
-G123 已完成产品 Counter 的 near-sandbox deploy/init/mutate/view happy path，并观测 receipt
-成功与 view 值；这只覆盖固定 raw-u64 正向路径。Phase 1 完整目标仍需独立 protocol/ABI
-profile、Reference 对照、bad input/corrupt storage/overflow unchanged-state negatives、gas/resource
-约束与 identity-bound evidence。`TASK-A0-15` 的历史静态切片及当前 G123 happy path 都不足以
-关闭该完整部署验收。真实 testnet receipt 证据属于后续 network gate。
+历史 G123 文案曾声称产品 Counter 的 near-sandbox happy path，但当前 exact
+`Examples/Counter` 是 no-initializer subject，产品 NEAR Plan 会以
+`KV-state programs require an initializer` fail closed，因此该声称现不可重现。当前工程门以
+StateCell 覆盖 raw-u64 正向/负向路径，并以显式 initializer 的 `CounterOverflow` fixture 覆盖
+与 Counter 相同的 nullary checked `+2` boundary success、overflow receipt failure 与
+unchanged state；这不是 exact product Counter closure。Phase 1 完整目标仍需先冻结
+no-initializer lifecycle 映射，再补独立 protocol/ABI profile、Reference 对照、corrupt storage、
+gas/resource 约束与 identity-bound evidence。真实 testnet receipt 证据属于后续 network gate。
 
 ## 8. 安全
 
@@ -709,25 +718,27 @@ gas allocation、跨 receipt workflow 和 upgrade/migration 不得通过隐式�
 4. sandbox deploy/call/receipt/storage/rollback evidence。
 5. 真实网络 receipt 与 gas band 后才 network-validated。
 
-第 1-2 级构成静态 artifact evidence。G123 现在为 Counter happy path 提供第 4 级的一个
-工程子集（deploy/init/increment/view receipt），但没有第 3 级 Reference↔Wasm differential，
-也没有第 4 级的 bad-input/corrupt-storage/overflow rollback negatives，更没有第 5 级证据。
+第 1-2 级构成静态 artifact evidence。当前 sandbox corpus 为 StateCell 及多套 fixture 提供
+第 4 级工程子集；`CounterOverflow` 已直接观测 exact nullary `+2` overflow rollback，
+但 exact no-initializer product Counter 仍未 materialize。仍没有一般第 3 级
+Reference↔Wasm differential、corrupt-storage 完整负例或第 5 级证据。
 
 `TASK-A0-15` / `EV-20260716-0020` 的历史切片让 Counter 与 Accumulator 通过第 1-2 级；
 deterministic HostModel 只解释 typed recipe，并把 trap 后恢复调用前 snapshot 作为模型假设。
-G123 receipt 门新增真实 sandbox happy-path 观测，但两者都不构成 formal Reference differential
-或完整 rollback 证明。
+当前 receipt 门新增真实 sandbox happy/negative 观测，但这些都不构成 formal Reference
+differential 或 exact product Counter 的完整 rollback 证明。
 
 ## 10. 不支持、风险与成熟度退出
 
 通用 UInt64 首切片不支持 JSON ABI、Promise/callback、跨 receipt workflow、protocol calls、
 attached-deposit 业务语义、upgrade migration 或任意 NEAR SDK surface。它只在 typed Plan/recipe
 中表达 receipt-local rollback 要求；trap/write 顺序和 `wat2wasm` 成功不是 rollback 观测。
-当前只能声称 **Counter sandbox receipt happy path 的工程观测**。在 Reference-bound sandbox
-differential 取得 Accumulator mutate/view、corrupt storage、bad input 和 overflow
-unchanged-state negatives 之前，不得声称完整 runtime validated、rollback validated 或 JSON
-compatible。退出条件仍是合法 Wasm、完整 sandbox 状态/rollback、artifact repeatability、unknown
-host/unsupported sync-call 负例全部通过。
+当前只能声称 **Counter-shaped nullary `+2` sandbox receipt overflow rollback 的工程观测**，
+不能声称 exact `Examples/Counter` 已通过 NEAR：其 no-initializer lifecycle 尚未映射。在
+Reference-bound sandbox differential 取得 product-subject binding、Accumulator mutate/view、
+corrupt storage 与完整 negatives 之前，不得声称完整 runtime validated、rollback validated 或
+JSON compatible。退出条件仍是合法 Wasm、完整 sandbox 状态/rollback、artifact repeatability、
+unknown host/unsupported sync-call 负例全部通过。
 
 ### context.chainId / context.self (ADR-0031 S3)
 

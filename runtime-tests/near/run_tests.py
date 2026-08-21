@@ -3,6 +3,7 @@
 
 Suites:
   state_cell  — Examples/StateCell: init / increment / get + overflow state-hold
+  counter_overflow — Counter-shaped nullary +2 entry: boundary success + overflow state-hold
   negative_corpus — StateCell bad input / unknown method / arity fail-closed
   pairret     — fixtures/PairRet: named Struct aggregate return (N×8 LE)
   arrayret    — fixtures/ArrayRet: anonymous Array UInt64 2 return (N×8 LE)
@@ -26,7 +27,7 @@ Env (set by scripts/near_runtime_test.sh):
   PF_NEAR_RPC          e.g. http://127.0.0.1:PORT
   PF_NEAR_HOME         near-sandbox --home directory (validator_key.json)
   PF_NEAR_WASM         path to product .wasm for the suite
-  PF_NEAR_SUITE        state_cell | pairret | arrayret | optionret | optionstate |
+  PF_NEAR_SUITE        state_cell | counter_overflow | pairret | arrayret | optionret | optionstate |
                        verifiedvault | tipjarasync | tokenjarasync | envreadjar | envreadbalanceu128 | wideshiftprobe |
                        negative_corpus | callercheck | posetransform | blockheightcheck |
                        selfidentitycheck | constanswer | unixtimecheck | bytesret |
@@ -100,6 +101,56 @@ def suite_state_cell(client: NearClient, wasm: Path) -> None:
         raise AssertionError(f"after post-overflow increment(1): get() expected 13, got {got}")
     print("state_cell: post-overflow increment(1) → get()==13 ok")
     print("suite StateCell: PASS")
+
+
+def suite_counter_overflow(client: NearClient, wasm: Path) -> None:
+    """Observe rollback for Counter's exact nullary checked-add-two body.
+
+    The artifact is the explicit-initializer runtime fixture, not the sole
+    no-initializer Examples/Counter product subject. The current NEAR profile
+    rejects that subject before materialization.
+    """
+    print("=== suite: CounterOverflow (nullary +2 overflow state-hold) ===")
+    client.deploy(wasm)
+
+    max_u64 = (1 << 64) - 1
+    pre_boundary = max_u64 - 3
+    boundary = max_u64 - 1
+    client.call("init", NearClient.encode_u64_le(pre_boundary))
+
+    success = client.call("increment")
+    success_value = NearClient.success_value_bytes(success)
+    if success_value is None or len(success_value) != 8:
+        raise AssertionError(
+            "CounterOverflow boundary increment must return exactly 8 bytes"
+        )
+    returned = NearClient.decode_u64_le(success_value, 0)
+    if returned != boundary:
+        raise AssertionError(
+            f"CounterOverflow boundary increment expected {boundary}, got {returned}"
+        )
+    got = client.view_u64("get")
+    if got != boundary:
+        raise AssertionError(
+            f"CounterOverflow boundary state expected {boundary}, got {got}"
+        )
+    print(f"counter_overflow: increment → boundary {boundary} ok")
+
+    state_before_failure = client.view_state_values()
+    client.call("increment", expect_success=False)
+    state_after_failure = client.view_state_values()
+    if state_after_failure != state_before_failure:
+        raise AssertionError(
+            "CounterOverflow failed increment changed the raw contract KV snapshot"
+        )
+    got = client.view_u64("get")
+    if got != boundary:
+        raise AssertionError(
+            "CounterOverflow failed increment must hold state at "
+            f"{boundary}, got {got}"
+        )
+    print("counter_overflow: +2 overflow receipt fails + full KV snapshot holds ok")
+    print("suite CounterOverflow: PASS")
 
 
 def suite_verifiedvault(client: NearClient, wasm: Path) -> None:
@@ -1485,6 +1536,12 @@ def main(argv: list[str]) -> int:
         if suite in ("state_cell", "single"):
             wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_STATE_CELL_WASM"))
             suite_state_cell(client, wasm)
+        elif suite == "counter_overflow":
+            wasm = Path(
+                os.environ.get("PF_NEAR_WASM")
+                or _require_env("PF_NEAR_COUNTER_OVERFLOW_WASM")
+            )
+            suite_counter_overflow(client, wasm)
         elif suite == "negative_corpus":
             wasm = Path(
                 os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_STATE_CELL_WASM")

@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 # NEAR near-sandbox engineering runtime differential (BL-13 / BL-20 / BL-30):
-#   product CLI build → StateCell/PairRet/ArrayRet/OptionRet/OptionState/
-#   VerifiedVaultPF.wasm
+#   product CLI build → StateCell/CounterOverflow/PairRet/ArrayRet/OptionRet/
+#   OptionState/VerifiedVaultPF.wasm
 #   (wat2wasm) → near-sandbox init/run → JSON-RPC deploy/call/view assert → kill
 #
 # Covers:
 #   StateCell: init(7) / increment(5) / get==12 / overflow state-hold / recovery
+#   CounterOverflow: Counter-shaped nullary +2 boundary success / overflow
+#     receipt failure / unchanged state (explicit-initializer runtime fixture;
+#     not the no-initializer Examples/Counter product subject)
+#   Examples/Counter: exact product build remains fail-closed until the NEAR
+#     no-initializer lifecycle mapping is explicitly frozen
 #   PairRet: named Struct aggregate return (init + setPair/getPair N×8 LE)
 #   ArrayRet: anonymous Array UInt64 2 return (init + setArr/getArr N×8 LE)
 #   OptionRet: anonymous Option UInt64 none/some (2×8 LE tag+payload)
@@ -159,6 +164,7 @@ crate_dir="$root/runtime-tests/near"
 
 programs=(
   "Examples/StateCell.lean:Examples.StateCell:StateCell"
+  "runtime-tests/near/fixtures/CounterOverflow.lean:Examples.CounterOverflow:CounterOverflow"
   "runtime-tests/near/fixtures/PairRet.lean:Examples.PairRet:PairRet"
   "runtime-tests/near/fixtures/ArrayRet.lean:Examples.ArrayRet:ArrayRet"
   "runtime-tests/near/fixtures/OptionRet.lean:Examples.OptionRet:OptionRet"
@@ -207,6 +213,25 @@ echo "near-runtime-test: python3=$(python3 --version 2>&1)"
 # CLI rejects pre-existing -o paths (PF-OUTPUT-COLLISION); remove and let it create.
 rm -rf "$out_dir"
 mkdir -p "$out_dir"
+
+# Keep the accepted product-subject gap executable rather than silently
+# treating CounterOverflow as equivalent. A future lifecycle decision must
+# deliberately replace this negative before claiming exact Counter closure.
+counter_product_out="$out_dir/CounterProductUnsupported"
+counter_product_log="$out_dir/CounterProductUnsupported.log"
+if lake env "$cli" build \
+    Examples/Counter.lean \
+    --module Examples.Counter \
+    --target near \
+    -o "$counter_product_out" >"$counter_product_log" 2>&1; then
+  die "exact no-initializer Examples/Counter unexpectedly built for NEAR"
+fi
+if ! grep -Fq "KV-state programs require an initializer" "$counter_product_log"; then
+  cat "$counter_product_log" >&2 || true
+  die "exact Examples/Counter failure did not preserve the NEAR lifecycle boundary"
+fi
+[[ ! -e "$counter_product_out" ]] || die "failed exact Counter build published output"
+echo "near-runtime-test: exact Examples/Counter remains lifecycle fail-closed (expected)"
 
 normalize_wasm() {
   local name="$1"
@@ -273,6 +298,7 @@ for entry in "${programs[@]}"; do
 done
 
 state_cell_wasm="$out_dir/StateCell/StateCell.wasm"
+counter_overflow_wasm="$out_dir/CounterOverflow/CounterOverflow.wasm"
 pairret_wasm="$out_dir/PairRet/PairRet.wasm"
 arrayret_wasm="$out_dir/ArrayRet/ArrayRet.wasm"
 optionret_wasm="$out_dir/OptionRet/OptionRet.wasm"
@@ -295,6 +321,7 @@ sha256check_wasm="$out_dir/Sha256Check/Sha256Check.wasm"
 sha256bytescheck_wasm="$out_dir/Sha256BytesCheck/Sha256BytesCheck.wasm"
 keccak256check_wasm="$out_dir/Keccak256Check/Keccak256Check.wasm"
 [[ -f "$state_cell_wasm" ]] || die "missing $state_cell_wasm"
+[[ -f "$counter_overflow_wasm" ]] || die "missing $counter_overflow_wasm"
 [[ -f "$pairret_wasm" ]] || die "missing $pairret_wasm"
 [[ -f "$arrayret_wasm" ]] || die "missing $arrayret_wasm"
 [[ -f "$optionret_wasm" ]] || die "missing $optionret_wasm"
@@ -424,6 +451,9 @@ PY
 echo "near-runtime-test: running StateCell suite against near-sandbox"
 run_suite state_cell "$state_cell_wasm" || die "StateCell suite failed"
 
+echo "near-runtime-test: running CounterOverflow suite against near-sandbox"
+run_suite counter_overflow "$counter_overflow_wasm" || die "CounterOverflow suite failed"
+
 echo "near-runtime-test: running negative_corpus suite against near-sandbox"
 run_suite negative_corpus "$state_cell_wasm" || die "negative_corpus suite failed"
 
@@ -512,5 +542,5 @@ run_suite sha256bytescheck "$sha256bytescheck_wasm" || die "Sha256BytesCheck sui
 echo "near-runtime-test: running Keccak256Check suite against near-sandbox"
 run_suite keccak256check "$keccak256check_wasm" || die "Keccak256Check suite failed"
 
-echo "near-runtime-test: PASS (StateCell + negative corpus + PairRet + ArrayRet + OptionRet + OptionState + VerifiedVaultPF + TipJarAsync + TokenJarAsync + EnvReadJar + EnvReadBalanceU128 + WideShiftProbe + CallerCheck + PoseTransform + BlockHeightCheck + AttachedValueCheck + SelfIdentityCheck + ConstAnswer + UnixTimeCheck + BytesRet + Sha256Check + Sha256BytesCheck + Keccak256Check engineering sandbox differential)"
+echo "near-runtime-test: PASS (StateCell + CounterOverflow + negative corpus + PairRet + ArrayRet + OptionRet + OptionState + VerifiedVaultPF + TipJarAsync + TokenJarAsync + EnvReadJar + EnvReadBalanceU128 + WideShiftProbe + CallerCheck + PoseTransform + BlockHeightCheck + AttachedValueCheck + SelfIdentityCheck + ConstAnswer + UnixTimeCheck + BytesRet + Sha256Check + Sha256BytesCheck + Keccak256Check engineering sandbox differential)"
 exit 0

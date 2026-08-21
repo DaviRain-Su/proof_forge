@@ -123,7 +123,7 @@ D1–D4 = 0/27 done。
 
 | Phase-1 DoD 要点 | 工程判断 |
 |---|---|
-| accepted PRD Counter 四目标 + overflow 状态不变 | 部分：EVM/Solana 工程 runtime 较强；NEAR 只有 sandbox happy path，未覆盖 overflow rollback；Noir 无 proof |
+| accepted PRD Counter 四目标 + overflow 状态不变 | 部分：EVM/Solana 工程 runtime 较强；NEAR 已有 Counter-shaped exact `+2` sandbox overflow state-hold，但 exact no-initializer `Examples/Counter` 仍在 Plan 阶段 fail closed；Noir 无 proof |
 | EVM/Solana/NEAR local runtime；Noir prove/verify | **未满足字面**：G4/Mollusk 为工程差分，NEAR C-6 非 Reference negatives，Noir C-7 仅 compile-only |
 | PrivateSum4 隐私边界 | **APP-1** 产品持续向量（PF-VIS-001 + 无制品泄漏） | APP-1 |
 | OutputSet 可重现 + clean-room | engineering 有；formal/clean-room 属 release |
@@ -327,13 +327,13 @@ D1–D4 = 0/27 done。
 
 | ID | 项 | 状态 |
 |---|---|---|
-| **C-1** | NEAR Wasm 工具链 load + sandbox 工程子集 | **done**（2026-08-02：`672e6115d` NearWasmAcceptance = locked `wat2wasm` + host-optional `wasm-interp`/`wasmtime`/`wasmer` load，工具缺席 skip；2026-08-03 C-6 另加 locked near-sandbox Counter happy path；均非 formal Reference differential） |
+| **C-1** | NEAR Wasm 工具链 load + sandbox 工程子集 | **done**（2026-08-02：`672e6115d` NearWasmAcceptance = locked `wat2wasm` + host-optional `wasm-interp`/`wasmtime`/`wasmer` load，工具缺席 skip；C-6 另有 locked near-sandbox receipt gate；均非 formal Reference differential。历史 “Counter happy path” 口径不可由当前 exact `Examples/Counter` 重现：该 no-initializer subject 在 NEAR Plan 阶段 fail closed） |
 | **C-2** | Aleo/Psy native artifact boundary | **done（2026-08-10）**：Aleo 仅生成 Aleo Instructions，Psy 仅生成 DPN；二者 zero-tool、non-deployable。旧 source compiler/local runtime/network lanes 删除，不再属于产品或验收面；无 VM/proof/UPS/network/formal 结论 |
 | **C-3** | EVM Reference↔Anvil **formal** 差分 | blocked（formal 轨道；G4 工程差分四程序；**2026-08-12** identity binding + Outcome wire + step façade + Outcome projection/digests + **切片-3** ArithOps mint/`sidecars=18` + digest-case 投影硬门——仍非 formal C-3/TST / Anvil↛OutcomeWire 仍 FC） |
 | **C-4** | Noir 真实电路证明/prove 路径（若工具链锁定可行） | **done（研究决定仍有效）**：2026-08-03 G123 已锁定 nargo 1.0.0-beta.26 并接 `NoirCompileAcceptance` compile-only 门（C-7），supersede 原“无 nargo pin”观察；Barretenberg/backend、CRS/security profile、witness/prove/verify 与 proof binding 仍无，因此不升格 prove/verify、保持 source-only；见 `16-noir-prove-path.md` |
 | **C-5** | Solana 已有 Mollusk；扩 fixture 跟 Normalize 新面 | **ongoing**（Counter + 18 fixtures = 19 programs；#111 移除 CpiCaller；**#113** V1 单账户安全负例矩阵；OptionState 与聚合返回保留；manifest-bound artifact 读取已接线） |
 | **C-6** | NEAR near-sandbox receipt 工程门（G123） | **done**（2026-08-03：near-sandbox 2.13.0 入 `tools[]`（darwin+linux，Darwin 捆绑 xz/liblzma）；`scripts/near_sandbox_acceptance.sh` deploy/init/mutate/view 真实通过；`NearSandboxAcceptance` 注册 shard-targets；非 formal Reference↔sandbox / Stage-0） |
-| **C-8** | NEAR sandbox 全差分 harness（Counter + 聚合返回 + overflow） | **done**（2026-08-03；`971e27a76` + `be8842962`：`runtime-tests/near` 薄 Python JSON-RPC/borsh-Ed25519 客户端（pin cryptography 47.0.0 + base58 2.1.1）+ `scripts/near_runtime_test.sh`；Counter init/increment/get + overflow state-hold + recovery；PairRet named 聚合返回与 ArrayRet/OptionRet 匿名容器返回 e2e 精确 16B LE 断言；独立 sandbox homes、skip-clean；engineering differential，非 testnet/mainnet/formal） |
+| **C-8** | NEAR sandbox 工程 runtime harness（状态/聚合/overflow） | **done（harness）/ product Counter partial**（当前 `runtime-tests/near` + `scripts/near_runtime_test.sh`：StateCell negatives/recovery、聚合返回及多套 runtime corpus；2026-08-21 新增显式 initializer 的 `CounterOverflow` fixture，以与 Counter 相同的 nullary checked `+2` body 观测 boundary success、overflow receipt failure 与 unchanged state。exact `Examples/Counter` 无 initializer，当前 NEAR KV Plan 明确拒绝，故该 fixture 不关闭 product Counter；独立 sandbox homes、engineering only，非 testnet/mainnet/formal） |
 | **C-7** | Noir nargo compile-only 工程门（G123；RPT-017 最小路径） | **done**（2026-08-03：nargo 1.0.0-beta.26 入 `tools[]`；`scripts/noir_compile_acceptance.sh` 产品 Counter 三 relation 包真实 compile 通过；`NoirCompileAcceptance` 注册 shard-targets；barretenberg 仍 null，**不**升格 prove/verify；`validate_artifacts.py` 仍拒 proof-stage 叶） |
 | **C-8** | EVM Anvil 工程差分加固（G4） | **done**（2026-08-03：Counter/Accumulator/ArithOps/EventFlow 产品 CLI 制品 + overflow revert 状态不变（view+storage 双读）+ EventFlow emit 日志断言真实通过；B-EVM-MAP-STACK 已修复 Token 的 solc StackTooDeep，但 258460 B creation bytecode 超 EIP-3860，Token companion 仍仅可按部署上限 explicit skip；非 formal C-3） |
 | **EVMOZ-001** | 显式 Cancun EVM profile（shared） | **done**（2026-08-03：`evm-yul-solc-0.8.34-cancun-v1` 进入 registry/descriptor/resolver/Tool Lock；Finalize 仅 Cancun 加 `--evm-version cancun`；runtime `PF_EVM_PROFILE` → `anvil --hardfork cancun`；默认 legacy v1 不改写；同一 solc 0.8.34/Anvil 0.3.0；**非** OZ claim / formal D4 / 工具升级） |
@@ -492,7 +492,7 @@ Cairo / RISC0 / SP1 / Move / 比特币 **不进本队列**。
 |---|---|---|
 | **COMP-2-EVM-ADDR** | static-QN → 部署地址绑定；Bool/Int/Bytes returndata 按决策；C-3 保持 FC | pending |
 | **COMP-2-SOL-CPI** | product CPI callee / 外层账户；Token/ATA binding 诚实化；WideDiv 差分；async FC | pending |
-| **COMP-2-NEAR-OVERFLOW** | sandbox Counter overflow rollback；view ContextRead 保持 FC | pending |
+| **COMP-2-NEAR-OVERFLOW** | sandbox Counter overflow rollback；view ContextRead 保持 FC | **partial / lifecycle-blocked** — Counter-shaped exact `+2` receipt rollback 已观测；exact no-initializer `Examples/Counter` 仍被 NEAR Plan 拒绝，需先冻结 lifecycle 映射；view caller 保持 FC |
 | **COMP-2-NOIR-PRD** | 不推翻 C-4 则另开 PRD 修订；推翻才做独立 NoirProveAcceptance | pending |
 
 ### 12.3 阶段 3 — 其余九叶（仅已拍板的下一 profile）

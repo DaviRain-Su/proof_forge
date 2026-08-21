@@ -156,7 +156,7 @@ Capability 横切（2026-08-19）：`sha256Bytes` 五叶已开；`merkleVerifyKe
 |---|---|---|
 | **COMP-2-EVM-ADDR** | static-QN → 真实 deployment-address binding；Bool/Int/Bytes returndata 按决策；C-3 保持 FC | pending |
 | **COMP-2-SOL-CPI** | product CPI callee / 外层账户；Token/ATA `artifactBinding` 诚实化；WideDiv runtime 差分；async 保持 FC | pending |
-| **COMP-2-NEAR-OVERFLOW** | sandbox Counter overflow rollback；view ContextRead 保持 FC 并写死 dossier | pending |
+| **COMP-2-NEAR-OVERFLOW** | sandbox Counter overflow rollback；view ContextRead 保持 FC 并写死 dossier | **partial / lifecycle-blocked** — `CounterOverflow` runtime fixture 已用与 Counter 相同的 nullary checked `+2` body 观测 receipt failure + unchanged state；view caller 继续 FC。exact `Examples/Counter` 是 no-initializer subject，而当前 NEAR KV profile 明确拒绝无 initializer 的程序，故不得把 fixture 冒充 product Counter closure；需先冻结 no-initializer lifecycle 映射 |
 | **COMP-2-NOIR-PRD** | 若 COMP-0 不推翻 C-4：另开 PRD 修订 FR-008 / Phase-1 DoD。若推翻：独立 `NoirProveAcceptance` | pending |
 
 四目标共同：Counter overflow 状态不变的 **工程** runtime 证据。不写 EV，不关 TST。

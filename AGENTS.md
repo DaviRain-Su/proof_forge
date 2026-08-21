@@ -291,8 +291,10 @@ custody 服务或 formal-evidence ceremony。
 （Counter/Accumulator/ArithOps/EventFlow，含 overflow state-hold 与 emit 日志；formal
 Reference↔Anvil closure 仍缺）；NEAR 已有 locked `wat2wasm` 结构编译 + host-optional
 Wasm runtime 实例化门、deterministic HostModel，
-以及 locked near-sandbox 2.13.0 的 Counter deploy/init/mutate/view receipt **工程 happy-path 门**
-（非 Reference↔sandbox formal 差分或 Stage-0）；Solana 已有真实 SBPF 汇编发射
+以及 locked near-sandbox 2.13.0 的 StateCell/multi-fixture receipt 工程门；显式 initializer 的
+Counter-shaped fixture 已观测 exact nullary `+2` overflow state-hold，但 exact no-initializer
+`Examples/Counter` 仍在 NEAR Plan 阶段 fail closed（非 Reference↔sandbox formal 差分或
+Stage-0）；Solana 已有真实 SBPF 汇编发射
 （`EmitSbpfAsmV1` 完整 Operation 表面）+ 锁定 `sbpf`（blueshift-gg/sbpf 0.2.2
 pinned d835bc6e，cargo-git source-build 供给，Tool Lock v4）汇编成 Solana ELF `.so`
 （sole 产品 profile `solana-sbpf-cpi-elf-v1`，Counter 已端到端产出 ELF；retired `solana-sbpf-elf-v1` / `plan-v1` 已非 registry 成员）+ **S3a+S3b Mollusk
