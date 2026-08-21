@@ -4,8 +4,10 @@
   Sole product-rail materialize entry for `solana-sbpf-cpi-elf-v1` (plus plan/elf
   shim dispatch):
 
-  * Zero-site full-body: CPI product Plan/IDL + full-body LowerSemantic IR →
-    `emitSbpfAsmV1`, framed via `ProductFrameV1` bodyOnly (P3-c).
+  * Zero catalog-site full-body: CPI product Plan/IDL + full-body LowerSemantic
+    IR → `emitSbpfAsmV1`, framed via `ProductFrameV1` bodyOnly (P3-c).
+  * ADR-0053 generic bind with nonempty accounts: append bound account/program
+    outer roles, exact runtime identity/privilege join, and pass AccountInfos.
   * hasSites ∧ full-body + sole `solana.system.transfer` + ≥3 outer roles:
     stamp multi-role locals → outer walk + AccountMeta + System 12B invoke
     (`p3e-system-transfer-multi-role`, frameMode `unifiedCpi`).
@@ -33,6 +35,7 @@ import ProofForgeV2.Targets.Solana.CpiIdlV1
 import ProofForgeV2.Targets.Solana.CpiPlanV1
 import ProofForgeV2.Targets.Solana.ProductFrameV1
 import ProofForgeV2.Targets.Solana.ProductCpiRecipesV1
+import ProofForgeV2.Targets.CallBindV1
 
 namespace ProofForgeV2.Targets.Solana
 
@@ -92,13 +95,62 @@ def semanticUsesContextCallerV1 (data : SemanticProgramDataV1) : Bool :=
         | .contextRead key => key == callerContextKeyV1
         | _ => false
 
+private def isCallBindExemptQnV1 (callee : QualifiedName) : Bool :=
+  let qn := String.intercalate "." callee.components.toArray.toList
+  qn.startsWith "pf.crypto." || qn.startsWith "pf.assets." ||
+    ProductCpiRecipesV1.isSystemTransferCalleeV1 callee.components.toArray
+
+/-- Unique generic synchronous callees in semantic source order. Scheduled
+    workflows remain rejected by CPI derive and are not an AccountInfo join. -/
+private def collectGenericCallBindCalleesV1
+    (data : SemanticProgramDataV1) : Array QualifiedName := Id.run do
+  let mut out : Array QualifiedName := #[]
+  for callable in data.callables do
+    for block in callable.blocks do
+      for instruction in block.instructions do
+        match instruction.op with
+        | .externalCall _ callee _ =>
+            unless isCallBindExemptQnV1 callee || out.any (· == callee) do
+              out := out.push callee
+        | _ => pure ()
+  pure out
+
+/-- ADR-0053 Wave 3 activation. Empty rows keep the Wave 2b partial path.
+    One full-body outer layout currently carries one generic callee identity;
+    multiple distinct nonempty-bound callees fail closed rather than sharing a
+    program role that could not satisfy both identities. -/
+private def resolveCallBindOuterAccountsV1
+    (data : SemanticProgramDataV1)
+    (bindings : Option CallBindV1.CallBindTableV1) :
+    CompileResult (Option (ByteArray × Array CallBindV1.CallBindAccountV1)) := do
+  let some table := bindings | pure none
+  let callees := collectGenericCallBindCalleesV1 data
+  let mut hasNonempty := false
+  for callee in callees do
+    match CallBindV1.requireSolanaBindingV1 table callee.components.toArray with
+    | .ok (_, accounts) =>
+        if !accounts.isEmpty then hasNonempty := true
+    | .error msg => throw <| .planInvariant .solana msg
+  unless hasNonempty do
+    return none
+  unless callees.size == 1 do
+    throw <| .planInvariant .solana
+      "call-bind: Solana outer AccountInfo join currently requires one distinct generic callee"
+  let some callee := callees[0]? |
+    throw <| .planInvariant .solana
+      "call-bind: Solana outer AccountInfo join missing generic callee"
+  match CallBindV1.requireSolanaOuterAccountJoinV1 table callee.components.toArray with
+  | .ok binding => pure (some binding)
+  | .error msg => throw <| .planInvariant .solana msg
+
 /-- Shared full-body product files: CPI plan/IDL + LowerSemantic body `.s`.
     `hasSites` selects P3-c (zero-site) vs site-bearing paths. Sole
     system.transfer with ≥3 outer roles stamps multi-role AccountMeta; other
     sites remain empty-meta partial. -/
 def synthesizeFullBodyProductBaseFilesV1
     (capability : ResolvedEngineeringBuildV1)
-    (hasSites : Bool) :
+    (hasSites : Bool)
+    (bindings : Option CallBindV1.CallBindTableV1 := none) :
     CompileResult (Array OutputFile) := do
   let compiled := ResolvedEngineeringBuildV1.compiledOf capability
   let data ← match decodeSemanticProgramDataV1
@@ -108,7 +160,7 @@ def synthesizeFullBodyProductBaseFilesV1
         throw <| .planInvariant .solana
           "product synthesize full-body: invalid Semantic carrier"
   let admitCaller := semanticUsesContextCallerV1 data
-  let cpiPlan ← productPlanFromCapabilityV1 capability
+  let cpiPlan ← productPlanFromCapabilityV1 capability bindings
   let validated := SolanaCpiProductPlanV1.planOf cpiPlan
   unless hasSites == !validated.candidate.cpiSites.isEmpty do
     throw <| .planInvariant .solana
@@ -122,6 +174,7 @@ def synthesizeFullBodyProductBaseFilesV1
         throw <| .planInvariant .solana
           "product synthesize full-body: plan UTF-8 decode failed"
   let bodyIr0 ← fullBodyIrFromProductCapabilityV1 capability admitCaller
+  let callBindOuterAccounts? ← resolveCallBindOuterAccountsV1 data bindings
   let siteQns := validated.candidate.cpiSites.map (fun s => s.qn)
   let allSystemXfer :=
     !siteQns.isEmpty && siteQns.all isSystemTransferQnV1
@@ -137,7 +190,39 @@ def synthesizeFullBodyProductBaseFilesV1
   -- M4c multi-role: all token.transfer sites + role table fit → stamp each
   -- site (ATA ensure + transferCheckedPda) with per-site vaultAta/dstAta.
   let bodyIr ←
-    if hasSites && allSystemXfer && roleCount ≥ 3 then do
+    if let some (programId, accounts) := callBindOuterAccounts? then do
+      unless !hasSites do
+        throw <| .planInvariant .solana
+          "call-bind: generic outer AccountInfo join cannot share a full-body frozen CPI-site layout"
+      unless accounts.size + 1 ≤ roleCount do
+        throw <| .planInvariant .solana
+          "call-bind: validated Plan is missing its bound role suffix"
+      let roleBase := roleCount - accounts.size - 1
+      for (account, accountIndex) in accounts.zipIdx do
+        let some role := validated.candidate.accountRoles[roleBase + accountIndex]? |
+          throw <| .planInvariant .solana
+            s!"call-bind: validated Plan account role {accountIndex} missing"
+        let key ← match SolanaPubkeyV1.ofBytes account.pubkey with
+          | .ok value => pure value
+          | .error msg => throw <| .planInvariant .solana msg
+        unless role.name == account.role &&
+            role.keyPolicy == .callBindAccount key account.signer account.writable do
+          throw <| .planInvariant .solana
+            s!"call-bind: validated Plan account role {accountIndex} diverges from bind row"
+      let some programRole := validated.candidate.accountRoles[roleCount - 1]? |
+        throw <| .planInvariant .solana
+          "call-bind: validated Plan program role missing"
+      let expectedProgram ← match SolanaPubkeyV1.ofBytes programId with
+        | .ok value => pure value
+        | .error msg => throw <| .planInvariant .solana msg
+      unless programRole.keyPolicy == .callBindProgram expectedProgram do
+        throw <| .planInvariant .solana
+          "call-bind: validated Plan program role diverges from bind row"
+      unless roleCount ≤ productMaxOuterRolesV1 do
+        throw <| .planInvariant .solana
+          s!"call-bind: Solana outer role count {roleCount} exceeds {productMaxOuterRolesV1}"
+      pure (withProductMultiRoleCallBindV1 bodyIr0 roleBase accounts.size)
+    else if hasSites && allSystemXfer && roleCount ≥ 3 then do
       let some site0 := validated.candidate.cpiSites[0]? |
         throw <| .planInvariant .solana
           "product synthesize multi-role system.transfer missing site 0"
@@ -200,9 +285,10 @@ def synthesizeFullBodyProductBaseFilesV1
     else
       pure bodyIr0
   let multiRoleOn := bodyIr.stateAccount.productMultiRoleCount > 0
+  let callBindMultiRoleOn := bodyIr.stateAccount.productCallBindMultiRole
   let tokenMultiRoleOn := bodyIr.stateAccount.productTokenMultiRole
   let multiN := bodyIr.stateAccount.productMultiRoleCount
-  let asm ← emitSbpfAsmV1 bodyIr
+  let asm ← emitSbpfAsmV1 bodyIr bindings
   let frame ←
     if multiRoleOn then do
       unless multiRoleCpiBaseForV1 multiN ≤ productMaxFrameBytesV1 do
@@ -221,21 +307,25 @@ def synthesizeFullBodyProductBaseFilesV1
   requireProductFrameV1 frame
   let frameMode := if multiRoleOn then "unifiedCpi" else "bodyOnly"
   let synthTag :=
-    if !hasSites then "p3c-zero-site"
+    if callBindMultiRoleOn then "call-bind-outer-account-join"
+    else if !hasSites then "p3c-zero-site"
     else if multiRoleOn && tokenMultiRoleOn then "m4b-token-transfer-multi-role"
     else if multiRoleOn then "p3e-system-transfer-multi-role"
     else if allTokenXfer then "m4b-token-transfer-empty-meta"
     else if allSystemXfer then "p3e-system-transfer-empty-meta"
     else "p3d-partial-empty-meta"
   let cpiMaturity :=
-    if !hasSites then "zero-site"
+    if callBindMultiRoleOn then "call-bind-outer-account-join"
+    else if !hasSites then "zero-site"
     else if multiRoleOn && tokenMultiRoleOn then "multi-role-token-transfer"
     else if multiRoleOn then "multi-role-system-transfer"
     else if allTokenXfer then "empty-meta-partial-token-transfer"
     else if allSystemXfer then "empty-meta-partial-system-transfer"
     else "empty-meta-partial"
   let honesty :=
-    if !hasSites then
+    if callBindMultiRoleOn then
+      "full-body+generic call-bind compile-time AccountMeta + exact outer AccountInfo identity/privilege join"
+    else if !hasSites then
       "body via ProductSynthesizeV1→LowerSemantic+EmitSbpfAsm (P3-c)"
     else if multiRoleOn && tokenMultiRoleOn then
       "full-body+token.transfer multi-role AccountMeta + ATA ensure + transferCheckedPda (M4b)"
@@ -258,7 +348,7 @@ def synthesizeFullBodyProductBaseFilesV1
     "\"admitCaller\":" ++ (if admitCaller then "true" else "false") ++ "," ++
     "\"admitProductExternalCall\":true," ++
     "\"cpiSites\":" ++ toString validated.candidate.cpiSites.size ++ "," ++
-    "\"outerRoleCount\":" ++ toString roleCount ++ "," ++
+    "\"outerRoleCount\":" ++ toString (if multiRoleOn then multiN else roleCount) ++ "," ++
     "\"cpiMaturity\":\"" ++ cpiMaturity ++ "\"}"
   let irDigestWire ← match fullBodyHybridIrDigestV1 irText.toUTF8 with
     | .ok d =>
@@ -270,15 +360,37 @@ def synthesizeFullBodyProductBaseFilesV1
     | .error e =>
         throw <| .planInvariant .solana
           s!"product synthesize full-body: irDigest: {e}"
+  let planDigestWire ← match renderDigest validated.digest with
+    | .ok digest => pure digest
+    | .error e =>
+        throw <| .planInvariant .solana
+          s!"product synthesize full-body: planDigest render: {e}"
+  let profileDigestWire ← match renderDigest validated.candidate.profileDigest with
+    | .ok digest => pure digest
+    | .error e =>
+        throw <| .planInvariant .solana
+          s!"product synthesize full-body: profileDigest render: {e}"
+  let catalogDigestWire ← match renderDigest
+      validated.candidate.calleeCatalogDigest with
+    | .ok digest => pure digest
+    | .error e =>
+        throw <| .planInvariant .solana
+          s!"product synthesize full-body: catalogDigest render: {e}"
   let bindingsText :=
     "{\"schema\":\"proof-forge.solana.cpi-bindings.v1\"," ++
     "\"fullBodyHybrid\":true," ++
+    "\"profileId\":\"" ++ validated.candidate.profileId ++ "\"," ++
+    "\"profileDigest\":\"" ++ profileDigestWire ++ "\"," ++
+    "\"calleeCatalogDigest\":\"" ++ catalogDigestWire ++ "\"," ++
+    "\"planDigest\":\"" ++ planDigestWire ++ "\"," ++
     "\"synthesize\":\"" ++ synthTag ++ "\"," ++
     "\"frameMode\":\"" ++ frameMode ++ "\"," ++
     "\"frameBytes\":" ++ toString frame.totalBytes ++ "," ++
     "\"cpiSites\":" ++ toString validated.candidate.cpiSites.size ++ "," ++
-    "\"outerRoleCount\":" ++ toString roleCount ++ "," ++
+    "\"outerRoleCount\":" ++ toString (if multiRoleOn then multiN else roleCount) ++ "," ++
     "\"irDigest\":\"" ++ irDigestWire ++ "\"," ++
+    "\"implementationState\":\"" ++
+      validated.candidate.computeAssumptions.implementationState ++ "\"," ++
     "\"programName\":\"" ++ name ++ "\"}"
   pure #[
     { path := s!"{name}.cpi-plan.json"
@@ -300,16 +412,18 @@ def synthesizeFullBodyProductBaseFilesV1
 
 /-- Zero-site full-body product base files (P3-c). -/
 def synthesizeZeroSiteFullBodyBaseFilesV1
-    (capability : ResolvedEngineeringBuildV1) :
+    (capability : ResolvedEngineeringBuildV1)
+    (bindings : Option CallBindV1.CallBindTableV1 := none) :
     CompileResult (Array OutputFile) :=
-  synthesizeFullBodyProductBaseFilesV1 capability false
+  synthesizeFullBodyProductBaseFilesV1 capability false bindings
 
 /-- P3-d partial: full-body shape + non-empty cpiSites → one ELF with body
     Map/CFG + empty-meta ExternalCall invoke. Not multi-role CPI maturity. -/
 def synthesizeFullBodyWithSitesBaseFilesV1
-    (capability : ResolvedEngineeringBuildV1) :
+    (capability : ResolvedEngineeringBuildV1)
+    (bindings : Option CallBindV1.CallBindTableV1 := none) :
     CompileResult (Array OutputFile) :=
-  synthesizeFullBodyProductBaseFilesV1 capability true
+  synthesizeFullBodyProductBaseFilesV1 capability true bindings
 
 private def buildUnknownProfileFail (profile : CodegenProfileId) :
     CompileResult (Array OutputFile) :=
@@ -324,13 +438,14 @@ private def buildUnknownProfileFail (profile : CodegenProfileId) :
     * straight-line non-empty sites → CpiV1 escrow product base files
     * any other profile (including retired plan/elf shims) → fail closed
 -/
-def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
+def buildFromCapability (capability : ResolvedEngineeringBuildV1)
+    (bindings : Option CallBindV1.CallBindTableV1 := none) :
     CompileResult (Array OutputFile) := do
   unless ResolvedEngineeringBuildV1.kindOf capability == .solana do
     throw <| .planInvariant .solana "engineering capability kind is not Solana"
   let profile := ResolvedEngineeringBuildV1.codegenProfileOf capability
   if profile == CodegenProfileId.solanaSbpfCpiElfV1 then
-    let plan ← productPlanFromCapabilityV1 capability
+    let plan ← productPlanFromCapabilityV1 capability bindings
     let cand := SolanaCpiProductPlanV1.candidateOf plan
     let hasSites := !cand.cpiSites.isEmpty
     let compiled := ResolvedEngineeringBuildV1.compiledOf capability
@@ -347,11 +462,11 @@ def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
     -- also force full-body when real CPI sites coexist; escrow composite is
     -- only for straight-line non-empty sites without full-body operations.
     if data.logicalState.isEmpty then
-      productBaseFilesFromCapabilityV1 capability
+      productBaseFilesFromCapabilityV1 capability bindings
     else if !hasSites || needsBody then
-      synthesizeFullBodyProductBaseFilesV1 capability hasSites
+      synthesizeFullBodyProductBaseFilesV1 capability hasSites bindings
     else
-      let files ← productBaseFilesFromCapabilityV1 capability
+      let files ← productBaseFilesFromCapabilityV1 capability bindings
       let bodyTempBytes :=
         productEscrowTempRegionEndV1 - productEscrowTempBaseV1
       let cpiScratchBytes :=

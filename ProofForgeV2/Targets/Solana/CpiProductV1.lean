@@ -36,6 +36,7 @@ import ProofForgeV2.Targets.Solana.CpiProductCapabilityV1
 import ProofForgeV2.Targets.Solana.CpiDeriveV1
 import ProofForgeV2.Targets.Solana.CpiEscrowIRV1
 import ProofForgeV2.Targets.Solana.EmitCpiEscrowSbpfV1
+import ProofForgeV2.Targets.CallBindV1
 
 namespace ProofForgeV2.Targets.Solana.CpiV1
 
@@ -72,23 +73,26 @@ private def renderActiveArtifactBinding : ActiveArtifactBindingV1 → String
 
 /-- Product Plan carrier from ordinary engineering capability. -/
 def productPlanFromCapabilityV1
-    (capability : ResolvedEngineeringBuildV1) :
+    (capability : ResolvedEngineeringBuildV1)
+    (bindings : Option CallBindV1.CallBindTableV1 := none) :
     CompileResult SolanaCpiProductPlanV1 := do
   let cap ← resolveSolanaCpiProductCapabilityV1 capability
-  deriveSolanaCpiPlanFromProductCapabilityV1 cap
+  deriveSolanaCpiPlanFromProductCapabilityV1 cap bindings
 
 /-- Product composite IR from ordinary engineering capability. -/
 def productIrFromCapabilityV1
-    (capability : ResolvedEngineeringBuildV1) :
+    (capability : ResolvedEngineeringBuildV1)
+    (bindings : Option CallBindV1.CallBindTableV1 := none) :
     CompileResult ResolvedSolanaCpiProductIRV1 := do
-  let plan ← productPlanFromCapabilityV1 capability
+  let plan ← productPlanFromCapabilityV1 capability bindings
   resolveSolanaCpiProductIRV1 plan
 
 /-- Product Plan digest (active-snapshot-bound). -/
 def productPlanDigestFromCapabilityV1
-    (capability : ResolvedEngineeringBuildV1) :
+    (capability : ResolvedEngineeringBuildV1)
+    (bindings : Option CallBindV1.CallBindTableV1 := none) :
     CompileResult Digest := do
-  let plan ← productPlanFromCapabilityV1 capability
+  let plan ← productPlanFromCapabilityV1 capability bindings
   pure (SolanaCpiProductPlanV1.digestOf plan)
 
 private def collectReferencedActivePackages
@@ -181,9 +185,10 @@ private def encodeProductBindingsJson
     escrow composite path (non-empty sites and narrow body).
 -/
 def productBaseFilesFromCapabilityV1
-    (capability : ResolvedEngineeringBuildV1) :
+    (capability : ResolvedEngineeringBuildV1)
+    (bindings : Option CallBindV1.CallBindTableV1 := none) :
     CompileResult (Array OutputFile) := do
-  let plan ← productPlanFromCapabilityV1 capability
+  let plan ← productPlanFromCapabilityV1 capability bindings
   let ir ← resolveSolanaCpiProductIRV1 plan
   let assembly ← emitCpiProductSbpfV1 ir
   let validated := SolanaCpiProductPlanV1.planOf plan

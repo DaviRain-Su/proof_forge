@@ -1662,7 +1662,12 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
         output := output ++ s!"{indent}mstore(0, 0x{padded})\n"
         let okName := s!"callOk{next}"
         next := next + 1
+        -- Wave 2a: EVM CALL to an account without code reports success, so
+        -- generic void calls reject empty accounts before invoking them.
+        -- Result-bearing calls retain their returndata guard; schedule remains
+        -- fire-and-forget.
         output := output ++
+          s!"{indent}if iszero(extcodesize(0x{addr20})) \{ revert(0, 0) }\n" ++
           s!"{indent}let {okName} := call(gas(), 0x{addr20}, 0, 0, {4 + 32 * args.size}, 0, 0)\n" ++
           s!"{indent}if iszero({okName}) \{ revert(0, 0) }\n"
     | .externalCallResult callee args result boundAddress =>

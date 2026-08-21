@@ -104,13 +104,26 @@ wire whitelist，但任何显式 `--minimum-evidence` 请求都在 source open /
 
 `--bindings` 是 build-only、opt-in 的编译期对端绑定表路径（ADR-0053）。只接受
 `--target evm|solana|cosmwasm`；`check` 与其余十叶给该 flag 均为 usage / exit 2。
-文件必须是 PF-JCS `proof-forge.call-bind.v1`。**EVM Wave 2 叶**会把表传入产品
-materializer：每个 generic void/result call 与 schedule 必须 exact QN 命中 EVM 行，
-否则 `PF-PLAN-INVARIANT` fail closed；行中的 20-byte 地址进入 Plan / plan digest /
-EngineeringBuildIdentity / engineering OutputSet identity，并由 Yul `CALL` 使用。没有
-`--bindings` 时仍保持历史 hashed-QN Plan 编码与 emit。Solana/CosmWasm 目前仍只
-parse + target join，表不改变其 emit。不把产品 `build` 接到 Anvil / wasmd / 任何网络；
-也不据此声明 code-at-address / deployment receipt 已 join。
+文件必须是 PF-JCS `proof-forge.call-bind.v1`。**Wave 2** parse + 与 `--target`
+join 后把表显式传到三叶 emit：generic `call`/`schedule` 无匹配行 fail closed。
+EVM exact 20-byte endpoint 进入 Plan schema / plan digest / EngineeringBuildIdentity /
+engineering OutputSet identity，并由 Yul 消费；这不验证 row 中可选的 identity digests。
+无 `--bindings` 时行为与历史相同（historical Plan tags、hashed QN / QN stub）。**Wave 2a**：
+EVM generic void CALL 在 `extcodesize==0` 时 fail closed（与 `--bindings` 无关）。
+**Wave 2c**：成功 `build` JSON（`proof-forge.cli.build.v1`）带
+`callScheduleResidual: string | null`（program-level；无 generic call 或
+EVM/CW 全部 generic call 有精确行 → `null`）。**Wave 3**：Solana 仅当
+program 属于 state-bearing、single generic callee、synchronous void CALL、
+1..8 non-alias account rows、无 frozen CPI site 的支持子集时，完成 exact outer
+AccountInfo join 并令 residual 为 `null`；empty-state / schedule / empty-row /
+multi-callee / mixed-site / generic result-bearing 形态保留
+`callee-identity-outer-account-open` 或在 materialize 前 fail closed。human 仅在
+residual 仍存在时多一行。
+target `inspect` 仍静态报告 kind 闭表；inspect-output / manifest / evidence
+不加该字段。Solana Wave 3 的 outer role 顺序为既有 roles、bind row source order、
+executable callee program；`cpiSites` 不因 generic call-bind 伪造。identity digest
+metadata 仍 parse-only，不参与 emit/SupportClaim。不把产品 `build` 接到 Anvil /
+wasmd / 任何网络。
 
 `--resource-limit` 是 repeatable、逐 stage/field 的 lower-only override。CLI 名称固定映射到
 SPEC-COMMON-001，不创建第二套 resource profile：

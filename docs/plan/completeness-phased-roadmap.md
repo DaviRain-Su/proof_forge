@@ -3,7 +3,7 @@ id: PLAN-COMPLETENESS-ROADMAP
 title: ProofForge V2 完善度审查与分阶段执行队列
 status: draft
 owner: engineering
-updated: 2026-08-20
+updated: 2026-08-21
 normative: false
 ---
 
@@ -19,7 +19,9 @@ normative: false
 > **COMP-1-NORMALIZE-RESIDUAL FC 针**（Field/Principal 源字面量 + Bytes 嵌套穿透）
 > 与 **COMP-1-SYS-CAP-L2**（attachedValue / crypto / engineeringValidationResidual inspect +
 > XRPL context 矩阵针）已部分落地；部署地址绑定、新官方叶与 Field/Principal
-> 字面量开放仍 pending。ADR 仍 `proposed`。
+> 字面量开放仍 pending。ADR-0053 Wave 3 已闭合 Solana 支持子集的 outer
+> AccountInfo join；unsupported shape 与 identity digest verification 仍 FC/open。
+> ADR 仍 `proposed`。
 
 范围边界：[`../adr/0036-engineering-scope-and-evm-formal-lighthouse.md`](../adr/0036-engineering-scope-and-evm-formal-lighthouse.md)
 （工程 **13+0**，仍 `proposed`）。SPEC 分裂收口：
@@ -91,11 +93,11 @@ formal：无 `registryDigest` / SupportClaim / BuildIdentity mint / formal `Outp
 
 | Target | 下一刀（仅 owner 拍板后） | 未拍板时只做 |
 |---|---|---|
-| EVM | 部署地址绑定；Bool/Int/Bytes returndata 按决策开或钉 FC | hashed QN stub 保持 PARTIAL；C-3 保持 FC |
-| Solana | product CPI callee / 外层账户 ABI；Token/ATA binding 诚实化 | async 保持 FC；Mollusk 不进 ordinary `just ci` |
+| EVM | opt-in pre-placed address 已闭合；下一刀为 identity digest verification 或 Bool/Int/Bytes returndata 决策 | 无表 hashed QN stub 保持 PARTIAL；C-3 保持 FC |
+| Solana | Wave 3 支持子集已闭合 exact callee/outer AccountInfo join；下一刀为 Token/ATA binding 或扩大前先决策 | schedule、generic result-bearing、empty-row/state、multi-callee、mixed-site 与 identity digest verification 保持 FC；Mollusk 不进 ordinary `just ci` |
 | NEAR | sandbox overflow rollback | view caller/attachedValue 保持 FC |
 | Noir | 仅在推翻 C-4 后做 prove/verify | compile-only；不得把 nargo compile 写成 prove |
-| CosmWasm | B-CALL-SEM 地址；可选 wasmd rung-2 | query ContextRead / sha256 保持 FC |
+| CosmWasm | opt-in exact `contractAddr` 已闭合；下一刀为 bech32/identity verification 或可选 wasmd rung-2 | 无表 QN stub、query ContextRead / sha256 保持 FC |
 | TON | schedule callback | **不**解冻 pf.assets |
 | ICP | inter-canister await Plan | PocketIC 继续 host-optional |
 | Quint | QUINT-2 ITF/MBT/verify | Q0 `.qnt` 零工具 |
@@ -138,7 +140,7 @@ Capability 横切（2026-08-19）：`sha256Bytes` 五叶已开；`merkleVerifyKe
 | **COMP-1-SPEC-ALIGN** | ADR-0051 accepted 后修订 `semantic-core.md` + corpus 对齐；无新 Sem00x pin | COMP-0-SPEC-HONESTY owner 接受 | pending |
 | **COMP-1-NORMALIZE-RESIDUAL** | 嵌套穿透赋值；仍拒绝的构造器嵌套；Field/Principal 源字面量（开则十三叶同时 Lower 或命名 FC） | 无（可先做 FC 针） | **partial** — Field/Principal 源字面量 + Bytes 嵌套穿透产品 FC 针；Map 穿透已是 N-NEST-IDX；开字面量/Bytes 穿透另批 |
 | **COMP-1-TYPEKEY-REST** | TypeKey 剩余 usage-closure → StructureV1 | 不关 TASK-D2-06 | **partial** — Stage D 已接线；剩余 SPEC 匿名 rank 字节序（人拍）+ formal |
-| **COMP-1-CALL-SEM-LAND** | 先改 resolver/文档/针，再按 COMP-0 做 EVM 部署地址、Solana 外层账户、CW `contract_addr` | COMP-0-CALL-SEM 人拍 | **partial** — 十三 kind inspect 表面针（human+JSON）+ evm/solana/cosmwasm `callScheduleResidual` 地址缺口标签 + ExtFlow/LaterFlow xrpl 针；地址绑定仍 pending |
+| **COMP-1-CALL-SEM-LAND** | versioned bind table、三叶 emit 与 Solana 支持子集 outer join；保留各族明确 FC | COMP-0-CALL-SEM 人拍 | **partial** — Wave 1/2/2a/2b/2c + Wave 3 engineering done：EVM/CW 精确 endpoint、Solana state-bearing single-callee void-call 的 1..8 rows + executable program outer join、program residual 清零与 Mollusk 闭环；identity digest parse-only，Solana unsupported shapes、target inspect static residual、其它 target families、formal/C-3 仍开 |
 | **COMP-1-SYS-CAP-L2** | 官方 program catalog：有 host 就 exact 一行一叶，无 host 就命名 FC | SYS-CAP S1–S4 已闭 | **partial** — attachedValue inspect + `cryptoHonesty` 十三 kind 闭表 + cw/xrpl/psy residual + ICP/TON `engineeringValidationResidual` + XRPL ContextRead/Commit 矩阵 + ecdsa 十二叶第一道门针；新官方叶仍 pending |
 | **COMP-1-COMMIT-ZK** | Psy/Noir Commit 设计钉；未冻 binding 前继续 FC | ADR-0041 已 proposed | pending |
 | **COMP-1-D3-E8** | evidence grade 语义冻结后再进 resolver | 先语义，再门禁 | pending |
@@ -154,8 +156,8 @@ Capability 横切（2026-08-19）：`sha256Bytes` 五叶已开；`merkleVerifyKe
 
 | ID | 项 | 状态 |
 |---|---|---|
-| **COMP-2-EVM-ADDR** | static-QN → 真实 deployment-address binding；Bool/Int/Bytes returndata 按决策；C-3 保持 FC | pending |
-| **COMP-2-SOL-CPI** | product CPI callee / 外层账户；Token/ATA `artifactBinding` 诚实化；WideDiv runtime 差分；async 保持 FC | **partial** — WideDiv/WideDiv256 已由独立 Rust oracle + Mollusk 覆盖 UInt128/256 div/mod 成功与零除 `Custom(0x1001)` 全账户回滚；WideDivDispatch 已执行最远 handler，故该 engineering runtime 项已闭。product CPI callee/外层账户与 Token/ATA binding 仍 pending；async 保持 FC；非 formal/hermetic |
+| **COMP-2-EVM-ADDR** | opt-in pre-placed 20-byte binding 已由 ADR-0053 完成；剩 identity digest verification、Bool/Int/Bytes returndata；C-3 保持 FC | **partial** — endpoint binding done；其余 pending |
+| **COMP-2-SOL-CPI** | generic call-bind 支持子集已完成；剩 Token/ATA `artifactBinding` 诚实化；扩大 schedule/result/multi-callee 前另决策 | **partial** — Wave 3 product/runtime closure done；WideDiv/WideDiv256 已由独立 Rust oracle + Mollusk 覆盖 UInt128/256 div/mod 成功与零除 `Custom(0x1001)` 全账户回滚，WideDivDispatch 已执行最远 handler，故该 engineering runtime 项已闭；Token/ATA binding 仍 pending；async 保持 FC；非 formal/hermetic |
 | **COMP-2-NEAR-OVERFLOW** | sandbox Counter overflow rollback；view ContextRead 保持 FC 并写死 dossier | **partial / lifecycle-blocked** — `CounterOverflow` runtime fixture 已用与 Counter 相同的 nullary checked `+2` body 观测 receipt failure + unchanged state；view caller 继续 FC。exact `Examples/Counter` 是 no-initializer subject，而当前 NEAR KV profile 明确拒绝无 initializer 的程序，故不得把 fixture 冒充 product Counter closure；需先冻结 no-initializer lifecycle 映射 |
 | **COMP-2-NOIR-PRD** | 若 COMP-0 不推翻 C-4：另开 PRD 修订 FR-008 / Phase-1 DoD。若推翻：独立 `NoirProveAcceptance` | pending |
 
@@ -169,7 +171,7 @@ Capability 横切（2026-08-19）：`sha256Bytes` 五叶已开；`merkleVerifyKe
 
 | ID | 叶 | 下一刀 | 状态 |
 |---|---|---|---|
-| **COMP-3-CW** | CosmWasm | B-CALL-SEM 地址；可选 wasmd rung-2 | pending |
+| **COMP-3-CW** | CosmWasm | bind-table exact address 已完成；bech32/identity verification 或 wasmd rung-2 另批 | partial |
 | **COMP-3-TON** | TON | schedule callback；不解冻 pf.assets | pending |
 | **COMP-3-ICP** | ICP | inter-canister await；Candid 富类型另批 | pending |
 | **COMP-3-QUINT** | Quint | QUINT-2 Tool Lock + ITF/MBT/verify | pending |
@@ -223,8 +225,10 @@ Capability 横切（2026-08-19）：`sha256Bytes` 五叶已开；`merkleVerifyKe
 
 ## 9. 下一刀
 
-日常编码下一刀仍是 **B-CALL-SEM 残差绑定**（EVM 部署地址 / Solana 外层账户 / CW
-`contract_addr`），或有真实 host 的官方 program 一叶，**不是**
-把 B-CALL-SEM 标 closed。COMP-1 inspect 标签（call / attachedValue / crypto /
-engineeringValidationResidual）与 NORMALIZE FC 针 / XRPL context 矩阵 / ecdsa 十二叶第一道门针
-已部分落地；字面量/Bytes 穿透开放、TypeKey SPEC rank 与 ADR 仍 proposed。
+当前顺序进入 **ADR-0036 / ADR-0053 governance**：两份正文与工程事实已对账，
+但 acceptance metadata 仍缺，不能自动翻 `accepted`。批准后才进入 accepted 四目标
+工程 DoD。B-CALL-SEM 仍不标 closed：identity digest verification、Solana unsupported
+shape、target inspect static residual 与其它 target family 边界继续 open/FC。
+COMP-1 inspect 标签（call / attachedValue / crypto / engineeringValidationResidual）与 NORMALIZE FC
+针 / XRPL context 矩阵 / ecdsa 十二叶第一道门针已部分落地；字面量/Bytes 穿透开放、
+TypeKey SPEC rank 与其它 ADR 仍 proposed。

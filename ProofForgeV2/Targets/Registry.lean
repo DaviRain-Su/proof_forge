@@ -12,7 +12,8 @@ import ProofForgeV2.Targets.Icp.PlanSchemaV1
 import ProofForgeV2.Targets.OpenVM.PlanSchemaV1
 import ProofForgeV2.Targets.Xrpl.PlanSchemaV1
 import ProofForgeV2.Targets.EngineeringBuildIdentityV1
-import ProofForgeV2.Targets.Solana
+import ProofForgeV2.Targets.Solana.MaterializationV1
+import ProofForgeV2.Targets.Solana.ProductSynthesizeV1
 import ProofForgeV2.Targets.Near
 import ProofForgeV2.Targets.Noir
 import ProofForgeV2.Targets.CosmWasm
@@ -42,6 +43,7 @@ import ProofForgeV2.Targets.TargetRegistryV1
 import ProofForgeV2.Targets.RequirementResolverV1
 import ProofForgeV2.Targets.DescriptorDataV1
 import ProofForgeV2.Targets.EngineeringBuildV1
+import ProofForgeV2.Targets.CallBindV1
 import ProofForgeV2.Targets.Common
 import ProofForgeV2.Materialization.MaterializedArtifactsV1
 import ProofForgeV2.Materialization.EngineeringFinalizationV1
@@ -88,11 +90,13 @@ def descriptor? (target : TargetId) : CompileResult (Option TargetDescriptor) :=
     design-only targets) bind `engineeringAbsentPlanDigestV1`. -/
 private def planDigestForCapabilityV1
     (capability : ResolvedEngineeringBuildV1)
-    (callBindings : Option CallBindV1.CallBindTableV1 := none) : CompileResult Digest := do
+    (bindings : Option CallBindV1.CallBindTableV1 := none) : CompileResult Digest := do
   let selection := ResolvedEngineeringBuildV1.selectionOf capability
   match selection.kind with
   | .evm =>
-      let plan ← Evm.planFromCapability capability callBindings
+      -- The exact endpoint is part of the EVM Plan schema and therefore the
+      -- same binding table must drive both identity and emitted Yul.
+      let plan ← Evm.planFromCapability capability bindings
       match Evm.engineeringEvmPlanDigestV1 plan with
       | .ok d => pure (d : Digest)
       | .error e =>
@@ -100,7 +104,8 @@ private def planDigestForCapabilityV1
   | .solana =>
       -- #125: tagged Plan sum — legacy schema digest vs CPI carrier digest.
       -- CPI must not re-enter the legacy Plan schema encoder / gate.
-      let plan ← Solana.planFromCapability capability
+      -- Wave 2: digest follows the same explicit bindings as emit.
+      let plan ← Solana.planFromCapability capability bindings
       match Solana.engineeringSolanaMaterializationPlanDigestV1 plan with
       | .ok d => pure (d : Digest)
       | .error e =>
@@ -184,60 +189,100 @@ private def planDigestForCapabilityV1
     product surface. Formal SupportClaim / OutputSetV1 remain pending.
 
     Pure materialize. Aleo emits Instructions plus its query descriptor; Psy
-    emits DPN JSON. Neither target has a source-language debug lane. -/
-def materializeResult
-    (capability : ResolvedEngineeringBuildV1)
-    (callBindings : Option CallBindV1.CallBindTableV1 := none) :
+    emits DPN JSON. Neither target has a source-language debug lane.
+
+    ADR-0053 Wave 2: optional `bindings` is explicit (never ambient). Default
+    `none` keeps hashed QN / QN stubs. Present table is consumed only by
+    evm/solana/cosmwasm generic call/schedule; other kinds fail closed. -/
+def materializeResult (capability : ResolvedEngineeringBuildV1)
+    (bindings : Option CallBindV1.CallBindTableV1 := none) :
     CompileResult MaterializedArtifactsV1 := do
   let selection := ResolvedEngineeringBuildV1.selectionOf capability
-  let planDigest ← planDigestForCapabilityV1 capability callBindings
+  let targetId := ResolvedBuildSelectionV1.targetIdOf selection
+  match bindings with
+  | none => pure ()
+  | some table =>
+      match CallBindV1.requireCompatibleTarget table targetId with
+      | .ok () => pure ()
+      | .error msg =>
+          throw <| .planInvariant selection.kind msg
+  let planDigest ← planDigestForCapabilityV1 capability bindings
   match selection.kind with
   | .evm =>
-      let files ← Evm.buildFromCapability capability callBindings
+      let files ← Evm.buildFromCapability capability bindings
       mintMaterializedArtifactsV1 capability Evm.descriptor files planDigest
   | .solana =>
-      let files ← Solana.buildFromCapability capability
+      let files ← Solana.buildFromCapability capability bindings
       mintMaterializedArtifactsV1 capability Solana.descriptor files planDigest
   | .near =>
+      unless bindings.isNone do
+        throw <| .planInvariant .near
+          "--bindings is only accepted with --target evm|solana|cosmwasm"
       let files ← Near.buildFromCapability capability
       mintMaterializedArtifactsV1 capability Near.descriptor files planDigest
   | .noir =>
+      unless bindings.isNone do
+        throw <| .planInvariant .noir
+          "--bindings is only accepted with --target evm|solana|cosmwasm"
       let files ← Noir.buildFromCapability capability
       mintMaterializedArtifactsV1 capability Noir.descriptor files planDigest
   | .cosmwasm =>
-      let files ← CosmWasm.buildFromCapability capability
+      let files ← CosmWasm.buildFromCapability capability bindings
       mintMaterializedArtifactsV1 capability CosmWasm.descriptor files planDigest
   | .quint =>
+      unless bindings.isNone do
+        throw <| .planInvariant .quint
+          "--bindings is only accepted with --target evm|solana|cosmwasm"
       let files ← Quint.buildFromCapability capability
       mintMaterializedArtifactsV1 capability Quint.descriptor files planDigest
   | .ton =>
+      unless bindings.isNone do
+        throw <| .planInvariant .ton
+          "--bindings is only accepted with --target evm|solana|cosmwasm"
       let files ← Ton.buildFromCapability capability
       mintMaterializedArtifactsV1 capability Ton.descriptor files planDigest
   | .aleo =>
+      unless bindings.isNone do
+        throw <| .planInvariant .aleo
+          "--bindings is only accepted with --target evm|solana|cosmwasm"
       let files ← Aleo.buildFromCapability capability
       mintMaterializedArtifactsV1 capability Aleo.descriptor files planDigest
   | .soroban =>
+      unless bindings.isNone do
+        throw <| .planInvariant .soroban
+          "--bindings is only accepted with --target evm|solana|cosmwasm"
       let files ← Soroban.buildFromCapability capability
       mintMaterializedArtifactsV1 capability Soroban.descriptor files planDigest
   | .icp =>
+      unless bindings.isNone do
+        throw <| .planInvariant .icp
+          "--bindings is only accepted with --target evm|solana|cosmwasm"
       let files ← Icp.buildFromCapability capability
       mintMaterializedArtifactsV1 capability Icp.descriptor files planDigest
   | .psy =>
+      unless bindings.isNone do
+        throw <| .planInvariant .psy
+          "--bindings is only accepted with --target evm|solana|cosmwasm"
       let files ← Psy.buildFromCapability capability
       mintMaterializedArtifactsV1 capability Psy.descriptor files planDigest
   | .openvm =>
+      unless bindings.isNone do
+        throw <| .planInvariant .openvm
+          "--bindings is only accepted with --target evm|solana|cosmwasm"
       let files ← OpenVM.buildFromCapability capability
       mintMaterializedArtifactsV1 capability OpenVM.descriptor files planDigest
   | .xrpl =>
+      unless bindings.isNone do
+        throw <| .planInvariant .xrpl
+          "--bindings is only accepted with --target evm|solana|cosmwasm"
       let files ← Xrpl.buildFromCapability capability
       mintMaterializedArtifactsV1 capability Xrpl.descriptor files planDigest
 
 /-- IO wrapper over the sole pure materializer. -/
-def materialize
-    (capability : ResolvedEngineeringBuildV1)
-    (callBindings : Option CallBindV1.CallBindTableV1 := none) :
+def materialize (capability : ResolvedEngineeringBuildV1)
+    (bindings : Option CallBindV1.CallBindTableV1 := none) :
     IO MaterializedArtifactsV1 := do
-  match materializeResult capability callBindings with
+  match materializeResult capability bindings with
   | .ok output => pure output
   | .error error => throw <| IO.userError error.render
 
@@ -255,7 +300,8 @@ def materialize
 def finalizeMaterializedArtifactsV1
     (capability : ResolvedEngineeringBuildV1)
     (artifacts : MaterializedArtifactsV1)
-    (stagingDir : FilePath) : IO FinalizedArtifactsV1 := do
+    (stagingDir : FilePath)
+    (bindings : Option CallBindV1.CallBindTableV1 := none) : IO FinalizedArtifactsV1 := do
   -- Pre-IO identity bind: share exact target/profile/kind/program/digest gates
   -- with empty extras so tool side-effects never run on mismatched pairs.
   let precheckDraft : EngineeringFinalizationDraftV1 := {
@@ -273,7 +319,7 @@ def finalizeMaterializedArtifactsV1
     | .near =>
         Near.FinalizeV1.finalize capability artifacts stagingDir
     | .solana =>
-        Solana.FinalizeV1.finalize capability artifacts stagingDir
+        Solana.FinalizeV1.finalize capability artifacts stagingDir bindings
     | .noir =>
         Noir.FinalizeV1.finalize capability artifacts stagingDir
     | .cosmwasm =>

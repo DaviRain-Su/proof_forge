@@ -1995,19 +1995,19 @@ def validateIR (ir : IR) : CompileResult Unit := do
     validateFnIR ir.sourcePlan fn
   for handler in ir.handlers do
     validateHandlerIR ir.sourcePlan handler
-  let expectedFns := ir.sourcePlan.fns.map (lowerFn ir.sourcePlan)
+  let expectedFns := ir.sourcePlan.fns.map (fun fn => lowerFn ir.sourcePlan fn)
   unless ir.fns == expectedFns do
     throw <| .planInvariant .solana "typed Solana IR fns are not the exact lowering of its source Plan"
   let expectedHandlers := #[lowerHandler ir.sourcePlan ir.sourcePlan.initializer] ++
-    ir.sourcePlan.entries.map (lowerHandler ir.sourcePlan)
+    ir.sourcePlan.entries.map (fun h => lowerHandler ir.sourcePlan h)
   unless ir.handlers == expectedHandlers do
     throw <| .planInvariant .solana "typed Solana IR operations are not the exact lowering of its source Plan"
 
 private def lower (plan : Plan) : CompileResult IR := do
   validatePlan plan
-  let fns := plan.fns.map (lowerFn plan)
+  let fns := plan.fns.map (fun fn => lowerFn plan fn)
   let handlers := #[lowerHandler plan plan.initializer] ++
-    plan.entries.map (lowerHandler plan)
+    plan.entries.map (fun h => lowerHandler plan h)
   let ir : IR := {
     sourcePlan := plan
     name := plan.programName
@@ -2499,9 +2499,38 @@ def withProductMultiRoleSystemTransferV1
   let sa := {
     ir.stateAccount with
       productMultiRoleCount := roleCount
+      productCallBindMultiRole := false
+      productCallBindRoleBase := 0
+      productCallBindAccountCount := 0
       productXferPayerLocal := payerLocal
       productXferRecipientLocal := recipientLocal
       productXferProgramLocal := programLocal
+      productTokenMultiRole := false
+      productTokenSiteCount := 0
+      productTokenVaultAtaLocals := #[]
+      productTokenMintLocals := #[]
+      productTokenDstAtaLocals := #[]
+      productTokenVaultPdaLocals := #[]
+      productTokenProgramLocals := #[]
+      productTokenCallerLocals := #[]
+      productTokenDstWalletLocals := #[]
+      productTokenSystemLocals := #[]
+      productTokenAtaProgramLocals := #[]
+  }
+  let sp := { ir.sourcePlan with stateAccount := sa }
+  { ir with stateAccount := sa, sourcePlan := sp }
+
+/-- ADR-0053 Wave 3: stamp the validated Plan suffix for one generic callee's
+    compile-time bound account roles and program role. Runtime checks remain
+    emitter-owned because these roles do not fabricate frozen CPI sites. -/
+def withProductMultiRoleCallBindV1
+    (ir : IR) (baseRoleCount accountCount : Nat) : IR :=
+  let sa := {
+    ir.stateAccount with
+      productMultiRoleCount := baseRoleCount + accountCount + 1
+      productCallBindMultiRole := true
+      productCallBindRoleBase := baseRoleCount
+      productCallBindAccountCount := accountCount
       productTokenMultiRole := false
       productTokenSiteCount := 0
       productTokenVaultAtaLocals := #[]
@@ -2535,6 +2564,9 @@ def withProductMultiRoleTokenSitesV1
   let sa := {
     ir.stateAccount with
       productMultiRoleCount := roleCount
+      productCallBindMultiRole := false
+      productCallBindRoleBase := 0
+      productCallBindAccountCount := 0
       productTokenMultiRole := true
       productTokenSiteCount := sites.size
       productTokenVaultAtaLocals := vaultAtas

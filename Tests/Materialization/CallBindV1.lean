@@ -1,19 +1,29 @@
 /-
-  Tests.Materialization.CallBindV1 — ADR-0053 parser, CLI, and EVM Wave 2.
+  Tests.Materialization.CallBindV1 — ADR-0053 Wave 1 parser + Wave 2 emit.
 
-  Pure parse of `proof-forge.call-bind.v1`, `--bindings` preflight, and the EVM
-  Plan/digest/Yul/product-materialization binding path. Solana/CosmWasm remain
-  parse-only. Not formal / C-3.
+  Pure parse of `proof-forge.call-bind.v1`, `--bindings` preflight, and
+  three-leaf emit consume (missing row fail closed; bound address appears
+  in Yul / WAT). EVM endpoints also bind Plan/build identity. Wave 2a pins
+  empty-account void CALL `extcodesize` revert.
+  Wave 2b pins Solana compile-time AccountMeta (nonempty accounts).
+  Wave 2c pins program-level callScheduleResidual (build only; target
+  inspect stays the closed kind table). Wave 3 pins Solana bound-account
+  outer AccountInfo join. Not formal / C-3.
 -/
 import ProofForgeV2.CLI.Emit
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.TargetIdentityV1
-import ProofForgeV2.Language.Loader
-import ProofForgeV2.Targets.CallBindV1
-import ProofForgeV2.Targets.Evm.PlanSchemaV1
 import ProofForgeV2.Targets.BuildSelectionV1
+import ProofForgeV2.Targets.CallBindV1
+import ProofForgeV2.Targets.EngineeringBuildIdentityV1
+import ProofForgeV2.Targets.Registry
+import ProofForgeV2.Targets.RequirementResolverV1
+import ProofForgeV2.Targets.Solana.CpiIdlV1
+import ProofForgeV2.Targets.Solana.CpiProductV1
 import Tests.Language.ParserSession
+
+set_option maxRecDepth 4096
 
 namespace Tests.Materialization.CallBindV1
 
@@ -21,8 +31,12 @@ open ProofForgeV2
 open ProofForgeV2.CLI
 open ProofForgeV2.Compiler
 open ProofForgeV2.Core.Common
-open ProofForgeV2.Targets.CallBindV1
+open ProofForgeV2.Semantic.WireV1
+open ProofForgeV2.Targets
 open ProofForgeV2.Targets.BuildSelectionV1
+open ProofForgeV2.Targets.CallBindV1
+open ProofForgeV2.Targets.EngineeringBuildIdentityV1
+open ProofForgeV2.Targets.RequirementResolverV1
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
@@ -91,7 +105,6 @@ private def cosmwasmDoc (bindings : Array PfJson) : PfJson :=
 
 private def zero20 : String := "0x" ++ String.ofList (List.replicate 40 '0')
 private def ones20 : String := "0x" ++ String.ofList (List.replicate 40 '1')
-private def twos20 : String := "0x" ++ String.ofList (List.replicate 40 '2')
 private def zero32 : String := String.ofList (List.replicate 64 '0')
 private def ones32 : String := String.ofList (List.replicate 64 '1')
 private def digest0 : String := "sha256:" ++ String.ofList (List.replicate 64 '0')
@@ -99,156 +112,17 @@ private def digest0 : String := "sha256:" ++ String.ofList (List.replicate 64 '0
 private def expectBuildOpts (label : String) (args : List String) : IO BuildOptions :=
   expectOk label (parseBuildArgsExcept args)
 
-private def liftCompile (label : String) (result : CompileResult α) : IO α :=
-  match result with
-  | .ok value => pure value
-  | .error error => throw <| IO.userError s!"{label}: {error.render}"
-
-/-- Wave 2 EVM leaf: exact table addresses live in Plan identity and emitted
-    Yul; omission preserves the historical QN-derived address; a present table
-    with a missing row fails closed. -/
-private unsafe def testEvmWave2Materialization : IO Unit := do
-  let sourceText :=
-    "import ProofForgeV2\n" ++
-    "open ProofForgeV2.Language\n" ++
-    "program BoundCallEvm where\n" ++
-    "  entry probe(k : UInt64) : UInt64 do\n" ++
-    "    call Oracle.feed(k)\n" ++
-    "    let x : UInt64 := call Oracle.quote(k)\n" ++
-    "    return x\n" ++
-    "  entry later(k : UInt64) : UInt64 do\n" ++
-    "    schedule Ledger.daily(k)\n" ++
-    "    return k\n"
-  let session ← Tests.Language.ParserSession.shared
-  let source ← liftCompile "call-bind EVM source" (← session.selectProgramV1
-    sourceText "<call-bind-evm-wave2>" "Tests.CallBindEvmWave2" none)
-  let compiled ← liftCompile "call-bind EVM compile" <|
-    Compiler.compileValidatedSourceV1 source
-  let selection ← liftCompile "call-bind EVM selection" <|
-    resolveBuildSelectionV1 TargetId.evm none
-  let capability ← liftCompile "call-bind EVM capability" <|
-    Targets.resolveEngineeringRequirementsV1 selection compiled
-
-  let tableText ← liftJcs "call-bind EVM Wave 2 table" <| evmDoc #[
-    evmBinding "Oracle.feed" zero20,
-    evmBinding "Oracle.quote" ones20,
-    evmBinding "Ledger.daily" twos20]
-  let table ← expectOk "call-bind EVM Wave 2 table" <|
-    parseCallBindTableV1 tableText
-  let feedAddress ← expectOk "feed address" <|
-    decodeLowerHexBytesV1 zero20 20 true "feed address"
-  let quoteAddress ← expectOk "quote address" <|
-    decodeLowerHexBytesV1 ones20 20 true "quote address"
-  let ledgerAddress ← expectOk "ledger address" <|
-    decodeLowerHexBytesV1 twos20 20 true "ledger address"
-
-  let unboundPlan ← liftCompile "unbound EVM plan" <|
-    Targets.Evm.planFromCapability capability
-  let boundPlan ← liftCompile "bound EVM plan" <|
-    Targets.Evm.planFromCapability capability (some table)
-  let boundPlanAgain ← liftCompile "bound EVM plan repeat" <|
-    Targets.Evm.planFromCapability capability (some table)
-  expect (unboundPlan.entries.all fun e => e.body.all fun stmt =>
-      match stmt with
-      | .externalCall _ _ _ none | .externalCallResult _ _ _ none |
-          .schedule _ _ _ none => true
-      | .externalCall .. | .externalCallResult .. | .schedule .. => false
-      | _ => true)
-    "omitted EVM bindings must retain unbound Plan statements"
-  expect (boundPlan.entries.any fun e => e.body.any fun stmt =>
-      match stmt with
-      | .externalCall #["Oracle", "feed"] _ _ (some address) =>
-          address == feedAddress
-      | _ => false)
-    "EVM void call Plan must carry the exact bound address"
-  expect (boundPlan.entries.any fun e => e.body.any fun stmt =>
-      match stmt with
-      | .externalCallResult #["Oracle", "quote"] _ _ (some address) =>
-          address == quoteAddress
-      | _ => false)
-    "EVM result call Plan must carry the exact bound address"
-  expect (boundPlan.entries.any fun e => e.body.any fun stmt =>
-      match stmt with
-      | .schedule #["Ledger", "daily"] _ _ (some address) =>
-          address == ledgerAddress
-      | _ => false)
-    "EVM schedule Plan must carry the exact bound address"
-
-  let unboundBytes ← expectOk "unbound EVM Plan bytes" <|
-    Targets.Evm.encodeEngineeringEvmPlanBytesV1 unboundPlan
-  let boundBytes ← expectOk "bound EVM Plan bytes" <|
-    Targets.Evm.encodeEngineeringEvmPlanBytesV1 boundPlan
-  let boundBytesAgain ← expectOk "bound EVM Plan bytes repeat" <|
-    Targets.Evm.encodeEngineeringEvmPlanBytesV1 boundPlanAgain
-  expect (!(unboundBytes == boundBytes))
-    "bound and unbound EVM Plans must have distinct identity bytes"
-  expect (boundBytes == boundBytesAgain)
-    "the same EVM bind table must produce deterministic Plan bytes"
-  let unboundDigest ← expectOk "unbound EVM Plan digest" <|
-    Targets.Evm.engineeringEvmPlanDigestV1 unboundPlan
-  let boundDigest ← expectOk "bound EVM Plan digest" <|
-    Targets.Evm.engineeringEvmPlanDigestV1 boundPlan
-  expect (!(unboundDigest.bytes == boundDigest.bytes))
-    "bound and unbound EVM Plan digests must differ"
-
-  let unboundIr ← liftCompile "unbound EVM IR" <|
-    Targets.Evm.irFromCapability capability
-  let boundIr ← liftCompile "bound EVM IR" <|
-    Targets.Evm.irFromCapability capability (some table)
-  let oracleHistorical :=
-    ((Targets.Evm.Keccak.keccak256Hex "Oracle".toUTF8).drop 24).toString
-  let ledgerHistorical :=
-    ((Targets.Evm.Keccak.keccak256Hex "Ledger".toUTF8).drop 24).toString
-  expect (unboundIr.yul.contains s!"call(gas(), 0x{oracleHistorical}," &&
-      unboundIr.yul.contains s!"call(gas(), 0x{ledgerHistorical},")
-    "omitted EVM bindings must preserve historical QN-derived CALL addresses"
-  for exact in [zero20.drop 2, ones20.drop 2, twos20.drop 2] do
-    expect (boundIr.yul.contains s!"call(gas(), 0x{exact},")
-      s!"bound EVM Yul must use exact address 0x{exact}"
-
-  -- Registry must use the same bound Plan for both emitted bytes and the
-  -- EngineeringBuildIdentity plan-digest slot.
-  let unboundArtifacts ← liftCompile "unbound EVM artifacts" <|
-    Targets.materializeResult capability
-  let boundArtifacts ← liftCompile "bound EVM artifacts" <|
-    Targets.materializeResult capability (some table)
-  let unboundIdentity := MaterializedArtifactsV1.buildIdentityOf unboundArtifacts
-  let boundIdentity := MaterializedArtifactsV1.buildIdentityOf boundArtifacts
-  expect (!(ProofForgeV2.Targets.EngineeringBuildIdentityV1.EngineeringBuildIdentityV1.planDigestOf
-        unboundIdentity ==
-      ProofForgeV2.Targets.EngineeringBuildIdentityV1.EngineeringBuildIdentityV1.planDigestOf
-        boundIdentity))
-    "EVM binding must change the materialized build identity plan digest"
-  let some boundYul := (MaterializedArtifactsV1.filesOf boundArtifacts).find?
-      (·.path == "BoundCallEvm.yul") |
-    throw <| IO.userError "bound EVM Registry output is missing Yul"
-  expect (boundYul.contents == boundIr.yul)
-    "Registry EVM output and bound IR must use the same Plan binding"
-
-  let emptyTable := CallBindTableV1.empty .evm
-  match Targets.Evm.planFromCapability capability (some emptyTable) with
-  | .error error =>
-      expect (error.code == "PF-PLAN-INVARIANT" &&
-          hasSubstr error.message "call-bind: no evm row for callee 'Oracle.feed'")
-        s!"missing EVM binding row must fail closed, got {error.render}"
-  | .ok _ => throw <| IO.userError "present EVM bind table accepted a missing callee row"
-
-  -- Parser normally prevents this, but Plan validation independently rejects
-  -- a malformed direct Plan constructor.
-  let malformedPlan := {
-    unboundPlan with
-    entries := unboundPlan.entries.map fun e => {
-      e with body := e.body.map fun stmt =>
-        match stmt with
-        | .externalCall callee args widths _ =>
-            .externalCall callee args widths (some ByteArray.empty)
-        | other => other }
-  }
-  match Targets.Evm.validatePlan malformedPlan with
-  | .error error =>
-      expect (hasSubstr error.message "bound EVM external call address must be exactly 20 bytes")
-        s!"malformed bound EVM Plan address diagnostic, got {error.render}"
-  | .ok _ => throw <| IO.userError "EVM Plan accepted a malformed bound address"
+private def expectResidual
+    (label : String)
+    (kind : TargetKind)
+    (semantic : SemanticProgramV1)
+    (table : Option CallBindTableV1)
+    (expected : Option String) : IO Unit := do
+  match programCallScheduleResidualV1 kind semantic table with
+  | .ok tag =>
+      expect (tag == expected)
+        s!"{label}: residual {repr tag} ≠ {repr expected}"
+  | .error msg => throw <| IO.userError s!"{label}: {msg}"
 
 unsafe def run : IO Unit := do
   -- Canonical empty table (all three targets).
@@ -449,7 +323,614 @@ unsafe def run : IO Unit := do
       expect (opts.bindings == some "a.json") "product build keeps path"
   | other => throw <| IO.userError s!"expected build command, got {repr other}"
 
-  testEvmWave2Materialization
+  -- Wave 2 lookup helpers (table row is Oracle.quote).
+  let quoteQn ← expectOk "quote qn 2" (parseQualifiedName #["Oracle", "quote"])
+  match requireEvmAddressV1 evmTable quoteQn.components.toArray with
+  | .ok bytes => expect (bytes.size == 20) "requireEvm 20 bytes"
+  | .error msg => throw <| IO.userError s!"requireEvm Oracle.quote: {msg}"
+  expectErr "requireEvm missing"
+    (requireEvmAddressV1 evmTable
+      (← expectOk "missing2" (parseQualifiedName #["Oracle", "missing"])).components.toArray)
+    "no evm row"
+  -- Wave 2b: nonempty Solana accounts parse and lookup admits program id.
+  match requireSolanaProgramIdV1 solTable
+      (← expectOk "vault qn" (parseQualifiedName #["Vault", "deposit"])).components.toArray with
+  | .ok bytes => expect (bytes.size == 32) "requireSol nonempty still returns programId"
+  | .error msg => throw <| IO.userError s!"requireSol nonempty must admit Wave 2b, got {msg}"
+  match requireSolanaAccountsV1 solTable
+      (← expectOk "vault qn 2" (parseQualifiedName #["Vault", "deposit"])).components.toArray with
+  | .ok accs =>
+      expect (accs.size == 1) "Vault.deposit has one compile-time AccountMeta"
+      match accs[0]? with
+      | some acc =>
+          expect (acc.role == "authority") "Vault.deposit role"
+          expect (acc.signer && acc.writable) "Vault.deposit flags"
+      | none => throw <| IO.userError "Vault.deposit AccountMeta missing"
+  | .error msg => throw <| IO.userError s!"requireSol accounts: {msg}"
+
+  -- Wave 2 EVM emit: bound address appears; missing row fail closed;
+  -- no table keeps hashed stub.
+  let session ← Tests.Language.ParserSession.shared
+  let callText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CallBindEvm where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    call Oracle.feed(count)\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  entry quote(delta : UInt64) : UInt64 do\n" ++
+    "    let quoted : UInt64 := call Oracle.quote(delta)\n" ++
+    "    return quoted\n" ++
+    "  entry later(delta : UInt64) : UInt64 do\n" ++
+    "    schedule Ledger.daily(delta)\n" ++
+    "    return delta\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let callSource ← match ← session.selectProgramV1
+      callText "<call-bind-evm>" "Tests.CallBindEvm" none with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"load CallBindEvm: {e.render}"
+  let callCompiled ← match Compiler.compileValidatedSourceV1 callSource with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"compile CallBindEvm: {e.render}"
+  let callSel ← match resolveBuildSelectionV1 TargetId.evm none with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"select evm: {e.render}"
+  let callCap ← match Targets.resolveEngineeringRequirementsV1 callSel callCompiled with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"resolve CallBindEvm: {e.render}"
+  let hashedNeedle :=
+    (Targets.Evm.Keccak.keccak256Hex "Oracle".toUTF8).drop 24
+  let stubIr ← match Targets.Evm.irFromCapability callCap none with
+    | .ok ir => pure ir
+    | .error e => throw <| IO.userError s!"ir stub: {e.render}"
+  expect (stubIr.yul.contains s!"call(gas(), 0x{hashedNeedle},")
+    s!"no-bindings Yul must keep hashed stub 0x{hashedNeedle}"
+  expect (stubIr.yul.contains s!"if iszero(extcodesize(0x{hashedNeedle}))")
+    "Wave 2a hashed stub void CALL must revert on empty code"
+  let boundAddr := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  let resultAddr := "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  let scheduleAddr := "0xcccccccccccccccccccccccccccccccccccccccc"
+  let evmBindText ← liftJcs "evm-bind-emit"
+    (evmDoc #[evmBinding "Oracle.feed" boundAddr,
+      evmBinding "Oracle.quote" resultAddr,
+      evmBinding "Ledger.daily" scheduleAddr])
+  let evmBindTable ← expectOk "evm-bind-emit"
+    (parseCallBindTableV1 evmBindText)
+  let boundIr ← match Targets.Evm.irFromCapability callCap (some evmBindTable) with
+    | .ok ir => pure ir
+    | .error e => throw <| IO.userError s!"ir bound: {e.render}"
+  expect (boundIr.yul.contains
+      "call(gas(), 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,")
+    "bound Yul must CALL the table address"
+  expect (boundIr.yul.contains
+      "call(gas(), 0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,")
+    "bound result CALL must use the table address"
+  expect (boundIr.yul.contains
+      "call(gas(), 0xcccccccccccccccccccccccccccccccccccccccc,")
+    "bound schedule must use the table address"
+  expect (boundIr.yul.contains
+      "if iszero(extcodesize(0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa))")
+    "Wave 2a bound void CALL must revert on empty code"
+  expect (!boundIr.yul.contains s!"call(gas(), 0x{hashedNeedle},")
+    "bound Yul must not keep the hashed stub"
+  -- The exact endpoint is part of EVM Plan identity, not an emitter-only
+  -- override. Omission remains byte-identical with the historical Plan.
+  let stubPlan ← match Targets.Evm.planFromCapability callCap none with
+    | .ok plan => pure plan
+    | .error e => throw <| IO.userError s!"plan stub: {e.render}"
+  let boundPlan ← match Targets.Evm.planFromCapability callCap (some evmBindTable) with
+    | .ok plan => pure plan
+    | .error e => throw <| IO.userError s!"plan bound: {e.render}"
+  let boundPlanAgain ← match Targets.Evm.planFromCapability callCap (some evmBindTable) with
+    | .ok plan => pure plan
+    | .error e => throw <| IO.userError s!"plan bound repeat: {e.render}"
+  let stubPlanBytes ← expectOk "evm stub Plan bytes"
+    (Targets.Evm.encodeEngineeringEvmPlanBytesV1 stubPlan)
+  let boundPlanBytes ← expectOk "evm bound Plan bytes"
+    (Targets.Evm.encodeEngineeringEvmPlanBytesV1 boundPlan)
+  let boundPlanBytesAgain ← expectOk "evm bound Plan bytes repeat"
+    (Targets.Evm.encodeEngineeringEvmPlanBytesV1 boundPlanAgain)
+  expect (!(stubPlanBytes == boundPlanBytes))
+    "EVM exact endpoints must change Plan identity bytes"
+  expect (boundPlanBytes == boundPlanBytesAgain)
+    "the same EVM bind table must produce deterministic Plan identity bytes"
+  let stubArtifacts ← match Targets.materializeResult callCap none with
+    | .ok artifacts => pure artifacts
+    | .error e => throw <| IO.userError s!"materialize stub: {e.render}"
+  let boundArtifacts ← match Targets.materializeResult callCap (some evmBindTable) with
+    | .ok artifacts => pure artifacts
+    | .error e => throw <| IO.userError s!"materialize bound: {e.render}"
+  let stubIdentity := MaterializedArtifactsV1.buildIdentityOf stubArtifacts
+  let boundIdentity := MaterializedArtifactsV1.buildIdentityOf boundArtifacts
+  expect (!(EngineeringBuildIdentityV1.planDigestOf stubIdentity ==
+      EngineeringBuildIdentityV1.planDigestOf boundIdentity))
+    "EVM exact endpoints must change materialized build identity"
+  -- Wave 2c: program-level residual. Target inspect stays hashed-qn.
+  let evmSemantic := Compiler.CompiledSemanticV1.semanticV1Of callCompiled
+  expectResidual "evm none-table" .evm evmSemantic none
+    (some "hashed-qn-no-deploy-bind")
+  expectResidual "evm bound" .evm evmSemantic (some evmBindTable) none
+  let emptyEvm ← expectOk "evm-empty-table" (parseCallBindTableV1 (← liftJcs "empty" (evmDoc #[])))
+  expectResidual "evm empty-table" .evm evmSemantic (some emptyEvm)
+    (some "hashed-qn-no-deploy-bind")
+  match Targets.Evm.irFromCapability callCap (some emptyEvm) with
+  | .ok _ => throw <| IO.userError "empty table must fail closed on Oracle.feed"
+  | .error e =>
+      expect (hasSubstr e.render "no evm row")
+        s!"empty table must mention no evm row, got {e.render}"
+
+  -- Wave 2 CosmWasm emit: bound contract_addr; IR keeps QN stub.
+  let schedText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CallBindCw where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(x : UInt64) do\n" ++
+    "    count := x\n" ++
+    "  entry later() : UInt64 do\n" ++
+    "    schedule ledger.daily(count)\n" ++
+    "    count := count + 1\n" ++
+    "    return count\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return count\n"
+  let schedSource ← match ← session.selectProgramV1
+      schedText "<call-bind-cw>" "Tests.CallBindCw" none with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"load CallBindCw: {e.render}"
+  let schedCompiled ← match Compiler.compileValidatedSourceV1 schedSource with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"compile CallBindCw: {e.render}"
+  let schedSel ← match resolveBuildSelectionV1 TargetId.cosmwasm none with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"select cw: {e.render}"
+  let schedCap ← match Targets.resolveEngineeringRequirementsV1 schedSel schedCompiled with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"resolve CallBindCw: {e.render}"
+  let cwPlan ← match Targets.CosmWasm.planFromCapability schedCap with
+    | .ok p => pure p
+    | .error e => throw <| IO.userError s!"plan CallBindCw: {e.render}"
+  let stubFiles ← match Targets.CosmWasm.engineeringFilesFromPlan cwPlan none with
+    | .ok fs => pure fs
+    | .error e => throw <| IO.userError s!"cw stub files: {e.render}"
+  let some stubWat := stubFiles.find? (·.path.endsWith ".wat") |
+    throw <| IO.userError "missing stub wat"
+  expect (stubWat.contents.contains "\"contract_addr\":\"ledger.daily\"")
+    "no-bindings WAT must keep QN stub"
+  let cwBindText ← liftJcs "cw-bind-emit"
+    (cosmwasmDoc #[cosmwasmBinding "ledger.daily" "bound-contract-addr"])
+  let cwBindTable ← expectOk "cw-bind-emit" (parseCallBindTableV1 cwBindText)
+  let boundFiles ← match Targets.CosmWasm.engineeringFilesFromPlan cwPlan (some cwBindTable) with
+    | .ok fs => pure fs
+    | .error e => throw <| IO.userError s!"cw bound files: {e.render}"
+  let some boundWat := boundFiles.find? (·.path.endsWith ".wat") |
+    throw <| IO.userError "missing bound wat"
+  expect (boundWat.contents.contains "\"contract_addr\":\"bound-contract-addr\"")
+    "bound WAT must use table contractAddr"
+  expect (!boundWat.contents.contains "\"contract_addr\":\"ledger.daily\"")
+    "bound WAT must not keep the QN stub as contract_addr"
+  let cwSemantic := Compiler.CompiledSemanticV1.semanticV1Of schedCompiled
+  expectResidual "cw none-table" .cosmwasm cwSemantic none
+    (some "contract-addr-qn-stub")
+  expectResidual "cw bound" .cosmwasm cwSemantic (some cwBindTable) none
+  let emptyCw ← expectOk "cw-empty-table"
+    (parseCallBindTableV1 (← liftJcs "cw-empty" (cosmwasmDoc #[])))
+  expectResidual "cw empty-table" .cosmwasm cwSemantic (some emptyCw)
+    (some "contract-addr-qn-stub")
+  match Targets.CosmWasm.engineeringFilesFromPlan cwPlan (some emptyCw) with
+  | .ok _ => throw <| IO.userError "empty CW table must fail closed on ledger.daily"
+  | .error e =>
+      expect (hasSubstr e.render "no cosmwasm row")
+        s!"empty CW table must mention no cosmwasm row, got {e.render}"
+
+  -- Wave 2 Solana: missing row fail closed at product derive; system.transfer
+  -- stays catalog-exempt (does not consult the table). Naked sync without
+  -- extension.solana-cpi-accounts stays the existing product capability FC.
+  let solNakedText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CallBindSolNaked where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    call Oracle.feed(count)\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let solNakedSource ← match ← session.selectProgramV1
+      solNakedText "<call-bind-sol-naked>" "Tests.CallBindSolNaked" none with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"load CallBindSolNaked: {e.render}"
+  let solNakedCompiled ← match Compiler.compileValidatedSourceV1 solNakedSource with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"compile CallBindSolNaked: {e.render}"
+  let solSel ← match resolveBuildSelectionV1 TargetId.solana
+      (some CodegenProfileId.solanaSbpfCpiElfV1) with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"select solana: {e.render}"
+  let solNakedCap ← match Targets.resolveEngineeringRequirementsV1 solSel solNakedCompiled with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"resolve CallBindSolNaked: {e.render}"
+  match Targets.Solana.buildFromCapability solNakedCap none with
+  | .ok _ => throw <| IO.userError "solana naked Oracle.feed without table must stay FC"
+  | .error e =>
+      expect (e.code == "PF-REQ-UNSUPPORTED")
+        s!"solana no-table naked Oracle.feed must PF-REQ-UNSUPPORTED, got {e.render}"
+  let solText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program CallBindSol where\n" ++
+    "  requires extension solana.cpi.accounts version \"1.0.0\"\n" ++
+    "    digest \"sha256:df7d513d3d8b6324755a91d359c4d543a4432f87c78a0795d44b8bc7361b4020\"\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    call Oracle.feed(count)\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let solSource ← match ← session.selectProgramV1
+      solText "<call-bind-sol>" "Examples.CallBindSol" none with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"load CallBindSol: {e.render}"
+  let solCompiled ← match Compiler.compileValidatedSourceV1 solSource with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"compile CallBindSol: {e.render}"
+  let solCap ← match Targets.resolveEngineeringRequirementsV1 solSel solCompiled with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"resolve CallBindSol: {e.render}"
+  match Targets.Solana.buildFromCapability solCap none with
+  | .ok _ => throw <| IO.userError "solana Oracle.feed without table must stay FC"
+  | .error e =>
+      expect (e.code == "PF-PLAN-INVARIANT")
+        s!"solana no-table Oracle.feed with extension must PF-PLAN-INVARIANT, got {e.render}"
+  let emptySol ← expectOk "sol-empty"
+    (parseCallBindTableV1 (← liftJcs "sol-empty" (solanaDoc #[])))
+  match Targets.Solana.buildFromCapability solCap (some emptySol) with
+  | .ok _ => throw <| IO.userError "empty solana table must fail closed on Oracle.feed"
+  | .error e =>
+      expect (hasSubstr e.render "no solana row")
+        s!"empty solana table must mention no solana row, got {e.render}"
+  let solBindText ← liftJcs "sol-bind"
+    (solanaDoc #[solanaBinding "Oracle.feed" ones32 #[]])
+  let solBindTable ← expectOk "sol-bind" (parseCallBindTableV1 solBindText)
+  let solSemantic := Compiler.CompiledSemanticV1.semanticV1Of solCompiled
+  expectResidual "sol none-table" .solana solSemantic none
+    (some "callee-identity-outer-account-open")
+  expectResidual "sol bound" .solana solSemantic (some solBindTable)
+    (some "callee-identity-outer-account-open")
+  expectResidual "sol empty-table" .solana solSemantic (some emptySol)
+    (some "callee-identity-outer-account-open")
+  match Targets.Solana.buildFromCapability solCap (some solBindTable) with
+  | .ok files =>
+      let some asm := files.find? (·.path.endsWith ".s") |
+        throw <| IO.userError "solana bound emit missing .s"
+      expect (hasSubstr asm.contents ones32)
+        "bound solana asm must contain the table programId"
+      expect (hasSubstr asm.contents "empty AccountMeta")
+        "empty-accounts bind stays empty-meta"
+  | .error e =>
+      throw <| IO.userError
+        s!"solana bound Oracle.feed must emit, got {e.render}"
+  let nonemptyAccText ← liftJcs "sol-nonempty"
+    (solanaDoc #[solanaBinding "Oracle.feed" ones32
+      #[solanaAccount "authority" zero32 true true]])
+  let nonemptyAccTable ← expectOk "sol-nonempty" (parseCallBindTableV1 nonemptyAccText)
+  expectResidual "sol nonempty bound" .solana solSemantic (some nonemptyAccTable) none
+  let callBindPlan ← match Targets.Solana.CpiV1.productPlanFromCapabilityV1
+      solCap (some nonemptyAccTable) with
+    | .ok plan => pure plan
+    | .error e => throw <| IO.userError s!"derive call-bind Plan: {e.render}"
+  let callBindCandidate :=
+    Targets.Solana.CpiV1.SolanaCpiProductPlanV1.candidateOf callBindPlan
+  expect (callBindCandidate.accountRoles.size == 3)
+    "call-bind Plan must expose state + bound account + callee program"
+  expect callBindCandidate.cpiSites.isEmpty
+    "generic call-bind roles must not fabricate a frozen CpiSitePlan"
+  match callBindCandidate.accountRoles[0]? with
+  | some role =>
+      expect (role.roleId == 0 && role.name == "state")
+        "call-bind Plan role 0 must remain caller state"
+      match role.keyPolicy with
+      | .state 0 => pure ()
+      | _ => throw <| IO.userError "call-bind Plan role 0 key policy must be state:0"
+  | none => throw <| IO.userError "call-bind Plan state role missing"
+  match callBindCandidate.accountRoles[1]? with
+  | some role =>
+      expect (role.roleId == 1 && role.name == "authority")
+        "call-bind Plan role 1 must be the bound account"
+      match role.keyPolicy with
+      | .callBindAccount pubkey signer writable =>
+          expect (Targets.Solana.CpiV1.SolanaPubkeyV1.toBytes pubkey ==
+              ByteArray.mk (Array.replicate 32 0))
+            "call-bind Plan must retain the exact bound account pubkey"
+          expect (signer && writable)
+            "call-bind Plan key policy must retain bind privileges"
+      | _ =>
+          throw <| IO.userError "call-bind Plan role 1 must use callBindAccount"
+      expect (role.constraint ==
+          Targets.Solana.CpiV1.callBindAccountRoleConstraintV1)
+        "bound account must forbid executable and not read data"
+  | none => throw <| IO.userError "call-bind Plan account role missing"
+  match callBindCandidate.accountRoles[2]? with
+  | some role =>
+      expect (role.roleId == 2 && role.name == "call_bind_Oracle_feed_program")
+        "call-bind Plan role 2 must be the callee program"
+      match role.keyPolicy with
+      | .callBindProgram programId =>
+          let actual := Targets.Solana.CpiV1.SolanaPubkeyV1.toBytes programId
+          expect (actual == ByteArray.mk (Array.replicate 32 0x11))
+            s!"call-bind Plan must retain the exact callee program id, got {repr actual.data}"
+      | _ =>
+          throw <| IO.userError "call-bind Plan role 2 must use callBindProgram"
+      expect (role.constraint ==
+          Targets.Solana.CpiV1.callBindProgramRoleConstraintV1)
+        "callee program role must require executable"
+  | none => throw <| IO.userError "call-bind Plan program role missing"
+  for handler in callBindCandidate.handlers do
+    expect (handler.accountUses.size == 3)
+      s!"call-bind Plan handler '{handler.name}' must expose all three roles"
+    expect (handler.accountUses.map (·.roleId) == #[0, 1, 2])
+      s!"call-bind Plan handler '{handler.name}' role order"
+    match handler.accountUses[1]?, handler.accountUses[2]? with
+    | some boundUse, some programUse =>
+        expect (boundUse.position == 1 && boundUse.outerSigner &&
+            boundUse.outerWritable && boundUse.directSignerContribution &&
+            boundUse.directWritableContribution)
+          s!"call-bind Plan handler '{handler.name}' bound privilege projection"
+        expect (programUse.position == 2 && !programUse.outerSigner &&
+            !programUse.outerWritable && !programUse.directSignerContribution &&
+            !programUse.directWritableContribution)
+          s!"call-bind Plan handler '{handler.name}' program privilege projection"
+    | _, _ => throw <| IO.userError "call-bind Plan handler role suffix missing"
+  let callBindIdl ← match Targets.Solana.CpiV1.deriveSolanaCpiIdlV1
+      (Targets.Solana.CpiV1.SolanaCpiProductPlanV1.planOf callBindPlan) with
+    | .ok idl => pure idl
+    | .error e => throw <| IO.userError s!"derive call-bind IDL: {e.render}"
+  expect callBindIdl.candidate.cpiSites.isEmpty
+    "call-bind IDL must not fabricate a frozen CPI site"
+  expect (callBindIdl.candidate.instructions.size == callBindCandidate.handlers.size)
+    "call-bind IDL instruction count must equal Plan handler count"
+  for (instruction, handler) in
+      callBindIdl.candidate.instructions.zip callBindCandidate.handlers do
+    expect (instruction.accounts.size == 3)
+      s!"call-bind IDL instruction '{instruction.name}' must expose three accounts"
+    for i in [0:instruction.accounts.size] do
+      match instruction.accounts[i]?, handler.accountUses[i]?,
+          callBindCandidate.accountRoles[i]? with
+      | some account, some use, some role =>
+          expect (account.position == i && account.roleId == i &&
+              account.name == role.name && account.keyPolicy == role.keyPolicy &&
+              account.constraint == role.constraint &&
+              account.outerSigner == use.outerSigner &&
+              account.outerWritable == use.outerWritable &&
+              account.directSignerContribution == use.directSignerContribution &&
+              account.directWritableContribution == use.directWritableContribution)
+            s!"call-bind IDL instruction '{instruction.name}' account {i} must equal Plan projection"
+      | _, _, _ => throw <| IO.userError "call-bind IDL/Plan role projection missing"
+  match Targets.Solana.buildFromCapability solCap (some nonemptyAccTable) with
+  | .ok files =>
+      let some asm := files.find? (·.path.endsWith ".s") |
+        throw <| IO.userError "solana Wave 3 emit missing .s"
+      expect (hasSubstr asm.contents ones32)
+        "Wave 3 asm must still contain the table programId"
+      expect (hasSubstr asm.contents "Wave 2b compile-time AccountMeta n=1")
+        "Wave 3 must retain compile-time AccountMeta"
+      expect (hasSubstr asm.contents "lddw r1, 0x101\n")
+        "Wave 2b writable+signer flags pack as 0x101"
+      expect (hasSubstr asm.contents "lddw r1, 0x1\n")
+        "Wave 2b accounts_len=1 packs as 0x1"
+      expect (hasSubstr asm.contents "call-bind outer AccountInfo join")
+        "Wave 3 must name the outer AccountInfo join"
+      expect (hasSubstr asm.contents
+          "call-bind account role 'authority' local=1 exact pubkey signer=1 writable=1")
+        "Wave 3 must preflight authority key and exact privileges"
+      expect (hasSubstr asm.contents
+          "call-bind callee program local=2 exact program id executable=1")
+        "Wave 3 must preflight the executable callee program identity"
+      expect (hasSubstr asm.contents
+          "ROLE_FLAGS (signer|writable<<8|executable<<16)")
+        "multi-role walker must preserve executable for AccountInfo packing"
+      expect (hasSubstr asm.contents "ROLE_RENT")
+        "multi-role walker must preserve rent epoch for AccountInfo packing"
+      expect (hasSubstr asm.contents "call-bind AccountInfos startLocal=1 n=2")
+        "Wave 3 must pack one meta account plus the callee program AccountInfo"
+      expect (hasSubstr asm.contents "lddw r3, 2")
+        "Wave 3 must pass AccountInfo len rows+program=2"
+      expect (hasSubstr asm.contents "jne r0, 0, cpi_failed_mr")
+        "Wave 3 must propagate CPI failure"
+      expect (hasSubstr asm.contents "jne r1, r3, call_bind_check_failed_")
+        "Wave 3 exact role mismatch must use the local check-failure exit"
+      expect (hasSubstr asm.contents "call_bind_checks_ok_")
+        "Wave 3 successful role checks must branch around Custom(1)"
+      expect (!hasSubstr asm.contents "empty AccountMeta")
+        "Wave 2b nonempty accounts must not keep empty-meta comment"
+      let some marker := files.find? (·.path.endsWith ".cpi-ir.json") |
+        throw <| IO.userError "solana Wave 3 emit missing cpi-ir"
+      expect (hasSubstr marker.contents "call-bind-outer-account-join")
+        s!"Wave 3 marker must name call-bind join, got {marker.contents}"
+      expect (hasSubstr marker.contents "\"outerRoleCount\":3")
+        s!"Wave 3 marker must expose state+account+program roles, got {marker.contents}"
+  | .error e =>
+      throw <| IO.userError
+        s!"solana Wave 3 Oracle.feed must emit, got {e.render}"
+  let aa32 := String.ofList (List.replicate 64 'a')
+  let bb32 := String.ofList (List.replicate 64 'b')
+  let twoAccText ← liftJcs "sol-two-acc"
+    (solanaDoc #[solanaBinding "Oracle.feed" ones32
+      #[solanaAccount "authority" aa32 true true,
+        solanaAccount "vault" bb32 false true]])
+  let twoAccTable ← expectOk "sol-two-acc" (parseCallBindTableV1 twoAccText)
+  match Targets.Solana.buildFromCapability solCap (some twoAccTable) with
+  | .ok files =>
+      let some asm := files.find? (·.path.endsWith ".s") |
+        throw <| IO.userError "solana Wave 2b two-account emit missing .s"
+      expect (hasSubstr asm.contents "Wave 2b compile-time AccountMeta n=2")
+        "Wave 2b two-account asm must name n=2"
+      -- Reverse-pack emits acc0 then acc1; flags 0x101 then 0x1.
+      expect (hasSubstr asm.contents "lddw r1, 0x101\n")
+        "acc0 writable+signer packs as 0x101"
+      expect (hasSubstr asm.contents "lddw r1, 0x1\n")
+        "acc1 writable-only packs as 0x1"
+      expect (hasSubstr asm.contents "lddw r1, 0x2\n")
+        "Wave 2b accounts_len=2 packs as 0x2"
+      expect (hasSubstr asm.contents "lddw r1, 0xaaaaaaaaaaaaaaaa")
+        "acc0 pubkey limbs must appear"
+      expect (hasSubstr asm.contents "lddw r1, 0xbbbbbbbbbbbbbbbb")
+        "acc1 pubkey limbs must appear"
+      expect (hasSubstr asm.contents
+          "call-bind account role 'authority' local=1 exact pubkey signer=1 writable=1")
+        "acc0 runtime role contract must be exact"
+      expect (hasSubstr asm.contents
+          "call-bind account role 'vault' local=2 exact pubkey signer=0 writable=1")
+        "acc1 runtime role contract must distinguish writable from signer"
+      expect (hasSubstr asm.contents
+          "call-bind callee program local=3 exact program id executable=1")
+        "callee program must follow bound account rows"
+      expect (hasSubstr asm.contents "call-bind AccountInfos startLocal=1 n=3")
+        "two account rows require rows+program AccountInfos"
+      expect (hasSubstr asm.contents "lddw r3, 3")
+        "two account rows must pass AccountInfo len 3"
+      let some before101 := (asm.contents.splitOn "lddw r1, 0x101\n")[0]? |
+        throw <| IO.userError "missing 0x101 split"
+      expect (!hasSubstr before101 "lddw r1, 0x1\n")
+        "acc0 flags (0x101) must appear before acc1 flags (0x1)"
+      let some beforeAa := (asm.contents.splitOn "lddw r1, 0xaaaaaaaaaaaaaaaa")[0]? |
+        throw <| IO.userError "missing aa pubkey split"
+      expect (!hasSubstr beforeAa "lddw r1, 0xbbbbbbbbbbbbbbbb")
+        "acc0 pubkey must appear before acc1 pubkey"
+  | .error e =>
+      throw <| IO.userError
+        s!"solana Wave 2b two-account Oracle.feed must emit, got {e.render}"
+  let duplicatePubkeyText ← liftJcs "sol-duplicate-pubkey"
+    (solanaDoc #[solanaBinding "Oracle.feed" ones32
+      #[solanaAccount "authority" aa32 true false,
+        solanaAccount "vault" aa32 false true]])
+  let duplicatePubkeyTable ← expectOk "sol-duplicate-pubkey"
+    (parseCallBindTableV1 duplicatePubkeyText)
+  match Targets.Solana.buildFromCapability solCap (some duplicatePubkeyTable) with
+  | .ok _ => throw <| IO.userError "duplicate outer account pubkeys must fail closed"
+  | .error e =>
+      expect (hasSubstr e.render "distinct account pubkeys")
+        s!"duplicate outer account pubkeys diagnostic, got {e.render}"
+  let programAsAccountText ← liftJcs "sol-program-as-account"
+    (solanaDoc #[solanaBinding "Oracle.feed" ones32
+      #[solanaAccount "callee" ones32 false false]])
+  let programAsAccountTable ← expectOk "sol-program-as-account"
+    (parseCallBindTableV1 programAsAccountText)
+  match Targets.Solana.buildFromCapability solCap (some programAsAccountTable) with
+  | .ok _ => throw <| IO.userError "callee program/account identity alias must fail closed"
+  | .error e =>
+      expect (hasSubstr e.render "distinct from programId")
+        s!"callee program/account alias diagnostic, got {e.render}"
+  let tooMany : Array PfJson :=
+    (Array.range 9).map (fun i =>
+      solanaAccount s!"role{i}" zero32 false false)
+  let tooManyText ← liftJcs "sol-too-many"
+    (solanaDoc #[solanaBinding "Oracle.feed" ones32 tooMany])
+  let tooManyTable ← expectOk "sol-too-many" (parseCallBindTableV1 tooManyText)
+  match Targets.Solana.buildFromCapability solCap (some tooManyTable) with
+  | .ok _ => throw <| IO.userError "9 AccountMetas must fail closed"
+  | .error e =>
+      expect (hasSubstr e.render "at most 8 AccountMetas")
+        s!"9 AccountMetas must mention cap, got {e.render}"
+
+  -- Wave 3 residual honesty: schedule has no synchronous AccountInfo join;
+  -- frozen system.transfer is not a generic call-bind callee.
+  let solScheduleText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CallBindSolSchedule where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n" ++
+    "  entry later() : UInt64 do\n" ++
+    "    schedule Oracle.feed(count)\n" ++
+    "    return count\n"
+  let solScheduleSource ← match ← session.selectProgramV1
+      solScheduleText "<call-bind-sol-schedule>" "Tests.CallBindSolSchedule" none with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"load CallBindSolSchedule: {e.render}"
+  let solScheduleCompiled ← match Compiler.compileValidatedSourceV1 solScheduleSource with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"compile CallBindSolSchedule: {e.render}"
+  expectResidual "sol scheduled nonempty bound" .solana
+    (Compiler.CompiledSemanticV1.semanticV1Of solScheduleCompiled)
+    (some nonemptyAccTable) (some "callee-identity-outer-account-open")
+
+  let solSystemText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CallBindSolSystem where\n" ++
+    "  requires extension solana.cpi.accounts version \"1.0.0\"\n" ++
+    "    digest \"sha256:df7d513d3d8b6324755a91d359c4d543a4432f87c78a0795d44b8bc7361b4020\"\n" ++
+    "  state count : UInt64\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n" ++
+    "  entry pay(payer : Principal, recipient : Principal, amount : UInt64) : UInt64 do\n" ++
+    "    call solana.system.transfer(payer, recipient, amount)\n" ++
+    "    return count\n"
+  let solSystemSource ← match ← session.selectProgramV1
+      solSystemText "<call-bind-sol-system>" "Tests.CallBindSolSystem" none with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"load CallBindSolSystem: {e.render}"
+  let solSystemCompiled ← match Compiler.compileValidatedSourceV1 solSystemSource with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"compile CallBindSolSystem: {e.render}"
+  let solSystemSemantic := Compiler.CompiledSemanticV1.semanticV1Of solSystemCompiled
+  expectResidual "sol system no table" .solana solSystemSemantic none none
+  expectResidual "sol system unrelated table" .solana solSystemSemantic
+    (some nonemptyAccTable) none
+  let solSystemCap ← match
+      Targets.resolveEngineeringRequirementsV1 solSel solSystemCompiled with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"resolve CallBindSolSystem: {e.render}"
+  match Targets.Solana.buildFromCapability solSystemCap (some nonemptyAccTable) with
+  | .ok files =>
+      let some asm := files.find? (·.path.endsWith ".s") |
+        throw <| IO.userError "Solana system build with unrelated bind table missing .s"
+      expect (hasSubstr asm.contents "system.transfer")
+        "frozen system.transfer must remain on its specialized rail"
+      expect (!hasSubstr asm.contents "product_external_call_bind_join")
+        "frozen system.transfer must not activate generic call-bind join"
+  | .error e =>
+      throw <| IO.userError
+        s!"frozen system.transfer must ignore unrelated bind rows, got {e.render}"
+
+  -- Wave 2c: no generic call/schedule → program-level residual none.
+  let plainText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CallBindPlain where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(x : UInt64) do\n" ++
+    "    count := x\n" ++
+    "  entry bump() : UInt64 do\n" ++
+    "    count := count + 1\n" ++
+    "    return count\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return count\n"
+  let plainSource ← match ← session.selectProgramV1
+      plainText "<call-bind-plain>" "Tests.CallBindPlain" none with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"load CallBindPlain: {e.render}"
+  let plainCompiled ← match Compiler.compileValidatedSourceV1 plainSource with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"compile CallBindPlain: {e.render}"
+  let plainSemantic := Compiler.CompiledSemanticV1.semanticV1Of plainCompiled
+  expectResidual "plain evm" .evm plainSemantic none none
+  expectResidual "plain solana" .solana plainSemantic none none
+  expectResidual "plain cosmwasm" .cosmwasm plainSemantic none none
 
   IO.println "Tests.Materialization.CallBindV1: ok"
 

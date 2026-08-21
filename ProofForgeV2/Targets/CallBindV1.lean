@@ -3,15 +3,16 @@
   (ADR-0053 Wave 1 parse + Wave 2 lookup).
 
   Parses `proof-forge.call-bind.v1` PF-JCS into a private-ctor table.
-  Wave 2 EVM leaf: when a table is present, generic EVM `call`/`schedule`
-  must match a row or fail closed. Missing table keeps the historical hashed
-  QN path. Solana/CosmWasm product materialization remains parse-only even
-  though their target-specific lookup contracts are staged here.
-  `pf.crypto.*` and `pf.assets` never consult this table. Identity fields are
-  join metadata only (do not change emit).
+  Wave 2: when a table is present, generic `call`/`schedule` on
+  evm/solana/cosmwasm must match a row or fail closed. Missing table keeps
+  hashed QN / QN stubs. `pf.crypto.*` and `pf.assets` never consult this
+  table. Identity fields are join metadata only (do not change emit).
 
   Not SemanticProgramV1. Not NetworkProfile. Not formal / C-3.
-  Not Wave 2a empty-account EVM CALL.
+  Wave 2a empty-account void CALL lives in Evm.EmitIRV1 (not this table).
+  Wave 2b: Solana nonempty `accounts` → compile-time AccountMeta (≤8).
+  Wave 3: a nonempty, identity-distinct Solana row also drives the product
+  full-body outer AccountInfo join; empty rows retain the partial path.
 -/
 import ProofForgeV2.Core.Canonical
 import ProofForgeV2.Core.Common
@@ -365,12 +366,13 @@ def requireEvmAddressV1 (table : CallBindTableV1) (callee : Array String) :
           pure address
       | _ => throw (wrongSiteError "evm" callee)
 
-/-- Staged Solana lookup contract (not yet wired to product materialization).
-    Nonempty `accounts` is Wave 2b (outer AccountMeta ABI) and fail-closed here
-    so a half-wired program-id is never claimed complete. Empty accounts →
-    program id only (empty-meta packing stays). -/
-def requireSolanaProgramIdV1 (table : CallBindTableV1) (callee : Array String) :
-    Except String ByteArray := do
+/-- Wave 2b compile-time AccountMeta cap. Larger rows fail closed so the
+    S1b stack packing stays bounded. Not an outer-instruction role count. -/
+def maxSolanaBindAccountsV1 : Nat := 8
+
+/-- Shared Solana row lookup. Missing / wrong-site / bad sizes fail closed. -/
+def requireSolanaBindingV1 (table : CallBindTableV1) (callee : Array String) :
+    Except String (ByteArray × Array CallBindAccountV1) := do
   let some name := qualifiedNameOfComponents? callee |
     throw (missingCalleeError "solana" callee)
   match findRow? table name with
@@ -380,14 +382,52 @@ def requireSolanaProgramIdV1 (table : CallBindTableV1) (callee : Array String) :
       | .solana programId accounts =>
           unless programId.size == 32 do
             throw "call-bind: solana programId must be exactly 32 bytes"
-          unless accounts.isEmpty do
+          unless accounts.size ≤ maxSolanaBindAccountsV1 do
             throw
-              "call-bind: solana accounts binding is not admitted in Wave 2 (empty accounts only; outer AccountMeta is Wave 2b)"
-          pure programId
+              s!"call-bind: solana accounts binding admits at most {maxSolanaBindAccountsV1} AccountMetas"
+          for acc in accounts do
+            unless acc.pubkey.size == 32 do
+              throw "call-bind: solana account pubkey must be exactly 32 bytes"
+          pure (programId, accounts)
       | _ => throw (wrongSiteError "solana" callee)
 
-/-- Staged CosmWasm lookup contract (not yet wired to product materialization).
-    Present table + missing/wrong-site → error. -/
+/-- Wave 2/2b Solana program-id lookup. Nonempty `accounts` are admitted
+    (Wave 2b compile-time AccountMeta); this helper still returns only the
+    program id. Empty accounts → program id only (empty-meta packing). -/
+def requireSolanaProgramIdV1 (table : CallBindTableV1) (callee : Array String) :
+    Except String ByteArray := do
+  let (programId, _) ← requireSolanaBindingV1 table callee
+  pure programId
+
+/-- Wave 2b: compile-time AccountMeta list (possibly empty). -/
+def requireSolanaAccountsV1 (table : CallBindTableV1) (callee : Array String) :
+    Except String (Array CallBindAccountV1) := do
+  let (_, accounts) ← requireSolanaBindingV1 table callee
+  pure accounts
+
+/-- Wave 3 outer AccountInfo join gate. The Loader transaction account list
+    cannot carry two distinct full-account rows for one pubkey, and the callee
+    program occupies its own outer role. Keep the schema permissive for the
+    Wave 2b compile-time-only path, but fail closed before activating the
+    runtime join. -/
+def requireSolanaOuterAccountJoinV1
+    (table : CallBindTableV1) (callee : Array String) :
+    Except String (ByteArray × Array CallBindAccountV1) := do
+  let (programId, accounts) ← requireSolanaBindingV1 table callee
+  unless !accounts.isEmpty do
+    throw "call-bind: Solana outer AccountInfo join requires at least one account row"
+  let mut seen : Array ByteArray := #[]
+  for account in accounts do
+    if account.pubkey == programId then
+      throw
+        "call-bind: Solana outer AccountInfo account pubkeys must be distinct from programId"
+    if seen.any (· == account.pubkey) then
+      throw
+        "call-bind: Solana outer AccountInfo join requires distinct account pubkeys"
+    seen := seen.push account.pubkey
+  pure (programId, accounts)
+
+/-- Wave 2 CosmWasm lookup. Present table + missing/wrong-site → error. -/
 def requireCosmWasmAddressV1 (table : CallBindTableV1) (callee : Array String) :
     Except String String := do
   let some name := qualifiedNameOfComponents? callee |
@@ -406,7 +446,7 @@ def requireCosmWasmAddressV1 (table : CallBindTableV1) (callee : Array String) :
 def isPfCryptoBindExemptQnV1 (qn : String) : Bool :=
   qn.startsWith "pf.crypto."
 
-/-- True when `qn` is a `pf.assets` catalog call (never consults the table). -/
+/-- True when `qn` is a `pf.assets.*` catalog call (never consults the table). -/
 def isPfAssetsBindExemptQnV1 (qn : String) : Bool :=
   qn.startsWith "pf.assets."
 

@@ -3,16 +3,16 @@ id: PLAN-EVM-CALL-ADDR-GAP
 title: EVM static-QN hashed address vs deployment-address binding
 status: draft
 owner: engineering
-updated: 2026-08-19
+updated: 2026-08-20
 normative: false
 ---
 
 # EVM-CALL-ADDR-GAP：hashed QN ≠ 部署地址
 
-> Engineering inventory only. Does **not** change the emitter, Plan, IR, or
-> resolver. Does **not** close `B-CALL-SEM`, formal TASK/TST, C-3, Anvil
-> lossless, accepted-PRD expansion, or CREATE/CREATE2 binding.
-> Does **not** invent a new `TASK-*`.
+> Engineering inventory. Wave 2a changed generic void CALL (empty-account
+> `extcodesize` fail closed). Still does **not** close `B-CALL-SEM`,
+> formal TASK/TST, C-3, Anvil lossless, accepted-PRD expansion, or
+> CREATE/CREATE2 binding. Does **not** invent a new `TASK-*`.
 
 Authority: [`01-evm.md`](../targets/01-evm.md) ·
 [`0029-portable-cross-program-interop.md`](../adr/0029-portable-cross-program-interop.md)
@@ -33,7 +33,7 @@ CREATE/CREATE2 address and **not** a Principal ValueId.
 | Address | last 20 bytes of Ethereum Keccak-256 (`Targets.Evm.Keccak`, domain `0x01`, not SHA3-256 `0x06`) of that UTF-8 path |
 | Selector | first 4 bytes of Keccak-256 of `method(uintN,…)` (`Keccak.selector`) |
 | `CALL` value | always `0` |
-| Void `call` | `call(gas(), 0x{addr20}, 0, …)`; `iszero` → `revert(0,0)` |
+| Void `call` | `extcodesize==0` → `revert(0,0)` (Wave 2a); then `call(gas(), 0x{addr20}, 0, …)`; `iszero` → `revert(0,0)` |
 | Result-bearing `call` | same address; `returndatasize ≥ 32` + unsigned width guard |
 | `schedule` | same address/selector; success is `pop`'d (same-tx fire-and-forget) |
 
@@ -61,12 +61,13 @@ returndata. Therefore a hashed stub with nobody deployed there is:
 
 | Surface | Undeployed hashed address |
 |---|---|
-| void `call` | succeeds; later state writes still run |
+| void `call` | **Wave 2a:** reverts on `extcodesize==0` |
 | result-bearing `call` | reverts on `returndatasize < 32` |
 | `schedule` | succeeds; result discarded |
 
-A passing void `call Oracle.feed(...)` is **not** evidence that an oracle
-contract exists. Reference consumes an environment response; Yul does not.
+A passing void `call Oracle.feed(...)` now requires nonempty code at the
+target (Wave 2a). That is still **not** a deployment-address join.
+Reference consumes an environment response; Yul does not.
 
 ## 3. What a real binding would have to decide
 
@@ -86,9 +87,9 @@ closed:
 4. **Product `build` vs test-only** — product materialize must not start
    consuming Anvil placement. Tests may place code at the hashed address
    without claiming binding.
-5. **Void success vs empty code** — keep today's empty-account success, or
-   fail closed when the target has no code. Changing this is a semantic
-   change, not a comment.
+5. **Void success vs empty code** — **Wave 2a done:** fail closed when
+   the target has no code (`extcodesize`). `schedule` still ignores
+   success. Changing this was a semantic change, not a comment.
 
 Do **not** treat Principal storage, `context.caller` / `context.self`
 (`u32le(20)||addr20`), or `pf.assets` mint addresses as this binding.

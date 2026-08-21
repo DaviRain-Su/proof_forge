@@ -1441,4 +1441,17 @@ def accountBoundRoleConstraintV1 : AccountConstraint := constraintNotReadAny
 /-- Callee-role constraint shared by all eight fixed-program APIs. -/
 def calleeRoleConstraintV1 : AccountConstraint := constraintCatalogProgram
 
+/-- ADR-0053 generic bind account. Its key and outer privileges come from the
+    product-owned bind row; the emitter does not inspect owner or data. -/
+def callBindAccountRoleConstraintV1 : AccountConstraint := constraintNotReadAny
+
+/-- ADR-0053 generic callee program. Unlike a frozen `fixedProgram`, this key
+    is supplied by the bind row rather than the active package catalog. -/
+def callBindProgramRoleConstraintV1 : AccountConstraint where
+  owner := .any
+  executable := .required
+  data := .notRead
+  initialization := .any
+  provisioning := .mustExist
+
 end ProofForgeV2.Targets.Solana.CpiV1

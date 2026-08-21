@@ -1625,12 +1625,12 @@ def validate_solana_cpi_epic_checkpoint(root: Path) -> None:
             "PF-DOC-CHECKPOINT", "AGENTS.md",
             "must preserve the #125 integrated Solana runtime baseline 13/304")
     if not re.search(
-            r"\*\*26 integration test binaries / 426 active tests\*\*",
+            r"\*\*27 integration test binaries / 434 active tests\*\*",
             agents,
     ):
         raise_error(
             "PF-DOC-CHECKPOINT", "AGENTS.md",
-            "must record the current tracked Solana runtime inventory 26/426")
+            "must record the current tracked Solana runtime inventory 27/434")
 
     # Historical #124 escrow pins remain immutable (test-preactivation lane retained).
     manifest_rel = "runtime-tests/solana/escrow/manifest.json"
@@ -1703,12 +1703,12 @@ def validate_solana_cpi_epic_checkpoint(root: Path) -> None:
         path.stem for path in tests_dir.iterdir()
         if path.is_file() and path.suffix == ".rs"
     )
-    if len(binaries) != 26:
+    if len(binaries) != 27:
         raise_error(
             "PF-DOC-CHECKPOINT", "runtime-tests/solana/tests",
-            f"expected 26 integration test binaries, found {len(binaries)}: {binaries}")
+            f"expected 27 integration test binaries, found {len(binaries)}: {binaries}")
     for required_binary in (
-            "block_height", "unix_time_seconds", "sha256_check", "sha256_bytes_check", "body_cpi_sys_pay", "body_cpi_token_pay", "caller_isme", "cpi_escrow",
+            "block_height", "unix_time_seconds", "sha256_check", "sha256_bytes_check", "body_cpi_sys_pay", "body_cpi_token_pay", "call_bind_product", "caller_isme", "cpi_escrow",
             "transfer_sol_product", "state_cell_shaped_product", "tipjar_assets", "tipjar_token",
             "miniamm_hybrid", "miniamm_assets"):
         if required_binary not in binaries:

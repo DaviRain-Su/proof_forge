@@ -10,6 +10,7 @@ import ProofForgeV2.Language.Loader
 import ProofForgeV2.Language.TheoremInventoryV1
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.CallBindV1
+import ProofForgeV2.Targets.RequirementResolverV1
 
 namespace ProofForgeV2.CLI
 
@@ -28,6 +29,7 @@ open ProofForgeV2.Source.OriginJoinV1
 open ProofForgeV2.Source.ValidatedSourceV1
 open ProofForgeV2.Targets.BuildSelectionV1
 open ProofForgeV2.Targets.CallBindV1
+open ProofForgeV2.Targets.RequirementResolverV1
 open ProofForgeV2.Compiler
 
 private def usage : String :=
@@ -52,7 +54,7 @@ private def usage : String :=
   "  build --network is not supported (no network registry).\n" ++
   "  --resource-limit is lower-only; check rejects external-tool/artifact-output; only wall-ms and build artifact-output.published-bytes are enforced in-process (RES-1 / output-only RES-1B); memory-bytes/processes/protocol-bytes/stderr-bytes are rejected at preflight (no in-process producer).\n" ++
   "  --minimum-evidence recognizes specified|artifact_validated|local_runtime|network_or_proof_validated but currently rejects every explicit request until candidate-bound evidence evaluation is implemented.\n" ++
-  "  --bindings is build-only (evm|solana|cosmwasm); EVM generic call/result-call/schedule use exact preset addresses, while Solana/CosmWasm remain parse-only.\n" ++
+  "  --bindings is build-only (evm|solana|cosmwasm); Wave 2 threads proof-forge.call-bind.v1 into emit (missing generic-call row fail closed; no flag keeps hashed QN / QN stubs).\n" ++
   "  --json emits deterministic PF-JCS on stdout for list-targets/inspect/check/build;\n" ++
   "    version --json emits proof-forge.cli.version.v1;\n" ++
   "    doctor --json emits proof-forge.doctor.v1 (Tool Lock health + exact-set closure under PROOF_FORGE_TOOL_ROOT);\n" ++
@@ -314,11 +316,10 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
   -- and never reaches materialize/staging.
   if options.target.isNone then
     failUsage "--target is required"
-  -- ADR-0053: parse + target-join before compilation. The EVM materializer
-  -- consumes the resulting table; Solana/CosmWasm remain parse-only.
-  let callBindings ← match options.bindings, options.target with
-  | none, _ => pure none
-  | some _bindingsPath, none => failUsage "--bindings requires --target"
+  -- ADR-0053 Wave 2: parse + target-join, then thread the table into emit.
+  let bindingsTable ← match options.bindings, options.target with
+  | none, _ => pure (none : Option CallBindTableV1)
+  | some _, none => failUsage "--bindings requires --target"
   | some bindingsPath, some target =>
       match CallBindTargetV1.ofTargetId? target with
       | none => failUsage "--bindings is only accepted with --target evm|solana|cosmwasm"
@@ -371,7 +372,7 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
       let receipt ←
         try
           emitProgram capability outputPath options.resourceLimits (some startedMs)
-            callBindings
+            bindingsTable
         catch
         | .userError msg =>
             if msg.startsWith "PF-RESOURCE-OUTPUT:" then
@@ -381,11 +382,18 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
             else
               throw <| IO.userError msg
         | error => throw error
+      let residual ←
+        match programCallScheduleResidualV1
+            (ResolvedBuildSelectionV1.kindOf selection)
+            (CompiledSemanticV1.semanticV1Of compiled)
+            bindingsTable with
+        | .ok tag => pure tag
+        | .error msg => throw <| IO.userError msg
       if options.json then
         IO.println (← liftCompileResult
-          (renderBuildOkJsonV1 receipt options.resourceLimits))
+          (renderBuildOkJsonV1 receipt options.resourceLimits residual))
       else
-        IO.println (renderBuildOkHumanV1 receipt)
+        IO.println (renderBuildOkHumanV1 receipt residual)
 
 /-- Product validation without materialization. Same source authority as build.
 Optional `--target`/`--profile` also resolve the engineering requirement

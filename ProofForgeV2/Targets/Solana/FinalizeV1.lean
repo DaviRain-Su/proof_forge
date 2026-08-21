@@ -36,6 +36,7 @@ import ProofForgeV2.Targets.Solana.CpiProductCapabilityV1
 import ProofForgeV2.Targets.Solana.CpiProductV1
 import ProofForgeV2.Targets.Solana.EmitSbpfAsmV1
 import ProofForgeV2.Targets.Solana.ProductSynthesizeV1
+import ProofForgeV2.Targets.CallBindV1
 
 namespace ProofForgeV2.Targets.Solana.FinalizeV1
 
@@ -132,7 +133,9 @@ private def joinStagingBaseFile
 private def finalizeCpiElfProfile
     (capability : ResolvedEngineeringBuildV1)
     (artifacts : MaterializedArtifactsV1)
-    (stagingDir : FilePath) : IO EngineeringFinalizationDraftV1 := do
+    (stagingDir : FilePath)
+    (bindings : Option ProofForgeV2.Targets.CallBindV1.CallBindTableV1 := none) :
+    IO EngineeringFinalizationDraftV1 := do
   -- 1. Pre-IO identity: capability and artifacts must bind exact CPI profile.
   let capProfile := ResolvedEngineeringBuildV1.codegenProfileOf capability
   unless capProfile == CodegenProfileId.solanaSbpfCpiElfV1 do
@@ -157,12 +160,12 @@ private def finalizeCpiElfProfile
 
   -- 2. Recompute product Plan digest (always) and base files via sole
   -- materialize entry `buildFromCapability` (ADR-0032: includes full-body hybrid).
-  let productPlan ← match productPlanFromCapabilityV1 capability with
+  let productPlan ← match productPlanFromCapabilityV1 capability bindings with
     | .ok p => pure p
     | .error e =>
         throw <| IO.userError
           s!"PF-ARTIFACT-NONDEPLOYABLE: CPI product Plan recompute failed: {e.render}"
-  let productDigest ← match productPlanDigestFromCapabilityV1 capability with
+  let productDigest ← match productPlanDigestFromCapabilityV1 capability bindings with
     | .ok d => pure d
     | .error e =>
         throw <| IO.userError
@@ -185,13 +188,13 @@ private def finalizeCpiElfProfile
   -- 4. Recompute product base files (sole materialize authority) before IR
   -- digest: escrow product IR when available; else content-bound full-body
   -- hybrid `*.cpi-ir.json` digest (P3-g — no literal `full-body-hybrid`).
-  let baseFiles ← match buildFromCapability capability with
+  let baseFiles ← match buildFromCapability capability bindings with
     | .ok files => pure files
     | .error e =>
         throw <| IO.userError
           s!"PF-ARTIFACT-NONDEPLOYABLE: CPI product base files recompute failed: {e.render}"
   let programName := MaterializedArtifactsV1.artifactProgramNameOf artifacts
-  let productIrResult := productIrFromCapabilityV1 capability
+  let productIrResult := productIrFromCapabilityV1 capability bindings
   -- Evidence irDigest must join the **on-disk** `*.cpi-ir.json` bytes.
   -- Body-only / Map programs emit full-body hybrid marker IR (P3-c/g);
   -- CPI-site programs emit escrow product IR. Prefer file schema detection so
@@ -277,10 +280,12 @@ private def finalizeUnknownProfile (profile : CodegenProfileId) :
 def finalize
     (capability : ResolvedEngineeringBuildV1)
     (artifacts : MaterializedArtifactsV1)
-    (stagingDir : FilePath) : IO EngineeringFinalizationDraftV1 := do
+    (stagingDir : FilePath)
+    (bindings : Option ProofForgeV2.Targets.CallBindV1.CallBindTableV1 := none) :
+    IO EngineeringFinalizationDraftV1 := do
   let profile := ResolvedEngineeringBuildV1.codegenProfileOf capability
   if profile == CodegenProfileId.solanaSbpfCpiElfV1 then
-    finalizeCpiElfProfile capability artifacts stagingDir
+    finalizeCpiElfProfile capability artifacts stagingDir bindings
   else
     finalizeUnknownProfile profile
 

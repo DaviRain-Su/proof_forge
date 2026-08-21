@@ -37,6 +37,7 @@ import ProofForgeV2.Targets.Solana.CpiPlanV1
 import ProofForgeV2.Targets.Solana.CpiPreflightCapabilityV1
 import ProofForgeV2.Targets.Solana.CpiProductCapabilityV1
 import ProofForgeV2.Targets.Solana.LowerSemanticV1
+import ProofForgeV2.Targets.CallBindV1
 
 namespace ProofForgeV2.Targets.Solana.CpiV1
 
@@ -681,6 +682,10 @@ structure DerivePlanSnapshotV1 where
   computeAssumptions : ComputeAssumptionsV1
   /-- When `true`, reject companion and non-approved product APIs. -/
   productApiFilter : Bool
+  /-- ADR-0053 Wave 2: optional bind table. Present table lets a generic QN
+      through product-API filter iff it has an exact Solana row; missing row
+      still fail-closed. Absent table keeps today's approved-API filter. -/
+  bindings : Option ProofForgeV2.Targets.CallBindV1.CallBindTableV1 := none
 
 /-- Collect raw ExternalCall sites. Exact `pf.crypto.sha256|keccak256` are
     full-body host syscalls and are skipped rather than classified as CPI
@@ -694,8 +699,20 @@ structure DerivePlanSnapshotV1 where
     * only `pf.assets.native.deposit` / `pf.assets.native.transfer` enter this
       lane (other three catalog QNs fail closed as Phase B scope);
     * non-catalog QNs keep existing CPI profile product filter behaviour. -/
+private def requireCallBindGenericQnV1
+    (bindings : Option ProofForgeV2.Targets.CallBindV1.CallBindTableV1)
+    (callee : QualifiedName) : CompileResult Bool :=
+  match bindings with
+  | none => pure false
+  | some table =>
+      match ProofForgeV2.Targets.CallBindV1.requireSolanaProgramIdV1
+          table callee.components.toArray with
+      | .ok _ => pure true
+      | .error msg => deriveFail msg
+
 private def collectRawSitesFiltered
-    (data : SemanticProgramDataV1) (productApiFilter : Bool) :
+    (data : SemanticProgramDataV1) (productApiFilter : Bool)
+    (bindings : Option ProofForgeV2.Targets.CallBindV1.CallBindTableV1 := none) :
     CompileResult (Array RawSiteV1) := do
   unless data.invariants.isEmpty do
     deriveFail "CPI derive rejects nonempty invariants table"
@@ -732,25 +749,35 @@ private def collectRawSitesFiltered
                   deriveFail
                     s!"CPI product derive rejects companion API '{qn}'"
                 unless isApprovedProductApiV1 qn do
-                  deriveFail
-                    s!"CPI product derive rejects non-approved API '{qn}'"
-              let api ← match findFrozenApi? qn with
-                | some a => pure a
-                | none =>
+                  -- Wave 2/2b: a present bind table does not mint a CPI site
+                  -- for unknown QNs (no frozen API). Full-body emit consumes
+                  -- the table for program id + compile-time AccountMetas.
+                  -- Missing row still fail-closed via requireSolanaProgramIdV1.
+                  if ← requireCallBindGenericQnV1 bindings callee then
+                    pure ()
+                  else
+                    deriveFail
+                      s!"CPI product derive rejects non-approved API '{qn}'"
+              match findFrozenApi? qn with
+              | none =>
+                  -- Bound generic QN: skip CPI-site mint; full-body lowering
+                  -- emits invoke with the bound program id / Wave 2b metas.
+                  unless ← requireCallBindGenericQnV1 bindings callee do
                     deriveFail s!"CPI derive rejects unknown callee QN '{qn}'"
-              let principals ← validateArgSources data.types callable api args
-              out := out.push {
-                callableId
-                handlerMode := mode
-                handlerName := hname
-                blockId := blk.id.toNat
-                instructionIndex := instrIdx
-                effectId := effectId.toNat
-                qn
-                api
-                argValueIds := args
-                principalParams := principals
-              }
+              | some api =>
+                  let principals ← validateArgSources data.types callable api args
+                  out := out.push {
+                    callableId
+                    handlerMode := mode
+                    handlerName := hname
+                    blockId := blk.id.toNat
+                    instructionIndex := instrIdx
+                    effectId := effectId.toNat
+                    qn
+                    api
+                    argValueIds := args
+                    principalParams := principals
+                  }
         | _ => pure ()
   pure out
 
@@ -882,7 +909,7 @@ def deriveSolanaCpiPlanCandidateCoreV1
     (snapshot : DerivePlanSnapshotV1) :
     CompileResult SolanaCpiPlanCandidateV1 := do
   let directHandlers ← collectDirectHandlers data
-  let rawSites ← collectRawSitesFiltered data snapshot.productApiFilter
+  let rawSites ← collectRawSitesFiltered data snapshot.productApiFilter snapshot.bindings
   let rawEnvReadSites ← collectRawEnvReadSites data snapshot.productApiFilter
   let rawContextReadSites ← collectRawContextReadSites data
   -- ADR-0032 U1 P4: body-only programs (zero ExternalCall / envRead / caller)
@@ -1420,6 +1447,124 @@ def deriveSolanaCpiPlanCandidateCoreV1
     computeAssumptions := snapshot.computeAssumptions
   }
 
+/-- Generic callees that belong to ADR-0053 rather than a frozen product API.
+    Keep source order and deduplicate exact qualified names. -/
+private def collectGenericCallBindCalleesV1
+    (data : SemanticProgramDataV1) : Array QualifiedName := Id.run do
+  let mut out : Array QualifiedName := #[]
+  for callable in data.callables do
+    for block in callable.blocks do
+      for instruction in block.instructions do
+        match instruction.op with
+        | .externalCall _ callee _ =>
+            let qn := String.intercalate "." callee.components.toArray.toList
+            let exempt :=
+              qn.startsWith "pf.crypto." || qn.startsWith "pf.assets." ||
+                qn == "solana.system.transfer"
+            unless exempt || out.any (· == callee) do
+              out := out.push callee
+        | _ => pure ()
+  pure out
+
+private def callBindProgramRoleNameV1 (callee : QualifiedName) : String :=
+  let preferred :=
+    "call_bind_" ++
+      String.intercalate "_" callee.components.toArray.toList ++ "_program"
+  if preferred.utf8ByteSize ≤ 240 && isIdentifier preferred then
+    preferred
+  else
+    "call_bind_program"
+
+/-- Product-owned ADR-0053 Plan augmentation. The generic call remains absent
+    from frozen `cpiSites`; exact bound accounts and the executable callee are
+    instead appended as a validated global-role suffix used by every handler's
+    unified outer layout. -/
+private def augmentProductCallBindRolesV1
+    (data : SemanticProgramDataV1)
+    (bindings : Option ProofForgeV2.Targets.CallBindV1.CallBindTableV1)
+    (candidate : SolanaCpiPlanCandidateV1) :
+    CompileResult SolanaCpiPlanCandidateV1 := do
+  let some table := bindings | pure candidate
+  let callees := collectGenericCallBindCalleesV1 data
+  let mut hasNonempty := false
+  for callee in callees do
+    let (_, accounts) ← mapExcept
+      (ProofForgeV2.Targets.CallBindV1.requireSolanaBindingV1
+        table callee.components.toArray)
+      "call-bind Plan role lookup"
+    if !accounts.isEmpty then
+      hasNonempty := true
+  unless hasNonempty do
+    return candidate
+  unless callees.size == 1 do
+    deriveFail
+      "call-bind: Solana outer AccountInfo join currently requires one distinct generic callee"
+  unless candidate.cpiSites.isEmpty do
+    deriveFail
+      "call-bind: generic outer AccountInfo join cannot share a full-body frozen CPI-site layout"
+  let some callee := callees[0]? |
+    deriveFail "call-bind: Solana outer AccountInfo join missing generic callee"
+  let (programIdBytes, accounts) ← mapExcept
+    (ProofForgeV2.Targets.CallBindV1.requireSolanaOuterAccountJoinV1
+      table callee.components.toArray)
+    "call-bind Plan outer join"
+  let programId ← mapExcept (SolanaPubkeyV1.ofBytes programIdBytes)
+    "call-bind Plan programId"
+  let roleBase := candidate.accountRoles.size
+  let outerRoleCount := roleBase + accounts.size + 1
+  unless outerRoleCount ≤ maxOuterRolesV1 do
+    deriveFail
+      s!"call-bind: Solana outer role count {outerRoleCount} exceeds {maxOuterRolesV1}"
+
+  let mut roles := candidate.accountRoles
+  let mut addedUses : Array HandlerAccountUseV1 := #[]
+  for account in accounts do
+    if roles.any (fun role => role.name == account.role) then
+      deriveFail s!"call-bind: account role name '{account.role}' collides with Plan role"
+    let pubkey ← mapExcept (SolanaPubkeyV1.ofBytes account.pubkey)
+      s!"call-bind Plan account role '{account.role}' pubkey"
+    let roleId := roles.size
+    roles := roles.push {
+      roleId
+      name := account.role
+      keyPolicy := .callBindAccount pubkey account.signer account.writable
+      constraint := callBindAccountRoleConstraintV1
+      aliasPolicy := frozenAliasPolicyV1
+    }
+    addedUses := addedUses.push {
+      position := addedUses.size
+      roleId
+      directSignerContribution := account.signer
+      directWritableContribution := account.writable
+      outerSigner := account.signer
+      outerWritable := account.writable
+    }
+  let programRoleName := callBindProgramRoleNameV1 callee
+  if roles.any (fun role => role.name == programRoleName) then
+    deriveFail
+      s!"call-bind: callee program role name '{programRoleName}' collides with Plan role"
+  let programRoleId := roles.size
+  roles := roles.push {
+    roleId := programRoleId
+    name := programRoleName
+    keyPolicy := .callBindProgram programId
+    constraint := callBindProgramRoleConstraintV1
+    aliasPolicy := frozenAliasPolicyV1
+  }
+  addedUses := addedUses.push {
+    position := addedUses.size
+    roleId := programRoleId
+    directSignerContribution := false
+    directWritableContribution := false
+    outerSigner := false
+    outerWritable := false
+  }
+  let handlers := candidate.handlers.map fun handler =>
+    let base := handler.accountUses.size
+    let suffix := addedUses.map fun use => { use with position := base + use.position }
+    { handler with accountUses := handler.accountUses ++ suffix }
+  pure { candidate with accountRoles := roles, handlers }
+
 /-- Sole #118 lane A derive: preflight carrier → authority Plan carrier.
     Uses frozen profile/catalog digests + frozenComputeAssumptionsV1. -/
 def deriveSolanaCpiPlanFromPreflightV1
@@ -1453,7 +1598,8 @@ def deriveSolanaCpiPlanFromPreflightV1
     Uses active profile/catalog digests + activeComputeAssumptionsV1 and
     product API filter (companion FC). -/
 def deriveSolanaCpiPlanFromProductCapabilityV1
-    (capability : ResolvedSolanaCpiProductCapabilityV1) :
+    (capability : ResolvedSolanaCpiProductCapabilityV1)
+    (bindings : Option ProofForgeV2.Targets.CallBindV1.CallBindTableV1 := none) :
     CompileResult SolanaCpiProductPlanV1 := do
   unless !ResolvedSolanaCpiProductCapabilityV1.activationDeniedOf capability do
     deriveFail "CPI product derive rejects activationDenied product capability"
@@ -1476,7 +1622,9 @@ def deriveSolanaCpiPlanFromProductCapabilityV1
     catalogDigest
     computeAssumptions := activeComputeAssumptionsV1
     productApiFilter := true
+    bindings
   }
+  let candidate ← augmentProductCallBindRolesV1 data bindings candidate
   let plan ← validateSolanaCpiProductPlanV1 candidate
   checkSolanaCpiProductMaterializationEligibilityV1 plan
   pure (SolanaCpiProductPlanV1.mk capability plan)

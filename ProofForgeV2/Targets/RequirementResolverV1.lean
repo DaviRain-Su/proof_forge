@@ -56,14 +56,17 @@ import ProofForgeV2.Core.RequirementIdsV1
 import ProofForgeV2.Semantic.RequirementsV1
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Targets.BuildSelectionV1
+import ProofForgeV2.Targets.CallBindV1
 import ProofForgeV2.Targets.TargetRegistryV1
 
 namespace ProofForgeV2.Targets.RequirementResolverV1
 
 open ProofForgeV2
+open ProofForgeV2.Core.Common
 open ProofForgeV2.Semantic.RequirementsV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.BuildSelectionV1
+open ProofForgeV2.Targets.CallBindV1
 open ProofForgeV2.Targets.TargetRegistryV1
 
 /-- One static support row: implemented (target, profile) + exact S2 requests. -/
@@ -113,6 +116,9 @@ def callScheduleFamilyTagV1 : TargetKind → String
 /-- Address-shaped residual tags for the three B-CALL-SEM gaps that still
     need an owner ADR (COMP-1-CALL-SEM-LAND inspect residual).
 
+    Target-level `inspect <target>` always reports this table: there is no
+    program on that surface. Program-level clear lives in
+    `programCallScheduleResidualV1` (build only).
     `none` means this kind has no address-shaped residual on the inspect
     surface (the family tag already covers dual-FC / witness / promise etc.).
     Tags are inspect-only: they do **not** enter SupportClaim digest,
@@ -123,6 +129,123 @@ def callScheduleResidualV1 : TargetKind → Option String
   | .solana => some "callee-identity-outer-account-open"
   | .cosmwasm => some "contract-addr-qn-stub"
   | _ => none
+
+/-- ADR-0053: `pf.crypto.*` / `pf.assets` never consult the bind table. -/
+private def isCallBindExemptQnV1 (qn : String) : Bool :=
+  qn.startsWith "pf.crypto." || qn.startsWith "pf.assets."
+
+private def dottedCallBindQnV1 (name : Core.Common.QualifiedName) : String :=
+  String.intercalate "." name.components.toArray.toList
+
+private def isSolanaSystemTransferQnV1
+    (name : Core.Common.QualifiedName) : Bool :=
+  name.components.toArray == #["solana", "system", "transfer"]
+
+/-- Generic `call`/`schedule` callees that the bind table must cover. -/
+private def collectGenericCallBindCalleesV1
+    (kind : TargetKind) (data : SemanticProgramDataV1) :
+    Array Core.Common.QualifiedName := Id.run do
+  let mut out : Array Core.Common.QualifiedName := #[]
+  for callable in data.callables do
+    for blk in callable.blocks do
+      for instr in blk.instructions do
+        match instr.op with
+        | .externalCall _ callee _ | .schedule _ callee _ =>
+            unless isCallBindExemptQnV1 (dottedCallBindQnV1 callee) ||
+                (kind == .solana && isSolanaSystemTransferQnV1 callee) do
+              out := out.push callee
+        | _ => pure ()
+  pure out
+
+/-- Wave 3 is a synchronous outer AccountInfo join. Solana schedules remain
+    rejected by the product CPI rail and cannot clear that residual. -/
+private def hasGenericSolanaScheduleV1 (data : SemanticProgramDataV1) : Bool :=
+  data.callables.any fun callable =>
+    callable.blocks.any fun blk =>
+      blk.instructions.any fun instr =>
+        match instr.op with
+        | .schedule _ callee _ =>
+            !isCallBindExemptQnV1 (dottedCallBindQnV1 callee) &&
+              !isSolanaSystemTransferQnV1 callee
+        | _ => false
+
+private def rowCoversGenericCalleeV1
+    (kind : TargetKind) (table : CallBindTableV1)
+    (callee : Core.Common.QualifiedName) :
+    Bool :=
+  let comps := callee.components.toArray
+  match kind with
+  | .evm =>
+      match requireEvmAddressV1 table comps with
+      | .ok _ => true
+      | .error _ => false
+  | .solana =>
+      match requireSolanaProgramIdV1 table comps with
+      | .ok _ => true
+      | .error _ => false
+  | .cosmwasm =>
+      match requireCosmWasmAddressV1 table comps with
+      | .ok _ => true
+      | .error _ => false
+  | _ => false
+
+private def solanaRowsCloseOuterJoinV1
+    (table : CallBindTableV1)
+    (callees : Array Core.Common.QualifiedName) : Bool := Id.run do
+  let mut firstQn : Option String := none
+  for callee in callees do
+    let qn := dottedCallBindQnV1 callee
+    match firstQn with
+    | none => firstQn := some qn
+    | some first =>
+        unless qn == first do return false
+    match requireSolanaOuterAccountJoinV1 table callee.components.toArray with
+    | .ok _ => pure ()
+    | .error _ => return false
+  return !callees.isEmpty
+
+/-- Program-level address residual (build surface).
+
+    * No generic `call`/`schedule` → `none` (nothing to bind).
+    * Present table covering every generic QN:
+      - evm / cosmwasm → `none` (hashed QN / contract_addr stub closed);
+      - solana state-bearing, synchronous, one-callee nonempty
+        identity-distinct rows → `none` (Wave 3 exact outer AccountInfo join);
+        empty-state/scheduled/empty-row/multi-callee programs keep the residual.
+    * Missing table or uncovered QN → target-level `callScheduleResidualV1`.
+    Does **not** change target `inspect`. Does **not** enter SupportClaim. -/
+def programCallScheduleResidualV1
+    (kind : TargetKind)
+    (program : SemanticProgramV1)
+    (bindings : Option CallBindTableV1) :
+    Except String (Option String) := do
+  let data ← match validateSemanticProgramV1 program with
+    | .ok d => pure d
+    | .error _ =>
+        throw "call-bind: compiled semantic failed structure validation"
+  let callees := collectGenericCallBindCalleesV1 kind data
+  if callees.isEmpty then
+    pure none
+  else
+    match bindings with
+    | none => pure (callScheduleResidualV1 kind)
+    | some table =>
+        let mut covered := true
+        for callee in callees do
+          unless rowCoversGenericCalleeV1 kind table callee do
+            covered := false
+        if covered then
+          match kind with
+          | .solana =>
+              if !data.logicalState.isEmpty &&
+                  !hasGenericSolanaScheduleV1 data &&
+                  solanaRowsCloseOuterJoinV1 table callees then
+                pure none
+              else
+                pure (some "callee-identity-outer-account-open")
+          | _ => pure none
+        else
+          pure (callScheduleResidualV1 kind)
 
 /-- SYS-S4 `context.attachedValue` family-split tag (COMP-1-SYS-CAP-L2 honesty).
 

@@ -413,7 +413,7 @@ private def findStateSchema?
 private def packageContextOfKeyPolicy : RoleKeyPolicyV1 → Option String
   | .fixedProgram packageId => some packageId
   | .state _ | .accountParameter .. | .vaultPda | .handlerCaller
-  | .vaultAta .. | .dstAta .. => none
+  | .vaultAta .. | .dstAta .. | .callBindAccount .. | .callBindProgram .. => none
 
 private def requireAbsentLoaderPackage
     (packageId : String) (programId : SolanaPubkeyV1) :
@@ -650,6 +650,8 @@ private def projectEntryGlobalOps
           roleId := handle.roleId
           localIndex := i
         }
+    | .callBindAccount pubkey .. | .callBindProgram pubkey =>
+        ops := ops.push (.checkExactKey i pubkey)
     | .state _ | .vaultPda | .handlerCaller | .vaultAta .. | .dstAta .. => pure ()
     let constraintOps ← projectConstraintOps i mode handle.keyPolicy
       handle.constraint stateSchemas
@@ -3112,4 +3114,3 @@ def escrowCpiBaseMinV1 : Nat := 1600
 def escrowMaxFrameBytesV1 : Nat := 4096
 
 end ProofForgeV2.Targets.Solana.CpiV1
-
