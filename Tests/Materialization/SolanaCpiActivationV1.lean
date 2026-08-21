@@ -379,6 +379,12 @@ private unsafe def testOrdinaryEscrowActivationPositive
     "bindings must pin referenced token-classic-v1"
   expect (hasSubstr bindings "ata-classic-v1")
     "bindings must pin referenced ata-classic-v1"
+  expect (hasSubstr bindings
+      "loaderV3Elf:a19be3a2d4778533652da23b8fe31c4a341802f8e8c0c7b941b88581fc92d9d9:size94960:supply-chain/solana-cpi-assets/v1/token_classic_v1.so")
+    "bindings must carry exact token loader-v3 ELF identity"
+  expect (hasSubstr bindings
+      "loaderV3Elf:d3f6df6f95f8b81c482478cc8c44b67ac3de2ca03162eaaf6c587ee8db646519:size111136:supply-chain/solana-cpi-assets/v1/ata_classic_v1.so")
+    "bindings must carry exact ATA loader-v3 ELF identity"
   expect (!hasSubstr bindings "companion-v1")
     "bindings must not include unreferenced companion-v1"
   -- Catalog digest wire (domain-separated) must appear for the active catalog.

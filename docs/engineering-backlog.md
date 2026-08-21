@@ -491,7 +491,7 @@ Cairo / RISC0 / SP1 / Move / 比特币 **不进本队列**。
 | ID | 项 | 状态 |
 |---|---|---|
 | **COMP-2-EVM-ADDR** | opt-in pre-placed 20-byte binding 已由 ADR-0053 完成；剩 identity digest verification、Bool/Int/Bytes returndata；C-3 保持 FC | **partial** — endpoint binding done；其余 pending |
-| **COMP-2-SOL-CPI** | generic call-bind 支持子集已完成；剩 Token/ATA binding 诚实化；扩大 schedule/result/multi-callee 前另决策 | **partial** — Wave 3 product/runtime closure done；WideDiv/WideDiv256 已由独立 Rust oracle + Mollusk 覆盖 UInt128/256 div/mod 成功与零除 `Custom(0x1001)` 全账户回滚，WideDivDispatch 已执行最远 handler，故该 engineering runtime 项已闭；Token/ATA `artifactBinding` 诚实化仍 pending；async 保持 FC；非 formal/hermetic |
+| **COMP-2-SOL-CPI** | generic call-bind 支持子集与 Token/ATA binding 已完成；扩大 schedule/result/multi-callee 前另决策 | **partial / expansion-blocked** — Wave 3 product/runtime closure done；Token/ATA active catalog 绑定 tracked package-owned loader-v3 ELF 的 exact path/size/SHA-256/source/tag/commit/build-recipe，product bindings/catalog digest 与 product-acceptance 磁盘门已闭；WideDiv/WideDiv256 独立 Rust oracle + Mollusk 及 WideDivDispatch 最远 handler 已闭。schedule、generic result-bearing、empty-row/state、multi-callee、mixed-site、identity verification 与 async 保持 FC/open；扩大须 owner 决策；非 formal/hermetic/package-owner-published |
 | **COMP-2-NEAR-OVERFLOW** | sandbox Counter overflow rollback；view ContextRead 保持 FC | **partial / lifecycle-blocked** — Counter-shaped exact `+2` receipt rollback 已观测；exact no-initializer `Examples/Counter` 仍被 NEAR Plan 拒绝，需先冻结 lifecycle 映射；view caller 保持 FC |
 | **COMP-2-NOIR-PRD** | 不推翻 C-4 则另开 PRD 修订；推翻才做独立 NoirProveAcceptance | pending |
 

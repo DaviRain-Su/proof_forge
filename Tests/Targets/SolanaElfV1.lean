@@ -237,6 +237,31 @@ private def testActiveCpiContract : IO Unit := do
   expect (ataClassicActiveElfSha256V1 ==
       "d3f6df6f95f8b81c482478cc8c44b67ac3de2ca03162eaaf6c587ee8db646519")
     "ata elf sha256"
+  expect (tokenClassicSourceRepoV1 == "https://github.com/solana-program/token")
+    "token source repo"
+  expect (tokenClassicSourceTagV1 == "program@v9.0.0")
+    "token source tag"
+  expect (tokenClassicTagObjectV1 == "5c37ac99c248567bd7d50b965af8cbd45b6ced96")
+    "token tag object"
+  expect (tokenClassicPeeledCommitV1 ==
+      "dfb260231c761be7d9c8b63728e770a102b86495")
+    "token peeled commit"
+  expect (tokenClassicBuildRecipeDigestV1 ==
+      "4af75b0a74ba14daa90a2d3913c71311609b3f3465728e733537dd0e34d8d063")
+    "token build recipe digest"
+  expect (ataClassicSourceRepoV1 ==
+      "https://github.com/solana-program/associated-token-account")
+    "ata source repo"
+  expect (ataClassicSourceTagV1 == "program@v8.0.0")
+    "ata source tag"
+  expect (ataClassicTagObjectV1 == "de77f367fdc0341879b1b9f0224c6b86107e1769")
+    "ata tag object"
+  expect (ataClassicPeeledCommitV1 ==
+      "0b867b5340cd001e5980d8ca7928effc4e10015c")
+    "ata peeled commit"
+  expect (ataClassicBuildRecipeDigestV1 ==
+      "f7ebe5236730d66ad730df6348b74332eb95e2abfda3377f389a13022e4528e2")
+    "ata build recipe digest"
 
 /-- Sole-rail body-only StateCell emit + materialize. -/
 private unsafe def testEmitProfiles

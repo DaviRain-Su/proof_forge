@@ -17102,3 +17102,27 @@ normative: false
 - lane不再安装Lean或缓存/编译Lake graph，timeout从150分钟收紧到30分钟；`ci-required`仍把selected
   Darwin job的failure/skipped/cancelled视为阻断。历史run `31781471216` 的双平台完整consumer观察
   仍是历史证据；持续CI按产品证据与平台closure证据分层，不升级formal/release maturity。
+
+## 2026-08-21 — Solana Token/ATA artifactBinding 控制面对账
+
+- 阶段 2 backlog 原将 Token/ATA binding 标为 pending，但代码、accepted ADR 与工程门已经完成
+  #125 active closure：仅 System/classic Token/classic ATA product-admitted，companion 保持
+  `admitted=false`/`absent`；Token/ATA 分别绑定 tracked package-owned loader-v3 ELF 的 exact
+  path/size/SHA-256/source repo/tag object/peeled commit/build-recipe digest。
+- `docs_check.py` 已重算 active catalog/profile digest，并逐字段连接 active catalog、asset manifest、
+  tracked ELF 与 runtime copy；`solana_cpi_product_acceptance.sh` 已对输出 bindings 以及磁盘 regular
+  file/single-link/size/SHA-256/provenance fail closed。历史 #122–#124 preactivation catalog 的
+  `artifactBinding=absent` 是保留边界，不应改写。
+- 本次补充 Lean 直接回归，固定完整 provenance constants 与 product bindings 中 Token/ATA exact
+  loader-v3 identity，并修正 roadmap/backlog 的滞后状态。Solana 项仍为 partial：schedule、generic
+  result-bearing、empty-row/state、multi-callee、mixed-site、identity verification 与 async 继续
+  FC/open；非 formal/hermetic/mainnet parity/package-owner-published。
+
+## 2026-08-21 — host target shard StateCell fixture import 修复
+
+- ordinary `just ci` 暴露 `Tests.Materialization.PsyDpnV1` 直接引用
+  `ProofForgeV2.Examples.stateCellSourceText` / `stateCellModuleNameV1`，但未直接 import owning
+  `ProofForgeV2.Examples.StateCell`；依赖历史传递 import，当前 import graph 下六处 identifier 均
+  unknown，使 `targets-host-fast` 在测试执行前编译失败。
+- 测试模块现直接声明所消费 fixture 的 owner import；不改 Psy Plan/DPN/product 行为，也不增加
+  产品依赖或 fallback。该修复按 focused module、host target shard 与 ordinary CI 验证。

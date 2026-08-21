@@ -54,6 +54,7 @@
 -/
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Core.TargetIdentityV1
+import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Materialization.MaterializedArtifactsV1
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.Psy

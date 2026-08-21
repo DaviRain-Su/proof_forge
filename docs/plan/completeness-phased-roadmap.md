@@ -94,7 +94,7 @@ formal：无 `registryDigest` / SupportClaim / BuildIdentity mint / formal `Outp
 | Target | 下一刀（仅 owner 拍板后） | 未拍板时只做 |
 |---|---|---|
 | EVM | opt-in pre-placed address 已闭合；下一刀为 identity digest verification 或 Bool/Int/Bytes returndata 决策 | 无表 hashed QN stub 保持 PARTIAL；C-3 保持 FC |
-| Solana | Wave 3 支持子集已闭合 exact callee/outer AccountInfo join；下一刀为 Token/ATA binding 或扩大前先决策 | schedule、generic result-bearing、empty-row/state、multi-callee、mixed-site 与 identity digest verification 保持 FC；Mollusk 不进 ordinary `just ci` |
+| Solana | Wave 3 支持子集与 Token/ATA package-owned binding 已闭合；扩大前先决策 | schedule、generic result-bearing、empty-row/state、multi-callee、mixed-site 与 identity digest verification 保持 FC；Mollusk 不进 ordinary `just ci` |
 | NEAR | sandbox overflow rollback | view caller/attachedValue 保持 FC |
 | Noir | 仅在推翻 C-4 后做 prove/verify | compile-only；不得把 nargo compile 写成 prove |
 | CosmWasm | opt-in exact `contractAddr` 已闭合；下一刀为 bech32/identity verification 或可选 wasmd rung-2 | 无表 QN stub、query ContextRead / sha256 保持 FC |
@@ -157,7 +157,7 @@ Capability 横切（2026-08-19）：`sha256Bytes` 五叶已开；`merkleVerifyKe
 | ID | 项 | 状态 |
 |---|---|---|
 | **COMP-2-EVM-ADDR** | opt-in pre-placed 20-byte binding 已由 ADR-0053 完成；剩 identity digest verification、Bool/Int/Bytes returndata；C-3 保持 FC | **partial** — endpoint binding done；其余 pending |
-| **COMP-2-SOL-CPI** | generic call-bind 支持子集已完成；剩 Token/ATA `artifactBinding` 诚实化；扩大 schedule/result/multi-callee 前另决策 | **partial** — Wave 3 product/runtime closure done；WideDiv/WideDiv256 已由独立 Rust oracle + Mollusk 覆盖 UInt128/256 div/mod 成功与零除 `Custom(0x1001)` 全账户回滚，WideDivDispatch 已执行最远 handler，故该 engineering runtime 项已闭；Token/ATA binding 仍 pending；async 保持 FC；非 formal/hermetic |
+| **COMP-2-SOL-CPI** | generic call-bind 支持子集与 Token/ATA `artifactBinding` 已完成；扩大 schedule/result/multi-callee 前另决策 | **partial / expansion-blocked** — Wave 3 product/runtime closure done；Token/ATA active catalog 绑定 tracked package-owned loader-v3 ELF 的 exact path/size/SHA-256/source/tag/commit/build-recipe，product bindings/catalog digest 与 product-acceptance 磁盘门已闭；WideDiv/WideDiv256 独立 Rust oracle + Mollusk 及 WideDivDispatch 最远 handler 已闭。schedule、generic result-bearing、empty-row/state、multi-callee、mixed-site、identity verification 与 async 保持 FC/open；扩大须 owner 决策；非 formal/hermetic/package-owner-published |
 | **COMP-2-NEAR-OVERFLOW** | sandbox Counter overflow rollback；view ContextRead 保持 FC 并写死 dossier | **partial / lifecycle-blocked** — `CounterOverflow` runtime fixture 已用与 Counter 相同的 nullary checked `+2` body 观测 receipt failure + unchanged state；view caller 继续 FC。exact `Examples/Counter` 是 no-initializer subject，而当前 NEAR KV profile 明确拒绝无 initializer 的程序，故不得把 fixture 冒充 product Counter closure；需先冻结 no-initializer lifecycle 映射 |
 | **COMP-2-NOIR-PRD** | 若 COMP-0 不推翻 C-4：另开 PRD 修订 FR-008 / Phase-1 DoD。若推翻：独立 `NoirProveAcceptance` | pending |
 
@@ -230,7 +230,9 @@ ADR-0036 / ADR-0053 已由 owner directive 于 2026-08-21 accepted，当前进�
 `COMP-2-EVM-ADDR` 的 endpoint binding 已闭，identity digest verification 仍须先冻结
 可验证的 callee artifact / receipt 来源，不能仅凭 bind row 自证。B-CALL-SEM 仍不标
 closed：Solana unsupported shape、target inspect static residual 与其它 target family
-边界继续 open/FC。
+边界继续 open/FC。Solana Token/ATA package-owned binding 经代码/规格/磁盘门对账已闭，
+不再列为 pending；该 target 的下一步扩大与 NEAR no-initializer lifecycle、Noir PRD 修订
+均须 owner 决策，当前没有可静默编码的下一项 accepted-target 切片。
 COMP-1 inspect 标签（call / attachedValue / crypto / engineeringValidationResidual）与 NORMALIZE FC
 针 / XRPL context 矩阵 / ecdsa 十二叶第一道门针已部分落地；字面量/Bytes 穿透开放、
 TypeKey SPEC rank 与其它 ADR 仍 proposed。
