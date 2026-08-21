@@ -861,6 +861,10 @@ docs-check:
 ci-path-detect-self-test:
     bash scripts/ci/detect_ci_paths_self_test.sh
 
+# CI required-lane status-contract self-test (no network / no lake).
+ci-status-summary-self-test:
+    /usr/bin/python3 -I -S scripts/ci/ci_status_summary_self_test.py
+
 # TASK-D0-08: re-pin the lean package file-set after any ProofForgeV2 source
 # change (the manifest is a committed TST-SBOM-002 input).
 sbom-package-files-refresh:

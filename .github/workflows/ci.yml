@@ -2,7 +2,11 @@ name: CI
 
 # ProofForge V2 portable CI (Linux).
 #
-# Required lanes for branch protection (BUILD-4 independent fail isolation):
+# Stable branch-protection check:
+#   ci-required       - always summarizes every selected execution lane; a
+#                       selected skipped/cancelled lane is BLOCKED, not green
+#
+# Execution lanes (BUILD-4 independent fail isolation):
 #   docs              - always
 #   lean-product      - ten zero-tool non-target/product shards + product/deletion gates
 #   target-smoke      - parallel targets-evm / targets-solana / targets-host-fast + CLI
@@ -64,6 +68,9 @@ jobs:
 
       - name: CI path-filter self-test
         run: just ci-path-detect-self-test
+
+      - name: CI status-contract self-test
+        run: just ci-status-summary-self-test
 
       - name: Whitespace / conflict markers
         run: git diff --check
@@ -515,6 +522,79 @@ jobs:
         run: just cosmwasm-runtime
         env:
           PF_COSMWASM_RUNTIME_REQUIRED: "1"
+
+  ci-required:
+    name: ci-required
+    if: always()
+    needs:
+      - changes
+      - docs
+      - lean-product
+      - target-smoke
+      - near-wasmcert-darwin
+      - target-host-slow
+      - solana-runtime
+      - near-runtime
+      - cosmwasm-runtime
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Summarize required execution lanes
+        env:
+          CI_STATUS_MATRIX: >-
+            {
+              "changes": {
+                "selected": true,
+                "result": "${{ needs.changes.result }}",
+                "reason": "path classification is always required"
+              },
+              "docs": {
+                "selected": true,
+                "result": "${{ needs.docs.result }}",
+                "reason": "documentation control plane is always required"
+              },
+              "lean-product": {
+                "selected": ${{ needs.changes.result != 'success' || needs.changes.outputs.lean_product == 'true' }},
+                "result": "${{ needs.lean-product.result }}",
+                "reason": "lean_product path decision; classifier failure is fail-closed"
+              },
+              "target-smoke": {
+                "selected": ${{ needs.changes.result != 'success' || needs.changes.outputs.target_smoke == 'true' }},
+                "result": "${{ needs.target-smoke.result }}",
+                "reason": "target_smoke path decision; classifier failure is fail-closed"
+              },
+              "near-wasmcert-darwin": {
+                "selected": ${{ needs.changes.result != 'success' || needs.changes.outputs.target_smoke == 'true' }},
+                "result": "${{ needs.near-wasmcert-darwin.result }}",
+                "reason": "shares the target_smoke path decision"
+              },
+              "target-host-slow": {
+                "selected": ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch') && (needs.changes.result != 'success' || needs.changes.outputs.target_smoke == 'true') }},
+                "result": "${{ needs.target-host-slow.result }}",
+                "reason": "target_smoke paths on main, master, or workflow_dispatch"
+              },
+              "solana-runtime": {
+                "selected": ${{ needs.changes.result != 'success' || needs.changes.outputs.solana_runtime == 'true' }},
+                "result": "${{ needs.solana-runtime.result }}",
+                "reason": "solana_runtime path decision; classifier failure is fail-closed"
+              },
+              "near-runtime": {
+                "selected": ${{ needs.changes.result != 'success' || needs.changes.outputs.near_runtime == 'true' }},
+                "result": "${{ needs.near-runtime.result }}",
+                "reason": "near_runtime path decision; classifier failure is fail-closed"
+              },
+              "cosmwasm-runtime": {
+                "selected": ${{ needs.changes.result != 'success' || needs.changes.outputs.cosmwasm_runtime == 'true' }},
+                "result": "${{ needs.cosmwasm-runtime.result }}",
+                "reason": "cosmwasm_runtime path decision; classifier failure is fail-closed"
+              }
+            }
+        run: >-
+          /usr/bin/python3 -I -S scripts/ci/ci_status_summary.py
+          --matrix "$CI_STATUS_MATRIX"
+          --summary "$GITHUB_STEP_SUMMARY"
 
   linux-tool-root:
     name: linux-tool-root (manual audit)

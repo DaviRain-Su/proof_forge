@@ -65,17 +65,26 @@ just test-frontend-worker
 
 | Workflow / job | What | When |
 |---|---|---|
-| `CI` / `docs` | docs-check + path-filter self-test | always |
+| `CI` / `docs` | docs-check + CI contract self-tests | always |
 | `CI` / `lean-product` | ten zero-tool non-target/product shards + gates | path filter; always on main |
 | `CI` / `target-smoke` | provisioned target shards + CLI/source-bound smoke | path filter; always on main |
 | `CI` / `target-host-slow` | CosmWasmPlan + NoirAcir | **main / workflow_dispatch only** |
 | `CI` / `solana-runtime` | Mollusk; reuses CLI artifact | path filter; waits for CLI upload |
+| `CI` / `ci-required` | audited result of all selected lanes | always; stable branch-protection check |
 | `CI nightly` | full host-slow + all targets + Mollusk | daily 08:00 UTC + dispatch |
 
 Path filter (`scripts/ci/detect_ci_paths.sh`): docs/MCP/template-only PRs skip
 heavy jobs; pure `runtime-tests/solana/**` skips lean-product but still runs
 target-smoke + solana-runtime. **Pushes to `main` force all ordinary heavy
 lanes.** A green CI is **not** hermetic/formal release evidence.
+
+Branch protection should require the stable `ci-required` check rather than
+interpreting conditionally-created execution jobs independently. Its summary
+uses four explicit states: `PASS` for a successful lane, `FAIL` for an executed
+failure, `SKIP` only when the path classifier did not select that lane, and
+`BLOCKED` when a selected lane was skipped/cancelled (including dependency
+failure). `FAIL` and `BLOCKED` both fail the aggregate check; classifier failure
+selects the potentially affected lanes fail-closed.
 
 Target shards: `targets-evm` · `targets-solana` · `targets-host-fast` ·
 `targets-host-slow` (see `Tests/Shards/Targets*.lean`).
