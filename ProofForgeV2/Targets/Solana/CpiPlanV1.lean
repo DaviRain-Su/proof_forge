@@ -66,11 +66,22 @@ structure StateSchemaV1 where
   initializedMarker : UInt64
   deriving BEq
 
+/-- Exact local Solana callee output identity joined before caller Plan
+    derivation. This does not claim that the runtime program account currently
+    contains this ELF; ProgramData/deployment identity is outside product v1. -/
+structure CallBindOutputIdentityV1 where
+  sourceHash : Digest
+  semanticHash : Digest
+  artifactSha256 : Digest
+  deriving BEq, Repr
+
 /-- Global account role schema (shared universe across handlers). -/
 structure AccountRoleSchemaV1 where
   roleId : Nat
   name : String
   keyPolicy : RoleKeyPolicyV1
+  /-- Present exactly on a callBindProgram role. -/
+  callBindOutputIdentity : Option CallBindOutputIdentityV1 := none
   constraint : AccountConstraint
   aliasPolicy : AliasPolicy
   deriving BEq, Repr
@@ -970,13 +981,31 @@ private def encodeAccountRole (r : AccountRoleSchemaV1) : CompileResult PfJson :
   let roleId ← pfNat "accountRole.roleId" r.roleId
   let keyPolicy ← encodeRoleKeyPolicy r.keyPolicy
   let constraint ← encodeConstraint r.constraint
-  pure (.object #[
+  let mut fields : Array (String × PfJson) := #[
     ("roleId", roleId),
     ("name", .string r.name),
     ("keyPolicy", keyPolicy),
     ("constraint", constraint),
     ("aliasPolicy", encodeAliasPolicy r.aliasPolicy)
-  ])
+  ]
+  match r.callBindOutputIdentity with
+    | none => pure ()
+    | some identity => do
+        let sourceHash ←
+          mapExcept (renderDigest identity.sourceHash)
+            "accountRole.callBindOutputIdentity.sourceHash"
+        let semanticHash ←
+          mapExcept (renderDigest identity.semanticHash)
+            "accountRole.callBindOutputIdentity.semanticHash"
+        let artifactSha256 ←
+          mapExcept (renderDigest identity.artifactSha256)
+            "accountRole.callBindOutputIdentity.artifactSha256"
+        fields := fields.push ("callBindOutputIdentity", .object #[
+          ("sourceHash", .string sourceHash),
+          ("semanticHash", .string semanticHash),
+          ("artifactSha256", .string artifactSha256)
+        ])
+  pure (.object fields)
 
 private def encodeHandlerMode : HandlerModeV1 → PfJson
   | .initialize => .string "initialize"
@@ -1353,6 +1382,20 @@ private def validateRoles (c : SolanaCpiPlanCandidateV1) : CompileResult Unit :=
   let mut callBindProgramSeen := false
   let mut callBindAccountCount := 0
   for role in c.accountRoles do
+    match role.keyPolicy, role.callBindOutputIdentity with
+    | .callBindProgram _, some identity =>
+        let _ ← mapExcept (renderDigest identity.sourceHash)
+          "accountRole.callBindOutputIdentity.sourceHash"
+        let _ ← mapExcept (renderDigest identity.semanticHash)
+          "accountRole.callBindOutputIdentity.semanticHash"
+        let _ ← mapExcept (renderDigest identity.artifactSha256)
+          "accountRole.callBindOutputIdentity.artifactSha256"
+        pure ()
+    | .callBindProgram _, none =>
+        planFail "callBindProgram requires callBindOutputIdentity"
+    | _, some _ =>
+        planFail "callBindOutputIdentity is only valid on callBindProgram"
+    | _, none => pure ()
     match role.keyPolicy with
     | .state schemaId =>
         requireUInt32 "roleKeyPolicy.state.schemaId" schemaId

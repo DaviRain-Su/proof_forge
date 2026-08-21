@@ -106,15 +106,18 @@ wire whitelist，但任何显式 `--minimum-evidence` 请求都在 source open /
 `--target evm|solana|cosmwasm`；`check` 与其余十叶给该 flag 均为 usage / exit 2。
 文件必须是 PF-JCS `proof-forge.call-bind.v1`。**Wave 2** parse + 与 `--target`
 join 后把表显式传到三叶 emit：generic `call`/`schedule` 无匹配行 fail closed。
-EVM 表额外要求每行完整 `sourceHash` / `semanticHash` / `artifactSha256`，并要求调用方
+EVM/Solana 表额外要求每行完整 `sourceHash` / `semanticHash` / `artifactSha256`，并要求调用方
 对每个 callee 以可重复 `--callee-output <dir>` 显式提供恰好一个本地
 `proof-forge.output.v1` 权威目录。CLI 先执行 manifest、sidecar、artifact content 与
 exact disk closure 的完整 inspect，再按 callee program name + 三 digest exact join；
-`artifactSha256` 绑定 `{program}.runtime.bin` 的 lowercase-hex+LF 文件内容。
-finalizer 产出的 runtime bytes 经 hex 解码后计算 Ethereum Keccak-256，emitter 在每个
+EVM 的 `artifactSha256` 绑定 `{program}.runtime.bin` 的 lowercase-hex+LF 文件内容；
+Solana 的该字段绑定 `{program}.so` raw bytes。EVM finalizer 产出的 runtime bytes 经
+hex 解码后计算 Ethereum Keccak-256，emitter 在每个
 generic CALL/schedule 前执行 `extcodehash(address)` exact guard。缺失、重复、未使用、
-identity/target/deployability/runtime mismatch、symlink/path traversal 均 fail closed。
-`--callee-output` 不能脱离 `--bindings`，也不能用于非 EVM target；不做目录发现、RPC、
+identity/target/deployability/artifact mismatch、symlink/path traversal 均 fail closed。
+Solana verified 三 digest 写入 caller CPI Plan 的 `callBindProgram` role；SVM runtime
+仍只校验表内 programId 对应的 program account key + executable，不验证
+ProgramData/ELF。`--callee-output` 不能脱离 `--bindings`，也不能用于非 EVM/Solana target；不做目录发现、RPC、
 receipt、CREATE/CREATE2 推导。地址仍是表内预置 20 bytes，故这只验证「该地址当下代码
 等于已验证 callee runtime」，不证明地址来源或部署过程。
 
@@ -133,8 +136,9 @@ residual 仍存在时多一行。
 target `inspect` 仍静态报告 kind 闭表；inspect-output / manifest / evidence
 不加该字段。Solana Wave 3 的 outer role 顺序为既有 roles、bind row source order、
 executable callee program；`cpiSites` 不因 generic call-bind 伪造。identity digest
-metadata 对 Solana/CosmWasm 仍 parse-only，不参与 emit/SupportClaim；EVM 仅消费上列
-本地 output/runtime join，不把产品 `build` 接到 Anvil / wasmd / 任何网络。
+metadata 对 CosmWasm 仍 parse-only；Solana 消费本地 output/ELF join 并写入 caller
+Plan，但不声称链上 code identity；EVM 消费上列本地 output/runtime join。三者均不把
+产品 `build` 接到 Anvil / wasmd / 任何网络，也不把 identity 加入 SupportClaim。
 
 `--resource-limit` 是 repeatable、逐 stage/field 的 lower-only override。CLI 名称固定映射到
 SPEC-COMMON-001，不创建第二套 resource profile：

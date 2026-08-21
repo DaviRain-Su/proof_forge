@@ -3,8 +3,10 @@
 
   Pure parse of `proof-forge.call-bind.v1`, `--bindings` preflight, and
   three-leaf emit consume (missing row fail closed; bound address appears
-  in Yul / WAT). EVM rows additionally require exact local-output identity
-  verification and pin the runtime `extcodehash` gate before CALL.
+  in Yul / WAT). EVM and Solana rows additionally require exact local-output
+  identity verification. EVM pins the runtime `extcodehash` gate before CALL;
+  Solana retains the verified local ELF identity in the caller Plan while the
+  runtime gate remains programId + executable AccountInfo.
   Wave 2a pins empty-account void CALL `extcodesize` revert.
   Wave 2b pins Solana compile-time AccountMeta (nonempty accounts).
   Wave 2c pins program-level callScheduleResidual (build only; target
@@ -99,6 +101,20 @@ private def solanaBinding (callee programId : String) (accounts : Array PfJson) 
   .object #[
     ("accounts", .array accounts),
     ("callee", .string callee),
+    ("programId", .string programId)
+  ]
+
+private def solanaBindingWithIdentity
+    (callee programId sourceHash semanticHash artifactSha256 : String)
+    (accounts : Array PfJson) : PfJson :=
+  .object #[
+    ("accounts", .array accounts),
+    ("callee", .string callee),
+    ("identity", .object #[
+      ("artifactSha256", .string artifactSha256),
+      ("semanticHash", .string semanticHash),
+      ("sourceHash", .string sourceHash)
+    ]),
     ("programId", .string programId)
   ]
 
@@ -328,12 +344,21 @@ unsafe def run : IO Unit := do
       ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
         "--target", "evm", "--callee-output", "build/callee"])
     "--callee-output requires --bindings"
-  expectErr "callee-on-solana"
-    (parseProductCliCommandV1
+  match ← expectOk "callee-on-solana"
+      (parseProductCliCommandV1
       ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
         "--target", "solana", "--bindings", "a.json",
+        "--callee-output", "build/callee"]) with
+  | .build opts =>
+      expect (opts.calleeOutputs == #["build/callee"])
+        "Solana product build keeps explicit callee output"
+  | other => throw <| IO.userError s!"expected Solana build command, got {repr other}"
+  expectErr "callee-on-cosmwasm"
+    (parseProductCliCommandV1
+      ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
+        "--target", "cosmwasm", "--bindings", "a.json",
         "--callee-output", "build/callee"])
-    "only accepted with --target evm"
+    "only accepted with --target evm|solana"
   expectErr "duplicate-callee-output"
     (parseBuildArgsExcept
       ["Examples/StateCell.lean", "--module", "Examples.StateCell", "--target", "evm",
@@ -401,14 +426,14 @@ unsafe def run : IO Unit := do
       digest0 digest1 artifactWire])
   let parsedEvmBindTable ← expectOk "evm-bind-emit"
     (parseCallBindTableV1 evmBindText)
-  let authority : EvmBindingOutputAuthorityV1 := {
+  let authority : BindingOutputAuthorityV1 := {
     target := .evm
     deployable := true
     artifactProgramName := "Oracle"
     sourceHash := sourceDigest
     semanticHash := semanticDigest
     artifactSha256 := artifactDigest
-    runtimeArtifactBytes := runtimeArtifact
+    artifactBytes := runtimeArtifact
   }
   let evmBindTable ← expectOk "verify EVM output"
     (verifyEvmBindingOutputsV1 parsedEvmBindTable #[authority])
@@ -437,8 +462,8 @@ unsafe def run : IO Unit := do
     "no verified EVM output"
   expectErr "EVM runtime artifact mismatch"
     (verifyEvmBindingOutputsV1 parsedEvmBindTable
-      #[{ authority with runtimeArtifactBytes := "6002\n".toUTF8 }])
-    "runtime artifact SHA-256 mismatch"
+      #[{ authority with artifactBytes := "6002\n".toUTF8 }])
+    "artifact SHA-256 mismatch"
   expectErr "EVM unused output"
     (verifyEvmBindingOutputsV1 parsedEvmBindTable
       #[authority, { authority with artifactProgramName := "Unused" }])
@@ -670,9 +695,67 @@ unsafe def run : IO Unit := do
   | .error e =>
       expect (hasSubstr e.render "no solana row")
         s!"empty solana table must mention no solana row, got {e.render}"
+  let solanaArtifact := ByteArray.mk #[0x7f, 0x45, 0x4c, 0x46]
+  let solanaArtifactDigest := sha256Bytes solanaArtifact
+  let solanaArtifactWire ← digestWire "Solana artifact digest" solanaArtifactDigest
+  let solanaAuthority : BindingOutputAuthorityV1 := {
+    target := .solana
+    deployable := true
+    artifactProgramName := "Oracle"
+    sourceHash := sourceDigest
+    semanticHash := semanticDigest
+    artifactSha256 := solanaArtifactDigest
+    artifactBytes := solanaArtifact
+  }
   let solBindText ← liftJcs "sol-bind"
+    (solanaDoc #[solanaBindingWithIdentity "Oracle.feed" ones32
+      digest0 digest1 solanaArtifactWire #[]])
+  let parsedSolBindTable ← expectOk "sol-bind" (parseCallBindTableV1 solBindText)
+  let solBindWithoutIdentityText ← liftJcs "sol-bind-without-identity"
     (solanaDoc #[solanaBinding "Oracle.feed" ones32 #[]])
-  let solBindTable ← expectOk "sol-bind" (parseCallBindTableV1 solBindText)
+  let solBindWithoutIdentity ← expectOk "sol-bind-without-identity"
+    (parseCallBindTableV1 solBindWithoutIdentityText)
+  expectErr "Solana identity required"
+    (verifySolanaBindingOutputsV1 solBindWithoutIdentity #[solanaAuthority])
+    "requires identity"
+  expectErr "Solana output required"
+    (verifySolanaBindingOutputsV1 parsedSolBindTable #[])
+    "no verified Solana output"
+  expectErr "Solana duplicate output"
+    (verifySolanaBindingOutputsV1 parsedSolBindTable #[solanaAuthority, solanaAuthority])
+    "multiple verified Solana outputs"
+  expectErr "Solana source mismatch"
+    (verifySolanaBindingOutputsV1 parsedSolBindTable
+      #[{ solanaAuthority with sourceHash := semanticDigest }])
+    "no verified Solana output"
+  expectErr "Solana semantic mismatch"
+    (verifySolanaBindingOutputsV1 parsedSolBindTable
+      #[{ solanaAuthority with semanticHash := sourceDigest }])
+    "no verified Solana output"
+  expectErr "Solana wrong-target output"
+    (verifySolanaBindingOutputsV1 parsedSolBindTable
+      #[{ solanaAuthority with target := .evm }])
+    "no verified Solana output"
+  expectErr "Solana artifact bytes mismatch"
+    (verifySolanaBindingOutputsV1 parsedSolBindTable
+      #[{ solanaAuthority with artifactBytes := ByteArray.mk #[0x00] }])
+    "Solana artifact SHA-256 mismatch"
+  expectErr "Solana unused output"
+    (verifySolanaBindingOutputsV1 parsedSolBindTable
+      #[solanaAuthority, { solanaAuthority with artifactProgramName := "Unused" }])
+    "does not match any row"
+  expectErr "parse-only Solana site"
+    (requireVerifiedSolanaCallSiteV1 parsedSolBindTable #["Oracle", "feed"])
+    "no verified output artifact"
+  let solBindTable ← expectOk "verify Solana output"
+    (verifySolanaBindingOutputsV1 parsedSolBindTable #[solanaAuthority])
+  match requireVerifiedSolanaCallSiteV1 solBindTable #["Oracle", "feed"] with
+  | .ok site =>
+      expect (site.programId == ByteArray.mk (Array.replicate 32 0x11))
+        "verified Solana site keeps exact programId"
+      expect (site.outputIdentity.artifactSha256 == solanaArtifactDigest)
+        "verified Solana site keeps exact local ELF digest"
+  | .error msg => throw <| IO.userError s!"verified Solana site: {msg}"
   let solSemantic := Compiler.CompiledSemanticV1.semanticV1Of solCompiled
   expectResidual "sol none-table" .solana solSemantic none
     (some "callee-identity-outer-account-open")
@@ -692,9 +775,19 @@ unsafe def run : IO Unit := do
       throw <| IO.userError
         s!"solana bound Oracle.feed must emit, got {e.render}"
   let nonemptyAccText ← liftJcs "sol-nonempty"
-    (solanaDoc #[solanaBinding "Oracle.feed" ones32
+    (solanaDoc #[solanaBindingWithIdentity "Oracle.feed" ones32
+      digest0 digest1 solanaArtifactWire
       #[solanaAccount "authority" zero32 true true]])
-  let nonemptyAccTable ← expectOk "sol-nonempty" (parseCallBindTableV1 nonemptyAccText)
+  let parsedNonemptyAccTable ← expectOk "sol-nonempty"
+    (parseCallBindTableV1 nonemptyAccText)
+  match Targets.Solana.CpiV1.productPlanFromCapabilityV1
+      solCap (some parsedNonemptyAccTable) with
+  | .ok _ => throw <| IO.userError "parse-only Solana table must fail before Plan derive"
+  | .error e =>
+      expect (hasSubstr e.render "no verified output artifact")
+        s!"parse-only Solana Plan diagnostic, got {e.render}"
+  let nonemptyAccTable ← expectOk "verify Solana nonempty output"
+    (verifySolanaBindingOutputsV1 parsedNonemptyAccTable #[solanaAuthority])
   expectResidual "sol nonempty bound" .solana solSemantic (some nonemptyAccTable) none
   let callBindPlan ← match Targets.Solana.CpiV1.productPlanFromCapabilityV1
       solCap (some nonemptyAccTable) with
@@ -742,10 +835,27 @@ unsafe def run : IO Unit := do
             s!"call-bind Plan must retain the exact callee program id, got {repr actual.data}"
       | _ =>
           throw <| IO.userError "call-bind Plan role 2 must use callBindProgram"
+      match role.callBindOutputIdentity with
+      | some identity =>
+          expect (identity.sourceHash == sourceDigest &&
+              identity.semanticHash == semanticDigest &&
+              identity.artifactSha256 == solanaArtifactDigest)
+            "call-bind Plan must retain the exact verified local callee output identity"
+      | none =>
+          throw <| IO.userError
+            "call-bind Plan program role must retain verified output identity"
       expect (role.constraint ==
           Targets.Solana.CpiV1.callBindProgramRoleConstraintV1)
         "callee program role must require executable"
   | none => throw <| IO.userError "call-bind Plan program role missing"
+  let callBindPlanText ← match String.fromUTF8?
+      (Targets.Solana.CpiV1.SolanaCpiProductPlanV1.canonicalBytesOf callBindPlan) with
+    | some value => pure value
+    | none => throw <| IO.userError "call-bind Plan canonical bytes must be UTF-8"
+  expect (hasSubstr callBindPlanText "callBindOutputIdentity")
+    "caller Plan JSON must carry verified local callee output identity"
+  expect (hasSubstr callBindPlanText solanaArtifactWire)
+    "caller Plan JSON must carry exact local ELF SHA-256"
   for handler in callBindCandidate.handlers do
     expect (handler.accountUses.size == 3)
       s!"call-bind Plan handler '{handler.name}' must expose all three roles"
@@ -836,10 +946,13 @@ unsafe def run : IO Unit := do
   let aa32 := String.ofList (List.replicate 64 'a')
   let bb32 := String.ofList (List.replicate 64 'b')
   let twoAccText ← liftJcs "sol-two-acc"
-    (solanaDoc #[solanaBinding "Oracle.feed" ones32
+    (solanaDoc #[solanaBindingWithIdentity "Oracle.feed" ones32
+      digest0 digest1 solanaArtifactWire
       #[solanaAccount "authority" aa32 true true,
         solanaAccount "vault" bb32 false true]])
-  let twoAccTable ← expectOk "sol-two-acc" (parseCallBindTableV1 twoAccText)
+  let parsedTwoAccTable ← expectOk "sol-two-acc" (parseCallBindTableV1 twoAccText)
+  let twoAccTable ← expectOk "verify Solana two-account output"
+    (verifySolanaBindingOutputsV1 parsedTwoAccTable #[solanaAuthority])
   match Targets.Solana.buildFromCapability solCap (some twoAccTable) with
   | .ok files =>
       let some asm := files.find? (·.path.endsWith ".s") |
@@ -882,21 +995,27 @@ unsafe def run : IO Unit := do
       throw <| IO.userError
         s!"solana Wave 2b two-account Oracle.feed must emit, got {e.render}"
   let duplicatePubkeyText ← liftJcs "sol-duplicate-pubkey"
-    (solanaDoc #[solanaBinding "Oracle.feed" ones32
+    (solanaDoc #[solanaBindingWithIdentity "Oracle.feed" ones32
+      digest0 digest1 solanaArtifactWire
       #[solanaAccount "authority" aa32 true false,
         solanaAccount "vault" aa32 false true]])
-  let duplicatePubkeyTable ← expectOk "sol-duplicate-pubkey"
+  let parsedDuplicatePubkeyTable ← expectOk "sol-duplicate-pubkey"
     (parseCallBindTableV1 duplicatePubkeyText)
+  let duplicatePubkeyTable ← expectOk "verify Solana duplicate-pubkey output"
+    (verifySolanaBindingOutputsV1 parsedDuplicatePubkeyTable #[solanaAuthority])
   match Targets.Solana.buildFromCapability solCap (some duplicatePubkeyTable) with
   | .ok _ => throw <| IO.userError "duplicate outer account pubkeys must fail closed"
   | .error e =>
       expect (hasSubstr e.render "distinct account pubkeys")
         s!"duplicate outer account pubkeys diagnostic, got {e.render}"
   let programAsAccountText ← liftJcs "sol-program-as-account"
-    (solanaDoc #[solanaBinding "Oracle.feed" ones32
+    (solanaDoc #[solanaBindingWithIdentity "Oracle.feed" ones32
+      digest0 digest1 solanaArtifactWire
       #[solanaAccount "callee" ones32 false false]])
-  let programAsAccountTable ← expectOk "sol-program-as-account"
+  let parsedProgramAsAccountTable ← expectOk "sol-program-as-account"
     (parseCallBindTableV1 programAsAccountText)
+  let programAsAccountTable ← expectOk "verify Solana program-as-account output"
+    (verifySolanaBindingOutputsV1 parsedProgramAsAccountTable #[solanaAuthority])
   match Targets.Solana.buildFromCapability solCap (some programAsAccountTable) with
   | .ok _ => throw <| IO.userError "callee program/account identity alias must fail closed"
   | .error e =>
@@ -906,8 +1025,11 @@ unsafe def run : IO Unit := do
     (Array.range 9).map (fun i =>
       solanaAccount s!"role{i}" zero32 false false)
   let tooManyText ← liftJcs "sol-too-many"
-    (solanaDoc #[solanaBinding "Oracle.feed" ones32 tooMany])
-  let tooManyTable ← expectOk "sol-too-many" (parseCallBindTableV1 tooManyText)
+    (solanaDoc #[solanaBindingWithIdentity "Oracle.feed" ones32
+      digest0 digest1 solanaArtifactWire tooMany])
+  let parsedTooManyTable ← expectOk "sol-too-many" (parseCallBindTableV1 tooManyText)
+  let tooManyTable ← expectOk "verify Solana too-many output"
+    (verifySolanaBindingOutputsV1 parsedTooManyTable #[solanaAuthority])
   match Targets.Solana.buildFromCapability solCap (some tooManyTable) with
   | .ok _ => throw <| IO.userError "9 AccountMetas must fail closed"
   | .error e =>

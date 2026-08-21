@@ -20,7 +20,8 @@ Live checkpoint this plan assumes (2026-08-21): Goal queue empty;
 CAP-1a…5 / CAP-X-BYTES / CAP-X-MERKLE / honesty-boundary wave done;
 registry **13 implemented + 0 design-only / 17 resolver rows**;
 formal D1–D4 = **0/27**; ADR-0053 Wave 1–3 engineering DoD is green;
-EVM option A local-output/runtime identity follow-on is green;
+EVM option A local-output/runtime identity follow-on and Solana local-output/ELF
+identity follow-on are green;
 ADR-0036 / 0053 acceptance records bind review commit
 `239e335ac4272f7b292eb87c913e46c8c805c0b9` with no open findings.
 
@@ -45,7 +46,7 @@ No product-behavior change except honesty of status fields.
 |---|---|---|---|
 | **ADR-0051** | Accept as written | One SPEC-SEM-001 text revision (`ExternalResponseV1.returnValue?`; schedule stays void). No code. | Close TST-SEM-002; decide EVM address binding |
 | **ADR-0036** | **Accepted 2026-08-21** with live count **13+0** | accepted PRD stays four targets; formal lighthouse stays EVM-first | Expand accepted PRD; mark D1–D4 done |
-| **ADR-0053** | **Accepted 2026-08-21** with its explicit Wave 3 support boundary; owner later chose EVM local-output option A | EVM local artifact/runtime identity + code-hash gate; Solana/CW identity and unsupported Solana shapes FC | Read runtime green as deployment proof/C-3/formal/release; close all B-CALL-SEM |
+| **ADR-0053** | **Accepted 2026-08-21** with its explicit Wave 3 support boundary; owner later chose EVM local-output option A and continued the same local authority boundary for Solana | EVM local artifact/runtime identity + code-hash gate; Solana local output/ELF identity retained in caller Plan; CW identity and unsupported Solana shapes FC | Read runtime green as deployment/on-chain code proof/C-3/formal/release; close all B-CALL-SEM |
 | **ADR-0052** | Accept as written | SHA keep-FC stays; TIME/CALLER symbols frozen | Open Plan/IR/Emit leaves (Wave 6) |
 | **DOC-JUST-CONTROL** | Keep recipes absent | Current “不可执行” honesty stays | Fake `just governance-check` / `release-check` |
 | **Hash endian** (`sha256*` UInt256) | Document target-local integer interpretation | EVM BE-word vs Solana/NEAR LE-image pins stay | Flip emitters in this wave |
@@ -97,9 +98,17 @@ decoded runtime Keccak is checked with `EXTCODEHASH` before bound CALL/schedule.
 No bindings keeps the hashed-QN path. No RPC, receipt, CREATE/CREATE2, address
 provenance, constructor-state, or deployment-process claim.
 
+**Solana local-output identity follow-on (engineering done 2026-08-21):**
+the same explicit `--callee-output`/full inspector boundary requires deployable
+Solana output and exactly one `{program}.so`; callee program name +
+source/semantic/ELF-artifact SHA-256 join exactly. The verified three-digest
+identity is retained on the caller Plan's `callBindProgram` role. Runtime still
+checks only expected programId + executable program account, so there is no
+ProgramData, upgrade-authority, deployment, or on-chain ELF identity claim.
+
 Open remainder: resolver support keys must not be read as
-“cross-platform call done.” Solana/CosmWasm identity remains parse-only; EVM
-deployment proof remains open; target inspect residual stays static; EVM/CW
+“cross-platform call done.” CosmWasm identity remains parse-only; EVM deployment
+proof and Solana on-chain code/ProgramData identity remain open; target inspect residual stays static; EVM/CW
 no-table stubs and all unsupported target families retain their documented
 boundaries.
 
@@ -110,7 +119,7 @@ Recommended conservative honesty:
 1. **EVM callee binding** — ADR-0053 已选择并交付 compile-time versioned table；有表用 exact pre-placed 20-byte address，无表继续 hashed-QN stub，有表缺行 FC。方案 A 已把显式本地 callee output 的 source/semantic/runtime-artifact identity exact join，并以 call-time `EXTCODEHASH` 校验 code-at-address。Product `build` 不消费 Anvil placement；receipt/address provenance/constructor/deployment process/CREATE/CREATE2/NetworkProfile 仍不混入。Empty-account void CALL 由 Wave 2a `extcodesize` fail closed。
 2. **EVM `schedule` spelling** — same-tx fire-and-forget must not keep advertising `effect.asynchronous-workflow` without a distinct caveat.
 3. **EVM returndata residual** — Bool / Int / Bytes stay FC.
-4. **Solana product CPI** — Wave 3 closes the exact outer AccountInfo join only for its stated product subset; async, generic result-bearing, empty-row/state, multi-callee, mixed frozen-site, and identity-digest verification stay FC/open.
+4. **Solana product CPI** — Wave 3 closes the exact outer AccountInfo join only for its stated product subset. Explicit local output/ELF identity is now exact-joined and retained in caller Plan; runtime ProgramData/code identity, async, generic result-bearing, empty-row/state, multi-callee, and mixed frozen-site stay FC/open. Active classic Token/ATA catalog rows already have fixed Loader-v3 ELF bindings; do not reopen that historical item.
 5. **CosmWasm** — ADR-0053 已令有表的 `SubMsg.contract_addr` 使用 exact row；无表 QN stub 不变。bech32 与 identity digest verification 仍 open。
 6. **Noir** — keep witness-binding only; result-bearing FC until a response-witness contract exists.
 7. **NEAR / TON / ICP / Psy / Aleo / Soroban / OpenVM / Quint** — keep current per-target honesty (no silent expansion).
@@ -121,7 +130,7 @@ Recommended conservative honesty:
 ### After the pick
 
 ADR-0036 / 0053 approval record 已完成；当前进入 accepted four-target engineering DoD。
-若后续扩大 call-bind，只能在 EVM deployment proof、Solana/CW identity 或已列 Solana
+若后续扩大 call-bind，只能在 EVM deployment proof、Solana on-chain code identity、CW identity 或已列 Solana
 unsupported shape 中一次选一项，不能据支持子集声称 cross-platform call complete。
 Does not close formal D2/D4 or C-3.
 

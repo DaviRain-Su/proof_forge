@@ -786,6 +786,19 @@ private unsafe def testFourTargetFinalization : IO Unit := do
     expect ((manifest.splitOn "\"path\": \"StateCell.so\"").length > 1 &&
         (manifest.splitOn "\"role\": \"finalized-extra\"").length > 1)
       "solana manifest binds StateCell.so as finalized extra"
+    let authority ← ProofForgeV2.CLI.inspectBindingOutputAuthorityV1 outDir .solana
+    expect (authority.target == .solana && authority.deployable)
+      "Solana callee output authority target/deployability"
+    expect (authority.artifactProgramName == "StateCell")
+      "Solana callee output authority program name"
+    expect (authority.artifactBytes == soBytes)
+      "Solana callee output authority retains exact ELF bytes"
+    expect (authority.artifactSha256 == sha256Bytes soBytes)
+      "Solana callee output authority derives exact ELF SHA-256"
+    expectIoErrorContains "Solana output rejected as EVM authority"
+        "callee output target must be evm" do
+      let _ ← ProofForgeV2.CLI.inspectBindingOutputAuthorityV1 outDir .evm
+      pure ()
   -- Noir: zero-tool product emit.
   do
     let selection ← liftResult "select noir" (resolveBuildSelectionV1 TargetId.noir none)
@@ -885,12 +898,12 @@ private unsafe def testFourTargetFinalization : IO Unit := do
     expect ((manifest.splitOn "StateCell.runtime.bin").length > 1)
       "evm manifest includes runtime .bin"
     expect ((manifest.splitOn sourceHash).length > 1) "evm manifest sourceHash"
-    let authority ← ProofForgeV2.CLI.inspectEvmBindingOutputAuthorityV1 outDir
+    let authority ← ProofForgeV2.CLI.inspectBindingOutputAuthorityV1 outDir .evm
     expect (authority.target == .evm && authority.deployable)
       "EVM callee output authority target/deployability"
     expect (authority.artifactProgramName == "StateCell")
       "EVM callee output authority program name"
-    expect (authority.runtimeArtifactBytes == runtime.toUTF8)
+    expect (authority.artifactBytes == runtime.toUTF8)
       "EVM callee output authority retains exact runtime artifact bytes"
     -- Root symlink, missing runtime, symlink runtime, descriptor removal, and
     -- traversal mutation all fail through the same full output-dir boundary.
@@ -901,12 +914,12 @@ private unsafe def testFourTargetFinalization : IO Unit := do
       args := #["-s", "finalization-evm", outputLink.toString]
     }
     expectIoErrorContains "EVM authority symlink output root" "not a real directory" do
-      let _ ← ProofForgeV2.CLI.inspectEvmBindingOutputAuthorityV1 outputLink
+      let _ ← ProofForgeV2.CLI.inspectBindingOutputAuthorityV1 outputLink .evm
       pure ()
     IO.FS.removeFile outputLink
     IO.FS.removeFile runtimePath
     expectIoErrorContains "EVM authority missing runtime" "StateCell.runtime.bin" do
-      let _ ← ProofForgeV2.CLI.inspectEvmBindingOutputAuthorityV1 outDir
+      let _ ← ProofForgeV2.CLI.inspectBindingOutputAuthorityV1 outDir .evm
       pure ()
     IO.FS.writeFile runtimePath runtime
     IO.FS.removeFile runtimePath
@@ -915,7 +928,7 @@ private unsafe def testFourTargetFinalization : IO Unit := do
       args := #["-s", "StateCell.bin", runtimePath.toString]
     }
     expectIoErrorContains "EVM authority symlink runtime" "symbolic link" do
-      let _ ← ProofForgeV2.CLI.inspectEvmBindingOutputAuthorityV1 outDir
+      let _ ← ProofForgeV2.CLI.inspectBindingOutputAuthorityV1 outDir .evm
       pure ()
     IO.FS.removeFile runtimePath
     IO.FS.writeFile runtimePath runtime
@@ -923,13 +936,13 @@ private unsafe def testFourTargetFinalization : IO Unit := do
     IO.FS.writeFile manifestPath
       (String.intercalate "StateCell.runtime.bim" (manifest.splitOn "StateCell.runtime.bin"))
     expectIoErrorContains "EVM authority manifest omits runtime" "outputSetDigest" do
-      let _ ← ProofForgeV2.CLI.inspectEvmBindingOutputAuthorityV1 outDir
+      let _ ← ProofForgeV2.CLI.inspectBindingOutputAuthorityV1 outDir .evm
       pure ()
     IO.FS.writeFile manifestPath manifest
     IO.FS.writeFile manifestPath
       (String.intercalate "../escape.runtime.bin" (manifest.splitOn "StateCell.runtime.bin"))
     expectIoErrorContains "EVM authority traversal descriptor" "unsafe artifact path" do
-      let _ ← ProofForgeV2.CLI.inspectEvmBindingOutputAuthorityV1 outDir
+      let _ ← ProofForgeV2.CLI.inspectBindingOutputAuthorityV1 outDir .evm
       pure ()
     IO.FS.writeFile manifestPath manifest
   -- NEAR: real wat2wasm .wasm + base wat preservation.
@@ -993,7 +1006,7 @@ private unsafe def testEvmCallBindProductIngress : IO Unit := do
     | some value => pure value
     | none => throw <| IO.userError "PROOF_FORGE_TOOL_ROOT must be set for finalization tests"
   let calleeDir := FilePath.mk "build/v2/finalization-evm"
-  let authority ← ProofForgeV2.CLI.inspectEvmBindingOutputAuthorityV1 calleeDir
+  let authority ← ProofForgeV2.CLI.inspectBindingOutputAuthorityV1 calleeDir .evm
   let artifactDigest ← match renderDigest authority.artifactSha256 with
     | .ok value => pure value
     | .error e => throw <| IO.userError s!"render runtime artifact digest: {e}"
@@ -1047,7 +1060,7 @@ private unsafe def testEvmCallBindProductIngress : IO Unit := do
   expect (result.exitCode == 0)
     s!"EVM call-bind product ingress failed:\n{result.stdout}\n{result.stderr}"
   let runtimeCode ← match Targets.CallBindV1.decodeEvmRuntimeBytecodeArtifactV1
-      authority.runtimeArtifactBytes with
+      authority.artifactBytes with
     | .ok value => pure value
     | .error e => throw <| IO.userError s!"decode verified runtime artifact: {e}"
   let runtimeKeccakHex := Targets.CallBindV1.encodeLowerHexBytesV1

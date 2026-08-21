@@ -122,7 +122,7 @@ private def collectGenericCallBindCalleesV1
 private def resolveCallBindOuterAccountsV1
     (data : SemanticProgramDataV1)
     (bindings : Option CallBindV1.CallBindTableV1) :
-    CompileResult (Option (ByteArray × Array CallBindV1.CallBindAccountV1)) := do
+    CompileResult (Option CallBindV1.VerifiedSolanaCallSiteV1) := do
   let some table := bindings | pure none
   let callees := collectGenericCallBindCalleesV1 data
   let mut hasNonempty := false
@@ -139,8 +139,12 @@ private def resolveCallBindOuterAccountsV1
   let some callee := callees[0]? |
     throw <| .planInvariant .solana
       "call-bind: Solana outer AccountInfo join missing generic callee"
+  let verified ← match CallBindV1.requireVerifiedSolanaCallSiteV1
+      table callee.components.toArray with
+    | .ok binding => pure binding
+    | .error msg => throw <| .planInvariant .solana msg
   match CallBindV1.requireSolanaOuterAccountJoinV1 table callee.components.toArray with
-  | .ok binding => pure (some binding)
+  | .ok _ => pure (some verified)
   | .error msg => throw <| .planInvariant .solana msg
 
 /-- Shared full-body product files: CPI plan/IDL + LowerSemantic body `.s`.
@@ -190,7 +194,9 @@ def synthesizeFullBodyProductBaseFilesV1
   -- M4c multi-role: all token.transfer sites + role table fit → stamp each
   -- site (ATA ensure + transferCheckedPda) with per-site vaultAta/dstAta.
   let bodyIr ←
-    if let some (programId, accounts) := callBindOuterAccounts? then do
+    if let some binding := callBindOuterAccounts? then do
+      let programId := binding.programId
+      let accounts := binding.accounts
       unless !hasSites do
         throw <| .planInvariant .solana
           "call-bind: generic outer AccountInfo join cannot share a full-body frozen CPI-site layout"
@@ -218,6 +224,14 @@ def synthesizeFullBodyProductBaseFilesV1
       unless programRole.keyPolicy == .callBindProgram expectedProgram do
         throw <| .planInvariant .solana
           "call-bind: validated Plan program role diverges from bind row"
+      let expectedOutputIdentity : CallBindOutputIdentityV1 := {
+        sourceHash := binding.outputIdentity.sourceHash
+        semanticHash := binding.outputIdentity.semanticHash
+        artifactSha256 := binding.outputIdentity.artifactSha256
+      }
+      unless programRole.callBindOutputIdentity == some expectedOutputIdentity do
+        throw <| .planInvariant .solana
+          "call-bind: validated Plan output identity diverges from verified callee output"
       unless roleCount ≤ productMaxOuterRolesV1 do
         throw <| .planInvariant .solana
           s!"call-bind: Solana outer role count {roleCount} exceeds {productMaxOuterRolesV1}"

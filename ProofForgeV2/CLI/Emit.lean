@@ -430,9 +430,10 @@ post-success path). The RES-1B output-only slice enforces
 `memory-bytes` / `processes` / `protocol-bytes` / `stderr-bytes` (parsed, no
 in-process producer). ADR-0053 Wave 2: `--bindings` is build-only for
 evm|solana|cosmwasm; the table is parsed at product build and threaded into
-emit (missing generic-call row fail closed). Every EVM binding row additionally
-requires one exact explicit `--callee-output` directory authority, fully
-inspected and identity-joined before emit. No flag keeps hashed QN / QN stubs.
+emit (missing generic-call row fail closed). Every EVM/Solana binding row
+additionally requires one exact explicit `--callee-output` directory authority,
+fully inspected and identity-joined before emit. No flag keeps hashed QN / QN
+stubs.
 Structural ambient ProofBundle product flags remain deleted; product proof
 gating is the in-process inline certifier. -/
 structure BuildOptions where
@@ -450,7 +451,7 @@ structure BuildOptions where
   /-- ADR-0053 Wave 2: path only at parse; product build threads the decoded
       table into emit. -/
   bindings : Option String := none
-  /-- Explicit local proof-forge.output.v1 authorities for EVM bind rows.
+  /-- Explicit local proof-forge.output.v1 authorities for EVM/Solana bind rows.
       Repeatable; no directory discovery and no network fallback. -/
   calleeOutputs : Array String := #[]
   deriving Repr
@@ -776,10 +777,10 @@ def validateBuildOptionsCliV1
           | none => throw "--bindings requires --target"
           | some target =>
               match ProofForgeV2.Targets.CallBindV1.CallBindTargetV1.ofTargetId? target with
-              | some .evm => pure ()
+              | some .evm | some .solana => pure ()
               | some _ =>
                   unless options.calleeOutputs.isEmpty do
-                    throw "--callee-output is only accepted with --target evm"
+                    throw "--callee-output is only accepted with --target evm|solana"
               | none =>
                   throw "--bindings is only accepted with --target evm|solana|cosmwasm"
   pure options
@@ -789,7 +790,7 @@ def validateBuildOptionsCliV1
 `--json` is a bare flag. Duplicate selection and common flags fail closed.
 D3-E5: `--resource-limit` (repeatable), `--minimum-evidence`.
 ADR-0053 Wave 2: `--bindings` (build-only; evm|solana|cosmwasm).
-EVM bindings require repeatable explicit `--callee-output <dir>` authorities.
+EVM/Solana bindings require repeatable explicit `--callee-output <dir>` authorities.
 Legacy structural ambient ProofBundle product flags remain unknown options
 (inline certifier is the sole product proof gate). -/
 partial def parseBuildArgsExcept (args : List String) (options : BuildOptions := {}) :
@@ -2193,46 +2194,56 @@ def inspectEngineeringOutputDirV1 (outputDir : FilePath) :
         s!"artifact content diverges from manifest at '{pair.1.path}'"
   pure manifest
 
-/-- Inspect one explicitly supplied local EVM callee output into the narrow
+/-- Inspect one explicitly supplied local EVM/Solana callee output into the narrow
     authority consumed by call-bind verification. This reuses the sole full
-    output-dir inspector, requires deployable EVM output, requires exactly the
-    finalizer-owned `{program}.runtime.bin` descriptor, and stable-reads those
-    exact bytes. A final reinspection rejects a concurrent manifest swap.
+    output-dir inspector, requires deployable output for the expected target,
+    requires exactly the finalizer-owned `{program}.runtime.bin` (EVM) or
+    `{program}.so` (Solana) descriptor, and stable-reads those exact bytes. A
+    final reinspection rejects a concurrent manifest swap.
 
-    Local filesystem only: no RPC, deployment receipt, CREATE, or CREATE2
-    inference. -/
-def inspectEvmBindingOutputAuthorityV1 (outputDir : FilePath) :
-    IO CallBindV1.EvmBindingOutputAuthorityV1 := do
-  let manifest ← inspectEngineeringOutputDirV1 outputDir
-  unless manifest.target == TargetId.evm.toString do
+    Local filesystem only: no RPC, deployment receipt, address derivation, or
+    Solana ProgramData / upgrade-authority inference. -/
+def inspectBindingOutputAuthorityV1
+    (outputDir : FilePath) (expectedTarget : TargetId) :
+    IO CallBindV1.BindingOutputAuthorityV1 := do
+  unless expectedTarget == .evm || expectedTarget == .solana do
     throw <| IO.userError
-      s!"call-bind: callee output target must be evm, got '{manifest.target}'"
+      "call-bind: local output authority target must be evm or solana"
+  let manifest ← inspectEngineeringOutputDirV1 outputDir
+  unless manifest.target == expectedTarget.toString do
+    throw <| IO.userError
+      s!"call-bind: callee output target must be {expectedTarget}, got '{manifest.target}'"
   unless manifest.deployable do
-    throw <| IO.userError "call-bind: EVM callee output must be deployable"
+    throw <| IO.userError
+      s!"call-bind: {expectedTarget} callee output must be deployable"
   unless validProgramArtifactNameV1 manifest.artifactProgramName do
     throw <| IO.userError
       s!"call-bind: unsafe callee artifact program name '{manifest.artifactProgramName}'"
-  let runtimePath := s!"{manifest.artifactProgramName}.runtime.bin"
-  let runtimeDescriptors := manifest.files.filter fun descriptor =>
-    descriptor.path == runtimePath
-  unless runtimeDescriptors.size == 1 do
+  let artifactPath :=
+    if expectedTarget == .evm then
+      s!"{manifest.artifactProgramName}.runtime.bin"
+    else
+      s!"{manifest.artifactProgramName}.so"
+  let artifactDescriptors := manifest.files.filter fun descriptor =>
+    descriptor.path == artifactPath
+  unless artifactDescriptors.size == 1 do
     throw <| IO.userError
-      s!"call-bind: callee manifest must register exactly one '{runtimePath}'"
-  let descriptor ← match runtimeDescriptors[0]? with
+      s!"call-bind: callee manifest must register exactly one '{artifactPath}'"
+  let descriptor ← match artifactDescriptors[0]? with
     | some value => pure value
-    | none => throw <| IO.userError "call-bind: internal runtime descriptor is missing"
+    | none => throw <| IO.userError "call-bind: internal artifact descriptor is missing"
   unless descriptor.role == .finalizedExtra do
     throw <| IO.userError
-      s!"call-bind: '{runtimePath}' must have finalized-extra role"
+      s!"call-bind: '{artifactPath}' must have finalized-extra role"
   let (size, bytes, contentSha256) ←
-    readStableArtifactLeafBytesV1 outputDir runtimePath
+    readStableArtifactLeafBytesV1 outputDir artifactPath
   unless size == descriptor.size do
     throw <| IO.userError
-      s!"call-bind: runtime artifact size diverges from manifest at '{runtimePath}'"
+      s!"call-bind: artifact size diverges from manifest at '{artifactPath}'"
   unless contentSha256.algorithm == descriptor.contentSha256.algorithm &&
       contentSha256.bytes == descriptor.contentSha256.bytes do
     throw <| IO.userError
-      s!"call-bind: runtime artifact SHA-256 diverges from manifest at '{runtimePath}'"
+      s!"call-bind: artifact SHA-256 diverges from manifest at '{artifactPath}'"
   let manifestAfter ← inspectEngineeringOutputDirV1 outputDir
   unless manifestAfter.outputSetDigest == manifest.outputSetDigest do
     throw <| IO.userError
@@ -2244,13 +2255,13 @@ def inspectEvmBindingOutputAuthorityV1 (outputDir : FilePath) :
     | .ok value => pure value
     | .error error => throw <| IO.userError error
   pure {
-    target := .evm
+    target := expectedTarget
     deployable := true
     artifactProgramName := manifest.artifactProgramName
     sourceHash
     semanticHash
     artifactSha256 := contentSha256
-    runtimeArtifactBytes := bytes
+    artifactBytes := bytes
   }
 
 /-- Whether `value` is a registered TargetId in the frozen product registry.

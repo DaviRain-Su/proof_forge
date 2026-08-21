@@ -384,9 +384,10 @@ caller_isme_out="$(cd "$caller_isme_out" && pwd -P)"
 export PROOF_FORGE_CALLER_ISME_OUT="$caller_isme_out"
 echo "solana-runtime-test: CallerIsMe.so=$(wc -c <"$caller_isme_out/CallerIsMe.so" | tr -d ' ') bytes"
 
-# ADR-0053 Wave 3: product-built generic caller + product-built callee. The
-# caller's explicit bind table supplies one writable callee-state role plus the
-# executable callee program role; Mollusk validates the exact outer join.
+# Generic caller + product-built callee. The caller's explicit bind table joins
+# all three identity digests to this exact local OutputSet/ELF before retaining
+# them in its Plan. Mollusk separately validates the programId/executable outer
+# join; it does not claim runtime ELF/ProgramData identity.
 call_bind_callee_out="${PROOF_FORGE_CALL_BIND_CALLEE_OUT:-$root/build/v2/solana-call-bind-callee}"
 export PROOF_FORGE_CALL_BIND_CALLEE_OUT="$call_bind_callee_out"
 echo "solana-runtime-test: CallBindCallee product build → $call_bind_callee_out"
@@ -413,13 +414,63 @@ echo "solana-runtime-test: CallBindCaller product build → $call_bind_caller_ou
 rm -rf "$call_bind_caller_out"
 mkdir -p "$(dirname "$call_bind_caller_out")"
 call_bind_table="$root/build/v2/solana-call-bind-caller.bindings.v1.json"
-printf '%s' '{"bindings":[{"accounts":[{"pubkey":"2121212121212121212121212121212121212121212121212121212121212121","role":"callee_state","signer":false,"writable":true}],"callee":"Oracle.feed","programId":"4343434343434343434343434343434343434343434343434343434343434343"}],"schema":"proof-forge.call-bind.v1","target":"solana"}' >"$call_bind_table"
+if ! "$python_bin" -I -S - \
+    "$call_bind_callee_out/manifest.json" \
+    "$call_bind_callee_out/CallBindCallee.so" \
+    "$call_bind_table" <<'PY'
+import hashlib
+import json
+import pathlib
+import sys
+
+manifest_path, elf_path, output_path = map(pathlib.Path, sys.argv[1:])
+manifest = json.loads(manifest_path.read_bytes())
+elf = elf_path.read_bytes()
+elf_sha256 = hashlib.sha256(elf).hexdigest()
+assert manifest["target"] == "solana"
+assert manifest["deployable"] is True
+assert manifest["artifactProgramName"] == "CallBindCallee"
+descriptors = [
+    item for item in manifest["files"]
+    if item["path"] == "CallBindCallee.so" and item["role"] == "finalized-extra"
+]
+assert len(descriptors) == 1
+assert descriptors[0]["size"] == len(elf)
+assert descriptors[0]["contentSha256"] == elf_sha256
+document = {
+    "bindings": [{
+        "accounts": [{
+            "pubkey": "21" * 32,
+            "role": "callee_state",
+            "signer": False,
+            "writable": True,
+        }],
+        "callee": "CallBindCallee.feed",
+        "identity": {
+            "artifactSha256": f"sha256:{elf_sha256}",
+            "semanticHash": f"sha256:{manifest['semanticHash']}",
+            "sourceHash": f"sha256:{manifest['sourceHash']}",
+        },
+        "programId": "43" * 32,
+    }],
+    "schema": "proof-forge.call-bind.v1",
+    "target": "solana",
+}
+output_path.write_text(
+    json.dumps(document, ensure_ascii=True, separators=(",", ":"), sort_keys=True),
+    encoding="utf-8",
+)
+PY
+then
+  die "failed to derive CallBindCallee identity bind table"
+fi
 if ! lake env "$cli" build \
   "runtime-tests/solana/fixtures/CallBindCaller.lean" \
   --module "Examples.CallBindCaller" \
   --target solana \
   --profile solana-sbpf-cpi-elf-v1 \
   --bindings "$call_bind_table" \
+  --callee-output "$call_bind_callee_out" \
   -o "$call_bind_caller_out"; then
   die "proof-forge-next build failed for CallBindCaller"
 fi

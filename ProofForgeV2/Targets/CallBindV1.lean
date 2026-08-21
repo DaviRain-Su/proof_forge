@@ -6,7 +6,8 @@
   Wave 2: when a table is present, generic `call`/`schedule` on
   evm/solana/cosmwasm must match a row or fail closed. Missing table keeps
   hashed QN / QN stubs. `pf.crypto.*` and `pf.assets` never consult this
-  table. Identity fields are join metadata only (do not change emit).
+  table. EVM and Solana identity fields are joined against explicit local
+  output authorities before their supported runtime paths can emit.
 
   Not SemanticProgramV1. Not NetworkProfile. Not formal / C-3.
   Wave 2a empty-account void CALL lives in Evm.EmitIRV1 (not this table).
@@ -68,6 +69,14 @@ structure CallBindIdentityV1 where
   artifactSha256 : Option Digest := none
   deriving Repr
 
+/-- Complete output identity minted only after a bind row and a fully inspected
+    local output authority join exactly on all three SHA-256 digests. -/
+structure VerifiedBindingOutputIdentityV1 where
+  sourceHash : Digest
+  semanticHash : Digest
+  artifactSha256 : Digest
+  deriving BEq, Repr
+
 structure CallBindAccountV1 where
   role : String
   pubkey : ByteArray
@@ -86,23 +95,26 @@ structure CallBindRowV1 where
   callee : QualifiedName
   site : CallBindSiteV1
   identity : Option CallBindIdentityV1 := none
+  /-- Product-minted local output identity. Never parsed from the bind
+      document; supported EVM/Solana paths require it before emit. -/
+  verifiedOutputIdentity : Option VerifiedBindingOutputIdentityV1 := none
   /-- Product-minted runtime identity. Never parsed from the bind document.
       EVM emit requires this field for every bound row. -/
   evmRuntimeCodeKeccak256 : Option ByteArray := none
   deriving Repr
 
-/-- Fully inspected local EVM output authority. Product CLI mints this only
+/-- Fully inspected local output authority. Product CLI mints this only
     after proof-forge.output.v1 sidecar, artifact-content, and exact disk
-    closure validation. The pure join below still recomputes the runtime
-    artifact SHA-256 before deriving its EIP-1052 Keccak hash. -/
-structure EvmBindingOutputAuthorityV1 where
+    closure validation. The pure target join still recomputes the selected
+    finalizer-owned artifact SHA-256. -/
+structure BindingOutputAuthorityV1 where
   target : TargetId
   deployable : Bool
   artifactProgramName : String
   sourceHash : Digest
   semanticHash : Digest
   artifactSha256 : Digest
-  runtimeArtifactBytes : ByteArray
+  artifactBytes : ByteArray
   deriving Repr
 
 /-- EVM endpoint plus the exact deployed-code hash checked at each call site. -/
@@ -110,6 +122,14 @@ structure VerifiedEvmCallSiteV1 where
   address : ByteArray
   runtimeCodeKeccak256 : ByteArray
   deriving Repr, Inhabited
+
+/-- Solana endpoint and local output identity after exact authority join.
+    Runtime code-at-address / ProgramData identity remains outside this type. -/
+structure VerifiedSolanaCallSiteV1 where
+  programId : ByteArray
+  accounts : Array CallBindAccountV1
+  outputIdentity : VerifiedBindingOutputIdentityV1
+  deriving Repr
 
 structure CallBindTableV1 where
   private mk ::
@@ -119,9 +139,9 @@ structure CallBindTableV1 where
 
 namespace CallBindTableV1
 
-/-- Module-owned mint used by the parser and EVM output verifier. Rows also
+/-- Module-owned mint used by the parser and output verifiers. Rows also
     have a private constructor, so external callers cannot forge the internal
-    verified-runtime field through this table helper. -/
+    verified identity/runtime fields through this table helper. -/
 def ofRows (target : CallBindTargetV1) (rows : Array CallBindRowV1) : CallBindTableV1 :=
   { target, rows }
 
@@ -420,12 +440,74 @@ def decodeEvmRuntimeBytecodeArtifactV1 (artifact : ByteArray) :
 private def digestEqV1 (a b : Digest) : Bool :=
   a.algorithm == b.algorithm && a.bytes == b.bytes
 
-private def expectedEvmArtifactProgramNameV1 (callee : QualifiedName) :
+private def expectedArtifactProgramNameV1 (targetLabel : String) (callee : QualifiedName) :
     Except String String := do
   let components := callee.components.toArray
   if components.size < 2 then
-    throw "call-bind: EVM callee must contain a program and method"
+    throw s!"call-bind: {targetLabel} callee must contain a program and method"
   pure components[components.size - 2]!
+
+private structure VerifiedBindingOutputMatchV1 where
+  index : Nat
+  identity : VerifiedBindingOutputIdentityV1
+  artifactBytes : ByteArray
+
+private def verifyBindingOutputForRowV1
+    (targetLabel : String)
+    (expectedTarget : TargetId)
+    (row : CallBindRowV1)
+    (outputs : Array BindingOutputAuthorityV1) :
+    Except String VerifiedBindingOutputMatchV1 := do
+  let identity ← match row.identity with
+    | some value => pure value
+    | none =>
+        throw s!"call-bind: {targetLabel} row '{dottedQualifiedName row.callee}' requires identity"
+  let sourceHash ← match identity.sourceHash with
+    | some value => pure value
+    | none =>
+        throw
+          s!"call-bind: {targetLabel} row '{dottedQualifiedName row.callee}' requires identity.sourceHash"
+  let semanticHash ← match identity.semanticHash with
+    | some value => pure value
+    | none =>
+        throw
+          s!"call-bind: {targetLabel} row '{dottedQualifiedName row.callee}' requires identity.semanticHash"
+  let artifactSha256 ← match identity.artifactSha256 with
+    | some value => pure value
+    | none =>
+        throw
+          s!"call-bind: {targetLabel} row '{dottedQualifiedName row.callee}' requires identity.artifactSha256"
+  let programName ← expectedArtifactProgramNameV1 targetLabel row.callee
+  let mut matchIndexes : Array Nat := #[]
+  for index in [0:outputs.size] do
+    let output ← match outputs[index]? with
+      | some value => pure value
+      | none => throw s!"call-bind: internal {targetLabel} output index is out of bounds"
+    if output.target == expectedTarget && output.deployable &&
+        output.artifactProgramName == programName &&
+        digestEqV1 output.sourceHash sourceHash &&
+        digestEqV1 output.semanticHash semanticHash &&
+        digestEqV1 output.artifactSha256 artifactSha256 then
+      matchIndexes := matchIndexes.push index
+  if matchIndexes.isEmpty then
+    throw
+      s!"call-bind: no verified {targetLabel} output matches '{dottedQualifiedName row.callee}'"
+  unless matchIndexes.size == 1 do
+    throw
+      s!"call-bind: multiple verified {targetLabel} outputs match '{dottedQualifiedName row.callee}'"
+  let outputIndex := matchIndexes[0]!
+  let output ← match outputs[outputIndex]? with
+    | some value => pure value
+    | none => throw s!"call-bind: internal {targetLabel} output index is out of bounds"
+  let recomputedArtifactSha256 := sha256Bytes output.artifactBytes
+  unless digestEqV1 recomputedArtifactSha256 artifactSha256 do
+    throw
+      s!"call-bind: {targetLabel} artifact SHA-256 mismatch for '{dottedQualifiedName row.callee}'"
+  pure {
+    index := outputIndex
+    identity := { sourceHash, semanticHash, artifactSha256 }
+    artifactBytes := output.artifactBytes
+  }
 
 /-- Close each EVM row against one fully inspected local output directory.
 
@@ -438,7 +520,7 @@ private def expectedEvmArtifactProgramNameV1 (callee : QualifiedName) :
     fail closed. No network, deployment receipt, CREATE, or CREATE2 claim. -/
 def verifyEvmBindingOutputsV1
     (table : CallBindTableV1)
-    (outputs : Array EvmBindingOutputAuthorityV1) :
+    (outputs : Array BindingOutputAuthorityV1) :
     Except String CallBindTableV1 := do
   unless table.target == .evm do
     throw "call-bind: EVM binding outputs require an evm table"
@@ -448,53 +530,17 @@ def verifyEvmBindingOutputsV1
     match row.site with
     | .evm _ => pure ()
     | _ => throw "call-bind: EVM table contains a non-EVM site"
-    let identity ← match row.identity with
-      | some value => pure value
-      | none =>
-          throw s!"call-bind: EVM row '{dottedQualifiedName row.callee}' requires identity"
-    let sourceHash ← match identity.sourceHash with
-      | some value => pure value
-      | none =>
-          throw s!"call-bind: EVM row '{dottedQualifiedName row.callee}' requires identity.sourceHash"
-    let semanticHash ← match identity.semanticHash with
-      | some value => pure value
-      | none =>
-          throw s!"call-bind: EVM row '{dottedQualifiedName row.callee}' requires identity.semanticHash"
-    let artifactSha256 ← match identity.artifactSha256 with
-      | some value => pure value
-      | none =>
-          throw s!"call-bind: EVM row '{dottedQualifiedName row.callee}' requires identity.artifactSha256"
-    let programName ← expectedEvmArtifactProgramNameV1 row.callee
-    let mut matchIndexes : Array Nat := #[]
-    for index in [0:outputs.size] do
-      let output ← match outputs[index]? with
-        | some value => pure value
-        | none => throw "call-bind: internal EVM output index is out of bounds"
-      if output.target == TargetId.evm && output.deployable &&
-          output.artifactProgramName == programName &&
-          digestEqV1 output.sourceHash sourceHash &&
-          digestEqV1 output.semanticHash semanticHash &&
-          digestEqV1 output.artifactSha256 artifactSha256 then
-        matchIndexes := matchIndexes.push index
-    if matchIndexes.isEmpty then
-      throw s!"call-bind: no verified EVM output matches '{dottedQualifiedName row.callee}'"
-    unless matchIndexes.size == 1 do
-      throw s!"call-bind: multiple verified EVM outputs match '{dottedQualifiedName row.callee}'"
-    let outputIndex := matchIndexes[0]!
-    let output ← match outputs[outputIndex]? with
-      | some value => pure value
-      | none => throw "call-bind: internal EVM output index is out of bounds"
-    let recomputedArtifactSha256 := sha256Bytes output.runtimeArtifactBytes
-    unless digestEqV1 recomputedArtifactSha256 artifactSha256 do
-      throw s!"call-bind: runtime artifact SHA-256 mismatch for '{dottedQualifiedName row.callee}'"
-    let runtimeCode ← decodeEvmRuntimeBytecodeArtifactV1 output.runtimeArtifactBytes
+    let output ← verifyBindingOutputForRowV1 "EVM" .evm row outputs
+    let runtimeCode ← decodeEvmRuntimeBytecodeArtifactV1 output.artifactBytes
     let runtimeCodeKeccak256 := ProofForgeV2.Targets.Evm.Keccak.keccak256 runtimeCode
     unless runtimeCodeKeccak256.size == 32 do
       throw "call-bind: internal EVM runtime code hash must be 32 bytes"
-    unless usedOutputs.contains outputIndex do
-      usedOutputs := usedOutputs.push outputIndex
+    unless usedOutputs.contains output.index do
+      usedOutputs := usedOutputs.push output.index
     verifiedRows := verifiedRows.push
-      { row with evmRuntimeCodeKeccak256 := some runtimeCodeKeccak256 }
+      { row with
+          verifiedOutputIdentity := some output.identity
+          evmRuntimeCodeKeccak256 := some runtimeCodeKeccak256 }
   for index in [0:outputs.size] do
     unless usedOutputs.contains index do
       throw s!"call-bind: EVM binding output {index} does not match any row"
@@ -543,6 +589,55 @@ def requireSolanaBindingV1 (table : CallBindTableV1) (callee : Array String) :
           pure (programId, accounts)
       | _ => throw (wrongSiteError "solana" callee)
 
+/-- Close each Solana row against one fully inspected local output directory.
+
+    Required join:
+    row QN program name + sourceHash + semanticHash + artifactSha256
+      == proof-forge.output.v1 manifest + `{program}.so` descriptor.
+    The local ELF identity is retained in the verified row for projection into
+    the caller Plan. Runtime Solana code identity, ProgramData, loader upgrade
+    authority, network, and deployment claims remain explicitly out of scope. -/
+def verifySolanaBindingOutputsV1
+    (table : CallBindTableV1)
+    (outputs : Array BindingOutputAuthorityV1) :
+    Except String CallBindTableV1 := do
+  unless table.target == .solana do
+    throw "call-bind: Solana binding outputs require a solana table"
+  let mut verifiedRows : Array CallBindRowV1 := #[]
+  let mut usedOutputs : Array Nat := #[]
+  for row in table.rows do
+    match row.site with
+    | .solana _ _ => pure ()
+    | _ => throw "call-bind: Solana table contains a non-Solana site"
+    let output ← verifyBindingOutputForRowV1 "Solana" .solana row outputs
+    if output.artifactBytes.isEmpty then
+      throw s!"call-bind: Solana ELF artifact is empty for '{dottedQualifiedName row.callee}'"
+    unless usedOutputs.contains output.index do
+      usedOutputs := usedOutputs.push output.index
+    verifiedRows := verifiedRows.push
+      { row with verifiedOutputIdentity := some output.identity }
+  for index in [0:outputs.size] do
+    unless usedOutputs.contains index do
+      throw s!"call-bind: Solana binding output {index} does not match any row"
+  pure (CallBindTableV1.ofRows .solana verifiedRows)
+
+/-- Solana product gate. The program/account endpoint remains the Wave 3
+    runtime contract; the returned output identity proves only the exact local
+    callee output inspected while building this caller. -/
+def requireVerifiedSolanaCallSiteV1
+    (table : CallBindTableV1) (callee : Array String) :
+    Except String VerifiedSolanaCallSiteV1 := do
+  let (programId, accounts) ← requireSolanaBindingV1 table callee
+  let some name := qualifiedNameOfComponents? callee |
+    throw (missingCalleeError "solana" callee)
+  let some row := findRow? table name |
+    throw (missingCalleeError "solana" callee)
+  let outputIdentity ← match row.verifiedOutputIdentity with
+    | some value => pure value
+    | none =>
+        throw s!"call-bind: Solana row '{dottedQualifiedName name}' has no verified output artifact"
+  pure { programId, accounts, outputIdentity }
+
 /-- Wave 2/2b Solana program-id lookup. Nonempty `accounts` are admitted
     (Wave 2b compile-time AccountMeta); this helper still returns only the
     program id. Empty accounts → program id only (empty-meta packing). -/
@@ -561,7 +656,8 @@ def requireSolanaAccountsV1 (table : CallBindTableV1) (callee : Array String) :
     cannot carry two distinct full-account rows for one pubkey, and the callee
     program occupies its own outer role. Keep the schema permissive for the
     Wave 2b compile-time-only path, but fail closed before activating the
-    runtime join. -/
+    runtime join. Product callers must separately pass
+    `requireVerifiedSolanaCallSiteV1` before deriving a Plan. -/
 def requireSolanaOuterAccountJoinV1
     (table : CallBindTableV1) (callee : Array String) :
     Except String (ByteArray × Array CallBindAccountV1) := do

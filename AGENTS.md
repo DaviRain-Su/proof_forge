@@ -35,12 +35,16 @@
 > EVM/CosmWasm 精确 endpoint 与 missing-row FC 已接线；Solana 支持子集完成
 > AccountMeta + outer AccountInfo join、Plan/IDL/IR/client exact projection、program
 > residual 清零与 8 项 Mollusk。EVM 另以显式本地 callee output/runtime artifact
-> identity join + CALL-time code hash gate 闭合当前方案 A；Solana/CosmWasm identity、
-> Solana unsupported shapes、其它 target families、static inspect、formal/C-3 仍 open/FC。ADR-0036 / ADR-0053 已由
+> identity join + CALL-time code hash gate 闭合当前方案 A；Solana 同样以显式本地 callee
+> output/ELF identity exact join 并保留三 digest 到 caller Plan，但不证明链上
+> ProgramData/code identity。CosmWasm identity、Solana unsupported shapes、其它 target
+> families、static inspect、formal/C-3 仍 open/FC。ADR-0036 / ADR-0053 已由
 > owner directive accepted，review commit=`239e335ac4272f7b292eb87c913e46c8c805c0b9`，
 > `openFindings: none`；不得声称 independent review。当前按 EVM → Solana → NEAR → Noir
 > 进入 accepted 四目标工程 DoD；EVM endpoint + local artifact/runtime identity 已闭到
-> code-hash gate，receipt/address provenance/deployment proof 仍开。不得把 B-CALL-SEM 全表标 closed。
+> code-hash gate；Solana local output/ELF identity 已闭到 Plan retention。EVM
+> receipt/address provenance/deployment proof 与 Solana on-chain code identity 仍开。
+> 不得把 B-CALL-SEM 全表标 closed。
 
 > **2026-08-02/03 correctness/audit update**：普通 CI 已补注册 Authority/Custody、
 > Context/Extension、ProofSubject、InvariantTheorem 与 ResourceFlags 关键 suite。
@@ -291,15 +295,19 @@
 > call/schedule 节点纵深 fail closed；此前过渡 CPI / `sol_log_data` 观测桩不再可达，也不计作 CPI；
 > opt-in product profile 的 ADR-0053 Wave 3 已闭合 state-bearing / single-callee /
 > synchronous void CALL / 1..8 non-alias rows / no-frozen-site 子集的 exact outer AccountInfo
-> join 与 Mollusk。schedule、generic result-bearing、empty-row/state、multi-callee、mixed-site
-> 与 identity digest verification 仍 FC/open（此句仅 Solana）。Noir 两键为
+> join 与 Mollusk；同一显式 local-output authority 另对 callee program name +
+> source/semantic/ELF-artifact SHA-256 exact join，并把三 digest 保留到 caller Plan。
+> runtime 仍只校验 programId/account key/executable/privilege/order，不证明 ProgramData、
+> upgrade authority 或当前链上 ELF。schedule、generic result-bearing、empty-row/state、
+> multi-callee、mixed-site 与 on-chain code identity 仍 FC/open（此句仅 Solana）。Noir 两键为
 > witness-binding relation（电路不执行调用、证明不 attest 链上调用发生，result-bearing 待
 > response-witness 契约仍 FC）；NEAR schedule 为原生 promise（无 sync）；TON 为真实异步
 > out-message（无 sync）；CW 为 same-tx SubMsg（reply_on=never，非跨 tx async；有 bind table
 > 时 `contract_addr` 用 exact row，identity/bech32 verification 仍不升格）；Psy DPN 仅为
 > void sync-call 结构 `InvokeExternalContractFunctionSync`（无 deployment/response/runtime 门），
 > schedule FC；Aleo 双键 + event 全 decline；Quint 全 FC。`B-CALL-SEM` 继续 open：上述
-> identity/unsupported family、Noir response-witness、static inspect 与 formal/C-3 未闭合前，
+> on-chain/deployment identity、unsupported family、Noir response-witness、static inspect
+> 与 formal/C-3 未闭合前，
 > 不得写成跨平台 call 已完成。
 
 `docs/04-task-breakdown.md` 与既有 evidence ledger 继续保存 D0/D1 release-qualification

@@ -17,7 +17,7 @@ program CallBindCaller where
 
   entry invoke(delta : UInt64) : UInt64 do
     value := value + 1
-    call Oracle.feed(delta)
+    call CallBindCallee.feed(delta)
     value := value + 2
     return value
 

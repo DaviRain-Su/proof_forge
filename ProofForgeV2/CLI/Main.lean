@@ -54,7 +54,7 @@ private def usage : String :=
   "  build --network is not supported (no network registry).\n" ++
   "  --resource-limit is lower-only; check rejects external-tool/artifact-output; only wall-ms and build artifact-output.published-bytes are enforced in-process (RES-1 / output-only RES-1B); memory-bytes/processes/protocol-bytes/stderr-bytes are rejected at preflight (no in-process producer).\n" ++
   "  --minimum-evidence recognizes specified|artifact_validated|local_runtime|network_or_proof_validated but currently rejects every explicit request until candidate-bound evidence evaluation is implemented.\n" ++
-  "  --bindings is build-only (evm|solana|cosmwasm); EVM bindings require explicit repeatable --callee-output proof-forge.output.v1 directories, joined locally before emit (no network fallback; no flag keeps hashed QN / QN stubs).\n" ++
+  "  --bindings is build-only (evm|solana|cosmwasm); EVM/Solana bindings require explicit repeatable --callee-output proof-forge.output.v1 directories, joined locally before emit (no network fallback; no flag keeps hashed QN / QN stubs).\n" ++
   "  --json emits deterministic PF-JCS on stdout for list-targets/inspect/check/build;\n" ++
   "    version --json emits proof-forge.cli.version.v1;\n" ++
   "    doctor --json emits proof-forge.doctor.v1 (Tool Lock health + exact-set closure under PROOF_FORGE_TOOL_ROOT);\n" ++
@@ -316,8 +316,8 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
   -- and never reaches materialize/staging.
   if options.target.isNone then
     failUsage "--target is required"
-  -- ADR-0053 Wave 2+: parse + target-join. EVM additionally closes every row
-  -- against an explicitly supplied, fully inspected local output authority
+  -- ADR-0053 Wave 2+: parse + target-join. EVM/Solana additionally close every
+  -- row against an explicitly supplied, fully inspected local output authority
   -- before the table can reach emit. There is no discovery/network fallback.
   let bindingsTable ← match options.bindings, options.target with
   | none, _ => pure (none : Option CallBindTableV1)
@@ -332,19 +332,24 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
           let table ← match decodeCallBindTableForTargetV1 text target with
             | .ok table => pure table
             | .error msg => failUsage msg
-          if target == .evm then
-            let mut authorities : Array EvmBindingOutputAuthorityV1 := #[]
+          if target == .evm || target == .solana then
+            let mut authorities : Array BindingOutputAuthorityV1 := #[]
             for outputPath in options.calleeOutputs do
               let authority ←
                 try
-                  inspectEvmBindingOutputAuthorityV1 (FilePath.mk outputPath)
+                  inspectBindingOutputAuthorityV1 (FilePath.mk outputPath) target
                 catch
                 | .userError msg =>
                     failUsage s!"--callee-output '{outputPath}' is invalid: {msg}"
                 | _ =>
                     failUsage s!"--callee-output '{outputPath}' could not be inspected"
               authorities := authorities.push authority
-            match verifyEvmBindingOutputsV1 table authorities with
+            let verifiedResult :=
+              if target == .evm then
+                verifyEvmBindingOutputsV1 table authorities
+              else
+                verifySolanaBindingOutputsV1 table authorities
+            match verifiedResult with
             | .ok verified => pure (some verified)
             | .error msg => failUsage msg
           else

@@ -38,7 +38,9 @@ auto-init 默认 0；CPI multi-role 仍走 `pf test`）；`pf verify -t solana` 
   `runtime-tests/solana` 与 `just solana-runtime` 为准（工程差分，非 formal）；
 - **legacy call/schedule fail closed**（#111）：旧 plan/elf profile 不声明 sync/async；
   static QualifiedName 不再经 SHA-256 冒充 program id；真实多账户/PDA/bump/CPI 仅经
-  sole CPI rail + closed callee catalog；
+  sole CPI rail + closed callee catalog，或 ADR-0053 明列的 state-bearing、单 generic
+  callee、同步 void-call 支持子集。后者要求 versioned bind row 与显式本地 callee
+  output/ELF 三 digest exact join，并把 identity 保留进 caller Plan；
 - **Map pilots（account-layout dense）**：`Map UInt64 UInt64` 与 `Map UInt64 Int64` cap-8
   （仅 val 槽 `isInt`）以及 `Map Principal UInt64` cap-4 在 Solana state account 上仍为
   leaf 表布局（与 EVM hashed 默认不同——SVM 无 EVM 式 storage trie）；`storeAggregate` →
@@ -140,8 +142,11 @@ auto-init 默认 0；CPI multi-role 仍走 `pf test`）；`pf verify -t solana` 
 **明确未闭合**：formal Solana milestone / Stage-0 hermetic runtime；formal identity/OutputSet；
 完整 Normalize 表面；active CPI profile 之外的任意动态 program address/remaining accounts 与更广
 callee catalog。legacy profiles 对 call/schedule 继续 fail closed；只有 opt-in
-`solana-sbpf-cpi-elf-v1` 可按 exact catalog/program identity 物化多账户 CPI，不能把它泛化为任意
-static-QN 或动态地址支持。registry `engineeringValidationLabel` 已为 `runtime-validated-alpha`（真实 `.so` ELF +
+`solana-sbpf-cpi-elf-v1` 可按 exact catalog/program identity 或 ADR-0053 受限 generic
+call-bind 物化多账户 CPI，不能把它泛化为任意 static-QN、动态地址、schedule、
+result-bearing、empty-state/row、multi-callee 或 mixed frozen-site 支持。generic call-bind
+只证明本地 output/ELF identity 与 caller Plan retention；runtime 不证明 ProgramData、
+upgrade authority 或当前链上 ELF。registry `engineeringValidationLabel` 已为 `runtime-validated-alpha`（真实 `.so` ELF +
 Mollusk runtime 差分与 Surfpool 本地链工程门；Mollusk/Surfpool 属独立门禁，不并入 ordinary `just ci`）；
 该 label 仅为 static engineering validation 分类，**非** dynamic maturity/formal/hermetic/mainnet——**工程事实以本段与
 coverage matrix 为准**。

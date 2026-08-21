@@ -5,7 +5,9 @@
 //! callee program. `CallBindCallee` is independently product-built, so success
 //! proves that the generic method discriminator, AccountMeta, AccountInfo
 //! range (including the program account), executable/rent fields, and CPI
-//! failure propagation agree with the Solana runtime.
+//! failure propagation agree with the Solana runtime. The caller Plan also
+//! retains the exact inspected local callee OutputSet/ELF identity; this is not
+//! a claim that the runtime program account proves those ELF bytes.
 
 #[allow(dead_code)]
 mod common;
@@ -17,11 +19,12 @@ use {
         ASSERTION_FAILED, CHECK_OR_UNKNOWN,
     },
     mollusk_svm::{program::create_program_account_loader_v3, result::Check, Mollusk},
+    sha2::{Digest, Sha256},
     solana_account::Account,
     solana_instruction::{AccountMeta, Instruction},
     solana_program_error::ProgramError,
     solana_pubkey::Pubkey,
-    std::{env, path::PathBuf},
+    std::{env, fs, path::PathBuf},
 };
 
 const CALLER_NAME: &str = "CallBindCaller";
@@ -179,6 +182,36 @@ fn product_artifacts_pin_outer_join_surface() {
     assert_eq!(roles[1]["constraint"]["executable"], "forbidden");
     assert_eq!(roles[2]["keyPolicy"]["kind"], "callBindProgram");
     assert_eq!(roles[2]["keyPolicy"]["programId"], "43".repeat(32));
+    let callee_output = callee_output();
+    let callee_manifest: serde_json::Value = serde_json::from_slice(
+        &fs::read(callee_output.join("manifest.json")).expect("callee manifest bytes"),
+    )
+    .expect("callee manifest JSON");
+    let callee_elf = product_elf(&callee_output, CALLEE_NAME);
+    let callee_elf_sha256 = hex::encode(Sha256::digest(&callee_elf));
+    let output_identity = &roles[2]["callBindOutputIdentity"];
+    assert_eq!(
+        output_identity["sourceHash"],
+        format!(
+            "sha256:{}",
+            callee_manifest["sourceHash"]
+                .as_str()
+                .expect("callee manifest sourceHash")
+        )
+    );
+    assert_eq!(
+        output_identity["semanticHash"],
+        format!(
+            "sha256:{}",
+            callee_manifest["semanticHash"]
+                .as_str()
+                .expect("callee manifest semanticHash")
+        )
+    );
+    assert_eq!(
+        output_identity["artifactSha256"],
+        format!("sha256:{callee_elf_sha256}")
+    );
     assert_eq!(roles[2]["constraint"]["data"]["kind"], "notRead");
     assert_eq!(roles[2]["constraint"]["executable"], "required");
     assert_eq!(plan["cpiSites"].as_array().map(Vec::len), Some(0));

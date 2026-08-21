@@ -1504,12 +1504,22 @@ private def augmentProductCallBindRolesV1
       "call-bind: generic outer AccountInfo join cannot share a full-body frozen CPI-site layout"
   let some callee := callees[0]? |
     deriveFail "call-bind: Solana outer AccountInfo join missing generic callee"
-  let (programIdBytes, accounts) ← mapExcept
+  let verifiedSite ← mapExcept
+    (ProofForgeV2.Targets.CallBindV1.requireVerifiedSolanaCallSiteV1
+      table callee.components.toArray)
+    "call-bind Plan output identity join"
+  let _ ← mapExcept
     (ProofForgeV2.Targets.CallBindV1.requireSolanaOuterAccountJoinV1
       table callee.components.toArray)
     "call-bind Plan outer join"
-  let programId ← mapExcept (SolanaPubkeyV1.ofBytes programIdBytes)
+  let programId ← mapExcept (SolanaPubkeyV1.ofBytes verifiedSite.programId)
     "call-bind Plan programId"
+  let accounts := verifiedSite.accounts
+  let outputIdentity : CallBindOutputIdentityV1 := {
+    sourceHash := verifiedSite.outputIdentity.sourceHash
+    semanticHash := verifiedSite.outputIdentity.semanticHash
+    artifactSha256 := verifiedSite.outputIdentity.artifactSha256
+  }
   let roleBase := candidate.accountRoles.size
   let outerRoleCount := roleBase + accounts.size + 1
   unless outerRoleCount ≤ maxOuterRolesV1 do
@@ -1548,6 +1558,7 @@ private def augmentProductCallBindRolesV1
     roleId := programRoleId
     name := programRoleName
     keyPolicy := .callBindProgram programId
+    callBindOutputIdentity := some outputIdentity
     constraint := callBindProgramRoleConstraintV1
     aliasPolicy := frozenAliasPolicyV1
   }

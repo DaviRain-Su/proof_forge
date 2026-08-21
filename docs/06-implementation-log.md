@@ -12,6 +12,26 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-21 — Solana call-bind local output/ELF identity join
+
+- `build --target solana --bindings ...` 现在与 EVM 共用 repeatable
+  `--callee-output <dir>` 本地 authority：完整 output inspector 要求 target=solana、
+  deployable、sidecar/content/exact-disk closure 全闭，并 stable-read 恰好一个
+  finalizer-owned `{program}.so`。
+- 每个 Solana bind row 必须完整提供 source/semantic/artifact 三个 SHA-256；callee QN
+  program name、manifest source/semantic digest 与 raw ELF bytes SHA-256 必须 exact join。
+  missing/partial/duplicate/unused/target/program/content/symlink/path mismatch 全部 fail closed。
+- verifier 才能 mint internal verified identity；caller CPI Plan 的 `callBindProgram` role
+  保留 exact 三 digest，产品 synthesize 再与 authority projection exact 对账。运行时保持
+  Wave 3 的 programId/account key + executable/signer/writable/order gate，不伪称检查
+  ProgramData、upgrade authority 或 ELF code-at-address。
+- product-built caller/callee runtime fixture 从实际 callee manifest/`.so` 动态生成 canonical
+  bind table，并把 callee output 显式交给 caller build；Rust 侧核对 caller Plan identity
+  与 callee output 后再跑既有 Mollusk 调用/negative/rollback suite。
+- active classic Token/ATA catalog 已各自绑定固定 Loader-v3 ELF；旧文档中的 pending 是
+  过期事实，历史 preactivation catalog 的 absent/false 保持不改。无 RPC/deployment
+  proof；不关闭全 `B-CALL-SEM`、formal/C-3/release。
+
 ## 2026-08-21 — EVM call-bind local output/runtime identity join
 
 - EVM finalizer 改为单次 locked-solc standard-JSON invocation，同时请求 creation 与

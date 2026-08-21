@@ -47,6 +47,13 @@ emitter 在每个 bound generic CALL/schedule 前以 `EXTCODEHASH` exact guard �
 代码。无目录发现、RPC、receipt 或 network fallback；不证明预置地址的来源、CREATE /
 CREATE2、constructor state 或部署过程。
 
+**Solana local-output identity follow-on（2026-08-21 工程接线）**：Solana 表中每行
+同样必须给出完整三 digest，并以 `--callee-output` 显式提供本地 callee output。CLI
+按 callee program name + manifest source/semantic digest + `{program}.so` raw-byte
+SHA-256 exact join，再把 verified identity 保留到 caller Plan 的 `callBindProgram` role。
+SVM runtime 仍只校验 programId/account key/executable 与既有账户权限，不证明链上
+ProgramData、upgrade authority、当前 ELF 或部署过程。
+
 不关闭 `B-CALL-SEM` 全表。本 ADR 不自动接受其它 ADR；ADR-0036 已由同日另行
 owner directive accepted，ADR-0051 仍 proposed。不改 `semantic-core.md`。不声称
 formal / C-3 / Anvil lossless / CREATE / CREATE2。
@@ -58,7 +65,7 @@ inspect 已诚实标出三条地址残差（2026-08-19 COMP-1-CALL-SEM-LAND）�
 | Target | 静态 inspect residual | 有精确 bind row 的 product build |
 |---|---|---|
 | evm | `hashed-qn-no-deploy-bind` | 使用表中预置 20-byte address；每行必须 exact join 显式本地 callee output/runtime，CALL-time `EXTCODEHASH` 校验代码；全部 generic QN 覆盖后 program residual 可为 `null` |
-| solana | `callee-identity-outer-account-open` | Wave 3 支持子集使用 exact programId + outer AccountInfo join；其它形态保持 FC/residual |
+| solana | `callee-identity-outer-account-open` | Wave 3 支持子集要求 exact 本地 callee output/ELF identity join、把三 digest 保留进 caller Plan，并使用 exact programId + outer AccountInfo join；其它形态保持 FC/residual |
 | cosmwasm | `contract-addr-qn-stub` | 使用表中 `contractAddr`；全部 generic QN 覆盖后 program residual 可为 `null` |
 
 target `inspect` 没有 program 或 bind table 输入，所以继续报告静态缺口；它不与
@@ -84,8 +91,9 @@ target `inspect` 没有 program 或 bind table 输入，所以继续报告静态
 附加纪律：
 
 - `pf.crypto.*` 与 `pf.assets` **不走**这张表。
-- EVM 无完整 `identity` 字段 = fail closed；Solana/CosmWasm 无 `identity` 仍只绑
-  endpoint，**不得**写成已 join 链上代码。
+- EVM/Solana 无完整 `identity` 字段或无恰好匹配的显式本地 callee output = fail
+  closed；CosmWasm 无 `identity` 仍只绑 endpoint。Solana 的本地 ELF join
+  **不得**写成已 join 链上 ProgramData/code。
 - Wave 1：无 `--bindings` = 今天的 stub 路径。有 flag = 解析并保留表。
 - Wave 2（已接线）：有 `--bindings` 时，三叶 generic `call`/`schedule` 无匹配行 →
   fail closed；hashed / QN stub **不再当隐式默认**。表经显式参数下传到
@@ -94,7 +102,8 @@ target `inspect` 没有 program 或 bind table 输入，所以继续报告静态
 - Wave 3（已接线）：Solana 支持子集把既有 roles 后缀固定为 bound account rows
   （source order）再接 executable callee program；Plan / IDL / IR / emitter / client
   verifier 必须投影同一 role order、key policy、constraint 与 privilege。generic
-  call-bind 不伪造 frozen `cpiSites`。
+  call-bind 不伪造 frozen `cpiSites`。callee program role 还必须保留经过本地 output
+  authority exact join 的 source/semantic/ELF-artifact 三 digest。
 - 其余十叶（noir / near / ton / icp / quint / soroban / openvm / aleo / psy /
   xrpl）给了 `--bindings` → usage / fail closed（本表只服务三叶）。
 - `check` 不接受 `--bindings`。
@@ -132,12 +141,18 @@ target `inspect` 没有 program 或 bind table 输入，所以继续报告静态
 
 可选 `identity` 对象，键只能是 `sourceHash` / `semanticHash` /
 `artifactSha256`，值均为 `sha256:` + 64 小写 hex（`parseDigest`）。缺省 =
-不 join。EVM product build 要求三字段全部存在，并把 `artifactSha256` 解释为匹配
-callee output 内 `{program}.runtime.bin` **文件内容**（lowercase hex + LF）的 SHA-256；
+不 join。EVM/Solana product build 均要求三字段全部存在，并要求调用方用 repeatable
+`--callee-output <dir>` 显式提供本地 `proof-forge.output.v1`。EVM 把
+`artifactSha256` 解释为匹配 callee output 内 `{program}.runtime.bin` **文件内容**
+（lowercase hex + LF）的 SHA-256；
 它经本地 output identity join 后派生 decoded runtime-code Keccak，并进入 EVM emit 的
-`EXTCODEHASH` guard。Solana/CosmWasm 的 `identity` 仍是 parse-only metadata。
-三者均不把 identity 加入 SupportClaim；EVM 也不将本地 artifact join 写成 receipt /
-deployment proof。
+`EXTCODEHASH` guard。Solana 把它解释为 `{program}.so` raw bytes 的 SHA-256；完整
+output inspector 先验证 target/deployable/sidecar/content/exact-disk closure，再按 callee
+program name + 三 digest exact join。verified identity 写入 caller CPI Plan 的
+`callBindProgram.callBindOutputIdentity`；运行时仍只检查表内 programId 对应的 program
+account key + executable，不检查 ELF/ProgramData。CosmWasm 的 `identity` 仍是
+parse-only metadata。三者均不把 identity 加入 SupportClaim；EVM/Solana 也不将本地
+artifact join 写成 receipt/deployment 或链上 code-identity proof。
 
 未知键、缺必填、跨 target 字段（例如 evm 行带 `programId`）、重复
 `callee`（同一表内 exact QN）、空 `callee` 分量 → fail closed。
@@ -146,9 +161,11 @@ deployment proof。
 
 - 不关闭 `B-CALL-SEM`（Noir witness、NEAR promise、TON message、ICP
   advertise 保持现状）。
-- 不做 Token/ATA `artifactBinding`、wasmd rung-2、CREATE2、NetworkProfile。
+- 不新增 Token/ATA generic call shape（active classic Token/ATA catalog 已各自绑定固定
+  Loader-v3 ELF）、不做 wasmd rung-2、CREATE2、NetworkProfile。
 - 不把 EVM 本地 artifact/runtime join 当成地址来源、receipt、constructor state 或部署
-  过程证明；Solana/CosmWasm identity digest 仍不得当成已验证链上代码身份。
+  过程证明；Solana 本地 output/ELF digest 不得当成已验证链上 ProgramData/code 身份；
+  CosmWasm identity 仍 parse-only。
 - 不开放 Solana schedule、generic result-bearing CALL、empty-state / empty-row /
   multi-callee / mixed frozen-site outer join。
 - 不改 Normalize / CheckV1 / Semantic wire。
@@ -163,8 +180,11 @@ EVM identity follow-on 额外增加 repeatable `--callee-output`，完整 inspec
 identity/runtime join 后才允许 EVM bind table 进入 emit，并在 call site 发
 `EXTCODEHASH` guard；EVM finalizer 同一次 locked-solc standard-JSON invocation 产出
 creation `.bin` 与 `.runtime.bin`。
-Wave 2a：generic void CALL 空账户 fail closed。Wave 3 对上列 Solana 支持子集完成
-outer AccountInfo join，并保持 empty rows 为旧 partial path。Wave 2c 的成功 `build`
+Solana local-output identity follow-on 复用同一显式 flag/完整 inspector，把
+`{program}.so` raw-byte SHA-256 与 manifest source/semantic digest exact join，并将三者
+写入 caller Plan；它不添加链上 code-hash guard。Wave 2a：generic void CALL 空账户
+fail closed。Wave 3 对上列 Solana 支持子集完成 outer AccountInfo join，并保持 empty rows
+为旧 partial path。Wave 2c 的成功 `build`
 露出 program-level `callScheduleResidual`（string 或 `null`）：无 generic call、
 EVM/CW 全覆盖、或 Solana Wave 3 支持子集全覆盖时为 `null`；其它 Solana
 形态保留 `callee-identity-outer-account-open`。target `inspect` 仍静态报告三条
@@ -172,7 +192,7 @@ EVM/CW 全覆盖、或 Solana Wave 3 支持子集全覆盖时为 `null`；其它
 
 ## 工程 DoD 与复现证据（2026-08-21）
 
-Wave 1–3 与 EVM local-output identity follow-on 的工程 DoD 已满足：
+Wave 1–3 与 EVM/Solana local-output identity follow-on 的工程 DoD 已满足：
 
 - PF-JCS schema / target join / duplicate 与 malformed negatives；
 - 三叶有表消费与 missing-row FC；EVM empty-code void CALL FC；
@@ -184,6 +204,9 @@ Wave 1–3 与 EVM local-output identity follow-on 的工程 DoD 已满足：
 - EVM locked-solc 同源 creation/runtime 产物；完整本地 output authority inspect；
   source/semantic/runtime-artifact digest missing/duplicate/mismatch FC；bound Yul exact
   address + runtime `EXTCODEHASH` guard；无 bind hashed-QN 行为不变。
+- Solana 完整本地 output authority inspect；source/semantic/ELF-artifact digest
+  missing/duplicate/mismatch FC；caller Plan 保留 exact 三 digest；Mollusk 仍只证明
+  programId/executable/account join 与调用/回滚，不冒充 ProgramData/ELF runtime identity。
 
 已执行且通过：
 
@@ -211,9 +234,11 @@ owner `davirain` 已对 review commit
 `239e335ac4272f7b292eb87c913e46c8c805c0b9` 的 Wave 1–3 正文明确批准，
 `openFindings: none`。EVM local-output identity follow-on 实现 owner 另行选择的本地
 output authority 方案 A；它不追写旧 review commit，也不声称 independent review。
-测试通过不代签新的 immutable review commit。
+Solana local-output identity follow-on 同样复用该本地 authority 模式；两者都不追写旧
+review commit，也不声称 independent review。测试通过不代签新的 immutable review commit。
 
 该批准不关闭 `B-CALL-SEM` 全表、formal / C-3 / Anvil lossless。EVM identity 只按
 上列本地 output/runtime 与 CALL-time code hash 边界验证，不升格为 receipt/deployment
-proof；Solana/CosmWasm identity 仍 parse-only，也不开放本 ADR 明列为 fail-closed 的
-Solana shapes。
+proof；Solana 只验证本地 output/ELF identity 并保留到 caller Plan，运行时没有
+ProgramData/ELF code identity proof；CosmWasm identity 仍 parse-only。也不开放本 ADR
+明列为 fail-closed 的 Solana shapes。
