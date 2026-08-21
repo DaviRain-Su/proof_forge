@@ -76,7 +76,9 @@ formal `OutputSetV1` 或 `TASK-D3-05` 完成。
 
 ## 当前范围
 
-1. 保持普通主机可运行的 `docs-check`、`test-fast`、`dev-check` 与 `ci`，继续隔离
+1. 保持普通主机无需 tool root 即可运行 `docs-check`、zero-tool `test-fast` 与
+   `dev-check`；需要真实 compiler/finalizer 的 suites 只进入 provisioned `test-targets`/CI
+   `target-smoke`。普通 `ci` 组合两类 development gate，并继续隔离
    `governance-check`/`release-check`。
 2. 以 27 行矩阵区分 formal task状态、实际代码地基、产品接线和缺口，不使用虚假百分比。
 3. 按 D1 → D2 → D3 → D4（EVM-first）把 alpha carrier/protocol迁到新设计；shared core切换时直接迁移

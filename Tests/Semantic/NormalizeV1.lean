@@ -8,7 +8,7 @@
   suite inside WireV1 is avoided because Language syntax keywords would break
   WireV1 identifiers such as `programWithState`.
 
-  `Tests.Typed.CheckV1.run` and `Tests.Fast` both invoke
+  `Tests.Typed.CheckV1.run` (owned by the typed shard) invokes
   `Tests.Semantic.NormalizeV1.run`.
 
   Contract:

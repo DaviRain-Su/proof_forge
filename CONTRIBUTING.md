@@ -25,7 +25,7 @@ the change to the smallest command. **Prefer `test-fast` / `test-shard` /
 |---|---|---|
 | `docs/**`, `*.md`, product markdown | `just docs-check` && `git diff --check` | `docs` only (heavy jobs skipped on PR) |
 | One Lean test area | `just test-shard core` (or `typed` / `language*` / `targets` / …) | path filter → relevant heavy jobs |
-| Daily product smoke | `just test-fast` or `just dev-check` | full on `main` push |
+| Daily zero-tool product smoke | `just test-fast` or `just dev-check` | `lean-product` |
 | EVM materialize / CLI pins | `just test-shard targets-evm` | `target-smoke` |
 | Solana Lean plan/CPI (no Mollusk) | `just test-shard targets-solana` | `target-smoke` |
 | NEAR/CW/TON/Noir/Psy/Quint (fast) | `just test-shard targets-host-fast` | `target-smoke` |
@@ -37,12 +37,12 @@ the change to the smallest command. **Prefer `test-fast` / `test-shard` /
 
 ```bash
 just docs-check         # docs control plane only (~seconds)
-just test-fast          # core product tests only (daily feedback)
+just test-fast          # ten memory-bounded zero-tool shards (daily feedback)
 just dev-check          # docs + build + test-fast + light gates
 just test-shard targets-evm        # also: targets-solana | targets-host-fast | targets-host-slow
 just test-targets                  # evm + solana-lean + host-fast (parallel; CI default)
 PROOF_FORGE_TARGET_HOST_SLOW=1 just test-targets   # + CosmWasmPlan/NoirAcir
-just test-nontarget                # nine non-target shards (CI lean-product half)
+just test-nontarget                # ten zero-tool non-target/product shards
 just solana-runtime                # Mollusk (reuses PROOF_FORGE_CLI if set)
 just test               # all shards, bounded parallel (still long)
 just ci                 # full product tests — avoid for routine local loops
@@ -66,8 +66,8 @@ just test-frontend-worker
 | Workflow / job | What | When |
 |---|---|---|
 | `CI` / `docs` | docs-check + path-filter self-test | always |
-| `CI` / `lean-product` | nine non-target shards + gates | path filter; always on main |
-| `CI` / `target-smoke` | evm + solana-lean + **host-fast** (parallel) | path filter; always on main |
+| `CI` / `lean-product` | ten zero-tool non-target/product shards + gates | path filter; always on main |
+| `CI` / `target-smoke` | provisioned target shards + CLI/source-bound smoke | path filter; always on main |
 | `CI` / `target-host-slow` | CosmWasmPlan + NoirAcir | **main / workflow_dispatch only** |
 | `CI` / `solana-runtime` | Mollusk; reuses CLI artifact | path filter; waits for CLI upload |
 | `CI nightly` | full host-slow + all targets + Mollusk | daily 08:00 UTC + dispatch |
@@ -79,6 +79,12 @@ lanes.** A green CI is **not** hermetic/formal release evidence.
 
 Target shards: `targets-evm` · `targets-solana` · `targets-host-fast` ·
 `targets-host-slow` (see `Tests/Shards/Targets*.lean`).
+
+`test-fast` deliberately runs with a missing `PROOF_FORGE_TOOL_ROOT`. Product
+builds that invoke locked `solc`, sBPF, or `wat2wasm` belong to the provisioned
+target shards; provision a tool root before running `test-targets`. CI's
+`lean-product` lane uses Lean-only setup, while `target-smoke` provisions and
+verifies the locked external tool root.
 
 ## Style and docs
 

@@ -79,7 +79,7 @@ pf scaffold-ui --template evm-dapp  # ui/evm-dapp + abi/bin；cd ui/evm-dapp && 
 
 ```bash
 # 安装 Lean（见 lean-toolchain）后：
-just dev-check   # 快速文档检查、构建与核心产品测试
+just dev-check   # 文档、构建、零工具分片与轻量门禁（无需 tool root）
 just ci          # 普通开发机 / GitHub CI 的完整产品门禁
 
 # 历史控制面名称（当前 justfile 未注册，不能执行或声称通过）：
@@ -294,8 +294,8 @@ portable command，不 elaboration / 执行用户文件中的任意 Lean command
 
 ```bash
 just docs-check         # 快速文档与链接/状态检查
-just test-fast          # 核心产品 smoke tests
-just dev-check          # 日常：docs-check + build + test-fast
+just test-fast          # 十个内存隔离的零工具 non-target/product shards
+just dev-check          # 日常：docs-check + build + zero-tool test-fast + 轻量门禁
 just test               # 全量 proof-forge-next-tests
 just ci                 # 普通主机的完整产品门禁
 # governance-check / release-check 当前未注册；恢复前不得声称运行或通过
@@ -322,6 +322,8 @@ ADR-0016 后工具链与 host 观察按平台拆分，两台机器都可以直�
   receipt 或 contained assurance。
 - 显式 EVM/NEAR build 可使用锁定的 per-tool development closure；完整 tool-root exact-set、
   clean-room 与 host qualification 只属于独立 release 流程。当前无 `release-check` recipe。
+- `just test-fast` 明确以不存在的 tool root 运行；真实 solc/sBPF/wat2wasm finalization
+  由已 provision 的 `just test-targets`/CI `target-smoke` 负责，二者不再混跑。
 - 多台开发机协作时先 `git fetch && git status --short`；不要覆盖他人的未提交文件，
   也不要为维护历史 evidence 哈希而阻塞普通产品迭代。
 - SBOM package-file pin 与供应链闭包属于独立 release 轴。本次 ProgramV1 迁移会核对一次

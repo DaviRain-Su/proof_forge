@@ -164,13 +164,35 @@ private def testNoirBuildOk : IO Unit := do
     throw <| IO.userError "Token Noir must write Token.noir-relations.json"
   try IO.FS.removeDirAll outDir catch _ => pure ()
 
-unsafe def run : IO Unit := do
+unsafe def runCore : IO Unit := do
   testProductCompileOk
   testCliCheckOk
+  IO.println "Tests.Product.TokenV1/core: ok"
+
+def runEvm : IO Unit := do
   testEvmBuildDeployable
+  IO.println "Tests.Product.TokenV1/evm: ok"
+
+def runSolana : IO Unit := do
   testSolanaBuildOk
+  IO.println "Tests.Product.TokenV1/solana: ok"
+
+def runNear : IO Unit := do
   testNearBuildOk
+  IO.println "Tests.Product.TokenV1/near: ok"
+
+def runNoir : IO Unit := do
   testNoirBuildOk
+  IO.println "Tests.Product.TokenV1/noir: ok"
+
+/-- Compatibility aggregate. Ordinary CI runs the zero-tool core and each
+    provisioned target build in separate memory-bounded shards. -/
+unsafe def run : IO Unit := do
+  runCore
+  runEvm
+  runSolana
+  runNear
+  runNoir
   IO.println "Tests.Product.TokenV1: ok"
 
 end Tests.Product.TokenV1

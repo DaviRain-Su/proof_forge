@@ -1,10 +1,14 @@
 name: setup-lean-toolroot
-description: Install Lean, just, optional ripgrep; materialize linux tool root with cache
+description: Install Lean, just, optional ripgrep; optionally materialize linux tool root with cache
 inputs:
   install-ripgrep:
     description: Install ripgrep via apt
     required: false
     default: "false"
+  provision-tool-root:
+    description: Materialize and verify the external linux tool root
+    required: false
+    default: "true"
   tool-root:
     description: Absolute PROOF_FORGE_TOOL_ROOT path
     required: true
@@ -37,22 +41,24 @@ runs:
 
     - name: Cache linux tool root
       id: tool-root-cache
+      if: inputs.provision-tool-root == 'true'
       uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
       with:
         path: ${{ inputs.tool-root }}
         key: ${{ runner.os }}-toolroot-${{ hashFiles('toolchains-linux-x86_64.lock.json', 'toolchains.lock.json', 'host-profiles.lock.json', 'host-bootstrap-linux.lock') }}
 
     - name: Provision linux external assets
-      if: steps.tool-root-cache.outputs.cache-hit != 'true'
+      if: inputs.provision-tool-root == 'true' && steps.tool-root-cache.outputs.cache-hit != 'true'
       shell: bash
       run: just toolchains-provision-external
 
     - name: Materialize linux tool root
-      if: steps.tool-root-cache.outputs.cache-hit != 'true'
+      if: inputs.provision-tool-root == 'true' && steps.tool-root-cache.outputs.cache-hit != 'true'
       shell: bash
       run: just toolchains-materialize-external "$PROOF_FORGE_TOOL_ROOT"
 
     - name: Verify linux tool root
+      if: inputs.provision-tool-root == 'true'
       shell: bash
       run: just toolchains-verify-external
 

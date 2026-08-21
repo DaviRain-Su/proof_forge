@@ -33,6 +33,7 @@ run near_rt $'runtime-tests/near/run_tests.py' near_runtime=true target_smoke=tr
 run near_lean $'ProofForgeV2/Targets/Near/LowerSemanticV1.lean' near_runtime=true lean_product=true
 run cw_rt $'runtime-tests/cosmwasm/tests/state_cell.rs' cosmwasm_runtime=true target_smoke=true lean_product=false
 run cw_lean $'ProofForgeV2/Targets/CosmWasm/LowerSemanticV1.lean' cosmwasm_runtime=true lean_product=true
+run source_bounds $'scripts/program_v1_source_bounds' target_smoke=true lean_product=true
 run ci_self $'.github/workflows/ci.yml' lean_product=true target_smoke=true solana_runtime=true near_runtime=true cosmwasm_runtime=true
 out="$(mktemp)"
 export GITHUB_EVENT_NAME=push GITHUB_REF_NAME=main GITHUB_OUTPUT="$out"

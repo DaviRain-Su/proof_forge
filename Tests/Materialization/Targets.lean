@@ -6793,7 +6793,7 @@ unsafe def runRemainingNeedles : IO Unit := do
         "state count is outside the profile limits"),
       (TargetId.ton, TargetKind.ton, "state count is outside the profile limits"),
       (TargetId.soroban, TargetKind.soroban,
-        "UInt256 is admitted only as pf.crypto.sha256"),
+        "result must be public Unit, UInt64, Int64, or Bool"),
       (TargetId.icp, TargetKind.icp, "widths are supported"),
       (TargetId.openvm, TargetKind.openvm, "widths are supported"),
       (TargetId.xrpl, TargetKind.xrpl, "widths are supported")] do

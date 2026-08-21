@@ -162,7 +162,8 @@ parse/select/SpanJoin snapshot；worker 只在 SpanJoin 后移除 path 并传 ca
 分别使用稳定 stderr token 及 exit 64/65/70；异常路径在 intentional stdout write 前失败。
 `Tests/Frontend/WorkerV1.lean` 同时固定 direct parity 与真实 subprocess success/failure、两进程
 byte determinism、malformed/truncated/declared-oversize/argv 的 zero-stdout + exact exit/token。
-`just build`、`test` 与 `test-fast` 会先构建该 worker，避免 clean invocation 依赖陈旧二进制。
+该 retired product-path worker 只由显式 `just build-frontend-worker` /
+`just test-frontend-worker` 构建和执行；默认 `build`、`test-fast`、`dev-check` 不再依赖它。
 
 B10 **不**读取路径、不 spawn 子进程、不接受 target/profile、不写 cache/artifact；该 worker 模块
 本身不提供 safe-open 或 supervisor/receipt。历史 B11a/B11a2/B11b1 曾分别交付 safe-open

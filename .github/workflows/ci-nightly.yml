@@ -26,16 +26,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
-      - name: Setup Lean + tool root
+      - name: Setup Lean (zero-tool lane)
         uses: ./.github/actions/setup-lean-toolroot
         with:
           install-ripgrep: "true"
+          provision-tool-root: "false"
           tool-root: ${{ runner.temp }}/proof-forge-v2/tool-root/linux-x86_64
           cache-key-suffix: nightly-lean
 
-      - name: Lean non-target shards
+      - name: Lean zero-tool non-target/product shards
         env:
-          PROOF_FORGE_TEST_JOBS: "9"
+          PROOF_FORGE_TEST_JOBS: "1"
         run: just test-nontarget
 
       - name: Lean product and deletion gates
@@ -70,7 +71,7 @@ jobs:
           PROOF_FORGE_TARGET_HOST_SLOW: "1"
         run: just test-targets
 
-      - name: Target CLI and NFR smoke
+      - name: Target CLI, source-bound, and NFR smoke
         run: just ci-target-cli-smoke
 
   nightly-solana-runtime:

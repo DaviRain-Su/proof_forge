@@ -323,7 +323,8 @@ lean_lib ProofForgeV2Tests where
     `Tests.Core.DiagnosticV1,
     `Tests.Core.DiagnosticBundleV1,
     `Tests.Frontend.ProtocolV1,
-    `Tests.Frontend.WorkerV1
+    `Tests.Frontend.WorkerV1,
+    `Tests.Shards.Runner
   ]
 
 lean_exe proof_forge_next where
@@ -364,13 +365,8 @@ lean_exe proof_forge_next_tests where
   -- IO.getRandomBytes on Linux, even though this aggregate is non-product.
   supportInterpreter := true
 
-lean_exe proof_forge_next_fast_tests where
-  exeName := "proof-forge-next-fast-tests"
-  root := `Tests.Fast
-  supportInterpreter := true
-
 -- Focused Aleo Instructions suite (ALEO-IR / MULTI-GOLDEN / ADMIT-FIXTURES).
--- Thin root module owns `main`; suite body only exports `run` so Targets/Fast
+-- Thin root module owns `main`; suite body only exports `run` so target shards
 -- can import without a second root `main` clash.
 lean_exe aleo_instructions_v1_focus where
   exeName := "aleo-instructions-v1-focus"
@@ -452,10 +448,14 @@ lean_exe psy_dpn_v1_focus where
 -- Lean 4.31 linux builds do not export `IO.getRandomBytes` (and a few other
 -- `Init/Std` externs) without the interpreter, so any shard whose transitive
 -- imports touch those symbols fails with "Could not find native
--- implementation". The ~170 MiB/shard cost is well within the 7 GB runner
--- budget (9 shards × ~170 MiB ≈ 1.5 GB peak, and shards run with limited
--- parallelism). Product CLI already keeps the interpreter on for the
--- parser/elaborator.
+-- implementation". Process isolation lets the recipes serialize high-RSS
+-- shards on hosted runners while preserving per-suite failure diagnostics.
+-- Product CLI already keeps the interpreter on for the parser/elaborator.
+lean_exe proof_forge_next_tests_shard_product_fast where
+  exeName := "proof-forge-next-tests-shard-product-fast"
+  root := `Tests.Shards.ProductFast
+  supportInterpreter := true
+
 lean_exe proof_forge_next_tests_shard_core where
   exeName := "proof-forge-next-tests-shard-core"
   root := `Tests.Shards.Core

@@ -4,7 +4,7 @@ name: CI
 #
 # Required lanes for branch protection (BUILD-4 independent fail isolation):
 #   docs              - always
-#   lean-product      - nine non-target shards + product/deletion gates
+#   lean-product      - ten zero-tool non-target/product shards + product/deletion gates
 #   target-smoke      - parallel targets-evm / targets-solana / targets-host-fast + CLI
 #   near-wasmcert-darwin - locked WasmCert product consumer on Darwin arm64
 #   solana-runtime    - Mollusk (reuses CLI artifact when present)
@@ -77,10 +77,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
-      - name: Setup Lean + tool root
+      - name: Setup Lean (zero-tool lane)
         uses: ./.github/actions/setup-lean-toolroot
         with:
           install-ripgrep: "true"
+          provision-tool-root: "false"
           tool-root: ${{ runner.temp }}/proof-forge-v2/tool-root/linux-x86_64
           cache-key-suffix: lean-product
 
@@ -92,9 +93,9 @@ jobs:
           rg --version
           python3 --version
 
-      - name: Lean non-target shards
+      - name: Lean zero-tool non-target/product shards
         env:
-          PROOF_FORGE_TEST_JOBS: "9"
+          PROOF_FORGE_TEST_JOBS: "1"
         run: just test-nontarget
 
       - name: Lean product and deletion gates
@@ -129,7 +130,7 @@ jobs:
           PROOF_FORGE_TEST_JOBS: "3"
         run: just test-targets
 
-      - name: Target CLI and NFR smoke
+      - name: Target CLI, source-bound, and NFR smoke
         run: just ci-target-cli-smoke
 
       - name: Locked NEAR WasmCert product + Reference join

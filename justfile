@@ -30,6 +30,7 @@ test: build
     #!/usr/bin/env bash
     set -euo pipefail
     lake build \
+      proof_forge_next_tests_shard_product_fast \
       proof_forge_next_tests_shard_core \
       proof_forge_next_tests_shard_typed \
       proof_forge_next_tests_shard_language \
@@ -47,6 +48,7 @@ test: build
       jobs=4
     fi
     shards=(
+      proof-forge-next-tests-shard-product-fast
       proof-forge-next-tests-shard-core
       proof-forge-next-tests-shard-typed
       proof-forge-next-tests-shard-language
@@ -63,7 +65,15 @@ test: build
     run_shard() {
       local name="$1"
       echo "=== shard start: ${name} (jobs=${jobs}) ==="
-      if lake env ".lake/build/bin/${name}"; then
+      if [[ "${name}" == "proof-forge-next-tests-shard-product-fast" ]]; then
+        if PROOF_FORGE_TOOL_ROOT=/definitely/missing/proof-forge-tool-root \
+            lake env ".lake/build/bin/${name}"; then
+          echo "=== shard ok: ${name} ==="
+        else
+          echo "FAIL shard: ${name}" >&2
+          exit 1
+        fi
+      elif lake env ".lake/build/bin/${name}"; then
         echo "=== shard ok: ${name} ==="
       else
         echo "FAIL shard: ${name}" >&2
@@ -74,14 +84,14 @@ test: build
     export jobs
     printf '%s\n' "${shards[@]}" | xargs -P "${jobs}" -n1 bash -c 'run_shard "$@"' _
 
-# Hosted lean-product lane: run the nine non-target test shards only. The target
-# shard owns external compiler/runtime checks and runs serially in target-smoke;
-# keeping it out of this xargs pool prevents Linux runner starvation/hangs while
-# the default `just test` above retains the complete local suite.
+# Hosted lean-product lane: run ten zero-tool non-target/product shards. The
+# target shards own external compiler/runtime checks and run in target-smoke;
+# keeping them out of this xargs pool prevents Linux runner starvation/hangs.
 test-nontarget: build
     #!/usr/bin/env bash
     set -euo pipefail
     lake build \
+      proof_forge_next_tests_shard_product_fast \
       proof_forge_next_tests_shard_core \
       proof_forge_next_tests_shard_typed \
       proof_forge_next_tests_shard_language \
@@ -96,6 +106,7 @@ test-nontarget: build
       jobs=4
     fi
     shards=(
+      proof-forge-next-tests-shard-product-fast
       proof-forge-next-tests-shard-core
       proof-forge-next-tests-shard-typed
       proof-forge-next-tests-shard-language
@@ -109,7 +120,8 @@ test-nontarget: build
     run_shard() {
       local name="$1"
       echo "=== shard start: ${name} (jobs=${jobs}) ==="
-      if lake env ".lake/build/bin/${name}"; then
+      if PROOF_FORGE_TOOL_ROOT=/definitely/missing/proof-forge-tool-root \
+          lake env ".lake/build/bin/${name}"; then
         echo "=== shard ok: ${name} ==="
       else
         echo "FAIL shard: ${name}" >&2
@@ -120,11 +132,11 @@ test-nontarget: build
     export jobs
     printf '%s\n' "${shards[@]}" | xargs -P "${jobs}" -n1 bash -c 'run_shard "$@"' _
 
-# Daily feedback path: prefer `just test-fast` over full `just test`.
-# Does NOT build/run the frontend worker (removed from product CLI path).
-test-fast: build
-    lake build proof_forge_next_fast_tests
-    lake env .lake/build/bin/proof-forge-next-fast-tests
+# Daily feedback path: the ten memory-bounded zero-tool shards. External
+# compiler/finalizer coverage belongs to `just test-targets` after explicit
+# tool-root provisioning. Does not build/run the frontend worker.
+test-fast: test-nontarget
+    @echo "test-fast: zero-tool shards ok"
 
 # Explicit development worker suite (non-default). Builds real workers and the
 # Linux native supervisor before the worker shard.
@@ -133,16 +145,16 @@ test-frontend-worker: build-frontend-worker
     lake env .lake/build/bin/proof-forge-next-tests-shard-worker
 
 # Focused shard: `just test-shard core` → proof-forge-next-tests-shard-core.
-# Names: core typed language language-b language-c aggregate language-heavy source source-b
+# Names: product-fast core typed language language-b language-c aggregate language-heavy source source-b
 #        targets | targets-evm | targets-solana | targets-host
 # No recipe dependency on `build`: validate the name before any lake work.
 test-shard name:
     #!/usr/bin/env bash
     set -euo pipefail
     case "{{name}}" in
-      core|typed|language|language-b|language-c|aggregate|language-heavy|source|source-b|targets|targets-evm|targets-solana|targets-host|targets-host-fast|targets-host-slow) ;;
+      product-fast|core|typed|language|language-b|language-c|aggregate|language-heavy|source|source-b|targets|targets-evm|targets-solana|targets-host|targets-host-fast|targets-host-slow) ;;
       *)
-        echo "test-shard: unknown name '{{name}}' (want core|typed|language*|aggregate|source*|targets|targets-evm|targets-solana|targets-host|targets-host-fast|targets-host-slow)" >&2
+        echo "test-shard: unknown name '{{name}}' (want product-fast|core|typed|language*|aggregate|source*|targets|targets-evm|targets-solana|targets-host|targets-host-fast|targets-host-slow)" >&2
         exit 2
         ;;
     esac
@@ -150,7 +162,12 @@ test-shard name:
     lake_target="$(echo "proof_forge_next_tests_shard_{{name}}" | tr '-' '_')"
     bin_name="proof-forge-next-tests-shard-{{name}}"
     lake build ProofForgeV2 proof_forge_next "${lake_target}"
-    lake env ".lake/build/bin/${bin_name}"
+    if [[ "{{name}}" == "product-fast" ]]; then
+      PROOF_FORGE_TOOL_ROOT=/definitely/missing/proof-forge-tool-root \
+        lake env ".lake/build/bin/${bin_name}"
+    else
+      lake env ".lake/build/bin/${bin_name}"
+    fi
 
 # Targets materialization suite as parallel processes.
 # Default host lane is **fast** (skips CosmWasmPlan + NoirAcir). Full host:
@@ -770,7 +787,14 @@ s1-target-semantic-plan-deletion-gate:
       # Wave C: per-block lowering (reached from lowerCallableV1 via
       # emitRegionV1) owns checked add/sub and effect-segment consumption.
       rg -Uq '(?s)private def lowerBlockInstructionsV1.*?makeCheckedAddValueV1.*?makeCheckedSubValueV1.*?consumeCurrentSegmentV1' "$source"
-      rg -Uq '(?s)private def lowerBlockInstructionsV1.*?private partial def emitRegionV1.*?private def lowerCallableV1' "$source"
+      # Solana's region walk is now explicitly fuel-bounded and total. Near
+      # and Noir retain their current partial definitions until their own
+      # totalization slices land.
+      if [[ "$target" == "Solana" ]]; then
+        rg -Uq '(?s)private def lowerBlockInstructionsV1.*?private def emitRegionV1.*?private def lowerCallableV1' "$source"
+      else
+        rg -Uq '(?s)private def lowerBlockInstructionsV1.*?private partial def emitRegionV1.*?private def lowerCallableV1' "$source"
+      fi
       rg -Uq '(?s)if op == \.add then.*?else if op == \.sub then.*?makeCheckedSubValueV1' "$source"
       rg -Uq '(?s)\.stateStore stateId valueId, none =>.*?consumeCurrentSegmentV1.*?segmentStart := values\.size' "$source"
       case "$target" in
@@ -1652,18 +1676,20 @@ solana-client-publish: solana-client-test
     cargo publish --manifest-path clients/solana-client/Cargo.toml --locked
 
 # Ordinary-host product gate. Release qualification is intentionally excluded.
-# `source-bounds` is the dedicated ProgramV1 PF-BOUND-001 / 16 MiB gate;
-# selection and S5–S7c deletion gates retain the engineering output closure.
+# `source-bounds` is the dedicated ProgramV1 PF-BOUND-001 / 16 MiB gate and
+# runs with the provisioned target CLI gates because its Linux positive builds
+# finalize a Solana ELF. Selection and S5–S7c deletion gates retain the
+# engineering output closure.
 # BUILD-4 local recipes: three independent lanes (also mapped in CI jobs).
 # Hosted workflow invokes each `*-gates` / `*-cli-smoke` half as its own step so
 # no single command shares the runner budget with shard compilation/execution.
 # Full local `ci` retains all ten test shards and every existing gate.
 # EVMOZ-006: evm-corpus-static after build/test (serial; avoids concurrent lake).
-ci-lean-gates: docs-check sbom-package-files-check build product-negative source-bounds evm-corpus-static run-deletion-gates alpha-deletion-gate
+ci-lean-gates: docs-check sbom-package-files-check build product-negative evm-corpus-static run-deletion-gates alpha-deletion-gate
 
 ci-lean-product: test-nontarget ci-lean-gates
 
-ci-target-cli-smoke: build target-cli-positive target-negative nfr-repeat local-cli-smoke
+ci-target-cli-smoke: build source-bounds target-cli-positive target-negative nfr-repeat local-cli-smoke
 
 ci-target-smoke: test-targets ci-target-cli-smoke
 

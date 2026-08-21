@@ -2,8 +2,8 @@
 # Emit GitHub Actions outputs selecting which heavy CI lanes must run.
 #
 # Outputs (true/false):
-#   lean_product      - nine non-target shards + product/deletion gates
-#   target_smoke      - serial targets shard + target CLI smoke
+#   lean_product      - ten zero-tool non-target/product shards + product/deletion gates
+#   target_smoke      - provisioned target shards + target CLI/source-bound smoke
 #   solana_runtime    - Mollusk / solana-runtime-test
 #   near_runtime      - near-sandbox / near-runtime-test
 #   cosmwasm_runtime  - cosmwasm-vm mock / cosmwasm-runtime-test
@@ -220,6 +220,8 @@ is_target_smoke() {
   local f="$1"
   case "${f}" in
     Tests/Materialization/*|Tests/Targets/*|Tests/CLI/*|Tests/Product/*|Tests/Shards/Targets*)
+      return 0 ;;
+    Tests/Language/ProgramV1Bounds.lean|scripts/program_v1_source_bounds)
       return 0 ;;
     ProofForgeV2/Targets/*|Examples/*)
       return 0 ;;
