@@ -10,11 +10,11 @@ normative: false
 # EVM-CALL-ADDR-GAP：hashed QN ≠ 部署地址
 
 > Engineering inventory. Wave 2a changed generic void CALL (empty-account
-> `extcodesize` fail closed). The EVM identity follow-on now joins explicit local
-> callee outputs and checks runtime `EXTCODEHASH` at each bound call site. It
-> still does **not** close `B-CALL-SEM`, formal TASK/TST, C-3, Anvil lossless,
-> accepted-PRD expansion, deployment receipt, or CREATE/CREATE2 binding. Does
-> **not** invent a new `TASK-*`.
+> `extcodesize` fail closed); Wave 4 validates optional identity against a
+> static engineering output directory. Still does **not** validate on-chain
+> code-at-address or close `B-CALL-SEM`,
+> formal TASK/TST, C-3, Anvil lossless, accepted-PRD expansion, or
+> CREATE/CREATE2 binding. Does **not** invent a new `TASK-*`.
 
 Authority: [`01-evm.md`](../targets/01-evm.md) ·
 [`0029-portable-cross-program-interop.md`](../adr/0029-portable-cross-program-interop.md)
@@ -25,24 +25,19 @@ Authority: [`01-evm.md`](../targets/01-evm.md) ·
 ## 1. What the product actually emits
 
 Generic (non-`pf.assets`, non-`pf.crypto`) `call` / `schedule` stay
-**static QualifiedName**. Without `--bindings`, the Yul target remains the
-historical hash stub. With an EVM table, the target is its pre-placed 20-byte
-address, but that address is still **not** derived from a deployment receipt,
-CREATE/CREATE2, or a Principal ValueId.
+**static QualifiedName**. The Yul target is **not** a deployed program's
+CREATE/CREATE2 address and **not** a Principal ValueId.
 
 | Step | Code fact |
 |---|---|
 | Split | `callee[0..n-2]` = target path; last component = method. `n ≥ 2`. |
 | Path string | `String.intercalate "."` of the target-path components (UTF-8). `Oracle.feed` → `"Oracle"`. `Ledger.daily` → `"Ledger"`. |
-| Address, no bind | last 20 bytes of Ethereum Keccak-256 (`Targets.Evm.Keccak`, domain `0x01`, not SHA3-256 `0x06`) of that UTF-8 path |
-| Address, bind | exact lowercase 20-byte address from the matched `proof-forge.call-bind.v1` row |
+| Address | last 20 bytes of Ethereum Keccak-256 (`Targets.Evm.Keccak`, domain `0x01`, not SHA3-256 `0x06`) of that UTF-8 path |
 | Selector | first 4 bytes of Keccak-256 of `method(uintN,…)` (`Keccak.selector`) |
 | `CALL` value | always `0` |
-| Bound identity | every row requires complete source/semantic/runtime-artifact SHA-256; one exact explicit local callee output must match program name + digests |
-| Bound runtime | finalizer-owned `{program}.runtime.bin` is lowercase hex + LF; artifact SHA-256 hashes those file bytes; `EXTCODEHASH` expected value is Ethereum Keccak-256 of the decoded runtime bytes |
-| Void `call` | `extcodesize==0` → `revert(0,0)` (Wave 2a); bound path additionally checks `extcodehash==expected`; then `call(gas(), 0x{addr20}, 0, …)`; `iszero` → `revert(0,0)` |
-| Result-bearing `call` | bound path checks `extcodehash==expected`; same address; `returndatasize ≥ 32` + unsigned width guard |
-| `schedule` | bound path checks `extcodehash==expected`; same address/selector; success is `pop`'d (same-tx fire-and-forget) |
+| Void `call` | `extcodesize==0` → `revert(0,0)` (Wave 2a); then `call(gas(), 0x{addr20}, 0, …)`; `iszero` → `revert(0,0)` |
+| Result-bearing `call` | same address; `returndatasize ≥ 32` + unsigned width guard |
+| `schedule` | same address/selector; success is `pop`'d (same-tx fire-and-forget) |
 
 `pf.crypto.*` and `pf.assets` do **not** use this hashed AddressBearing path.
 Crypto is precompile/`keccak256` opcode. Token transfer is the sole
@@ -61,46 +56,40 @@ Worked examples (Ethereum Keccak, same pad as `Targets.Evm.Keccak`):
 G4 Anvil (`Counter` / `Accumulator` / `ArithOps` / `EventFlow`) does not
 deploy code at a hashed QN address.
 
-## 2. Local output authority and remaining deployment gap
+## 2. Empty-code consequence (why this is PARTIAL)
 
-The product accepts no RPC or ambient registry. The caller must name each
-callee output explicitly with repeatable `--callee-output <dir>`. Each directory
-must pass the existing full `proof-forge.output.v1` inspector: manifest/evidence,
-artifact content, exact disk closure, regular-file/no-symlink/path safety, output
-set recomputation, target=`evm`, and deployable=true. Missing, duplicate, unused,
-or mismatched authorities fail closed before emit.
+EVM `CALL` to an account with **no code** returns success and empty
+returndata. Therefore a hashed stub with nobody deployed there is:
 
-EVM `CALL` to an account with **no code** returns success and empty returndata.
-Therefore the two product modes are:
+| Surface | Undeployed hashed address |
+|---|---|
+| void `call` | **Wave 2a:** reverts on `extcodesize==0` |
+| result-bearing `call` | reverts on `returndatasize < 32` |
+| `schedule` | succeeds; result discarded |
 
-| Surface | No bindings | Verified EVM bindings |
-|---|---|---|
-| void `call` | `extcodesize==0` reverts | `extcodesize` + runtime `extcodehash` exact guard |
-| result-bearing `call` | short returndata reverts | runtime `extcodehash` exact guard + returndata checks |
-| `schedule` | success is discarded, including empty-code success | runtime `extcodehash` exact guard before CALL |
-
-The bound gate proves only that the code present at call time equals the runtime
-artifact whose local output identity was verified. It does not prove who placed
-that code, why the table address is correct, or that constructor/deployment state
-matches the callee source. Reference still consumes an environment response;
-Yul does not.
+A passing void `call Oracle.feed(...)` now requires nonempty code at the
+target (Wave 2a). That is still **not** a deployment-address join.
+Reference consumes an environment response; Yul does not.
 
 ## 3. What a real binding would have to decide
 
-ADR-0053 chose a compile-time table rather than the older ADR-0029
-NetworkProfile direction for this product slice. It still does not move address
-or deployment semantics into the portable call surface. Closing the remaining
-gap is a **product decision** (`B-CALL-SEM`), not a silent emitter tweak:
+ADR-0029 already parks this on **NetworkProfile / registry**, not on the
+portable call surface. Closing it is a **product decision** (`B-CALL-SEM`),
+not a silent emitter tweak. Any later slice must pick, version, and fail
+closed:
 
-1. **Who mints the 20 bytes** — **current answer: explicit compile-time table**.
-   A future receipt/registry flow must be separately versioned; hashed stub is
-   not an implicit fallback when a binding exists.
+1. **Who mints the 20 bytes** — compile-time table, NetworkProfile, or
+   post-deploy receipt. Hashed stub cannot stay an implicit default once a
+   binding exists.
 2. **Which EVM address it is** — CREATE, CREATE2 (initcode+salt), or a
    pre-placed Anvil/`cast` address. Those three are not interchangeable.
-3. **Identity join** — **local artifact/runtime portion done**: callee
-   `sourceHash` / `semanticHash` / runtime artifact SHA-256 join the inspected
-   output, and CALL-time `EXTCODEHASH` joins the decoded runtime bytes. Receipt,
-   constructor state, and address provenance remain open.
+3. **Identity join** — **static half done (Wave 4):** an independent canonical
+   evidence document maps exact callee/address to a fully inspected EVM
+   engineering output; optional source/semantic and mandatory raw published
+   `.bin` SHA-256 expectations are rechecked, and the expected identity table
+   digest enters Plan/build/OutputSet provenance. **Deployment half open:** no
+   receipt/RPC/block identity/code-at-address observation proves those `.bin`
+   bytes are currently at the endpoint. A bare hex in Yul remains insufficient.
 4. **Product `build` vs test-only** — product materialize must not start
    consuming Anvil placement. Tests may place code at the hashed address
    without claiming binding.
@@ -119,15 +108,16 @@ Do **not** treat Principal storage, `context.caller` / `context.self`
 2. **Inspect residual** — **done 2026-08-19**: product `inspect` /
    `inspect --json` surfaces `callScheduleResidual=hashed-qn-no-deploy-bind`
    (inspect-only; not SupportClaim). Still not a deployment binding.
-3. **B-CALL-SEM binding** — **partial**: versioned address table plus explicit
-   local output/runtime identity join is implemented. Deployment receipt,
-   address provenance, CREATE/CREATE2, constructor state, and other target
-   families remain separate decisions.
+3. **B-CALL-SEM binding** — endpoint table and static artifact identity are
+   done (ADR-0053 Wave 2/4). The remaining deployment-address join must first
+   freeze receipt/block/code-at-address evidence; do not infer it from static
+   evidence and do not start from Goal/drain.
 4. Sparse Solana 55-step certificates for initialize / increment / overflow
    stay later and are not this EVM leaf.
 
 ## Non-claims
 
-Not `B-CALL-SEM` closed. Not CREATE/CREATE2. Not deployment receipt or Anvil
-callee placement. Not constructor-state identity. Not a second call semantics.
-Not formal D4 / C-3. Not accepted-PRD expansion.
+Not `B-CALL-SEM` closed. Not CREATE/CREATE2. Not Anvil callee placement or
+on-chain code-at-address validation. Not a second call semantics. Not formal
+D4 / C-3. Not accepted-PRD expansion. Wave 4 changes Plan/provenance and CLI
+prepublication validation, not emitted Yul or capability claims.

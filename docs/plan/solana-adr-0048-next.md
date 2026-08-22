@@ -440,10 +440,20 @@ second codegen.
     same stages; source-order item accumulation then yields the exact production
     callable state. The finished Plan and `CertifiedPlanLoweringV1` are projected
     only after their real production functions return `.ok`; no complete
-    expected Plan, IR or assembly is supplied. The next open boundary is the
-    existing `ValidatePlanV1`/`EmitIRV1` path. Totalize and replay those remaining
-    recursive bodies without copying an expected Plan/IR or adding a proof-only
-    lowerer.
+    expected Plan, IR or assembly is supplied. The existing production
+    `ValidatePlanV1` path is now total and replayable as well: expression and
+    statement traversals use explicit depth/node/fuel bounds and fail closed on
+    exhaustion, and their exact stages remain the sole implementation called by
+    `validatePlan`. Generic SHA-256 renderer theorems prove every production
+    discriminator has the required width/lowercase-hex shape; the concrete
+    StateCell collision check uses three indexed production SHA block
+    certificates because non-collision cannot follow from renderer shape alone.
+    The retained production-derived Plan now has an unconditional kernel theorem
+    `validatePlan stateCellCertifiedPlanV1.plan = .ok ()`. No validator rule,
+    complete expected Plan, alternate hash, contract-name dispatch or proof-only
+    validator was added. The next open boundary is the existing
+    `EmitIRV1` → `validateIR` path. Totalize and replay those remaining recursive
+    bodies without copying an expected IR or adding a proof-only lowerer.
 
 D4's four pinned sparse certificates and all four concrete D5 compositions are
 complete, and the generic seam now has a second real contract/HandlerIR shape
@@ -476,9 +486,9 @@ Next formalization slices, in order:
    `resolveBuildSelectionV1`, frozen support index/support claims and the sole
    `resolveEngineeringRequirementsV1` are also discharged. Next
    use the completed StateCell context, callable, Handler, source-order
-   accumulation, finalization and retained `CertifiedPlanLoweringV1` equations.
-   Then totalize/replay the remaining `ValidatePlanV1`, `EmitIRV1` and
-   `validateIR` recursive bodies and discharge
+   accumulation, finalization and retained `CertifiedPlanLoweringV1` equations,
+   plus the completed exact `ValidatePlanV1` certificate. Then totalize/replay
+   the remaining `EmitIRV1` and `validateIR` recursive bodies and discharge
    the StateCell exact post-validation emission equation. Keep traversal
    contract-independent and do not add a proof-only compiler, emitter or copied
    assembly.

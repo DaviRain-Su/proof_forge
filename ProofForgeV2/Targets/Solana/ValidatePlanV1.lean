@@ -14,12 +14,19 @@ open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.DescriptorDataV1
 open ProofForgeV2.Targets.EnvelopeV1
 
-private partial def planExprNodes? (account : StateAccount) (params : Array Param)
+/-- Count and validate one Plan expression through the sole production
+    dangling-reference/depth/node traversal. Public for staged kernel replay;
+    `validatePlan` continues to consume this exact implementation. -/
+def planExprNodes? (account : StateAccount) (params : Array Param)
     (fns : Array FnBinding)
     (depthLeft nodeBudget : Nat) (expr : Expr) : Option Nat :=
-  if depthLeft == 0 || nodeBudget == 0 then
+  if hzero : depthLeft == 0 || nodeBudget == 0 then
     none
   else
+    have hdepth : depthLeft ≠ 0 := by
+      intro h
+      subst depthLeft
+      simp at hzero
     match expr with
     | .literal .. | .bigLiteral .. => some 1
     | .temp _ => some 1
@@ -76,14 +83,16 @@ private partial def planExprNodes? (account : StateAccount) (params : Array Para
               none
             else
               let childDepth := depthLeft - 1
-              let rec walk (remaining : List Expr) (available totalNodes : Nat) : Option Nat :=
-                match remaining with
-                | [] => some totalNodes
-                | arg :: rest =>
-                    match planExprNodes? account params fns childDepth available arg with
-                    | none => none
-                    | some n => walk rest (available - n) (totalNodes + n)
-              walk args.toList (nodeBudget - 1) 1
+              do
+                let mut available := nodeBudget - 1
+                let mut totalNodes := 1
+                for arg in args do
+                  let n ← planExprNodes? account params fns childDepth available arg
+                  available := available - n
+                  totalNodes := totalNodes + n
+                pure totalNodes
+termination_by depthLeft
+decreasing_by all_goals omega
 
 /-- UInt64-compatible plan expression (comparison/boolNot/boolAnd/boolOr results
     and Bool-returning callFn results are not UInt64). -/
@@ -149,7 +158,8 @@ private def exprIsBoolCompatibleV1 (fns : Array FnBinding) : Expr → Bool
   | .stateLoad .. | .narrowStateLoad .. | .temp _ | .bigLiteral .. | .clockSlot
   | .clockUnixTimestamp | .callerPrincipalLeaf .. => false
 
-private def addPlanExprNodes (account : StateAccount) (params : Array Param)
+/-- Add one expression's exact production node count to a Plan total. -/
+def addPlanExprNodes (account : StateAccount) (params : Array Param)
     (fns : Array FnBinding) (total : Nat) (expr : Expr) : CompileResult Nat := do
   if total >= maxPlanNodes then
     throw <| .planInvariant .solana s!"plan exceeds aggregate node limit {maxPlanNodes}"
@@ -259,14 +269,23 @@ def validateParams (owner : String) (params : Array Param) : CompileResult Unit 
     the top level of the initializer body (`allowReturnNone`); early bare
     returns inside branch arms fail closed (the initializer's header-marking
     epilogue must run on every path). -/
-private partial def checkHandlerStatementsV1
+def checkHandlerStatementsV1
     (account : StateAccount) (isInitializer : Bool) (isView : Bool)
     (allowReturnNone : Bool)
     (eventCount : Nat) (eventFieldCounts : Array Nat)
     (errorCount : Nat) (errorFieldCounts : Array Nat)
     (fns : Array FnBinding)
-    (params : Array Param) (statements : Array Statement) (total : Nat) :
+    (params : Array Param) (statements : Array Statement) (total : Nat)
+    (fuel : Nat := maxPlanNodes + 1) :
     CompileResult (Nat × Bool) := do
+  let remaining ←
+    (match hfuel : fuel with
+    | 0 =>
+        throw <| .planInvariant .solana
+          "plan statement traversal exceeds the aggregate node bound"
+    | next + 1 =>
+        pure ⟨next, by omega⟩ :
+      CompileResult { next : Nat // next < fuel })
   let mut total := total
   let mut closed := false
   for statement in statements do
@@ -464,9 +483,11 @@ private partial def checkHandlerStatementsV1
         let (t1, c1) ← checkHandlerStatementsV1
           account isInitializer isView false
           eventCount eventFieldCounts errorCount errorFieldCounts fns params thenBody total
+          (fuel := remaining)
         let (t2, c2) ← checkHandlerStatementsV1
           account isInitializer isView false
           eventCount eventFieldCounts errorCount errorFieldCounts fns params elseBody t1
+          (fuel := remaining)
         total := t2
         closed := c1 && c2 && !elseBody.isEmpty
     | .switchOn scrutinee cases defaultBody =>
@@ -478,11 +499,13 @@ private partial def checkHandlerStatementsV1
           let (t, c) ← checkHandlerStatementsV1
             account isInitializer isView false
             eventCount eventFieldCounts errorCount errorFieldCounts fns params caseBody total
+            (fuel := remaining)
           total := t
           allClosed := allClosed && c
         let (td, cd) ← checkHandlerStatementsV1
           account isInitializer isView false
           eventCount eventFieldCounts errorCount errorFieldCounts fns params defaultBody total
+          (fuel := remaining)
         total := td
         closed := allClosed && cd
     | .forLoop _varTemp initial cond update maxIterations body =>
@@ -497,6 +520,7 @@ private partial def checkHandlerStatementsV1
         let (tBody, cBody) ← checkHandlerStatementsV1
           account isInitializer isView false
           eventCount eventFieldCounts errorCount errorFieldCounts fns params body total
+          (fuel := remaining)
         total := tBody
         -- A loop body that returns/reverts on every path still leaves the
         -- post-loop fallthrough reachable only when the body is open; the
@@ -504,11 +528,14 @@ private partial def checkHandlerStatementsV1
         closed := false
         let _ := cBody
   pure (total, closed)
+termination_by fuel
+decreasing_by all_goals exact remaining.property
 
 def expectedAccess (account : StateAccount) (mode : HandlerMode) : AccountAccess :=
   accessFor account mode
 
-private def validateHandler (account : StateAccount) (isInitializer : Bool)
+/-- Validate one Handler through the exact stage used by `validatePlan`. -/
+def validateHandler (account : StateAccount) (isInitializer : Bool)
     (events : Array InterfaceBinding) (errors : Array InterfaceBinding)
     (fns : Array FnBinding)
     (baseNodes : Nat) (handler : Handler) : CompileResult Nat := do
@@ -537,7 +564,8 @@ private def validateHandler (account : StateAccount) (isInitializer : Bool)
       s!"handler '{handler.name}' does not terminate on all paths"
   return total
 
-private def validateFnBinding (account : StateAccount)
+/-- Validate one pure function through the exact stage used by `validatePlan`. -/
+def validateFnBinding (account : StateAccount)
     (events : Array InterfaceBinding) (errors : Array InterfaceBinding)
     (fns : Array FnBinding)
     (baseNodes : Nat) (fn : FnBinding) : CompileResult Nat := do

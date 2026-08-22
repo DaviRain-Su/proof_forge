@@ -10,6 +10,7 @@ namespace ProofForgeV2.Targets.Evm
 
 open ProofForgeV2
 open ProofForgeV2.Compiler
+open ProofForgeV2.Core.Common
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.DescriptorDataV1
 open ProofForgeV2.Targets.EnvelopeV1
@@ -545,7 +546,7 @@ private partial def checkPlanStatementsV1
           total ← addPlanExprNodes slots paramCount total fns arg
         total := total + 1
         closed := true
-    | .externalCall callee args argBitWidths =>
+    | .externalCall callee args argBitWidths boundAddress =>
         if isView then
           throw <| .planInvariant .evm s!"{owner} makes an external call in a view context"
         if isPfCryptoCalleeV1 callee then
@@ -561,13 +562,19 @@ private partial def checkPlanStatementsV1
           unless isIdentifier c do
             throw <| .planInvariant .evm
               s!"{owner} external call callee component '{c}' is not a safe identifier"
+        match boundAddress with
+        | some address =>
+            unless address.size == 20 do
+              throw <| .planInvariant .evm
+                s!"{owner} bound EVM external call address must be exactly 20 bytes"
+        | none => pure ()
         for arg in args do
           unless exprIsExternalUIntCompatibleV1 fns arg do
             throw <| .planInvariant .evm
               "unsupported EVM semantic shape: external call arguments must be UInt8, UInt16, UInt32, UInt64, UInt128, or UInt256"
           total ← addPlanExprNodes slots paramCount total fns arg
         total := total + 1
-    | .externalCallResult callee args result =>
+    | .externalCallResult callee args result boundAddress =>
         if isView then
           throw <| .planInvariant .evm s!"{owner} makes an external call in a view context"
         if isPfCryptoCalleeV1 callee then
@@ -586,6 +593,12 @@ private partial def checkPlanStatementsV1
           unless isIdentifier c do
             throw <| .planInvariant .evm
               s!"{owner} external call callee component '{c}' is not a safe identifier"
+        match boundAddress with
+        | some address =>
+            unless address.size == 20 do
+              throw <| .planInvariant .evm
+                s!"{owner} bound EVM result call address must be exactly 20 bytes"
+        | none => pure ()
         for arg in args do
           unless exprIsExternalUIntCompatibleV1 fns arg do
             throw <| .planInvariant .evm
@@ -661,7 +674,7 @@ private partial def checkPlanStatementsV1
               "unsupported EVM semantic shape: pf.crypto.merkleVerifyKeccak256 arguments must be UInt256"
           total ← addPlanExprNodes slots paramCount total fns arg
         total := total + 1
-    | .schedule callee args argBitWidths =>
+    | .schedule callee args argBitWidths boundAddress =>
         if isView then
           throw <| .planInvariant .evm s!"{owner} schedules a workflow in a view context"
         if isPfCryptoCalleeV1 callee then
@@ -677,6 +690,12 @@ private partial def checkPlanStatementsV1
           unless isIdentifier c do
             throw <| .planInvariant .evm
               s!"{owner} schedule callee component '{c}' is not a safe identifier"
+        match boundAddress with
+        | some address =>
+            unless address.size == 20 do
+              throw <| .planInvariant .evm
+                s!"{owner} bound EVM schedule address must be exactly 20 bytes"
+        | none => pure ()
         for arg in args do
           unless exprIsExternalUIntCompatibleV1 fns arg do
             throw <| .planInvariant .evm
@@ -835,6 +854,14 @@ private partial def checkPlanStatementsV1
 
 /-- Validate the public `Evm.Plan` value before any Yul is produced. -/
 def validatePlan (plan : Plan) : CompileResult Unit := do
+  match plan.callBindIdentityDigest with
+  | none => pure ()
+  | some digest =>
+      match validateDigest digest with
+      | .ok () => pure ()
+      | .error error =>
+          throw <| .planInvariant .evm
+            s!"call-bind identity digest is invalid: {error}"
   unless isIdentifier plan.objectName do
     throw <| .planInvariant .evm s!"object name '{plan.objectName}' is not a safe EVM identifier"
   if plan.objectName.toUTF8.size > maxArtifactStemBytes then

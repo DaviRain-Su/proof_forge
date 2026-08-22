@@ -14,40 +14,46 @@ normative: false
 
 ## 2026-08-21 — Solana call-bind local output/ELF identity join
 
-- `build --target solana --bindings ...` 现在与 EVM 共用 repeatable
-  `--callee-output <dir>` 本地 authority：完整 output inspector 要求 target=solana、
+- `build --target solana --bindings ...` 新增 repeatable `--callee-output <dir>` 显式
+  本地 authority。每个目录先经完整 `proof-forge.output.v1` inspector，要求 target=solana、
   deployable、sidecar/content/exact-disk closure 全闭，并 stable-read 恰好一个
   finalizer-owned `{program}.so`。
 - 每个 Solana bind row 必须完整提供 source/semantic/artifact 三个 SHA-256；callee QN
   program name、manifest source/semantic digest 与 raw ELF bytes SHA-256 必须 exact join。
-  missing/partial/duplicate/unused/target/program/content/symlink/path mismatch 全部 fail closed。
+  missing/partial/duplicate/unused/target/program/content mismatch 全部 fail closed。
 - verifier 才能 mint internal verified identity；caller CPI Plan 的 `callBindProgram` role
   保留 exact 三 digest，产品 synthesize 再与 authority projection exact 对账。运行时保持
   Wave 3 的 programId/account key + executable/signer/writable/order gate，不伪称检查
-  ProgramData、upgrade authority 或 ELF code-at-address。
-- product-built caller/callee runtime fixture 从实际 callee manifest/`.so` 动态生成 canonical
-  bind table，并把 callee output 显式交给 caller build；Rust 侧核对 caller Plan identity
+  ProgramData、upgrade authority、当前链上 ELF 或部署过程。
+- product-built caller/callee runtime fixture 从实际 callee manifest/`.so` 生成 canonical
+  bind table，并把 callee output 显式交给 caller build；Rust 侧对账 caller Plan identity
   与 callee output 后再跑既有 Mollusk 调用/negative/rollback suite。
-- active classic Token/ATA catalog 已各自绑定固定 Loader-v3 ELF；旧文档中的 pending 是
-  过期事实，历史 preactivation catalog 的 absent/false 保持不改。无 RPC/deployment
-  proof；不关闭全 `B-CALL-SEM`、formal/C-3/release。
+- 该机制与 EVM `--binding-evidence` 产品入口并存但不替代它；无 RPC/deployment proof，
+  不关闭全 `B-CALL-SEM`、formal/C-3/release。
 
-## 2026-08-21 — EVM call-bind local output/runtime identity join
+## 2026-08-21 — ADR-0053 Wave 4 EVM static artifact identity evidence
 
-- EVM finalizer 改为单次 locked-solc standard-JSON invocation，同时请求 creation 与
-  deployed runtime bytecode，产品输出新增 finalizer-owned
-  `{program}.runtime.bin`，自动进入 manifest artifact inventory 与 exact disk closure。
-- `build --target evm --bindings ...` 现在要求每行完整 source/semantic/runtime-artifact
-  SHA-256，并用 repeatable `--callee-output <dir>` 显式提供本地
-  `proof-forge.output.v1` authority。CLI 复用完整 output inspector，要求 EVM +
-  deployable + 恰好一个匹配 runtime descriptor；callee program name + 三 digest 必须
-  exact join，缺失、重复、未使用、content/path/symlink mismatch 全部 fail closed。
-- runtime artifact SHA-256 绑定 lowercase-hex+LF 文件 bytes；解码后的 deployed code
-  计算 Ethereum Keccak-256。bound generic call/result/schedule 在 CALL 前执行 exact
-  `EXTCODEHASH(address)` guard；无 `--bindings` 的 hashed-QN 路径保持原字节与行为，
-  不发明 verified-code 声明。
-- 该切片无 RPC / network fallback，不验证 receipt、CREATE/CREATE2、address provenance、
-  constructor state 或 deployment process；不关闭全 `B-CALL-SEM`、formal/C-3/release。
+- 新增 EVM-only build input `--binding-evidence` 与 canonical PF-JCS
+  `proof-forge.call-bind-evidence.v1`。EVM bind row 带 optional `identity` 时 evidence
+  必需；无 identity、非 EVM、`check`、无 `--bindings`、duplicate/missing value 均在
+  product surface fail closed。evidence 必须 exact 覆盖全部且仅全部 identity rows，
+  并独立重复 exact callee/address。
+- evidence 的 safe canonical relative `outputDir` 指向既有 engineering OutputSet。
+  产品复用 `inspectEngineeringOutputDirV1` 完整重验 manifest/evidence identity、exact
+  disk closure、逐文件 raw-byte SHA-256 与 `outputSetDigest`；目录还必须 target=EVM、
+  deployable，且 callee 倒数第二分量等于 `artifactProgramName`。bind identity 的
+  optional source/semantic 与 mandatory published `{artifactProgramName}.bin` raw-file
+  SHA-256（含 publisher 尾随换行）逐项对回；identity metadata 不可自证。
+- identity-bearing EVM rows 经 PF-JCS 排序后以
+  `pf.call-bind.evm-identity.v1` domain digest；digest 进入 EVM Plan encoding /
+  planDigest / caller engineering build identity 与 OutputSet provenance。无 identity
+  时不追加 suffix，历史 Plan bytes 保持；Yul 内容不因 identity evidence 改变。
+- 测试覆盖 canonical evidence parser、presence/coverage、endpoint/output identity 与
+  digest mismatch、unsafe/noncanonical path、完整 OutputSet 成功路径，以及落盘 `.bin`
+  mutation 被逐文件重算捕获。**边界：**这是 caller-supplied static
+  artifact/address attestation；不查 deployment receipt、RPC、block identity、
+  `eth_getCode` / `EXTCODEHASH`，不关闭 B-CALL-SEM、formal/C-3、CREATE/CREATE2、
+  NetworkProfile 或 Solana/CosmWasm identity。
 
 ## 2026-08-21 — ADR-0036 / ADR-0053 acceptance control-plane sync
 
@@ -56,10 +62,12 @@ normative: false
   **不是 independent review**。accepted PRD 仍为 EVM / Solana / NEAR / Noir，工程
   registry 仍为 13 implemented + 0 design-only，formal lighthouse 仍 EVM-first。
 - 活控制面已从 ADR governance 切换到 accepted 四目标工程 DoD，顺序为 EVM →
-  Solana → NEAR → Noir。EVM exact endpoint binding 已闭；identity digest verification
-  仍须先冻结 callee artifact / receipt 来源，bind row 不可自证。
+  Solana → NEAR → Noir。EVM exact endpoint 与 static OutputSet/raw `.bin` identity
+  evidence 已闭；deployment receipt / block / code-at-address 来源仍须另行冻结，
+  bind/evidence 两份 caller-supplied input 不可自证链上部署。
 - 不关闭 `B-CALL-SEM`、formal/C-3 或 release：Solana unsupported shapes、其它 target
-  families、target static inspect 与 identity digest 继续 open/FC。验证：
+  families、target static inspect、Solana/CW identity 与 EVM code-at-address 继续
+  open/FC。验证：
   `just docs-check`、`git diff --check`。
 
 ## 2026-08-21 — ADR-0053 Wave 3 Solana outer AccountInfo join
@@ -17139,3 +17147,42 @@ normative: false
 - lane不再安装Lean或缓存/编译Lake graph，timeout从150分钟收紧到30分钟；`ci-required`仍把selected
   Darwin job的failure/skipped/cancelled视为阻断。历史run `31781471216` 的双平台完整consumer观察
   仍是历史证据；持续CI按产品证据与平台closure证据分层，不升级formal/release maturity。
+
+## 2026-08-21 — Solana Token/ATA artifactBinding 控制面对账
+
+- 阶段 2 backlog 原将 Token/ATA binding 标为 pending，但代码、accepted ADR 与工程门已经完成
+  #125 active closure：仅 System/classic Token/classic ATA product-admitted，companion 保持
+  `admitted=false`/`absent`；Token/ATA 分别绑定 tracked package-owned loader-v3 ELF 的 exact
+  path/size/SHA-256/source repo/tag object/peeled commit/build-recipe digest。
+- `docs_check.py` 已重算 active catalog/profile digest，并逐字段连接 active catalog、asset manifest、
+  tracked ELF 与 runtime copy；`solana_cpi_product_acceptance.sh` 已对输出 bindings 以及磁盘 regular
+  file/single-link/size/SHA-256/provenance fail closed。历史 #122–#124 preactivation catalog 的
+  `artifactBinding=absent` 是保留边界，不应改写。
+- 本次补充 Lean 直接回归，固定完整 provenance constants 与 product bindings 中 Token/ATA exact
+  loader-v3 identity，并修正 roadmap/backlog 的滞后状态。Solana 项仍为 partial：schedule、generic
+  result-bearing、empty-row/state、multi-callee、mixed-site、identity verification 与 async 继续
+  FC/open；非 formal/hermetic/mainnet parity/package-owner-published。
+
+## 2026-08-21 — host target shard StateCell fixture import 修复
+
+- ordinary `just ci` 暴露 `Tests.Materialization.PsyDpnV1` 直接引用
+  `ProofForgeV2.Examples.stateCellSourceText` / `stateCellModuleNameV1`，但未直接 import owning
+  `ProofForgeV2.Examples.StateCell`；依赖历史传递 import，当前 import graph 下六处 identifier 均
+  unknown，使 `targets-host-fast` 在测试执行前编译失败。
+- 测试模块现直接声明所消费 fixture 的 owner import；不改 Psy Plan/DPN/product 行为，也不增加
+  产品依赖或 fallback。该修复按 focused module、host target shard 与 ordinary CI 验证。
+
+## 2026-08-21 — GitHub Actions Node 24 runtime 迁移
+
+- hosted run `32455055677` 已对 Node 20 action runtime 发出弃用警告，并给出 2027-04-14
+  强制切换与 2027-06-02 失败日期；这不是当前 Lean/target 测试失败，但属于有明确截止日的
+  CI 基础设施风险。
+- 全部 workflow 与共享 composite action 中的 first-party GitHub actions 统一迁到 Node 24
+  release：checkout v7.0.1、cache v6.1.0、upload-artifact v7.0.1、
+  download-artifact v8.0.1、setup-python v7.0.0。所有引用继续使用 immutable 40-hex
+  commit SHA；每个 tag/SHA 经 `git ls-remote` 与 GitHub API 核对，未改第三方 action pin。
+- download-artifact v8 的 digest mismatch 默认改为 error；本项目不覆盖该安全默认值，故跨 job
+  CLI/SDK artifact join 保持 fail closed。workflow inputs、cache keys、artifact names、retention、
+  job dependencies 与产品/正式成熟度均不改变。
+- Verification：action pin 全库 exact/一致性检查、checksum-verified actionlint v1.7.12、
+  `git diff --check` 通过；Node 24 hosted execution 必须由 push 后的新 run 提供最终证据。

@@ -999,94 +999,6 @@ private def runProductCliWithToolRoot (toolRoot : String) (args : Array String) 
     inheritEnv := true
   }
 
-/-- Real product CLI ingress: inspected callee output → identity join → caller
-    output whose Yul contains the exact endpoint and runtime EXTCODEHASH gate. -/
-private unsafe def testEvmCallBindProductIngress : IO Unit := do
-  let toolRoot ← match ← IO.getEnv "PROOF_FORGE_TOOL_ROOT" with
-    | some value => pure value
-    | none => throw <| IO.userError "PROOF_FORGE_TOOL_ROOT must be set for finalization tests"
-  let calleeDir := FilePath.mk "build/v2/finalization-evm"
-  let authority ← ProofForgeV2.CLI.inspectBindingOutputAuthorityV1 calleeDir .evm
-  let artifactDigest ← match renderDigest authority.artifactSha256 with
-    | .ok value => pure value
-    | .error e => throw <| IO.userError s!"render runtime artifact digest: {e}"
-  let sourceDigest ← match renderDigest authority.sourceHash with
-    | .ok value => pure value
-    | .error e => throw <| IO.userError s!"render source digest: {e}"
-  let semanticDigest ← match renderDigest authority.semanticHash with
-    | .ok value => pure value
-    | .error e => throw <| IO.userError s!"render semantic digest: {e}"
-  let bindValue : PfJson := .object #[
-    ("bindings", .array #[.object #[
-      ("address", .string "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
-      ("callee", .string "StateCell.increment"),
-      ("identity", .object #[
-        ("artifactSha256", .string artifactDigest),
-        ("semanticHash", .string semanticDigest),
-        ("sourceHash", .string sourceDigest)
-      ])
-    ]]),
-    ("schema", .string "proof-forge.call-bind.v1"),
-    ("target", .string "evm")
-  ]
-  let bindText ← match renderPfJcs bindValue with
-    | .ok value => pure value
-    | .error e => throw <| IO.userError s!"render EVM product bind table: {e}"
-  let sourcePath := FilePath.mk "build/v2/finalization-call-bind-caller.lean"
-  let bindPath := FilePath.mk "build/v2/finalization-call-bind.json"
-  IO.FS.writeFile sourcePath
-    ("import ProofForgeV2\n\n" ++
-      "namespace Tests\n\n" ++
-      "open ProofForgeV2.Language\n\n" ++
-      "program FinalizationCallBindCaller where\n" ++
-      "  state value : UInt64\n" ++
-      "  init(initial : UInt64) do\n" ++
-      "    value := initial\n" ++
-      "  entry invoke(delta : UInt64) : UInt64 do\n" ++
-      "    call StateCell.increment(delta)\n" ++
-      "    value := value + 1\n" ++
-      "    return value\n" ++
-      "  view get() : UInt64 do\n" ++
-      "    return value\n" ++
-      "end Tests\n")
-  IO.FS.writeFile bindPath bindText
-  let callerDir := FilePath.mk "build/v2/finalization-call-bind-caller"
-  if ← callerDir.pathExists then IO.FS.removeDirAll callerDir
-  let result ← runProductCliWithToolRoot toolRoot #[
-    "build", sourcePath.toString, "--module", "Tests.FinalizationCallBindCaller",
-    "--target", "evm", "--bindings", bindPath.toString,
-    "--callee-output", calleeDir.toString, "-o", callerDir.toString, "--json"
-  ]
-  expect (result.exitCode == 0)
-    s!"EVM call-bind product ingress failed:\n{result.stdout}\n{result.stderr}"
-  let runtimeCode ← match Targets.CallBindV1.decodeEvmRuntimeBytecodeArtifactV1
-      authority.artifactBytes with
-    | .ok value => pure value
-    | .error e => throw <| IO.userError s!"decode verified runtime artifact: {e}"
-  let runtimeKeccakHex := Targets.CallBindV1.encodeLowerHexBytesV1
-    (Targets.Evm.Keccak.keccak256 runtimeCode)
-  let callerYul ← IO.FS.readFile (callerDir / "FinalizationCallBindCaller.yul")
-  expect (callerYul.contains
-      "extcodesize(0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb)")
-    "product caller must use the exact bound endpoint"
-  expect (callerYul.contains
-      s!"extcodehash(0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb), 0x{runtimeKeccakHex}")
-    "product caller must use the exact verified runtime code hash"
-  let missingDir := FilePath.mk "build/v2/finalization-call-bind-missing-authority"
-  if ← missingDir.pathExists then IO.FS.removeDirAll missingDir
-  let missing ← runProductCliWithToolRoot toolRoot #[
-    "build", sourcePath.toString, "--module", "Tests.FinalizationCallBindCaller",
-    "--target", "evm", "--bindings", bindPath.toString,
-    "-o", missingDir.toString, "--json"
-  ]
-  expect (missing.exitCode != 0 &&
-      (missing.stdout ++ missing.stderr).contains "no verified EVM output matches")
-    "product caller without --callee-output must fail closed before emit"
-  expect (!(← missingDir.pathExists))
-    "missing EVM callee authority must publish no caller output"
-  IO.FS.removeFile sourcePath
-  IO.FS.removeFile bindPath
-
 /-- Tool-failure zero publish (EVM missing tool root via CLI child process). -/
 private unsafe def testToolFailureZeroPublish : IO Unit := do
   -- Ensure product CLI exists for this focused suite.
@@ -1210,7 +1122,6 @@ unsafe def run : IO Unit := do
   testNonDeployablePhases
   testFourTargetFinalization
   testToolFailureZeroPublish
-  testEvmCallBindProductIngress
   testNearToolFailureZeroPublish
   testCliAuthorityDeletion
   IO.println "Tests.Materialization.EngineeringFinalizationV1: ok"

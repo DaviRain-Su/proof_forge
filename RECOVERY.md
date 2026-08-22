@@ -144,17 +144,19 @@ ProgramV1 command/export/v2 仍为 sole 源表面。
 drain 已空（LH-1…28 + Track F engineering-done；不要再开 `prompt-next-wave` /
 `next-wave-runner`；活索引 [`.grok/README.md`](.grok/README.md)）。formal
 `TASK-D2-07` / `TST-SEM-002/003` **仍 pending，不是下一刀编码**。Call-bind
-Wave 1–3 的工程 DoD 已闭合：EVM/CosmWasm exact endpoint、有表 missing-row FC，
+Wave 1–4 的工程 DoD 已闭合：EVM/CosmWasm exact endpoint、有表 missing-row FC，
 EVM empty-code void CALL FC；Solana 支持子集完成 AccountMeta + outer AccountInfo
-join、Plan/IDL/IR/client exact role projection、product residual 清零与 8 项 Mollusk。
-identity digest、Solana unsupported shapes、其它 target families、target static inspect、
-formal/C-3 仍 open/FC；**不**把 B-CALL-SEM 全表标 closed。
+join、Plan/IDL/IR/client exact role projection、product residual 清零与 8 项 Mollusk；
+EVM optional identity 已对到完整重验的 static engineering OutputSet/raw `.bin` digest，
+并进入 Plan/OutputSet provenance。EVM code-at-address、Solana/CW identity、Solana
+unsupported shapes、其它 target families、target static inspect、formal/C-3 仍 open/FC；
+**不**把 B-CALL-SEM 全表标 closed。
 
 ADR-0036 / ADR-0053 已由 owner directive accepted，review commit 为
 `239e335ac4272f7b292eb87c913e46c8c805c0b9`，`openFindings: none`；不声称
 independent review。当前按 EVM → Solana → NEAR → Noir 进入阶段 2。EVM endpoint
-binding 已闭，但 identity digest verification 仍须先冻结可验证的 callee artifact /
-receipt 来源，bind row 不能自证。完善度队列见
+与 static artifact identity 已闭；deployment receipt / block / code-at-address evidence
+仍须 owner 冻结，bind/evidence 两份 caller-supplied input 不能自证链上部署。完善度队列见
 [`docs/plan/completeness-phased-roadmap.md`](docs/plan/completeness-phased-roadmap.md)
 与 [`docs/engineering-backlog.md`](docs/engineering-backlog.md) §12；owner packet 见
 [`docs/plan/remaining-owner-waves.md`](docs/plan/remaining-owner-waves.md)。

@@ -6,6 +6,7 @@ import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Core.RequirementIdsV1
 import ProofForgeV2.Core.TargetIdentityV1
 import ProofForgeV2.Semantic.WireV1
+import ProofForgeV2.Targets.CallBindV1
 import ProofForgeV2.Targets.Evm.Keccak
 import ProofForgeV2.Targets.Evm.PfAssetsCatalogV1
 
@@ -60,6 +61,7 @@ namespace ProofForgeV2.Targets.Evm
 
 open ProofForgeV2
 open ProofForgeV2.Compiler
+open ProofForgeV2.Core.Common
 open ProofForgeV2.Core.RequirementIdsV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.DescriptorDataV1
@@ -331,21 +333,21 @@ inductive Statement where
   | emitEvent (eventIndex : Nat) (args : Array Expr)
   | revertError (errorIndex : Nat) (args : Array Expr)
   /-- Sync external call (void). `callee` is the static QualifiedName component
-      array (≥2); Yul derives a fixed 20-byte CALL address as the last 20 bytes
-      of `keccak256(UTF-8 of target path)` and a 4-byte selector from the method
-      name + the exact per-argument `uint8`/`uint16`/`uint32`/`uint64`/
-      `uint128`/`uint256` ABI. Empty
-      `argBitWidths` is the canonical all-UInt64 form. Not a dynamic address
-      ValueId (B-3 Principal remains fail-closed). Failure reverts the caller. -/
+      array (≥2). Without ADR-0053 opt-in input, Yul derives the historical
+      fixed 20-byte CALL address from `keccak256(UTF-8 of target path)`;
+      `boundAddress` carries an exact pre-placed 20-byte Wave-2 EVM binding and
+      is part of Plan identity. The 4-byte selector comes from the method name
+      + exact per-argument UInt ABI. Empty `argBitWidths` is the canonical
+      all-UInt64 form. Not a dynamic address ValueId. Failure reverts caller. -/
   | externalCall (callee : Array String) (args : Array Expr)
-      (argBitWidths : Array Nat := #[])
+      (argBitWidths : Array Nat := #[]) (boundAddress : Option ByteArray := none)
   /-- N-CALL-RET/B-CALL-SEM: result-bearing sync call. Same static-callee
       CALL as `externalCall`, then RETURNDATASIZE guard (≥32) + first-word
       read. UInt8/16/32/64/128 reject values above their declared width;
       UInt256 retains the complete word. Short or out-of-range data reverts
       with the EVM-bare `revert(0,0)` convention. Failure reverts the caller. -/
   | externalCallResult (callee : Array String) (args : Array Expr)
-      (result : ExternalCallResultBinding)
+      (result : ExternalCallResultBinding) (boundAddress : Option ByteArray := none)
   /-- ADR-0031 SYS-S5-EVM first leaf: exact
       `pf.crypto.sha256(UInt256) -> UInt256` binding to the EVM SHA-256
       precompile at address 0x02. The input and digest are each one 32-byte
@@ -375,12 +377,12 @@ inductive Statement where
       keccak chain; mismatch returns false (no revert). Not keccak256Opcode,
       not sha256Precompile, and not AddressBearing CALL. -/
   | merkleVerifyKeccak256 (root leaf : Expr) (siblings : Array Expr) (resultTemp : Nat)
-  /-- Async fire-and-forget schedule (void). Same static-callee address/selector
-      derivation and per-argument UInt ABI widths as `externalCall`, but CALL
-      success is ignored (no response channel — matches Reference schedule
-      semantics). Empty `argBitWidths` is the canonical all-UInt64 form. -/
+  /-- Async fire-and-forget schedule (void). Same historical or ADR-0053-bound
+      static-callee address and per-argument UInt ABI widths as `externalCall`,
+      but CALL success is ignored (no response channel — matches Reference
+      schedule semantics). Empty widths is the canonical all-UInt64 form. -/
   | schedule (callee : Array String) (args : Array Expr)
-      (argBitWidths : Array Nat := #[])
+      (argBitWidths : Array Nat := #[]) (boundAddress : Option ByteArray := none)
   /-- ADR-0029 B2: `pf.assets.native.deposit(amount)`. Yul exact
       `eq(callvalue(), amount)`; entry mutability becomes `payable`. -/
   | nativeDeposit (amount : Expr)
@@ -542,6 +544,11 @@ structure Plan where
   /-- When true, Map state uses hashed storage (1 base slot per Map; entries at
       keccak256). Product EVM profiles always set true. -/
   hashedMapStorage : Bool := false
+  /-- Canonical expected identity digest for identity-bearing EVM call-bind
+      rows. `none` preserves historical Plan bytes. Product CLI independently
+      validates those expectations against deployable engineering outputs;
+      this field does not claim code-at-address observation. -/
+  callBindIdentityDigest : Option Digest := none
   deriving BEq, Inhabited, Repr
 private def planError (message : String) : CompileResult α :=
   .error <| .planInvariant .evm message
@@ -5653,13 +5660,75 @@ private def makePlanFromSemanticV1
         throw <| .invalidProgram "EVM received an invalid SemanticProgramV1 carrier"
   makePlanFromSemanticDataV1 data hashedMapStorage
 
+private def requireBoundEvmAddressV1
+    (table : CallBindV1.CallBindTableV1) (callee : Array String) :
+    CompileResult (Option ByteArray) := do
+  let qn := String.intercalate "." callee.toList
+  if CallBindV1.isPfCryptoBindExemptQnV1 qn ||
+      CallBindV1.isPfAssetsBindExemptQnV1 qn then
+    pure none
+  else
+    match CallBindV1.requireEvmAddressV1 table callee with
+    | .ok address => pure (some address)
+    | .error message => throw <| .planInvariant .evm message
+
+private partial def bindStatementCallsV1
+    (table : CallBindV1.CallBindTableV1) (statement : Statement) :
+    CompileResult Statement := do
+  match statement with
+  | .externalCall callee args argBitWidths _ =>
+      let address ← requireBoundEvmAddressV1 table callee
+      pure (.externalCall callee args argBitWidths address)
+  | .externalCallResult callee args result _ =>
+      let address ← requireBoundEvmAddressV1 table callee
+      pure (.externalCallResult callee args result address)
+  | .schedule callee args argBitWidths _ =>
+      let address ← requireBoundEvmAddressV1 table callee
+      pure (.schedule callee args argBitWidths address)
+  | .ifThenElse condition thenBody elseBody =>
+      pure (.ifThenElse condition
+        (← thenBody.mapM (bindStatementCallsV1 table))
+        (← elseBody.mapM (bindStatementCallsV1 table)))
+  | .switchOn scrutinee cases defaultBody =>
+      let cases ← cases.mapM fun (literal, body) => do
+        pure (literal, ← body.mapM (bindStatementCallsV1 table))
+      pure (.switchOn scrutinee cases
+        (← defaultBody.mapM (bindStatementCallsV1 table)))
+  | .forLoop varTemp counterTemp maxIterations initial condition update body =>
+      pure (.forLoop varTemp counterTemp maxIterations initial condition update
+        (← body.mapM (bindStatementCallsV1 table)))
+  | other => pure other
+
+private def bindPlanCallsV1
+    (plan : Plan) (table : CallBindV1.CallBindTableV1) : CompileResult Plan := do
+  match CallBindV1.requireCompatibleTarget table TargetId.evm with
+  | .error message => throw <| .planInvariant .evm message
+  | .ok () => pure ()
+  let callBindIdentityDigest ← match CallBindV1.evmIdentityDigestV1 table with
+    | .ok digest => pure digest
+    | .error message => throw <| .planInvariant .evm message
+  let constructor ← match plan.constructor with
+    | none => pure none
+    | some value =>
+        pure (some { value with body := ← value.body.mapM (bindStatementCallsV1 table) })
+  let entries ← plan.entries.mapM fun entry => do
+    pure { entry with body := ← entry.body.mapM (bindStatementCallsV1 table) }
+  let fns ← plan.fns.mapM fun fn => do
+    pure { fn with body := ← fn.body.mapM (bindStatementCallsV1 table) }
+  pure { plan with constructor, entries, fns, callBindIdentityDigest }
+
 /-- Internal Evm family phase entry: capability → Plan (pre-canonicity). -/
-def materializePlanFromCapabilityV1 (capability : ResolvedEngineeringBuildV1) : CompileResult Plan := do
+def materializePlanFromCapabilityV1
+    (capability : ResolvedEngineeringBuildV1)
+    (callBindings : Option CallBindV1.CallBindTableV1 := none) : CompileResult Plan := do
   unless ResolvedEngineeringBuildV1.kindOf capability == .evm do
     throw <| .planInvariant .evm "engineering capability kind is not EVM"
   let source := CompiledSemanticV1.semanticV1Of
     (ResolvedEngineeringBuildV1.compiledOf capability)
   -- All shipped EVM profiles use hashed Map storage (v1 default + Cancun).
-  makePlanFromSemanticV1 source (hashedMapStorage := true)
+  let plan ← makePlanFromSemanticV1 source (hashedMapStorage := true)
+  match callBindings with
+  | none => pure plan
+  | some table => bindPlanCallsV1 plan table
 
 end ProofForgeV2.Targets.Evm

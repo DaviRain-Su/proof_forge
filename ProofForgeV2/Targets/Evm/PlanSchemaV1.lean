@@ -54,6 +54,13 @@ private def encodeString (value : String) : Except String ByteArray := do
   let header ← encodeNatAsU32le raw.size
   pure (header.append raw)
 
+private def encodeDigestWire (label : String) (digest : Digest) :
+    Except String ByteArray := do
+  match validateDigest digest with
+  | .ok () => pure ()
+  | .error error => throw s!"evm plan {label} digest is invalid: {error}"
+  encodeString (← renderDigest digest)
+
 private def encodeBool (value : Bool) : ByteArray :=
   encodeU8 (if value then 1 else 0)
 
@@ -348,11 +355,18 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
       out := out.append (← encodeNatAsU32le body.size)
       for s in body do out := out.append (← encodeStatement s)
       pure out
-  -- AddressBearing: static QualifiedName external call / schedule (tags 9/10).
-  | .externalCall callee args argBitWidths => do
-      -- Tag 9 remains the byte-identical all-UInt64 form. Tag 18 appends the
-      -- exact parallel width vector for calls containing any non-UInt64 arg.
-      let mut out := encodeU8 (if argBitWidths.isEmpty then 9 else 18)
+  -- AddressBearing: static QualifiedName external call / schedule. Historical
+  -- unbound tags remain byte-identical; ADR-0053 bound forms use new tags and
+  -- append an exact length-framed 20-byte address.
+  | .externalCall callee args argBitWidths boundAddress => do
+      -- Tags 9/18 are historical unbound scalar/width-vector forms. Tags
+      -- 26/27 carry the corresponding bound address forms.
+      let tag := match boundAddress, argBitWidths.isEmpty with
+        | none, true => 9
+        | none, false => 18
+        | some _, true => 26
+        | some _, false => 27
+      let mut out := encodeU8 tag
       out := out.append (← encodeNatAsU32le callee.size)
       for c in callee do out := out.append (← encodeString c)
       out := out.append (← encodeNatAsU32le args.size)
@@ -360,11 +374,20 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
       if !argBitWidths.isEmpty then
         out := out.append (← encodeNatAsU32le argBitWidths.size)
         for width in argBitWidths do out := out.append (← encodeNatAsU32le width)
+      match boundAddress with
+      | none => pure ()
+      | some address =>
+          out := out.append (← encodeNatAsU32le address.size)
+          out := out.append address
       pure out
-  | .schedule callee args argBitWidths => do
-      -- Tag 10 remains byte-identical for all-UInt64 schedule args. Tag 20
-      -- appends the exact parallel width vector when any arg is non-UInt64.
-      let mut out := encodeU8 (if argBitWidths.isEmpty then 10 else 20)
+  | .schedule callee args argBitWidths boundAddress => do
+      -- Tags 10/20 are historical unbound forms; 28/29 are bound forms.
+      let tag := match boundAddress, argBitWidths.isEmpty with
+        | none, true => 10
+        | none, false => 20
+        | some _, true => 28
+        | some _, false => 29
+      let mut out := encodeU8 tag
       out := out.append (← encodeNatAsU32le callee.size)
       for c in callee do out := out.append (← encodeString c)
       out := out.append (← encodeNatAsU32le args.size)
@@ -372,6 +395,11 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
       if !argBitWidths.isEmpty then
         out := out.append (← encodeNatAsU32le argBitWidths.size)
         for width in argBitWidths do out := out.append (← encodeNatAsU32le width)
+      match boundAddress with
+      | none => pure ()
+      | some address =>
+          out := out.append (← encodeNatAsU32le address.size)
+          out := out.append address
       pure out
   -- Tag 11: atomic multi-leaf aggregate store (evaluate-all then sstore-all).
   | .storeAtomic operations => do
@@ -385,11 +413,18 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
   -- Tag 12 remains byte-identical for UInt64 result + all-UInt64 args. Tag 17
   -- binds any non-UInt64 result + all-UInt64 args. Tag 19 binds the result
   -- width plus the exact argument width vector when any arg is non-UInt64.
-  | .externalCallResult callee args result => do
-      let tag :=
-        if !result.argBitWidths.isEmpty then 19
-        else if result.bitWidth == 64 then 12
-        else 17
+  | .externalCallResult callee args result boundAddress => do
+      -- Tags 12/17/19 remain historical unbound forms. Tags 30/31/32 bind
+      -- the exact address for the corresponding result/argument-width shape.
+      let tag := match boundAddress with
+        | none =>
+            if !result.argBitWidths.isEmpty then 19
+            else if result.bitWidth == 64 then 12
+            else 17
+        | some _ =>
+            if !result.argBitWidths.isEmpty then 32
+            else if result.bitWidth == 64 then 30
+            else 31
       let mut out := encodeU8 tag
       out := out.append (← encodeNatAsU32le callee.size)
       for c in callee do out := out.append (← encodeString c)
@@ -402,6 +437,11 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
         out := out.append (← encodeNatAsU32le result.argBitWidths.size)
         for width in result.argBitWidths do
           out := out.append (← encodeNatAsU32le width)
+      match boundAddress with
+      | none => pure ()
+      | some address =>
+          out := out.append (← encodeNatAsU32le address.size)
+          out := out.append address
       pure out
   -- Tag 21 (ADR-0031 SYS-S5-EVM): exact
   -- pf.crypto.sha256(UInt256) -> UInt256 precompile binding. Tags 9/10/12 and
@@ -540,7 +580,10 @@ private def encodeFnBinding (f : FnBinding) : Except String ByteArray := do
 /-- Canonical engineering EVM Plan preimage bytes.
 
     Layout: objectName, runtimeObjectName, storageLayout[], events[], errors[],
-    constructor option, entries[], fns[], hashedMapStorage bool — length-framed, LE u32, closed Expr/Stmt tags.
+    constructor option, entries[], fns[], hashedMapStorage bool, then an
+    optional identity-bearing call-bind suffix — length-framed, LE u32, closed
+    Expr/Stmt tags. The suffix is absent for `none`, preserving historical Plan
+    bytes; present form is `0x01 || String(renderDigest(identityDigest))`.
 -/
 def encodeEngineeringEvmPlanBytesV1 (plan : Plan) : Except String ByteArray := do
   let mut out := ByteArray.empty
@@ -563,6 +606,13 @@ def encodeEngineeringEvmPlanBytesV1 (plan : Plan) : Except String ByteArray := d
   for f in plan.fns do out := out.append (← encodeFnBinding f)
   -- Hashed-Map storage flag (appended; historical dense plans encode false=0x00).
   out := out.append (encodeBool plan.hashedMapStorage)
+  -- Optional CALL-BIND identity suffix. Absence appends no byte so every
+  -- identity-less historical Plan remains byte-identical.
+  match plan.callBindIdentityDigest with
+  | none => pure ()
+  | some digest =>
+      out := out.append (encodeU8 1)
+      out := out.append (← encodeDigestWire "call-bind identity" digest)
   pure out
 
 def engineeringEvmPlanDigestV1 (plan : Plan) : Except String Digest := do

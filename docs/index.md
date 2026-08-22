@@ -28,7 +28,7 @@ zero-tool finalize（默认 profile；无 prove；ADR-0045）；opt-in `openvm-g
 XRPL Q0：Bedrock-shaped `{name}.rs` + zero-tool finalize（ADR-0049）；opt-in
 `xrpl-bedrock-wasm-u64-v1` 经 ambient rustc 产出 `.wasm` extra（ADR-0050；仍非 AlphaNet/主网）；
 host 三键 ADR-0052 proposed（TIME/CALLER 符号冻、SHA keep-FC；叶未开）；
-ADR-0053 accepted（call-bind v1 Wave 1–3 engineering done：三叶 exact endpoint / missing-row FC，EVM 空账户 void CALL FC；Solana 支持子集完成 AccountMeta + outer AccountInfo join + product residual 清零 + Mollusk；identity digest 与 unsupported shapes 仍 FC/open）；
+ADR-0053 accepted（call-bind v1 Wave 1–4 engineering done：三叶 exact endpoint / missing-row FC，EVM 空账户 void CALL FC + static OutputSet/raw `.bin` identity evidence；Solana 支持子集完成 AccountMeta + outer AccountInfo join + product residual 清零 + Mollusk；EVM code-at-address、Solana/CW identity 与 unsupported shapes 仍 FC/open）；
 CosmWasm：WAT + locked check + mock 28 tests +
 wasmd Docker rung-1；TON：Tolk/BoC + sandbox 16 it（新增 1 条本机未执行；schedule `createMessage` PARTIAL）。**Accepted PRD Phase 1 仍为四目标**
 （EVM/Solana/NEAR/Noir）；其余 engineering leaves 由 **accepted ADR-0036**（现 13+0）与 **ADR-0044/0045/0046/0047/0049/0050**
@@ -53,11 +53,11 @@ Solana ADR-0048 D4 剩余证书（非 formal TASK-D5）：
 **已退役（refuse-exit）**，不要再 launch。
 全仓对账：[research/28-project-wide-honesty-audit.md](research/28-project-wide-honesty-audit.md)。
 **下一刀（四目标工程 DoD，非 formal）**：能力层 waves 已全闭合（2026-08-19：CAP-1a…5 /
-CAP-X-BYTES / CAP-X-MERKLE / 诚实边界波）；Call-bind Wave 1–3 的工程 DoD 已于
-2026-08-21 闭合支持子集，EVM 方案 A 的显式本地 callee output/runtime identity join
-与 CALL-time code-hash gate 也已接线；ADR-0036 / ADR-0053 同日已由 owner directive
-accepted。当前按 EVM → Solana → NEAR → Noir 对账。EVM receipt/address provenance /
-constructor/deployment proof 仍未闭，不能由 bind row 自证。
+CAP-X-BYTES / CAP-X-MERKLE / 诚实边界波）；Call-bind Wave 1–4 的工程 DoD 已于
+2026-08-21 闭合支持子集与 EVM static OutputSet/raw `.bin` identity evidence；
+ADR-0036 / ADR-0053 同日已由 owner directive accepted。当前按 EVM → Solana → NEAR →
+Noir 对账。EVM endpoint + static artifact identity 已闭；deployment receipt / block /
+code-at-address evidence 仍须 owner 冻结，不能由 bind/evidence 两份 caller-supplied input 自证。
 COMP-1-NORMALIZE-RESIDUAL FC 针
 （Field/Principal 源字面量、Bytes 嵌套穿透）与 COMP-1-SYS-CAP-L2
 attachedValue inspect/Targets 诚实表面、official `cryptoHonesty` 闭表、

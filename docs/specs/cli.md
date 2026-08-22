@@ -52,7 +52,7 @@ proof-forge-next check <source> --module <lean-module-name> [--language-version 
   [--format human|json]
 proof-forge-next build <source> --module <lean-module-name> --target <id> [--profile <id>]
   [--language-version <semver>] [--minimum-evidence <grade>]
-  [--bindings <path>] [--callee-output <dir>]...
+  [--bindings <path>] [--binding-evidence <path>] [--callee-output <dir>]...
   [--program <qualified>] [--resource-limit <stage>.<field>=<n>]...
   --output <dir> [--force] [--format human|json]
 proof-forge-next inspect <output-dir> [--format human|json]
@@ -106,23 +106,9 @@ wire whitelist，但任何显式 `--minimum-evidence` 请求都在 source open /
 `--target evm|solana|cosmwasm`；`check` 与其余十叶给该 flag 均为 usage / exit 2。
 文件必须是 PF-JCS `proof-forge.call-bind.v1`。**Wave 2** parse + 与 `--target`
 join 后把表显式传到三叶 emit：generic `call`/`schedule` 无匹配行 fail closed。
-EVM/Solana 表额外要求每行完整 `sourceHash` / `semanticHash` / `artifactSha256`，并要求调用方
-对每个 callee 以可重复 `--callee-output <dir>` 显式提供恰好一个本地
-`proof-forge.output.v1` 权威目录。CLI 先执行 manifest、sidecar、artifact content 与
-exact disk closure 的完整 inspect，再按 callee program name + 三 digest exact join；
-EVM 的 `artifactSha256` 绑定 `{program}.runtime.bin` 的 lowercase-hex+LF 文件内容；
-Solana 的该字段绑定 `{program}.so` raw bytes。EVM finalizer 产出的 runtime bytes 经
-hex 解码后计算 Ethereum Keccak-256，emitter 在每个
-generic CALL/schedule 前执行 `extcodehash(address)` exact guard。缺失、重复、未使用、
-identity/target/deployability/artifact mismatch、symlink/path traversal 均 fail closed。
-Solana verified 三 digest 写入 caller CPI Plan 的 `callBindProgram` role；SVM runtime
-仍只校验表内 programId 对应的 program account key + executable，不验证
-ProgramData/ELF。`--callee-output` 不能脱离 `--bindings`，也不能用于非 EVM/Solana target；不做目录发现、RPC、
-receipt、CREATE/CREATE2 推导。地址仍是表内预置 20 bytes，故这只验证「该地址当下代码
-等于已验证 callee runtime」，不证明地址来源或部署过程。
-
-无 `--bindings` 时行为与今天完全相同（hashed QN / QN stub），且不发明 runtime-code
-identity 声明。**Wave 2a**：
+EVM exact 20-byte endpoint 进入 Plan schema / plan digest / EngineeringBuildIdentity /
+engineering OutputSet identity，并由 Yul 消费；这不验证 row 中可选的 identity digests。
+无 `--bindings` 时行为与历史相同（historical Plan tags、hashed QN / QN stub）。**Wave 2a**：
 EVM generic void CALL 在 `extcodesize==0` 时 fail closed（与 `--bindings` 无关）。
 **Wave 2c**：成功 `build` JSON（`proof-forge.cli.build.v1`）带
 `callScheduleResidual: string | null`（program-level；无 generic call 或
@@ -136,9 +122,45 @@ residual 仍存在时多一行。
 target `inspect` 仍静态报告 kind 闭表；inspect-output / manifest / evidence
 不加该字段。Solana Wave 3 的 outer role 顺序为既有 roles、bind row source order、
 executable callee program；`cpiSites` 不因 generic call-bind 伪造。identity digest
-metadata 对 CosmWasm 仍 parse-only；Solana 消费本地 output/ELF join 并写入 caller
-Plan，但不声称链上 code identity；EVM 消费上列本地 output/runtime join。三者均不把
-产品 `build` 接到 Anvil / wasmd / 任何网络，也不把 identity 加入 SupportClaim。
+在 CosmWasm 仍是 parse-only，不参与 emit/SupportClaim。不把产品 `build` 接到
+Anvil / wasmd / 任何网络。
+
+Solana 每个 bind row 必须完整携带 `sourceHash` / `semanticHash` /
+`artifactSha256`，并以 repeatable `--callee-output <dir>` 显式提供本地
+`proof-forge.output.v1` authority。CLI 先完整验证 target=solana、deployable、sidecar、
+artifact content、exact disk closure 与 `outputSetDigest`，再按 callee program name +
+manifest source/semantic digest + finalizer-owned `{program}.so` raw-byte SHA-256 exact
+join。每行必须匹配恰好一个 authority，额外/重复 authority fail closed。verified 三
+digest 写入 caller CPI Plan 的 `callBindProgram.callBindOutputIdentity`；SVM runtime 仍
+只校验 programId/account key/executable 与 signer/writable/order，不验证 ProgramData、
+upgrade authority、当前链上 ELF 或部署过程。`--callee-output` 是 build + Solana +
+`--bindings` only；EVM 产品 ingress 继续只使用下述 `--binding-evidence`。
+
+EVM `identity` 不再允许由 bind row 自证。任一 EVM row 带 `identity` 时，build 必须
+同时给 `--binding-evidence <path>`；无 identity row 时该 flag 反而 usage / exit 2。
+evidence 必须是 canonical PF-JCS `proof-forge.call-bind-evidence.v1`：
+
+```json
+{"bindings":[{"address":"0x1111111111111111111111111111111111111111","callee":"Oracle.feed","outputDir":"outputs/Oracle"}],"schema":"proof-forge.call-bind-evidence.v1","target":"evm"}
+```
+
+`bindings` 必须恰好覆盖 bind table 中全部且仅全部 identity-bearing rows；callee 与
+address 必须在两输入间 exact 相等，`outputDir` 必须是 evidence 文件父目录下的
+canonical safe relative path。每个目录先经 `inspectEngineeringOutputDirV1` 完整验证：
+EVM target、deployable、manifest/evidence identity、exact disk closure、逐文件 raw-byte
+SHA-256 与 `outputSetDigest` 重算。随后 `sourceHash` / `semanticHash`（若在 identity
+中出现）与 output manifest 比较；`artifactSha256` 对 EVM identity 必填，精确定义为
+published `{artifactProgramName}.bin` 文件原始 bytes 的 SHA-256（包含 publisher
+尾随换行），不是 decoded bytecode 或 Yul。callee 的倒数第二个分量必须等于
+`artifactProgramName`。
+
+通过验证的 identity-bearing rows 以 domain `pf.call-bind.evm-identity.v1` canonical
+digest 进入 EVM Plan / plan digest / caller OutputSet provenance；identity-less table
+不追加 Plan bytes，保持历史 encoding。evidence 文件与 callee OutputSet 本身不复制进
+caller output。该机制是 caller-supplied static artifact/address attestation；CLI 不查
+deployment receipt、RPC、`eth_getCode` 或 `EXTCODEHASH`，所以**不证明链上
+code-at-address**。`--binding-evidence` 是 EVM-only；`check`、非 EVM target 以及没有
+`--bindings` 的调用都拒绝。
 
 `--resource-limit` 是 repeatable、逐 stage/field 的 lower-only override。CLI 名称固定映射到
 SPEC-COMMON-001，不创建第二套 resource profile：

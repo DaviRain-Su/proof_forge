@@ -94,7 +94,9 @@ private def planDigestForCapabilityV1
   let selection := ResolvedEngineeringBuildV1.selectionOf capability
   match selection.kind with
   | .evm =>
-      let plan ← Evm.planFromCapability capability
+      -- The exact endpoint is part of the EVM Plan schema and therefore the
+      -- same binding table must drive both identity and emitted Yul.
+      let plan ← Evm.planFromCapability capability bindings
       match Evm.engineeringEvmPlanDigestV1 plan with
       | .ok d => pure (d : Digest)
       | .error e =>
