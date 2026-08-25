@@ -445,6 +445,26 @@ private def isUserName (env : Environment) (n : Name) : Bool :=
       | _ => false
     | none => false
 
+/-- Recover the schema path owned by nested user-structure projections.
+`s.book.right` is represented by two projection applications but owns the flattened leaf
+`book_right`; stopping at the terminal projection would collide with every other nested `right`. -/
+private def projectionPath (env : Environment) (fuel : Nat) (e : Expr) : Option String :=
+  match fuel with
+  | 0 => none
+  | fuel' + 1 => do
+    let e := strip e
+    let n ← e.getAppFn.constName?
+    let _ ← env.getProjectionFnInfo? n
+    if !isUserName env n then none else
+    let leaf := Core.IR.lastName n.toString
+    let args := e.getAppArgs
+    let parent :=
+      if h : args.size > 0 then projectionPath env fuel' args[args.size - 1]
+      else none
+    match parent with
+    | some parent => some s!"{parent}_{leaf}"
+    | none => some leaf
+
 /-- Trace an expression to the user projection whose result is the owning fixed vector. -/
 private def vectorBaseName (env : Environment) (fuel : Nat) (e : Expr) : Option String :=
   match fuel with
@@ -464,7 +484,7 @@ private def vectorBaseName (env : Environment) (fuel : Nat) (e : Expr) : Option 
         | none => false
       if !isUserName env n || isReservedProj last || skipTy || !returnsVector then
         e.getAppArgs.findSome? (vectorBaseName env fuel')
-      else some last
+      else projectionPath env fuel' e
     | none => e.getAppArgs.findSome? (vectorBaseName env fuel')
 
 /--
@@ -602,6 +622,7 @@ private def asVal (env : Environment) (fuel : Nat) (e : Expr) : Option Ops.Val :
   | fuel' + 1 =>
     let e := strip e
     match e with
+    | .letE _ _ value body _ => asVal env fuel' (body.instantiate1 value)
     | .bvar i => some (.arg i)
     | _ =>
       if let some reduced := reduceCtorProjection? env e then
@@ -861,7 +882,7 @@ private def asVal (env : Environment) (fuel : Nat) (e : Expr) : Option Ops.Val :
         else if (isConstNamed e ``UInt8.toUInt64 || isConstNamed e ``UInt64.toUInt8 ||
             isConstNamed e ``UInt16.toUInt64 || isConstNamed e ``UInt64.toUInt16 ||
             isConstNamed e ``UInt32.toUInt64 || isConstNamed e ``UInt64.toUInt32 ||
-            isConstNamed e ``UInt64.toNat) &&
+            isConstNamed e ``UInt64.toNat || isConstNamed e ``UInt64.ofNat) &&
             e.getAppArgs.size ≥ 1 then
           asVal env fuel' e.getAppArgs[e.getAppArgs.size - 1]!
           else if (isConstNamed e ``HAdd.hAdd || endsWith e ".hAdd") && e.getAppArgs.size ≥ 2 then
@@ -1156,6 +1177,34 @@ private def val (env : Environment) (e : Expr) : Option Ops.Val :=
   -- `GetElem`/`toNat` wrappers are deeper than ordinary scalar expressions, but still finite.
   asVal env 32 e
 
+/-- Decode a scalar binding through one explicitly-inline helper boundary before substituting it.
+This preserves a shared helper result without increasing the global value-decoder fuel. -/
+private partial def valNodeCount : Ops.Val → Nat
+  | .arg _ | .local _ | .lit _ | .loopIx => 1
+  | .field base _ | .bitNot base => 1 + valNodeCount base
+  | .bitAnd lhs rhs | .bitOr lhs rhs | .bitXor lhs rhs
+  | .shiftL lhs rhs | .shiftR lhs rhs | .addU64 lhs rhs | .subU64 lhs rhs
+  | .mulU64 lhs rhs | .divU64 lhs rhs | .modU64 lhs rhs =>
+      1 + valNodeCount lhs + valNodeCount rhs
+  | .indexGet base _ index _ _ => 1 + valNodeCount base + valNodeCount index
+  | .select _ lhs rhs thn els =>
+      1 + valNodeCount lhs + valNodeCount rhs + valNodeCount thn + valNodeCount els
+  | .ext _ operands =>
+      1 + operands.foldl (init := 0) fun total operand => total + valNodeCount operand
+
+/-- Materialize scalar source values whose substitution would duplicate bounded control flow. -/
+private def shouldMaterializeLocal (_type : Expr) (value : Ops.Val) : Bool :=
+  match value with
+  | .field .. | .indexGet .. | .select .. => true
+  | value => valNodeCount value ≥ 1024
+
+private def localScalarValue? (env : Environment) (fuel : Nat) (value : Expr) : Option Ops.Val :=
+  val env value <|> do
+    if fuel ≤ 32 then none else pure ()
+    let (_, unfolded) ← unfoldUserHelper env value
+    let decoded ← asVal env fuel unfolded
+    if valNodeCount decoded < 1024 then none else some decoded
+
 private def asUInt64VariantCtor (env : Environment) (e : Expr) :
     Option (UInt64 × Array Ops.Val × Nat) := do
   let ctorName ← e.getAppFn.constName?
@@ -1221,51 +1270,55 @@ private def binArgs (e : Expr) : Option (Expr × Expr) :=
   let args := e.getAppArgs
   if args.size ≥ 2 then some (args[args.size - 2]!, args[args.size - 1]!) else none
 
-private def asCmpCore (env : Environment) (e : Expr) : Option (Ops.Cmp × Ops.Val × Ops.Val) :=
+private def asCmpCoreWithFuel (env : Environment) (fuel : Nat) (e : Expr) :
+    Option (Ops.Cmp × Ops.Val × Ops.Val) :=
   let e := strip e
   if isConstNamed e ``Eq || isConstNamed e ``BEq.beq then
     match binArgs e with
     | some (l, r) =>
-      match val env l, val env r with
+      match asVal env fuel l, asVal env fuel r with
       | some lv, some rv => some (.eq, lv, rv)
       | _, _ => none
     | none => none
   else if isConstNamed e ``Ne then
     match binArgs e with
     | some (l, r) =>
-      match val env l, val env r with
+      match asVal env fuel l, asVal env fuel r with
       | some lv, some rv => some (.ne, lv, rv)
       | _, _ => none
     | none => none
   else if isConstNamed e ``LT.lt then
     match binArgs e with
     | some (l, r) =>
-      match val env l, val env r with
+      match asVal env fuel l, asVal env fuel r with
       | some lv, some rv => some (.lt, lv, rv)
       | _, _ => none
     | none => none
   else if isConstNamed e ``LE.le then
     match binArgs e with
     | some (l, r) =>
-      match val env l, val env r with
+      match asVal env fuel l, asVal env fuel r with
       | some lv, some rv => some (.le, lv, rv)
       | _, _ => none
     | none => none
   else if isConstNamed e ``GT.gt then
     match binArgs e with
     | some (l, r) =>
-      match val env l, val env r with
+      match asVal env fuel l, asVal env fuel r with
       | some lv, some rv => some (.gt, lv, rv)
       | _, _ => none
     | none => none
   else if isConstNamed e ``GE.ge || endsWith e ".ge" || endsWith e ".hGe" then
     match binArgs e with
     | some (l, r) =>
-      match val env l, val env r with
+      match asVal env fuel l, asVal env fuel r with
       | some lv, some rv => some (.ge, lv, rv)
       | _, _ => none
     | none => none
   else none
+
+private def asCmpCore (env : Environment) (e : Expr) : Option (Ops.Cmp × Ops.Val × Ops.Val) :=
+  asCmpCoreWithFuel env 32 e
 
 private def asCmp (env : Environment) (e : Expr) : Option (Ops.Cmp × Ops.Val × Ops.Val) :=
   let e := strip e
@@ -1387,7 +1440,10 @@ private def asBoolVal (env : Environment) (fuel : Nat) (e : Expr) : Option Ops.V
         | none => none
 
 private def asCondition (env : Environment) (e : Expr) : Option (Ops.Cmp × Ops.Val × Ops.Val) :=
-  asCmp env e <|> (asBoolVal env 64 e).map fun value => (.ne, value, .lit 0)
+  -- Bounded tree guards can contain several nested projected lookups. Keep ordinary value
+  -- decoding conservative, but let an explicit control-flow boundary finish that finite tree.
+  asCmp env e <|> asCmpCoreWithFuel env 128 e <|>
+    (asBoolVal env 64 e).map fun value => (.ne, value, .lit 0)
 
 /-- `x ≥ y` / `y ≤ x`  →  checked sub x y。`x ≤ lit` 是上界（255 / u64Max），不是 sub。 -/
 private def asCheckedSubGuard (env : Environment) (e : Expr) : Option (Ops.Val × Ops.Val) :=
@@ -1997,9 +2053,13 @@ private partial def flattenLeaves (env : Environment) (base : String) (e : Expr)
                         | some ctor =>
                           match env.find? ctor with
                           | some (.ctorInfo info) =>
-                            match enumCtorIndex env info.induct ctor with
-                            | some k => acc := acc.push (child, .lit (UInt64.ofNat k))
-                            | none => pure ()
+                            -- A payload variant must be flattened into its typed tag/payload
+                            -- leaves. Falling back to the constructor index would create a raw
+                            -- store for the non-leaf parent and silently discard its payload.
+                            if (uint64VariantPayloadWidth? env info.induct).isNone then
+                              match enumCtorIndex env info.induct ctor with
+                              | some k => acc := acc.push (child, .lit (UInt64.ofNat k))
+                              | none => pure ()
                           | _ => pure ()
                         | none =>
                           match asLit 8 arg with
@@ -2039,7 +2099,7 @@ private def asStoreFields (env : Environment) (e : Expr)
     else none
   else none
 
-private def asOkState (env : Environment) (e : Expr) : Option Ops.Val :=
+private def asOkStateCore (env : Environment) (e : Expr) : Option Ops.Val :=
   let e := peelControl 8 (dropUnusedHeadLets 32 e)
   if isConstNamed e ``Except.ok then
     let args := e.getAppArgs
@@ -2112,13 +2172,22 @@ private def asOkState (env : Environment) (e : Expr) : Option Ops.Val :=
                 | some v => some v
                 | none =>
                   let args := (strip st).getAppArgs
-                  args.findSome? (asOptionPayload env) <|>
-                    args.findSome? (val env) <|>
-                    asStateMk env st true
+                  args.findSome? (asOptionPayload env) <|> asStateMk env st true
         else none
       else asStateMk env pair true
     else none
   else none
+
+private def asOkState (env : Environment) (e : Expr) : Option Ops.Val :=
+  match asOkStateCore env e with
+  | result@(some (.field _ field)) =>
+      let projectionScalar? := e.getUsedConstantsAsSet.toList.findSome? fun name =>
+        if Core.IR.lastName name.toString != field || (env.getProjectionFnInfo? name).isNone then none
+        else (env.find? name).map fun info => isScalarResult env info.type
+      -- A structure/variant projection cannot be the scalar result of a mutating method. Let the
+      -- full state decoder handle that branch instead of selecting an arbitrary constructor field.
+      if projectionScalar? == some false then none else result
+  | result => result
 
 /-- Scalar `Except.ok` is an intermediate value producer, not a state commit. -/
 private def asOkScalar (env : Environment) (e : Expr) : Option Ops.Val :=
@@ -2132,8 +2201,7 @@ private def asOkScalar (env : Environment) (e : Expr) : Option Ops.Val :=
   else none
 
 /-- `.ok (s, value)` with the original state is a successful no-op, not an implicit write. -/
-private def asOkNoop (env : Environment) (e : Expr) (markedOnly : Bool := false) :
-    Option Ops.Val :=
+private def asOkNoop (env : Environment) (e : Expr) : Option Ops.Val :=
   let e := peelControl 8 (dropUnusedHeadLets 32 e)
   if isConstNamed e ``Except.ok then
     let args := e.getAppArgs
@@ -2143,10 +2211,23 @@ private def asOkNoop (env : Environment) (e : Expr) (markedOnly : Bool := false)
         let pairArgs := pair.getAppArgs
         if h : pairArgs.size ≥ 2 then
           match strip pairArgs[pairArgs.size - 2] with
-          | .bvar _ => if markedOnly then none else val env pairArgs[pairArgs.size - 1]
+          | .bvar _ => val env pairArgs[pairArgs.size - 1]
           | state =>
             if isConstNamed state ``methodArgRef then val env pairArgs[pairArgs.size - 1]
-            else none
+            else
+              let reconstructedFromOneBinder :=
+                match userCtorFields env state with
+                | some fields =>
+                    !fields.isEmpty && fields.all fun value =>
+                      let args := (strip value).getAppArgs
+                      if h : args.size > 0 then
+                        match strip args[args.size - 1] with
+                        | .bvar _ => true
+                        | _ => false
+                      else false
+                | none => false
+              if reconstructedFromOneBinder then val env pairArgs[pairArgs.size - 1]
+              else none
         else none
       else none
     else none
@@ -2427,18 +2508,21 @@ private def leadingInvokes (env : Environment) (e : Expr) : Array DecodedInvoke 
       | _ => (invokes, e)
   go 16 e #[]
 
-/-- Substitute loop-body aliases without erasing an ignored SVM effect. `substUInt64Lets` keeps
-unused scalar lets long enough to reach this effect-aware boundary; pure aliases still reduce as
-before, while invocation lets remain ordered before the yielded state update. -/
 private def substLetsPreservingInvokes (env : Environment) (fuel : Nat) (e : Expr) : Expr :=
   match fuel with
   | 0 => e
   | fuel' + 1 =>
     match strip e with
     | .letE n ty value body nd =>
+      let scalarBinding := ty.consumeMData.getAppFn.constName? == some ``UInt64
       let value := substLetsPreservingInvokes env fuel' value
       let body := substLetsPreservingInvokes env fuel' body
-      if (findInvoke env 16 value).isSome then .letE n ty value body nd
+      let structuredState :=
+        (ty.consumeMData.getAppFn.constName?.map (isUserType env)).getD false &&
+          ((unfoldUserHelper env value).isSome || (userCtorFields env value).isSome ||
+            isIteExpr value)
+      if (findInvoke env 16 value).isSome || structuredState || scalarBinding then
+        .letE n ty value body nd
       else substLetsPreservingInvokes env fuel' (body.instantiate1 value)
     | .lam n ty body bi => .lam n ty (substLetsPreservingInvokes env fuel' body) bi
     | .app _ _ =>
@@ -3161,6 +3245,135 @@ private def dropVectorRootStores (dynamic stores : Array Ops.Op) : Array Ops.Op 
     | .storeField name _ => !vectorNames.contains name
     | _ => true
 
+private def qualifyStatePrefix (statePrefix name : String) : String :=
+  if statePrefix.isEmpty || name == statePrefix || name.startsWith (statePrefix ++ "_") then name
+  else s!"{statePrefix}_{name}"
+
+private def qualifyDynamicStateOp (statePrefix : String) : Ops.Op → Ops.Op
+  | .indexSetLeaf name index value len leaf =>
+      .indexSetLeaf (qualifyStatePrefix statePrefix name) index value len leaf
+  | .indexSet name index value len elemOff =>
+      .indexSet (qualifyStatePrefix statePrefix name) index value len elemOff
+  | op => op
+
+private def qualifyNestedStateName (statePrefix : String) (fieldNames : Array String)
+    (name : String) : String :=
+  if statePrefix.isEmpty || name == statePrefix || name.startsWith (statePrefix ++ "_") then name
+  else if fieldNames.any fun field => name == field || name.startsWith (field ++ "_") then
+    s!"{statePrefix}_{name}"
+  else name
+
+private partial def qualifyNestedStateVal (statePrefix : String) (fieldNames : Array String) :
+    Ops.Val → Ops.Val
+  | .arg i => .arg i
+  | .local i => .local i
+  | .field base name =>
+      .field (qualifyNestedStateVal statePrefix fieldNames base)
+        (qualifyNestedStateName statePrefix fieldNames name)
+  | .lit value => .lit value
+  | .bitAnd lhs rhs => .bitAnd (qualifyNestedStateVal statePrefix fieldNames lhs)
+      (qualifyNestedStateVal statePrefix fieldNames rhs)
+  | .bitOr lhs rhs => .bitOr (qualifyNestedStateVal statePrefix fieldNames lhs)
+      (qualifyNestedStateVal statePrefix fieldNames rhs)
+  | .bitXor lhs rhs => .bitXor (qualifyNestedStateVal statePrefix fieldNames lhs)
+      (qualifyNestedStateVal statePrefix fieldNames rhs)
+  | .bitNot value => .bitNot (qualifyNestedStateVal statePrefix fieldNames value)
+  | .shiftL lhs rhs => .shiftL (qualifyNestedStateVal statePrefix fieldNames lhs)
+      (qualifyNestedStateVal statePrefix fieldNames rhs)
+  | .shiftR lhs rhs => .shiftR (qualifyNestedStateVal statePrefix fieldNames lhs)
+      (qualifyNestedStateVal statePrefix fieldNames rhs)
+  | .indexGet base name index len elemOff =>
+      .indexGet (qualifyNestedStateVal statePrefix fieldNames base)
+        (qualifyNestedStateName statePrefix fieldNames name)
+        (qualifyNestedStateVal statePrefix fieldNames index) len elemOff
+  | .loopIx => .loopIx
+  | .select cmp lhs rhs thn els =>
+      .select cmp (qualifyNestedStateVal statePrefix fieldNames lhs)
+        (qualifyNestedStateVal statePrefix fieldNames rhs)
+        (qualifyNestedStateVal statePrefix fieldNames thn)
+        (qualifyNestedStateVal statePrefix fieldNames els)
+  | .addU64 lhs rhs => .addU64 (qualifyNestedStateVal statePrefix fieldNames lhs)
+      (qualifyNestedStateVal statePrefix fieldNames rhs)
+  | .subU64 lhs rhs => .subU64 (qualifyNestedStateVal statePrefix fieldNames lhs)
+      (qualifyNestedStateVal statePrefix fieldNames rhs)
+  | .mulU64 lhs rhs => .mulU64 (qualifyNestedStateVal statePrefix fieldNames lhs)
+      (qualifyNestedStateVal statePrefix fieldNames rhs)
+  | .divU64 lhs rhs => .divU64 (qualifyNestedStateVal statePrefix fieldNames lhs)
+      (qualifyNestedStateVal statePrefix fieldNames rhs)
+  | .modU64 lhs rhs => .modU64 (qualifyNestedStateVal statePrefix fieldNames lhs)
+      (qualifyNestedStateVal statePrefix fieldNames rhs)
+  | .ext kind operands =>
+      .ext kind (operands.map (qualifyNestedStateVal statePrefix fieldNames))
+
+private partial def qualifyNestedStateOp (statePrefix : String) (fieldNames : Array String) :
+    Ops.Op → Ops.Op
+  | .letLocal i value => .letLocal i (qualifyNestedStateVal statePrefix fieldNames value)
+  | .joinLocal i => .joinLocal i
+  | .setLocal i value => .setLocal i (qualifyNestedStateVal statePrefix fieldNames value)
+  | .checkedAddU64 lhs rhs =>
+      .checkedAddU64 (qualifyNestedStateVal statePrefix fieldNames lhs)
+        (qualifyNestedStateVal statePrefix fieldNames rhs)
+  | .checkedSubU64 lhs rhs =>
+      .checkedSubU64 (qualifyNestedStateVal statePrefix fieldNames lhs)
+        (qualifyNestedStateVal statePrefix fieldNames rhs)
+  | .checkedMulU64 lhs rhs =>
+      .checkedMulU64 (qualifyNestedStateVal statePrefix fieldNames lhs)
+        (qualifyNestedStateVal statePrefix fieldNames rhs)
+  | .checkedDivU64 lhs rhs =>
+      .checkedDivU64 (qualifyNestedStateVal statePrefix fieldNames lhs)
+        (qualifyNestedStateVal statePrefix fieldNames rhs)
+  | .checkedModU64 lhs rhs =>
+      .checkedModU64 (qualifyNestedStateVal statePrefix fieldNames lhs)
+        (qualifyNestedStateVal statePrefix fieldNames rhs)
+  | .ite cmp lhs rhs thn els =>
+      .ite cmp (qualifyNestedStateVal statePrefix fieldNames lhs)
+        (qualifyNestedStateVal statePrefix fieldNames rhs)
+        (thn.map (qualifyNestedStateOp statePrefix fieldNames))
+        (els.map (qualifyNestedStateOp statePrefix fieldNames))
+  | .forAccum n value resultLocal =>
+      .forAccum n (qualifyNestedStateVal statePrefix fieldNames value) resultLocal
+  | .forBody n body => .forBody n (body.map (qualifyNestedStateOp statePrefix fieldNames))
+  | .indexSetLeaf name index value len leaf =>
+      .indexSetLeaf (qualifyNestedStateName statePrefix fieldNames name)
+        (qualifyNestedStateVal statePrefix fieldNames index)
+        (qualifyNestedStateVal statePrefix fieldNames value) len leaf
+  | .indexSet name index value len elemOff =>
+      .indexSet (qualifyNestedStateName statePrefix fieldNames name)
+        (qualifyNestedStateVal statePrefix fieldNames index)
+        (qualifyNestedStateVal statePrefix fieldNames value) len elemOff
+  | .storeField name value =>
+      .storeField (qualifyNestedStateName statePrefix fieldNames name)
+        (qualifyNestedStateVal statePrefix fieldNames value)
+  | .okState value => .okState (qualifyNestedStateVal statePrefix fieldNames value)
+  | .returnU64 value => .returnU64 (qualifyNestedStateVal statePrefix fieldNames value)
+  | .returnState value => .returnState (qualifyNestedStateVal statePrefix fieldNames value)
+  | op => op
+
+/-- A nested state helper's success value is consumed by the enclosing record update. Its writes
+remain observable, but its state terminal must not be interpreted as a root-schema commit. -/
+private partial def dropNestedStateTerminals (ops : Array Ops.Op) : Array Ops.Op :=
+  ops.filterMap fun op =>
+    match op with
+    | .okState _ | .returnState _ => none
+    | .ite cmp lhs rhs thn els =>
+        some (.ite cmp lhs rhs (dropNestedStateTerminals thn) (dropNestedStateTerminals els))
+    | .forBody n body => some (.forBody n (dropNestedStateTerminals body))
+    | op => some op
+
+/-- Once a nested transition has been lowered, the enclosing record's projection of that
+structure is inheritance, not a scalar write. Keep later scalar/vector continuation effects while
+removing only the impossible whole-structure store. -/
+private partial def dropNestedRootStores (statePrefix : String)
+    (ops : Array Ops.Op) : Array Ops.Op :=
+  ops.filterMap fun op =>
+    match op with
+    | .storeField name _ => if name == statePrefix then none else some op
+    | .ite cmp lhs rhs thn els =>
+        some (.ite cmp lhs rhs (dropNestedRootStores statePrefix thn)
+          (dropNestedRootStores statePrefix els))
+    | .forBody n body => some (.forBody n (dropNestedRootStores statePrefix body))
+    | op => some op
+
 /-- Zeta-reduce syntax-only aliases at the head of an expression.
 Compiler intrinsics and loops stay explicit so later effect/control decoding still sees them. -/
 private def zetaPureHeadLets (env : Environment) (fuel : Nat) (e : Expr) : Expr :=
@@ -3281,16 +3494,28 @@ private def inlineStateSource (env : Environment) (fuel : Nat) (e : Expr) : Expr
       let args := e.getAppArgs
       if h : args.size > 0 then inlineStateSource env fuel' args[0] else e
     else
-      let projectionBase? := e.getAppArgs.findSome? fun arg =>
-        match arg.getAppFn.constName? with
+      let structureSource? :=
+        match e.getAppFn.constName?, userCtorFields env e with
+        | some ctor, some fields => Id.run do
+          for h : i in [:fields.size] do
+            let field := fields[i]
+            if let some projection := (strip field).getAppFn.constName? then
+              if let some info := env.getProjectionFnInfo? projection then
+                let args := (strip field).getAppArgs
+                if info.ctorName == ctor && info.i == i then
+                  if h : args.size > 0 then return some args[args.size - 1]
+          return none
+        | _, _ => none
+      let directProjectionBase? :=
+        match e.getAppFn.constName? with
         | some name =>
           if !isUserName env name then none else match env.getProjectionFnInfo? name with
           | some _ =>
-            let args := arg.getAppArgs
+            let args := e.getAppArgs
             if h : args.size > 0 then some args[args.size - 1] else none
           | none => none
         | none => none
-      match projectionBase? with
+      match structureSource? <|> directProjectionBase? with
       | some base => inlineStateSource env fuel' base
       | none => e
 
@@ -3342,11 +3567,49 @@ private def stateTransitionNeedsSequencing (env : Environment) : Nat → Expr �
           | some (_, unfolded) => stateTransitionNeedsSequencing env fuel unfolded
           | none => e.getAppArgs.any (stateTransitionNeedsSequencing env fuel)
 
+/-- Follow structure-preserving helpers to their source value without erasing a nested projection.
+For a helper over `s.askBook`, the root-state source is `s` but the type-correct substitution source
+is `s.askBook`; sequential nested lowering needs both facts. -/
+private def inlineTypedStateSource (env : Environment) (fuel : Nat) (e : Expr) : Expr :=
+  match fuel with
+  | 0 => e
+  | fuel' + 1 =>
+    let e := strip e
+    if let .letE _ _ value body _ := e then
+      inlineTypedStateSource env fuel' (body.instantiate1 value)
+    else if (isConstNamed e ``ite || isConstNamed e ``dite) && e.getAppArgs.size ≥ 2 then
+      let args := e.getAppArgs
+      let branch := args[args.size - 2]!
+      let branch :=
+        match strip branch with
+        | .lam _ _ body _ => body.lowerLooseBVars 1 1
+        | branch => branch
+      inlineTypedStateSource env fuel' branch
+    else if (unfoldUserHelper env e).isSome then
+      let args := e.getAppArgs
+      if h : args.size > 0 then inlineTypedStateSource env fuel' args[0] else e
+    else
+      let structureSource? :=
+        match e.getAppFn.constName?, userCtorFields env e with
+        | some ctor, some fields => Id.run do
+          for h : i in [:fields.size] do
+            let field := fields[i]
+            if let some projection := (strip field).getAppFn.constName? then
+              if let some info := env.getProjectionFnInfo? projection then
+                let args := (strip field).getAppArgs
+                if info.ctorName == ctor && info.i == i then
+                  if h : args.size > 0 then return some args[args.size - 1]
+          return none
+        | _, _ => none
+      match structureSource? with
+      | some source => inlineTypedStateSource env fuel' source
+      | none => e
+
 /--
 A let-bound user structure rooted at a method state argument is a sequential State transition,
 not a pure value alias. Decoding it before the continuation avoids substituting an ever-growing
-record expression through every later projection. The entry's typed state boundary keeps nested
-user structures (for example a tree `Node`) as ordinary value aliases.
+record expression through every later projection. Nested structures have a separate typed-source
+path below; this boundary owns only transitions of the declared root state type.
 -/
 private def sequentialStateSource? (env : Environment) (type value : Expr)
     (stateType? : Option Name := none) : Option Expr := do
@@ -3354,13 +3617,87 @@ private def sequentialStateSource? (env : Environment) (type value : Expr)
   if !isUserType env typeName then none else
   if stateType?.any (· != typeName) then none else
   let value := strip value
-  if !isStateTransitionValue env 64 false value then none else
-  if !stateTransitionNeedsSequencing env 64 value then none else
   let source := inlineStateSource env 64 value
   if source == value then none else
+  let directRecordUpdate :=
+    match value.getAppFn.constName?, userCtorFields env value with
+    | some ctor, some _ =>
+        match env.find? ctor with
+        | some (.ctorInfo info) => info.induct == typeName
+        | _ => false
+    | _, _ => false
+  if !directRecordUpdate && !isStateTransitionValue env 64 false value then none else
+  if !stateTransitionNeedsSequencing env 64 value then none else
   match strip source with
   | .bvar _ => some source
-  | source => if isConstNamed source ``methodArgRef then some source else none
+  | source =>
+      if isConstNamed source ``methodArgRef || isConstNamed source ``localRef then
+        some source
+      else none
+
+private structure NestedStateTransition where
+  transition : Expr
+  typedSource : Expr
+  nestedType : Name
+  fieldPrefix : String
+  /-- Composed outer state, its mutable source, and the outer state type. -/
+  outerOwner? : Option (Expr × Expr × Name) := none
+
+private structure NestedStateNormalization where
+  prior : Array Ops.Op
+  transition : Expr
+  typedSource : Expr
+  outerState : Expr
+
+/-- Find a structure-valued field transition embedded directly in an outer record update. Lean's
+zeta reduction commonly turns `let book := update s.book; { s with book }` into exactly this shape.
+Lowering the nested transition first prevents every leaf projection from independently expanding
+the same helper, while retaining a target-neutral flattened field prefix. -/
+private def nestedSequentialTransition? (env : Environment) (state : Expr)
+    (statePrefix : String) : Option NestedStateTransition := Id.run do
+  let state := strip state
+  let some fields := userCtorFields env state | return none
+  let some ctor := state.getAppFn.constName? | return none
+  let some (.ctorInfo info) := env.find? ctor | return none
+  let names := getStructureFields env info.induct
+  for h : i in [:fields.size] do
+    if i < names.size then
+      let some fieldType := fieldTypeExpr env info.induct names[i]! | continue
+      let some fieldTypeName := fieldType.consumeMData.getAppFn.constName? | continue
+      if fieldTypeName != info.induct && isUserType env fieldTypeName &&
+          isStructure env fieldTypeName then
+        let transition := strip fields[i]
+        if isStateTransitionValue env 64 false transition &&
+            stateTransitionNeedsSequencing env 64 transition then
+          let typedSource := inlineTypedStateSource env 64 transition
+          if typedSource != transition then
+            let fieldName := names[i]!.toString
+            let pathPrefix :=
+              if statePrefix.isEmpty then fieldName else s!"{statePrefix}_{fieldName}"
+            let outerOwner? :=
+              match typedSource.getAppFn.constName? with
+              | some projection =>
+                match env.getProjectionFnInfo? projection with
+                | some projectionInfo =>
+                  let args := typedSource.getAppArgs
+                  if h : args.size > 0 then
+                    let owner := args[args.size - 1]
+                    let root := inlineStateSource env 64 owner
+                    if owner == root then none else
+                    match env.find? projectionInfo.ctorName with
+                    | some (.ctorInfo ownerCtor) => some (owner, root, ownerCtor.induct)
+                    | _ => none
+                  else none
+                | none => none
+              | none => none
+            return some {
+              transition := transition
+              typedSource := typedSource
+              nestedType := fieldTypeName
+              fieldPrefix := pathPrefix
+              outerOwner? := outerOwner?
+            }
+  return none
 
 private def stateNamesAlias (left right : String) : Bool :=
   left == right || left.startsWith (right ++ "_") || right.startsWith (left ++ "_")
@@ -3437,7 +3774,8 @@ private def snapshotStateUpdate (base : Nat) (ops : Array Ops.Op) : Array Ops.Op
   return state.prelude ++ body
 
 private def decodeYieldState (env : Environment) (fuel localDepth : Nat) (state : Expr)
-    (appliedBases : Array Expr := #[]) (stateType? : Option Name := none) :
+    (appliedBases : Array Expr := #[]) (stateType? : Option Name := none)
+    (statePrefix : String := "") (deepScalars : Bool := false) :
     Except String (Array Ops.Op) :=
   match fuel with
   | 0 => .error "extract/unsupported: inline state depth"
@@ -3455,33 +3793,33 @@ private def decodeYieldState (env : Environment) (fuel localDepth : Nat) (state 
       | _ => none
     match sequential?, ordinaryLet? with
     | some (value, source, body), _ =>
-      match decodeYieldState env fuel' localDepth value appliedBases stateType?,
+      match decodeYieldState env fuel' localDepth value appliedBases stateType? statePrefix deepScalars,
           decodeYieldState env fuel' localDepth (body.instantiate1 source) appliedBases
-            stateType? with
+            stateType? statePrefix deepScalars with
       | .ok prior, .ok continuation => .ok (prior ++ continuation)
       | .error reason, _ =>
           .error s!"extract/unsupported: sequential inline state binding: {reason}"
       | _, .error reason => .error reason
     | none, some (type, value, body) =>
-      if type.consumeMData.getAppFn.constName? == some ``UInt64 then
-        match val env value with
+      let scalarType := type.consumeMData.getAppFn.constName?
+      if scalarType == some ``UInt64 then
+        match localScalarValue? env (if deepScalars then 128 else 32) value with
         | some localValue =>
-          let materialize :=
-            match localValue with
-            | .field .. | .indexGet .. | .select .. => true
-            | _ => false
-          if materialize then
+          if shouldMaterializeLocal type localValue then
             let marker := mkApp (mkConst ``localRef) (mkNatLit localDepth)
             match decodeYieldState env fuel' (localDepth + 1)
-                (body.instantiate1 marker) appliedBases stateType? with
+                (body.instantiate1 marker) appliedBases stateType? statePrefix deepScalars with
             | .ok continuation => .ok (#[.letLocal localDepth localValue] ++ continuation)
             | .error reason => .error reason
           else
             decodeYieldState env fuel' localDepth (body.instantiate1 value) appliedBases stateType?
+              statePrefix deepScalars
         | none =>
             decodeYieldState env fuel' localDepth (body.instantiate1 value) appliedBases stateType?
+              statePrefix deepScalars
       else
         decodeYieldState env fuel' localDepth (body.instantiate1 value) appliedBases stateType?
+          statePrefix deepScalars
     | none, none =>
       let state0 := raw
       let appliedBases := addAppliedBases #[] <|
@@ -3493,11 +3831,14 @@ private def decodeYieldState (env : Environment) (fuel localDepth : Nat) (state 
         let (prior, normalized, bodyAppliedBases) ←
           if h : args.size > 0 then
             let base := args[0]
-            let source := inlineStateSource env 64 base
+            let source :=
+              if statePrefix.isEmpty then inlineStateSource env 64 base
+              else inlineTypedStateSource env 64 base
             if source == base then
               .ok (#[], unfolded, appliedBases)
             else do
               let prior ← decodeYieldState env fuel' localDepth base appliedBases stateType?
+                statePrefix deepScalars
               let normalized := unfolded.replace fun e => if e == base then some source else none
               let bodyAppliedBases := addAppliedBases appliedBases #[base]
               let bodyAppliedBases :=
@@ -3505,7 +3846,8 @@ private def decodeYieldState (env : Environment) (fuel localDepth : Nat) (state 
               .ok (prior, normalized, bodyAppliedBases)
           else
             .ok (#[], unfolded, appliedBases)
-        match decodeYieldState env fuel' localDepth normalized bodyAppliedBases stateType? with
+        match decodeYieldState env fuel' localDepth normalized bodyAppliedBases stateType?
+            statePrefix deepScalars with
         | .ok ops => .ok (prior ++ ops)
         | .error reason => .error s!"extract/unsupported: inline state {name}: {reason}"
       else if (isConstNamed state0 ``ite || isConstNamed state0 ``dite) &&
@@ -3518,13 +3860,67 @@ private def decodeYieldState (env : Environment) (fuel localDepth : Nat) (state 
         let thn := peelProofLam args[args.size - 2]!
         let els := peelProofLam args[args.size - 1]!
         match args.findSome? (asCondition env),
-            decodeYieldState env fuel' localDepth thn appliedBases stateType?,
-            decodeYieldState env fuel' localDepth els appliedBases stateType? with
+            decodeYieldState env fuel' localDepth thn appliedBases stateType? statePrefix deepScalars,
+            decodeYieldState env fuel' localDepth els appliedBases stateType? statePrefix deepScalars with
         | some (cmp, lhs, rhs), .ok thnOps, .ok elsOps =>
           .ok #[.ite cmp lhs rhs thnOps elsOps]
-        | none, _, _ => .error "extract/unsupported: inline state condition"
+        | none, _, _ =>
+          .error s!"extract/unsupported: inline state condition: {args[args.size - 4]!}"
         | _, .error reason, _ => .error s!"extract/unsupported: inline state then: {reason}"
         | _, _, .error reason => .error s!"extract/unsupported: inline state else: {reason}"
+      else if let some nested := nestedSequentialTransition? env state0 statePrefix then do
+        let normalized : NestedStateNormalization ←
+          match nested.outerOwner? with
+          | none => .ok (NestedStateNormalization.mk #[] nested.transition
+              nested.typedSource state0)
+          | some (owner, root, ownerType) => do
+            let prior ← decodeYieldState env fuel' localDepth owner appliedBases
+              (some ownerType) "" deepScalars
+            -- The composed owner may itself contain the nested transition whose result is also
+            -- referenced by a scalar argument of the later helper (for example an allocated
+            -- address read from a just-pruned tree). That transition has already run as part of
+            -- `prior`; rewrite the exact same-typed value to its normalized projection as well.
+            let appliedNested? := nestedSequentialTransition? env owner ""
+            let rewriteApplied (e : Expr) : Expr :=
+              let e := e.replace fun candidate => if candidate == owner then some root else none
+              match appliedNested? with
+              | none => e
+              | some applied =>
+                let source := applied.typedSource.replace fun candidate =>
+                  if candidate == owner then some root else none
+                let appliedSourceVal := val env applied.typedSource
+                e.replace fun candidate =>
+                  let candidateSource := inlineTypedStateSource env 64 candidate
+                  let sameTypedSource := candidateSource == applied.typedSource ||
+                    (appliedSourceVal.isSome && val env candidateSource == appliedSourceVal)
+                  if candidate == applied.transition || (sameTypedSource &&
+                      isStateTransitionValue env 64 false candidate) then
+                    some source
+                  else none
+            let transition :=
+              rewriteApplied nested.transition
+            let typedSource :=
+              rewriteApplied nested.typedSource
+            let outerState := state0.replace fun e => if e == owner then some root else none
+            .ok (NestedStateNormalization.mk prior transition typedSource outerState)
+        let nestedOps ←
+          match decodeYieldState env fuel' localDepth normalized.transition appliedBases
+              (some nested.nestedType) nested.fieldPrefix deepScalars with
+          | .ok ops =>
+              let fieldNames := (getStructureFields env nested.nestedType).map (·.toString)
+              .ok (dropNestedStateTerminals
+                (ops.map (qualifyNestedStateOp nested.fieldPrefix fieldNames)))
+          | .error reason =>
+              .error s!"extract/unsupported: nested sequential state field: {reason}"
+        let continuationState :=
+          normalized.outerState.replace fun e =>
+            if e == normalized.transition then some normalized.typedSource else none
+        match decodeYieldState env fuel' localDepth continuationState appliedBases stateType?
+            statePrefix deepScalars with
+        | .ok continuation =>
+            .ok (dropNestedRootStores nested.fieldPrefix
+              (normalized.prior ++ nestedOps ++ continuation))
+        | .error reason => .error reason
       else do
         let priorBase? := findProjectedInlineBase env 64 state0
         let prior ←
@@ -3532,9 +3928,12 @@ private def decodeYieldState (env : Environment) (fuel localDepth : Nat) (state 
           | none => .ok #[]
           | some base =>
             if appliedBases.contains base then .ok #[] else match unfoldUserHelper env base with
-            | some (name, unfolded) =>
-              let nestedAppliedBases := addAppliedBases appliedBases #[base]
-              match decodeYieldState env fuel' localDepth unfolded nestedAppliedBases stateType? with
+            | some (name, _) =>
+              -- Keep the helper application intact here. Its normal decode path sequences the
+              -- state argument before β-expanded scalar lets; decoding the body directly would
+              -- read the pre-transition state and duplicate those lets through every projection.
+              match decodeYieldState env fuel' localDepth base appliedBases stateType?
+                  statePrefix deepScalars with
               | .ok ops => .ok ops
               | .error reason =>
                 .error s!"extract/unsupported: projected inline state {name}: {reason}"
@@ -3557,9 +3956,9 @@ private def decodeYieldState (env : Environment) (fuel localDepth : Nat) (state 
             let bases := addAppliedBases appliedBases #[base]
             addAppliedBases bases (projectedInlineBases env 64 base)
           | none => appliedBases
-        let dynamic := collectIndexSets env outerState (deduplicate := true)
-          (appliedBases := outerAppliedBases)
-        let static := (flattenLeaves env "" outerState outerAppliedBases).map fun p =>
+        let dynamic := (collectIndexSets env outerState (deduplicate := true)
+          (appliedBases := outerAppliedBases)).map (qualifyDynamicStateOp statePrefix)
+        let static := (flattenLeaves env statePrefix outerState outerAppliedBases).map fun p =>
           (.storeField p.1 p.2 : Ops.Op)
         let update := snapshotStateUpdate localDepth
           (dynamic ++ dropVectorRootStores dynamic static)
@@ -3567,16 +3966,17 @@ private def decodeYieldState (env : Environment) (fuel localDepth : Nat) (state 
 
 /-- State loop 的 `yield newState` 只写账户并继续，不生成 commit/exit。 -/
 private def asYieldStores (env : Environment) (e : Expr) (localDepth : Nat)
-    (stateType? : Option Name := none) :
+    (stateType? : Option Name := none) (deepScalars : Bool := false) :
     Option (Except String (Array Ops.Op)) :=
   match findYieldPayload e with
   | none => none
-  | some state => some (decodeYieldState env 64 localDepth state (stateType? := stateType?))
+  | some state => some (decodeYieldState env 128 localDepth state (stateType? := stateType?)
+      (deepScalars := deepScalars))
 
 /-- An inline State helper used as the state component of `.ok (state, ret)` still owns a real
 transition. Decode that transition before returning the pair's explicit scalar result. -/
 private def asInlineStateSuccess (env : Environment) (e : Expr) (localDepth : Nat)
-    (stateType? : Option Name := none) :
+    (stateType? : Option Name := none) (deepScalars : Bool := false) :
     Option (Except String (Array Ops.Op)) :=
   let e := peelControl 8 (dropUnusedHeadLets 32 e)
   if !isConstNamed e ``Except.ok || e.getAppArgs.size < 1 then none else
@@ -3591,11 +3991,12 @@ private def asInlineStateSuccess (env : Environment) (e : Expr) (localDepth : Na
       match val env result with
       | some value => .ok value
       | none => .error "extract/unsupported: inline state success result"
-    let stores ← decodeYieldState env 64 localDepth state (stateType? := stateType?)
+    let stores ← decodeYieldState env 128 localDepth state (stateType? := stateType?)
+      (deepScalars := deepScalars)
     return stores.push (.okState value)
 
 private def decodePlain (env : Environment) (e : Expr) (stateful : Bool)
-    (localDepth : Nat) (stateType? : Option Name := none) :
+    (localDepth : Nat) (stateType? : Option Name := none) (deepScalars : Bool := false) :
     Except String (Array Ops.Op) :=
   -- 必须在 peelLets 之前找效应：剥掉 `have sent := …` 后调用就没了。
   if let some inv := findInvoke env 16 e then
@@ -3604,9 +4005,9 @@ private def decodePlain (env : Environment) (e : Expr) (stateful : Bool)
     .ok ops
   else if let some (n, addend) := findForIn env e then
     .ok #[.forAccum n addend localDepth, .returnU64 (.local localDepth)]
-  else if let some result := asYieldStores env e localDepth stateType? then
+  else if let some result := asYieldStores env e localDepth stateType? deepScalars then
     result
-  else if let some result := asInlineStateSuccess env e localDepth stateType? then
+  else if let some result := asInlineStateSuccess env e localDepth stateType? deepScalars then
     result
   else
   -- Record updates repeat one shared constructor through every unchanged projection. Emit each
@@ -3637,8 +4038,8 @@ private def decodePlain (env : Environment) (e : Expr) (stateful : Bool)
     .ok #[.errorOverflow]
   else if let some name := errorCtorName e then
     .ok #[.errorNamed name]
-  else if let some v := asOkNoop env e (markedOnly := stateful) then
-    .ok #[.returnU64 v]
+  else if let some v := asOkNoop env e then
+    .ok #[if stateful then .okState v else .returnU64 v]
   else if let some ops := asStoreFields env e stateful then
     .ok (snapshotStateUpdate localDepth ops)
   else if let some v := asOkState env e then
@@ -3703,12 +4104,6 @@ private def lastNamedBin (env : Environment) (want : Name) (e : Expr) : Option (
         | _ => e.getAppArgs.findSome? (go fuel')
   go 16 e
 
-/-- Materialize only source values whose repeated expansion grows bounded tree control flow.
-Plain scalar arithmetic remains canonicalized by substitution, preserving checked-arithmetic IR. -/
-private def shouldMaterializeLocal : Ops.Val → Bool
-  | .field .. | .indexGet .. | .select .. => true
-  | _ => false
-
 /--
 Turn the terminal successes of a scalar `Except` producer into assignments to one join slot.
 Checked arithmetic already branches to the enclosing error exit, so operations after a terminal
@@ -3764,7 +4159,8 @@ private def loopUnderBind (fuel : Nat) (e : Expr) (underBind : Bool := false) : 
 
 private def decodeExpr (env : Environment) (fuel : Nat) (e : Expr)
     (stateful : Bool := false) (preserveLocals : Bool := false)
-    (localDepth : Nat := 0) (stateType? : Option Name := none) :
+    (localDepth : Nat := 0) (stateType? : Option Name := none)
+    (deepScalars : Bool := false) :
     Except String (Array Ops.Op) :=
   match fuel with
   | 0 => .error "extract/unsupported: ite depth"
@@ -3773,7 +4169,7 @@ private def decodeExpr (env : Environment) (fuel : Nat) (e : Expr)
     if !invokes.isEmpty then
       match decodeExpr env fuel' continuation (stateful := stateful)
           (preserveLocals := preserveLocals) (localDepth := localDepth)
-          (stateType? := stateType?) with
+          (stateType? := stateType?) (deepScalars := deepScalars) with
       | .ok decodedOps =>
           let continuationOps :=
             if Ops.hasStoreField decodedOps || Ops.hasIndexSet decodedOps then decodedOps
@@ -3786,7 +4182,7 @@ private def decodeExpr (env : Environment) (fuel : Nat) (e : Expr)
       if let some guarded := guardedRunBody? 64 stripped then
         return decodeExpr env fuel' guarded (stateful := stateful)
           (preserveLocals := preserveLocals) (localDepth := localDepth)
-          (stateType? := stateType?)
+          (stateType? := stateType?) (deepScalars := deepScalars)
     match strip e with
     | .letE _ ty value body _ =>
       let effectful :=
@@ -3794,36 +4190,41 @@ private def decodeExpr (env : Environment) (fuel : Nat) (e : Expr)
           (findForIn env value).isSome || (findForBodyExpr env value).isSome
       if !effectful then
         if let some source := sequentialStateSource? env ty value stateType? then
-          match decodeYieldState env 64 localDepth value (stateType? := stateType?),
+          match decodeYieldState env 128 localDepth value (stateType? := stateType?)
+              (statePrefix := "") (deepScalars := deepScalars),
               decodeExpr env fuel' (body.instantiate1 source) (stateful := stateful)
                 (preserveLocals := preserveLocals) (localDepth := localDepth)
-                (stateType? := stateType?) with
+                (stateType? := stateType?) (deepScalars := deepScalars) with
           | .ok prior, .ok continuation => return .ok (prior ++ continuation)
           | .error reason, _ =>
             return .error s!"extract/unsupported: sequential state binding: {reason}"
           | _, .error reason => return .error reason
         else if ty.consumeMData.getAppFn.constName? == some ``UInt64 then
-          match val env value with
+          match localScalarValue? env (if deepScalars then 128 else 32) value with
           | some localValue =>
-            if preserveLocals && shouldMaterializeLocal localValue then
+            if preserveLocals && shouldMaterializeLocal ty localValue then
               let marker := mkApp (mkConst ``localRef) (mkNatLit localDepth)
               match decodeExpr env fuel' (body.instantiate1 marker)
                   (stateful := stateful) (preserveLocals := preserveLocals)
-                  (localDepth := localDepth + 1) (stateType? := stateType?) with
+                  (localDepth := localDepth + 1) (stateType? := stateType?)
+                  (deepScalars := deepScalars) with
               | .ok ops => return .ok (#[.letLocal localDepth localValue] ++ ops)
               | .error reason => return .error reason
             else
               return decodeExpr env fuel' (body.instantiate1 value)
                 (stateful := stateful) (preserveLocals := preserveLocals)
                 (localDepth := localDepth) (stateType? := stateType?)
+                (deepScalars := deepScalars)
           | _ =>
             return decodeExpr env fuel' (body.instantiate1 value)
               (stateful := stateful) (preserveLocals := preserveLocals)
               (localDepth := localDepth) (stateType? := stateType?)
+              (deepScalars := deepScalars)
         else
           return decodeExpr env fuel' (body.instantiate1 value)
             (stateful := stateful) (preserveLocals := preserveLocals)
             (localDepth := localDepth) (stateType? := stateType?)
+            (deepScalars := deepScalars)
     | _ => pure ()
     -- Branch decoders normalize their arms independently. Zeta-reducing the entire branch here
     -- duplicates let-bound State transitions into every projection before the sequential-state
@@ -3846,7 +4247,8 @@ private def decodeExpr (env : Environment) (fuel : Nat) (e : Expr)
       | .lam _ ty body _ =>
         if ty.consumeMData.getAppFn.constName? == some ``UInt64 then
           match decodeExpr env fuel' producer (preserveLocals := preserveLocals)
-              (localDepth := localDepth + 1) (stateType? := stateType?) with
+              (localDepth := localDepth + 1) (stateType? := stateType?)
+              (deepScalars := deepScalars) with
           | .error reason =>
               return .error s!"extract/unsupported: bind producer: {reason}"
           | .ok producerOps =>
@@ -3855,7 +4257,7 @@ private def decodeExpr (env : Environment) (fuel : Nat) (e : Expr)
               let marker := mkApp (mkConst ``localRef) (mkNatLit localDepth)
               match decodeExpr env fuel' (body.instantiate1 marker) (stateful := stateful)
                   (preserveLocals := preserveLocals) (localDepth := localDepth + 1)
-                  (stateType? := stateType?) with
+                  (stateType? := stateType?) (deepScalars := deepScalars) with
               | .ok continuationOps =>
                   return .ok (#[.joinLocal localDepth] ++ joinedProducer ++ continuationOps)
               | .error reason =>
@@ -3868,14 +4270,14 @@ private def decodeExpr (env : Environment) (fuel : Nat) (e : Expr)
     let stateLoop? : Option (Except String (Array Ops.Op)) :=
       -- State-loop callbacks capture scalar outer lets by value, while their mutable state binder
       -- must remain visible so `findForStateExpr` can distinguish them from ordinary loops.
-      if loopUnderBind 64 e then none else match findForStateExpr env (substUInt64Lets 256 e) with
+      match if loopUnderBind 64 e then none else findForStateExpr env e with
       | none => none
       | some (n, initial, bodyE, continuation) =>
         if isForInDone bodyE then none else
-        match decodeYieldState env 64 localDepth initial (stateType? := stateType?),
+        match decodeYieldState env 128 localDepth initial (stateType? := stateType?),
             decodeExpr env fuel' bodyE (stateful := true)
               (preserveLocals := preserveLocals) (localDepth := localDepth)
-              (stateType? := stateType?) with
+              (stateType? := stateType?) (deepScalars := n > 4) with
         | .error reason, _ =>
             some (.error s!"extract/unsupported: state loop initial value: {reason}")
         | _, .error reason => some (.error s!"extract/unsupported: state loop body: {reason}")
@@ -3883,13 +4285,10 @@ private def decodeExpr (env : Environment) (fuel : Nat) (e : Expr)
           if Ops.hasStoreField bodyOps || Ops.hasIndexSet bodyOps then
             match decodeExpr env fuel' continuation (stateful := true)
                 (preserveLocals := preserveLocals)
-                (localDepth := localDepth) (stateType? := stateType?) with
+                (localDepth := localDepth) (stateType? := stateType?)
+                (deepScalars := n > 4) with
             | .error reason =>
-              match findOkRet env continuation with
-              | some ret =>
-                some (.ok (initialOps ++
-                  #[.forBody n (bodyOps.map rewriteLoopOp), .okState ret]))
-              | none => some (.error s!"extract/unsupported: state loop continuation: {reason}")
+              some (.error s!"extract/unsupported: state loop continuation: {reason}")
             | .ok continuationOps =>
               some (.ok (initialOps ++ #[.forBody n (bodyOps.map rewriteLoopOp)] ++
                 continuationOps))
@@ -3907,7 +4306,8 @@ private def decodeExpr (env : Environment) (fuel : Nat) (e : Expr)
       return .ok #[.forAccum n addend localDepth, .returnU64 (.local localDepth)]
     else if let some (n, bodyE) := findForBodyExpr env e then
       match decodeExpr env fuel' bodyE (preserveLocals := preserveLocals)
-          (localDepth := localDepth) (stateType? := stateType?) with
+          (localDepth := localDepth) (stateType? := stateType?)
+          (deepScalars := deepScalars) with
       | .ok ops => return .ok #[.forBody n (ops.map rewritePlainLoopOp), .errorOverflow]
       | .error r => return .error r
     let e := strip e
@@ -3968,8 +4368,16 @@ private def decodeExpr (env : Environment) (fuel : Nat) (e : Expr)
             | .lam _ _ body _ => hasNestedIte fuel' body
             | .app fn arg => hasNestedIte fuel' fn || hasNestedIte fuel' arg
             | _ => false
-      -- A recursive invoke search must not erase an intervening source branch.
-      let directInvoke := if hasNestedIte 64 t then none else findInvoke env 8 t
+      -- A recursive invoke search must not erase an intervening branch or a sequence of ignored
+      -- invokes followed by a state transition. `decodeExpr` owns the latter so it can preserve
+      -- every effect and the continuation.
+      let (leading, invokeContinuation) := leadingInvokes env t
+      let sequencedState := !leading.isEmpty &&
+        (containsStructuredStateLet env 2048 invokeContinuation ||
+          containsInlineStateTransition env 2048 invokeContinuation)
+      let directInvoke :=
+        if hasNestedIte 64 t || sequencedState then none
+        else findInvoke env 8 t
       if isErrorOverflow f && !isForInYield f then
         if let some condE := findBy args (fun a =>
             (asCmp env a).isSome &&
@@ -3982,7 +4390,7 @@ private def decodeExpr (env : Environment) (fuel : Nat) (e : Expr)
                   isConstNamed (peelLets (strip t)) ``dite)) then
           let decodedThen := decodeExpr env fuel' t (stateful := stateful)
             (preserveLocals := preserveLocals) (localDepth := localDepth)
-            (stateType? := stateType?)
+            (stateType? := stateType?) (deepScalars := deepScalars)
           let structuredThen := containsStructuredStateLet env 2048 t ||
             containsInlineStateTransition env 2048 t
           if let .ok thn := decodedThen then
@@ -4024,7 +4432,7 @@ private def decodeExpr (env : Environment) (fuel : Nat) (e : Expr)
             if structuredThen || hasNestedIte 64 t then
               match decodeExpr env fuel' t (stateful := stateful)
                   (preserveLocals := preserveLocals) (localDepth := localDepth)
-                  (stateType? := stateType?) with
+                  (stateType? := stateType?) (deepScalars := deepScalars) with
               | .ok thn => return .ok #[.ite cmp lv rv thn #[.errorOverflow]]
               | .error r => return .error r
             else
@@ -4049,7 +4457,7 @@ private def decodeExpr (env : Environment) (fuel : Nat) (e : Expr)
           | some (cmp, lv, rv), none, none, none, none, none, .ok thn =>
             match decodeExpr env fuel' f (stateful := stateful)
                 (preserveLocals := preserveLocals) (localDepth := localDepth)
-                (stateType? := stateType?) with
+                (stateType? := stateType?) (deepScalars := deepScalars) with
             | .ok els => return .ok #[.ite cmp lv rv thn els]
             | .error _ => return .ok #[.ite cmp lv rv thn #[.errorOverflow]]
           | some _, none, none, none, none, none, .error reason =>
@@ -4059,7 +4467,7 @@ private def decodeExpr (env : Environment) (fuel : Nat) (e : Expr)
           match asCheckedAddGuard env condE, directInvoke, decodeEvmEffect env t,
               decodeExpr env fuel' t (stateful := stateful)
                 (preserveLocals := preserveLocals) (localDepth := localDepth)
-                (stateType? := stateType?), asStoreFields env t,
+                (stateType? := stateType?) (deepScalars := deepScalars), asStoreFields env t,
               asOkState env t with
           | some (lhs, rhs), some inv, _, _, some stores, _ =>
             return .ok (#[.checkedAddU64 lhs rhs, invokeOp inv] ++ stores)
@@ -4089,7 +4497,7 @@ private def decodeExpr (env : Environment) (fuel : Nat) (e : Expr)
           match asCheckedMulGuard env condE,
               decodeExpr env fuel' t (stateful := stateful)
                 (preserveLocals := preserveLocals) (localDepth := localDepth)
-                (stateType? := stateType?),
+                (stateType? := stateType?) (deepScalars := deepScalars),
               asStoreFields env t, asOkState env t with
           | some (lhs, rhs), _, some stores, _ =>
             match stores.toList with
@@ -4114,10 +4522,10 @@ private def decodeExpr (env : Environment) (fuel : Nat) (e : Expr)
           match asCheckedSubGuard env condE, directInvoke, decodeEvmEffect env t,
               decodeExpr env fuel' t (stateful := stateful)
                 (preserveLocals := preserveLocals) (localDepth := localDepth)
-                (stateType? := stateType?),
+                (stateType? := stateType?) (deepScalars := deepScalars),
               decodeExpr env fuel' f (stateful := stateful)
                 (preserveLocals := preserveLocals) (localDepth := localDepth)
-                (stateType? := stateType?), asStoreFields env t,
+                (stateType? := stateType?) (deepScalars := deepScalars), asStoreFields env t,
               asOkState env t with
           | some _, some inv, _, _, _, _, _ =>
             let some (cmp, lv, rv) := asCmp env condE
@@ -4163,7 +4571,7 @@ private def decodeExpr (env : Environment) (fuel : Nat) (e : Expr)
           match asCondition env condE,
               decodeExpr env fuel' t (stateful := stateful)
                 (preserveLocals := preserveLocals) (localDepth := localDepth)
-                (stateType? := stateType?) with
+                (stateType? := stateType?) (deepScalars := deepScalars) with
           | some (cmp, lv, rv), .ok thn =>
             return .ok #[.ite cmp lv rv thn #[.errorOverflow]]
           | _, _ => return .error "extract/unsupported: ite cond"
@@ -4180,7 +4588,7 @@ private def decodeExpr (env : Environment) (fuel : Nat) (e : Expr)
             | return .error s!"extract/unsupported: ite cond: {condE}"
           match decodeExpr env fuel' t (stateful := stateful)
               (preserveLocals := preserveLocals) (localDepth := localDepth)
-              (stateType? := stateType?) with
+              (stateType? := stateType?) (deepScalars := deepScalars) with
           | .ok thn => return .ok #[.ite cmp lv rv thn #[]]
           | .error r => return .error s!"extract/unsupported: forBody then {r}"
         let some condE := findBy args isValueCmp <|> findBy args (fun a => (asCmp env a).isSome)
@@ -4188,10 +4596,10 @@ private def decodeExpr (env : Environment) (fuel : Nat) (e : Expr)
             | some condition =>
               match decodeExpr env fuel' t (stateful := stateful)
                     (preserveLocals := preserveLocals) (localDepth := localDepth)
-                    (stateType? := stateType?),
+                    (stateType? := stateType?) (deepScalars := deepScalars),
                   decodeExpr env fuel' f (stateful := stateful)
                     (preserveLocals := preserveLocals) (localDepth := localDepth)
-                    (stateType? := stateType?) with
+                    (stateType? := stateType?) (deepScalars := deepScalars) with
               | .ok thn, .ok els => return .ok #[.ite condition.1 condition.2.1 condition.2.2 thn els]
               | .error r, _ =>
                 return .error (if stateful then s!"state loop then: {r}" else s!"ite then: {r}")
@@ -4202,10 +4610,10 @@ private def decodeExpr (env : Environment) (fuel : Nat) (e : Expr)
           | return .error s!"extract/unsupported: ite cond: {condE}"
         match decodeExpr env fuel' t (stateful := stateful)
               (preserveLocals := preserveLocals) (localDepth := localDepth)
-              (stateType? := stateType?),
+              (stateType? := stateType?) (deepScalars := deepScalars),
             decodeExpr env fuel' f (stateful := stateful)
               (preserveLocals := preserveLocals) (localDepth := localDepth)
-              (stateType? := stateType?) with
+              (stateType? := stateType?) (deepScalars := deepScalars) with
         | .ok thn, .ok els => return .ok #[.ite cmp lv rv thn els]
         | .error r, _ =>
           return .error (if stateful then s!"state loop then: {r}" else s!"ite then: {r}")
@@ -4218,13 +4626,13 @@ private def decodeExpr (env : Environment) (fuel : Nat) (e : Expr)
     else if let some (name, unfolded) := unfoldUserHelper env e then
       match decodeExpr env fuel' (substIteLets 256 unfolded) (stateful := stateful)
           (preserveLocals := preserveLocals) (localDepth := localDepth)
-          (stateType? := stateType?) with
+          (stateType? := stateType?) (deepScalars := deepScalars) with
       | .ok ops => return .ok ops
       | .error reason => return .error s!"extract/unsupported: inline {name}: {reason}"
     else if let some reduced := reduceUInt64NewtypeMatch? env e then
       return decodeExpr env fuel' reduced (stateful := stateful)
         (preserveLocals := preserveLocals) (localDepth := localDepth)
-        (stateType? := stateType?)
+        (stateType? := stateType?) (deepScalars := deepScalars)
     else if isUInt64VariantMatcher env e then
       let args := e.getAppArgs
       let some matcherName := e.getAppFn.constName?
@@ -4279,7 +4687,8 @@ private def decodeExpr (env : Environment) (fuel : Nat) (e : Expr)
           let altBody := peelMatcherLams 8 altBody
           match decodeExpr env fuel' altBody (stateful := stateful)
               (preserveLocals := preserveLocals)
-              (localDepth := localDepth + altInfo.numFields) (stateType? := stateType?) with
+              (localDepth := localDepth + altInfo.numFields) (stateType? := stateType?)
+              (deepScalars := deepScalars) with
           | .ok ops =>
             let mut withPayloads : Array Ops.Op := #[]
             for fieldIndex in [:altInfo.numFields] do
@@ -4318,7 +4727,7 @@ private def decodeExpr (env : Environment) (fuel : Nat) (e : Expr)
       let someBody := peelMatcherLams 8 someE
       match decodeExpr env fuel' noneBody (stateful := stateful)
           (preserveLocals := preserveLocals) (localDepth := localDepth)
-          (stateType? := stateType?) with
+          (stateType? := stateType?) (deepScalars := deepScalars) with
       | .error r => return .error r
       | .ok noneOps =>
         let someOps :=
@@ -4327,7 +4736,7 @@ private def decodeExpr (env : Environment) (fuel : Nat) (e : Expr)
           | _ =>
             match decodeExpr env fuel' someBody (stateful := stateful)
                 (preserveLocals := preserveLocals) (localDepth := localDepth)
-                (stateType? := stateType?) with
+                (stateType? := stateType?) (deepScalars := deepScalars) with
             | .ok ops =>
               match ops with
               | #[.returnU64 (.arg _)] => #[.returnU64 payload]
@@ -4336,7 +4745,7 @@ private def decodeExpr (env : Environment) (fuel : Nat) (e : Expr)
             | .error _ => #[.returnU64 payload]
         return .ok #[.ite .eq tag (.lit 0) noneOps someOps]
     else
-      return decodePlain env e stateful localDepth stateType?
+      return decodePlain env e stateful localDepth stateType? deepScalars
 
 def decodeBody (env : Environment) (e : Expr) (preserveLocals : Bool := false)
     (stateType? : Option Name := none) :
@@ -4825,7 +5234,7 @@ def inferFields (env : Environment) (initName : Name) : Except String (Array Str
   return (← inferSlots env initName).map (·.name)
 
 private def valFields : Ops.Val → Array String
-  | .field b n => valFields b |>.push n
+  | .field _ n => #[n]
   | .arg _ => #[]
   | .local _ => #[]
   | .lit _ => #[]
@@ -5019,7 +5428,7 @@ private def checkUsedFields (p : IR.Program) : Except String Unit := do
     for op in m.ops do
       for name in opFields op do
         if (Core.IR.fieldWidth p name).isNone then
-          throw s!"extract/unsupported: unknown field {name}"
+          throw s!"{m.ixName}: extract/unsupported: unknown field {name}"
 
 /-- Typed initializers must account for every leaf; backends must never invent missing zeros. -/
 private def checkInitCoverage (p : IR.Program) : Except String Unit := do

@@ -219,10 +219,17 @@ private partial def eventsFor (schema : Schema) (ops : Array (Ops.Op ValExt OpEx
         let place ← dynamicPlace schema name index byteOffset
         events := events.push (.dynamicWrite { place, value := .source value })
     | .storeField name value =>
-        let place ← placeByName schema name
+        let place ←
+          match placeByName schema name with
+          | .ok place => pure place
+          | .error reason => throw s!"storeField {name}: {reason}"
         events := events.push (.write { place, value := .source value })
     | .okState value =>
-        events := events.push (.commit (← commitFor schema ops value))
+        let commit ←
+          match commitFor schema ops value with
+          | .ok commit => pure commit
+          | .error reason => throw s!"okState: {reason}"
+        events := events.push (.commit commit)
     | _ => pure ()
   return events
 

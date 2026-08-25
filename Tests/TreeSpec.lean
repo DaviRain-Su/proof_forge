@@ -177,7 +177,7 @@ elab "#pf_guard_tree_allocator" : command => do
       ((storeNames rotateLeft.ops).filter (· == "root")).size == 2 &&
       ((storeNames rotateRight.ops).filter (· == "root")).size == 2 do
     throwError "Tree rotation writeback is incomplete or duplicated"
-  unless maxIndexWrites insert.ops == 17 && insert.evaluation.dynamicWrites.size == 110 do
+  unless maxIndexWrites insert.ops == 17 && insert.evaluation.dynamicWrites.size == 54 do
     throwError s!"Tree insertion writeback changed or expanded: " ++
       s!"{maxIndexWrites insert.ops} path writes, " ++
       s!"{insert.evaluation.dynamicWrites.size} evaluated writes"

@@ -178,6 +178,50 @@ def setLayout (s : LayoutState) (i value : UInt64) :
 def getLayout (s : LayoutState) (i : UInt64) : UInt64 :=
   if i < 2 then s.entries[i.toNat]!.left else 0
 
+/-- Nested vector owners retain their complete flattened schema path for dynamic reads and writes. -/
+structure NestedVectorBook where
+  root : UInt64
+  right : Vector UInt64 2
+  deriving Repr, DecidableEq
+
+structure NestedVectorState where
+  tag : UInt64
+  book : NestedVectorBook
+  deriving Repr, DecidableEq
+
+def initNestedVector (_seed : UInt64) : NestedVectorState :=
+  { tag := 0, book := { root := 0, right := #v[0, 0] } }
+
+def setNestedVector (s : NestedVectorState) (i value : UInt64) :
+    Except Examples.Counter.Error (NestedVectorState × UInt64) :=
+  if h : i.toNat < 2 then
+    .ok ({ s with book := { s.book with right := s.book.right.set i.toNat value } }, value)
+  else
+    .error .overflow
+
+def getNestedVector (s : NestedVectorState) (i : UInt64) : UInt64 :=
+  if i < 2 then s.book.right[i.toNat]! else 0
+
+def stageNestedOuter (s : NestedVectorState) (value : UInt64) : NestedVectorState :=
+  { s with tag := value }
+
+def stageNestedBook (book : NestedVectorBook) (i value : UInt64) : NestedVectorBook :=
+  if h : i.toNat < 2 then
+    { book with root := value, right := book.right.set i.toNat value }
+  else book
+
+def stageNestedState (s : NestedVectorState) (i value : UInt64) : NestedVectorState :=
+  let outer := stageNestedOuter s value
+  { outer with book := stageNestedBook outer.book i outer.tag }
+
+attribute [pf_inline] stageNestedOuter stageNestedBook stageNestedState
+
+/-- A nested helper may consume a scalar from an already-applied outer transition. The outer
+write must stay root-qualified while the nested helper's fields use their complete schema path. -/
+def setStagedNestedVector (s : NestedVectorState) (i value : UInt64) :
+    Except Examples.Counter.Error (NestedVectorState × UInt64) :=
+  .ok (stageNestedState s i value, value)
+
 /-- 正向：单构造子、单个 `UInt64` payload 是无 tag 的 representational newtype。 -/
 inductive Tagged where
   | wrap (n : UInt64)

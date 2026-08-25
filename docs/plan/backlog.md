@@ -68,24 +68,32 @@
 - Token-2022 classic-compatible `TransferChecked`：通用 `CpiMeta.expectedDataLen` 在 CPI 前约束 base Mint=82B / Account=165B；真实 base transfer 成功，transfer-fee / enabled transfer-hook mint 原子拒绝；Runtime CPI wrapper 改为按命名空间统一展开，不再维护 recipe 名白名单
 - 独立 Tree N=4 删除切片：successor transplant、全部可达 delete-fixup、free-list 回收和精确地址复用；24 种插入顺序 × 4 个删除 key 的宿主不变量门，以及 black-leaf fixup/reuse Mollusk 链上门
 - Phoenix trader tree 持久化 N=4 topology：root/left/right/parent/color、bounded 插入/删除修复和 exact address reuse；deposit 沿 links 查找并复用 parent，evict 先 detach 再回收。抽取器只增加 target-neutral 的 continuation/conditional-state/vector-write lowering，没有 Tree/Phoenix 名字或 emitter 特判
+- Phoenix ask/bid order tree 持久化 N=4 topology：payload 地址稳定，撮合按中序 best/successor 遍历，fill/expiry/reduce/cancel detach，满书驱逐后 exact address reuse。通用抽取器增加 scalar let zeta-reduction 和 qualified nested-vector schema path；两个 target emitter、IR 与 Phoenix ABI 无需特判或改动
 
 ## 当前状态
 
-- `lake build Tests` 当前 190 jobs；69 个 imported test modules 含 805 个 `#guard` / `#guard_msgs`。
+- `lake build Tests` 当前 190 jobs；69 个 imported test modules 含 809 个 `#guard` / `#guard_msgs`。
 - SVM registry 49 个程序 / 49 个 Mollusk integration 文件；这表示每个程序有门，不表示每个入口都已有链上矩阵。
 - EVM registry 12 个程序；Counter / Pair / Flag / Maybe / Context / TipJar / Lang / Vault / Ownable / Token / Window / Phase 的 Anvil 总门 12/12。
-- Phoenix Mollusk 已覆盖 ask/bid 挂单、reduce、双向撮合、费用收取、真实 base/quote deposit/withdraw、trader topology 删除后的 surviving root、未注册 take-only 双 Token 腿、严格 slot/time TIF、三种 self-trade、认证 audit `Program data`，及 vault/mint/Token program/self program/log PDA/writable/signer/owner 原子失败；跨四档逐样本 refinement 仍由 host/IR 门承担。
+- Phoenix Mollusk 已覆盖 ask/bid 挂单、reduce、双向撮合、费用收取、真实 base/quote deposit/withdraw、trader topology 删除后的 surviving root、ask/bid order topology 与满书 exact address reuse、未注册 take-only 双 Token 腿、严格 slot/time TIF、三种 self-trade、认证 audit `Program data`，及 vault/mint/Token program/self program/log PDA/writable/signer/owner 原子失败；跨四档逐样本 refinement 仍由 host/IR 门承担。
 - `l5-003` 与 Phoenix 双 vault adapter 已完成：Seat 初始化和 Phoenix 同一入口的 canonical PDA 校验、classic SPL Token CPI 成功/失败路径都进 Mollusk。
 - `l5-004` Token-2022 classic-compatible program-id 切片已完成；TLV extension 语义仍保持 fail closed。
 - `l5-005` 已完成；任务状态已同步为 done。
 
-## 按优先级继续
+## Phoenix / Solana P0–P5 路线
 
-### P1：扩大产品面
+| 阶段 | 状态 | 依赖 | 验收门 |
+|---|---|---|---|
+| P0 抽取收口 | 进行中 | 通用 Extract state-loop/helper sequencing；SVM CFG/local 布局 | `postAsk` 值树预算、单方法发射、PhoenixSpec、可复现的 wall/RSS/assembly 数据；continuation 解码失败必须 fail closed，不能退化成部分 state commit |
+| P1 bounded 产品语义 | 已有 | P0；固定 N=4 账户布局 | ask/bid/trader 三棵持久化树的 N=4 host/IR 门、24 种 topology、双向 IOC、TIF/self-trade/fee/事件与 exact address reuse 全绿 |
+| P2 链上认证矩阵 | 部分支持 | 可组装 Phoenix ELF；classic SPL Token 与 signed self-CPI | Phoenix Mollusk lifecycle/CPI/authenticated audit 矩阵全绿；跨四档逐样本 chain refinement 补齐前不得宣称 host↔chain 完整 refinement |
+| P3 横向回归 | 部分支持 | P0/P2 产物稳定 | Tree Mollusk、全 SVM registry Mollusk、全 EVM registry Anvil 及 `lake build Tests` 全绿，无 target-specific Phoenix 特判 |
+| P4 产物资格/压缩 | 未支持 | P0 的稳定 CFG 和可测基线 | 在独立 milestone 中确定部署上限，做通用 CFG/shared-block/CSE；assembly/ELF 预算和 digest 更新后才能作部署体积声明 |
+| P5 动态 Phoenix-v1 | 未支持、非当前目标 | 账户容量/profile、bounded CFG 策略与变长协议类型设计 | 明确账户上限和资源模型后另立规格；在此之前动态容量、remaining accounts、完整 Phoenix-v1 账户兼容均 fail closed |
 
-1. 把已用于 trader registry 的 N=4 可变红黑拓扑接入 Phoenix bid/ask order tree；当前订单簿仍是 bounded N=4 有序投影。
-2. 去除 Tree/Phoenix 的固定 N=4 容量；这需要先决定账户固定上限和 bounded CFG 生成策略，不能把运行时变长账户偷偷引入当前 profile。
-3. 固定长度 32-byte / u128 / Borsh protocol types；当前 Pubkey 和 client id 使用 `UInt64` limbs。
+P0–P4 不把 Phoenix 名字或字段偏移加入 Extract/IR/emitter。固定长度 32-byte / u128 /
+Borsh protocol types 可在 P4/P5 前置设计；当前 Pubkey 与 client id 仍以 `UInt64` limbs
+表达。P5 不是把运行时变长账户偷偷放进现有 profile，也不是 P0 的验收条件。
 
 ## 明确保持 fail closed
 

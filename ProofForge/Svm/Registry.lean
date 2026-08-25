@@ -10,7 +10,7 @@ def entries : Array Entry := #[
   { name := "Counter", digest := "3382e308fa0843e9" },
   { name := "Pair", digest := "67bb79356a73c78e" },
   { name := "Nested", digest := "7ce1913d3f9781b1" },
-  { name := "Tree", digest := "3e0f835ff9e74d66" },
+  { name := "Tree", digest := "5f7101960e6b8c15" },
   { name := "Flag", digest := "35d56ff1f3242582" },
   { name := "Maybe", digest := "2748805231c05ee2" },
   { name := "Window", digest := "2d13510bc7111128" },
@@ -52,7 +52,7 @@ def entries : Array Entry := #[
   { name := "TokenOwner", digest := "d29884f00e7311b7" },
   { name := "TokenMs", digest := "672b83a54f057f79" },
   { name := "SelfLog", digest := "7c000e2c7844d1af" },
-  { name := "Phoenix", digest := "c2685fe590ebff4c" },
+  { name := "Phoenix", digest := "7d561c4f974a86d2" },
   { name := "Book", digest := "525c5967ae68d203" },
   { name := "Seat", digest := "831f313077f89947" },
   { name := "Lang", digest := "64264acebea0c34c" }

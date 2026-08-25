@@ -597,6 +597,117 @@ elab "#pf_guard_schema_driven_vector_layout" : command => do
 
 #pf_guard_schema_driven_vector_layout
 
+elab "#pf_guard_nested_vector_path" : command => do
+  let env ← getEnv
+  let program ←
+    match ProofForge.Extract.extractProgramIR env ``Tests.Fixtures.initNestedVector
+        ``Tests.Fixtures.setNestedVector ``Tests.Fixtures.getNestedVector with
+    | .ok p => pure p
+    | .error reason => throwError reason
+  let some vector := program.schema.vector? "book_right"
+    | throwError s!"nested vector lost its qualified schema path: {repr program.schema}"
+  unless vector.length == 2 && vector.elementBytes == 8 do
+    throwError s!"unexpected nested vector layout: {repr vector}"
+  let some setter := program.methods.find? (·.ixName == "setNestedVector")
+    | throwError "missing nested-vector setter"
+  let some getter := program.methods.find? (·.ixName == "getNestedVector")
+    | throwError "missing nested-vector getter"
+  let setterWrites := setter.ops.any fun
+    | .ite _ _ _ thn els => (thn ++ els).any fun
+        | .indexSet "book_right" _ _ 2 0 => true
+        | _ => false
+    | .indexSet "book_right" _ _ 2 0 => true
+    | _ => false
+  let rec readsNested : ProofForge.Extract.IR.Val → Bool
+    | .indexGet _ "book_right" _ _ 0 => true
+    | .field base _ | .bitNot base => readsNested base
+    | .bitAnd lhs rhs | .bitOr lhs rhs | .bitXor lhs rhs |
+        .shiftL lhs rhs | .shiftR lhs rhs | .addU64 lhs rhs |
+        .subU64 lhs rhs | .mulU64 lhs rhs | .divU64 lhs rhs | .modU64 lhs rhs =>
+        readsNested lhs || readsNested rhs
+    | .select _ lhs rhs thn els =>
+        readsNested lhs || readsNested rhs || readsNested thn || readsNested els
+    | _ => false
+  let rec opsRead (fuel : Nat) (ops : Array ProofForge.Extract.IR.Op) : Bool :=
+    match fuel with
+    | 0 => false
+    | fuel' + 1 => ops.any fun
+      | .letLocal _ value | .setLocal _ value | .returnU64 value => readsNested value
+      | .ite _ lhs rhs thn els =>
+          readsNested lhs || readsNested rhs || opsRead fuel' thn || opsRead fuel' els
+      | .forBody _ body => opsRead fuel' body
+      | _ => false
+  let getterReads := opsRead 8 getter.ops
+  unless setterWrites && getterReads do
+    throwError s!"nested vector path did not reach dynamic IR: " ++
+      s!"setter={setterWrites}, getter={getterReads}"
+  let svm ←
+    match ProofForge.Svm.IR.fromExtracted program with
+    | .ok lowered => pure lowered
+    | .error reason => throwError reason
+  let evm ←
+    match ProofForge.Evm.IR.fromExtracted program with
+    | .ok lowered => pure lowered
+    | .error reason => throwError reason
+  let svmAsm ←
+    match ProofForge.Svm.Emit.emitAsm svm with
+    | .ok asm => pure asm
+    | .error reason => throwError reason
+  let evmYul ←
+    match ProofForge.Evm.Emit.emitYul evm with
+    | .ok yul => pure yul
+    | .error reason => throwError reason
+  unless !svmAsm.isEmpty && !evmYul.isEmpty do
+    throwError "nested vector path did not reach both target emitters"
+
+#pf_guard_nested_vector_path
+
+elab "#pf_guard_staged_nested_transition" : command => do
+  let env ← getEnv
+  let program ←
+    match ProofForge.Extract.extractProgramIR env ``Tests.Fixtures.initNestedVector
+        ``Tests.Fixtures.setStagedNestedVector ``Tests.Fixtures.getNestedVector with
+    | .ok p => pure p
+    | .error reason => throwError reason
+  let svm ←
+    match ProofForge.Svm.IR.fromExtracted program with
+    | .ok lowered => pure lowered
+    | .error reason => throwError reason
+  let evm ←
+    match ProofForge.Evm.IR.fromExtracted program with
+    | .ok lowered => pure lowered
+    | .error reason => throwError reason
+  let some svmSetter := svm.methods.find? (·.ixName == "setStagedNestedVector")
+    | throwError "missing lowered staged nested-vector setter"
+  let rec writtenNames (fuel : Nat) (ops : Array ProofForge.Svm.IR.Op) : Array String :=
+    match fuel with
+    | 0 => #[]
+    | fuel' + 1 => ops.flatMap fun
+      | .storeField name _ | .indexSet name _ _ _ _ => #[name]
+      | .ite _ _ _ thn els => writtenNames fuel' thn ++ writtenNames fuel' els
+      | .forBody _ body => writtenNames fuel' body
+      | _ => #[]
+  let names := writtenNames 32 svmSetter.ops
+  let tag? := names.findIdx? (· == "tag")
+  let root? := names.findIdx? (· == "book_root")
+  let right? := names.findIdx? (· == "book_right")
+  unless (names.filter (· == "tag")).size == 1 &&
+      (names.filter (· == "book_root")).size == 1 &&
+      (names.filter (· == "book_right")).size == 1 do
+    throwError s!"staged nested writes were missing or duplicated: {names}; {repr svmSetter.ops}"
+  match tag?, root?, right? with
+  | some tag, some root, some right =>
+      unless tag < root && tag < right do
+        throwError s!"outer transition did not precede nested writes: {names}"
+  | _, _, _ => throwError s!"staged nested transition lost a write: {names}"
+  unless !names.contains "book" && !names.contains "root" && !names.contains "right" &&
+      !names.contains "book_tag" do
+    throwError s!"staged nested transition leaked an untyped field name: {names}"
+  unless (ProofForge.Svm.Emit.emitAsm svm).isOk && (ProofForge.Evm.Emit.emitYul evm).isOk do
+    throwError "staged nested transition did not reach both target emitters"
+
+#pf_guard_staged_nested_transition
+
 elab "#pf_guard_conditional_local" : command => do
   let env ← getEnv
   let program ←

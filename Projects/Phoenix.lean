@@ -4,7 +4,7 @@ import ProofForge
 Phoenix v1 `src/state` 在本仓剖面下的摊平。
 
 官方 `FIFOMarket` 是三棵红黑树 + 泛型 trader key。抽出器不认不定长树，
-所以这里把官方 *记录* 摊成平行 `UInt64` 向量，并把双边书保存成各自最优优先投影：
+所以这里把官方 *记录* 摊成平行 `UInt64` 向量，并为三棵树持久化 bounded N=4 拓扑：
 
   FIFOOrderId          → priceTicks / sequences
   FIFORestingOrder     → traders / sizes / lastSlots / lastTimes
@@ -14,10 +14,9 @@ Phoenix v1 `src/state` 在本仓剖面下的摊平。
   OrderPacket.client_order_id → little-endian UInt64 × UInt64
   traders tree         → 4×Pubkey limbs + allocator metadata + persisted links/colors + per-seat TraderState
 
-每边 N=4。档 0 是最优价；ask 价格升序、bid 价格降序，同价均为 FIFO。
-`RBTree4` 给出四档 order-book 投影对应的红黑树拓扑见证；撮合只依赖中序次序，
-所以 bid/ask 尚不把颜色和指针复制进链上状态。trader registry 则持久化 root、
-left/right/parent 和 color。free-funds 挂单、驱逐、按 ID reduce/cancel、
+每边 N=4。ask 中序按价格升序、bid 中序按价格降序，同价均为 FIFO；payload 的
+1-based 物理地址在删除前保持稳定。bid/ask 和 trader registry 都持久化 root、
+left/right/parent、color、allocator 与 free-list。free-funds 挂单、驱逐、按 ID reduce/cancel、
 三种 self-trade 和 fee collection 已进入 bounded 模型。trader registry 保留
 Sokoban 的 1-based address、bump 分配与 LIFO free-list；withdraw 和 zero-state
 seat eviction 已接入，订单仍只存内部 address。
@@ -60,6 +59,30 @@ inductive MarketEvent where
   deriving Repr, DecidableEq, Inhabited
 
 /--
+One bounded Sokoban allocator and red-black topology. Payload remains in the side-specific parallel
+vectors below; every address is 1-based and stable until removal, while 0 is the black sentinel.
+-/
+structure BookTree4 where
+  root : UInt64
+  count : UInt64
+  bumpIndex : UInt64
+  freeHead : UInt64
+  nextFree : Vector UInt64 4
+  left : Vector UInt64 4
+  right : Vector UInt64 4
+  parent : Vector UInt64 4
+  color : Vector UInt64 4
+  deriving Repr, DecidableEq, Inhabited
+
+def emptyBookTree : BookTree4 :=
+  { root := 0, count := 0, bumpIndex := 1, freeHead := 1
+    nextFree := #v[0, 0, 0, 0]
+    left := #v[0, 0, 0, 0]
+    right := #v[0, 0, 0, 0]
+    parent := #v[0, 0, 0, 0]
+    color := #v[0, 0, 0, 0] }
+
+/--
 摊平后的账户状态。字段名跟官方记录对齐，不是自己发明的 6 槽。
 
 `_padding` 官方 32×u64，这里不存。
@@ -85,6 +108,9 @@ structure State where
   bidSizes : Vector UInt64 4
   bidLastSlots : Vector UInt64 4
   bidLastTimes : Vector UInt64 4
+  /-- Persisted allocator/topology for the ask and bid order trees. -/
+  askBook : BookTree4
+  bidBook : BookTree4
   /--
   官方 traders 红黑树的 bounded allocator。address 0 是 sentinel，1..4 是 seat；
   `traderFreeHead = traderBumpIndex` 表示从 bump 区分配，否则弹 LIFO free-list。
@@ -228,70 +254,311 @@ private def finishWithEvent (s : State) (event : MarketEvent) (ret : UInt64) :
 attribute [pf_inline] beginEvents MarketEvent.withIndex appendEvent
   finishWithEvent errorOfMatch throwMatch
 
-/-- 固定容量 ask 树的节点地址；0 是 Phoenix 的 sentinel。 -/
-structure RBNode where
-  left : UInt64
-  right : UInt64
-  parent : UInt64
-  red : Bool
-  level : UInt64
-  deriving Repr, DecidableEq, Inhabited
+private def bookColorAt (tree : BookTree4) (address : UInt64) : UInt64 :=
+  if address = 0 then 0 else tree.color[(address.toNat - 1) % 4]!
 
-structure RBTree4 where
-  root : UInt64
-  nodes : Vector RBNode 4
-  deriving Repr, DecidableEq, Inhabited
+private def paintBook (tree : BookTree4) (address color : UInt64) : BookTree4 :=
+  if address = 0 then tree
+  else { tree with color := tree.color.set ((address.toNat - 1) % 4) color }
 
-/--
-四个中序档的规范红黑拓扑。地址 2 是黑根；地址 4 是红叶。
-每条 sentinel 路径的 black height 相同，且红节点没有红孩子。
--/
-def canonicalAskTree : RBTree4 :=
-  { root := 2
-    nodes := #v[
-      { left := 0, right := 0, parent := 2, red := false, level := 0 },
-      { left := 1, right := 3, parent := 0, red := false, level := 1 },
-      { left := 0, right := 4, parent := 2, red := false, level := 2 },
-      { left := 0, right := 0, parent := 3, red := true, level := 3 }
-    ] }
+private def rotateBookLeft (tree : BookTree4) (xAddress : UInt64) : BookTree4 :=
+  let xi := (xAddress.toNat - 1) % 4
+  let yAddress := tree.right[xi]!
+  if yAddress = 0 then tree
+  else
+    let yi := (yAddress.toNat - 1) % 4
+    let innerAddress := tree.left[yi]!
+    let parentAddress := tree.parent[xi]!
+    let right1 := tree.right.set xi innerAddress
+    let parent1 := tree.parent.set xi yAddress
+    let parent2 :=
+      if innerAddress = 0 then parent1
+      else parent1.set ((innerAddress.toNat - 1) % 4) xAddress
+    let left1 := tree.left.set yi xAddress
+    let parent3 := parent2.set yi parentAddress
+    if parentAddress = 0 then
+      { tree with root := yAddress, left := left1, right := right1, parent := parent3 }
+    else
+      let pi := (parentAddress.toNat - 1) % 4
+      if tree.left[pi]! = xAddress then
+        { tree with left := left1.set pi yAddress, right := right1, parent := parent3 }
+      else
+        { tree with left := left1, right := right1.set pi yAddress, parent := parent3 }
 
-/-- 固定拓扑的中序游标；撮合器按这个顺序访问摊平档。 -/
-def RBTree4.inorderLevels (tree : RBTree4) : Vector UInt64 4 :=
-  #v[tree.nodes[0]!.level, tree.nodes[1]!.level,
-    tree.nodes[2]!.level, tree.nodes[3]!.level]
+private def rotateBookRight (tree : BookTree4) (xAddress : UInt64) : BookTree4 :=
+  let xi := (xAddress.toNat - 1) % 4
+  let yAddress := tree.left[xi]!
+  if yAddress = 0 then tree
+  else
+    let yi := (yAddress.toNat - 1) % 4
+    let innerAddress := tree.right[yi]!
+    let parentAddress := tree.parent[xi]!
+    let left1 := tree.left.set xi innerAddress
+    let parent1 := tree.parent.set xi yAddress
+    let parent2 :=
+      if innerAddress = 0 then parent1
+      else parent1.set ((innerAddress.toNat - 1) % 4) xAddress
+    let right1 := tree.right.set yi xAddress
+    let parent3 := parent2.set yi parentAddress
+    if parentAddress = 0 then
+      { tree with root := yAddress, left := left1, right := right1, parent := parent3 }
+    else
+      let pi := (parentAddress.toNat - 1) % 4
+      if tree.left[pi]! = xAddress then
+        { tree with left := left1.set pi yAddress, right := right1, parent := parent3 }
+      else
+        { tree with left := left1, right := right1.set pi yAddress, parent := parent3 }
 
-/-- 本模型使用的四节点红黑拓扑不变量。 -/
-def RBTree4.valid (tree : RBTree4) : Bool :=
-  tree.root = 2 &&
-    tree.nodes[0]!.left = 0 && tree.nodes[0]!.right = 0 &&
-    tree.nodes[0]!.parent = 2 && !tree.nodes[0]!.red &&
-    tree.nodes[1]!.left = 1 && tree.nodes[1]!.right = 3 &&
-    tree.nodes[1]!.parent = 0 && !tree.nodes[1]!.red &&
-    tree.nodes[2]!.left = 0 && tree.nodes[2]!.right = 4 &&
-    tree.nodes[2]!.parent = 2 &&
-    !tree.nodes[2]!.red &&
-    tree.nodes[3]!.parent = 3 && tree.nodes[3]!.red &&
-    tree.nodes[3]!.left = 0 && tree.nodes[3]!.right = 0 &&
-    tree.inorderLevels = #v[0, 1, 2, 3]
+private def fixBookInserted
+    (tree : BookTree4) (nodeAddress parentAddress : UInt64) : BookTree4 :=
+  if parentAddress = 0 then paintBook tree nodeAddress 0
+  else if bookColorAt tree parentAddress = 0 then paintBook tree tree.root 0
+  else
+    let pi := (parentAddress.toNat - 1) % 4
+    let grandAddress := tree.parent[pi]!
+    if grandAddress = 0 then paintBook tree parentAddress 0
+    else
+      let gi := (grandAddress.toNat - 1) % 4
+      if tree.left[gi]! = parentAddress then
+        let uncleAddress := tree.right[gi]!
+        if bookColorAt tree uncleAddress = 1 then
+          paintBook (paintBook (paintBook tree parentAddress 0) uncleAddress 0) grandAddress 0
+        else if tree.right[pi]! = nodeAddress then
+          let rotated := rotateBookLeft tree parentAddress
+          rotateBookRight (paintBook (paintBook rotated nodeAddress 0) grandAddress 1)
+            grandAddress
+        else
+          rotateBookRight (paintBook (paintBook tree parentAddress 0) grandAddress 1)
+            grandAddress
+      else
+        let uncleAddress := tree.left[gi]!
+        if bookColorAt tree uncleAddress = 1 then
+          paintBook (paintBook (paintBook tree parentAddress 0) uncleAddress 0) grandAddress 0
+        else if tree.left[pi]! = nodeAddress then
+          let rotated := rotateBookRight tree parentAddress
+          rotateBookLeft (paintBook (paintBook rotated nodeAddress 0) grandAddress 1)
+            grandAddress
+        else
+          rotateBookLeft (paintBook (paintBook tree parentAddress 0) grandAddress 1)
+            grandAddress
 
-/-- 中序投影保持 Phoenix 的 price-time FIFO 顺序。空档不参与比较。 -/
-def orderedAsks (s : State) : Bool :=
-  let before (i j : Nat) : Bool :=
-    s.sizes[i]! = 0 || s.sizes[j]! = 0 ||
-      s.priceTicks[i]! < s.priceTicks[j]! ||
-      (s.priceTicks[i]! = s.priceTicks[j]! && s.sequences[i]! ≤ s.sequences[j]!)
-  before 0 1 && before 0 2 && before 0 3 &&
-    before 1 2 && before 1 3 && before 2 3
+private def nextBookAddress (tree : BookTree4) : UInt64 :=
+  if tree.count = 4 then 0 else tree.freeHead
 
-/-- bid 投影按价格降序、同价 encoded sequence 降序；`~~~sequence` 保持 FIFO。 -/
-def orderedBids (s : State) : Bool :=
-  let before (i j : Nat) : Bool :=
-    s.bidSizes[i]! = 0 || s.bidSizes[j]! = 0 ||
-      s.bidPriceTicks[j]! < s.bidPriceTicks[i]! ||
-      (s.bidPriceTicks[i]! = s.bidPriceTicks[j]! &&
-        s.bidSequences[j]! ≤ s.bidSequences[i]!)
-  before 0 1 && before 0 2 && before 0 3 &&
-    before 1 2 && before 1 3 && before 2 3
+/-- Allocate one exact address, link it under `parentAddress`, and repair insertion colors. -/
+private def insertBookAddress (tree : BookTree4)
+    (address parentAddress direction : UInt64) : BookTree4 :=
+  let i := (address.toNat - 1) % 4
+  let fresh := tree.freeHead = tree.bumpIndex
+  let freeNext := tree.nextFree[i]!
+  let allocated : BookTree4 :=
+    { tree with
+      count := tree.count + 1
+      bumpIndex := if fresh then tree.bumpIndex + 1 else tree.bumpIndex
+      freeHead := if fresh then tree.bumpIndex + 1 else freeNext
+      nextFree := tree.nextFree.set i 0
+      left := tree.left.set i 0
+      right := tree.right.set i 0
+      parent := tree.parent.set i parentAddress
+      color := tree.color.set i (if tree.root = 0 then 0 else 1) }
+  if tree.root = 0 then { allocated with root := address }
+  else
+    let pi := (parentAddress.toNat - 1) % 4
+    let linked :=
+      if direction = 0 then { allocated with left := allocated.left.set pi address }
+      else { allocated with right := allocated.right.set pi address }
+    fixBookInserted linked address parentAddress
+
+private def transplantBook
+    (tree : BookTree4) (removed replacement : UInt64) : BookTree4 :=
+  let ri := (removed.toNat - 1) % 4
+  let parentAddress := tree.parent[ri]!
+  let parentLinked :=
+    if parentAddress = 0 then { tree with root := replacement }
+    else
+      let pi := (parentAddress.toNat - 1) % 4
+      if tree.left[pi]! = removed then { tree with left := tree.left.set pi replacement }
+      else { tree with right := tree.right.set pi replacement }
+  if replacement = 0 then parentLinked
+  else
+    { parentLinked with
+      parent := parentLinked.parent.set ((replacement.toNat - 1) % 4) parentAddress }
+
+private def linkBookLeft (tree : BookTree4) (parent child : UInt64) : BookTree4 :=
+  let pi := (parent.toNat - 1) % 4
+  let linked := { tree with left := tree.left.set pi child }
+  if child = 0 then linked
+  else { linked with parent := linked.parent.set ((child.toNat - 1) % 4) parent }
+
+private def linkBookRight (tree : BookTree4) (parent child : UInt64) : BookTree4 :=
+  let pi := (parent.toNat - 1) % 4
+  let linked := { tree with right := tree.right.set pi child }
+  if child = 0 then linked
+  else { linked with parent := linked.parent.set ((child.toNat - 1) % 4) parent }
+
+private def moveBookSuccessor (tree : BookTree4)
+    (removed successor replacement : UInt64) : BookTree4 :=
+  let ri := (removed.toNat - 1) % 4
+  let si := (successor.toNat - 1) % 4
+  let successorParent := tree.parent[si]!
+  if successorParent = removed then
+    let moved := transplantBook tree removed successor
+    paintBook (linkBookLeft moved successor tree.left[ri]!) successor tree.color[ri]!
+  else
+    let detached := transplantBook tree successor replacement
+    let withRight := linkBookRight detached successor tree.right[ri]!
+    let moved := transplantBook withRight removed successor
+    paintBook (linkBookLeft moved successor tree.left[ri]!) successor tree.color[ri]!
+
+private def fixBookDeleted
+    (tree : BookTree4) (xAddress parentAddress : UInt64) : BookTree4 :=
+  if xAddress = tree.root then paintBook tree xAddress 0
+  else if bookColorAt tree xAddress = 1 then paintBook tree xAddress 0
+  else if parentAddress = 0 then paintBook tree xAddress 0
+  else
+    let pi := (parentAddress.toNat - 1) % 4
+    if tree.left[pi]! = xAddress then
+      let firstSibling := tree.right[pi]!
+      let afterRedSibling :=
+        if bookColorAt tree firstSibling = 1 then
+          rotateBookLeft (paintBook (paintBook tree firstSibling 0) parentAddress 1)
+            parentAddress
+        else tree
+      let sibling := afterRedSibling.right[pi]!
+      let si := (sibling.toNat - 1) % 4
+      let nearChild := afterRedSibling.left[si]!
+      let farChild := afterRedSibling.right[si]!
+      if bookColorAt afterRedSibling nearChild = 0 &&
+          bookColorAt afterRedSibling farChild = 0 then
+        paintBook (paintBook afterRedSibling sibling 1) parentAddress 0
+      else
+        let aligned :=
+          if bookColorAt afterRedSibling farChild = 0 then
+            rotateBookRight
+              (paintBook (paintBook afterRedSibling nearChild 0) sibling 1) sibling
+          else afterRedSibling
+        let alignedSibling := aligned.right[pi]!
+        let asi := (alignedSibling.toNat - 1) % 4
+        let alignedFar := aligned.right[asi]!
+        rotateBookLeft
+          (paintBook
+            (paintBook (paintBook aligned alignedSibling
+              (bookColorAt aligned parentAddress)) parentAddress 0) alignedFar 0)
+          parentAddress
+    else
+      let firstSibling := tree.left[pi]!
+      let afterRedSibling :=
+        if bookColorAt tree firstSibling = 1 then
+          rotateBookRight (paintBook (paintBook tree firstSibling 0) parentAddress 1)
+            parentAddress
+        else tree
+      let sibling := afterRedSibling.left[pi]!
+      let si := (sibling.toNat - 1) % 4
+      let nearChild := afterRedSibling.right[si]!
+      let farChild := afterRedSibling.left[si]!
+      if bookColorAt afterRedSibling nearChild = 0 &&
+          bookColorAt afterRedSibling farChild = 0 then
+        paintBook (paintBook afterRedSibling sibling 1) parentAddress 0
+      else
+        let aligned :=
+          if bookColorAt afterRedSibling farChild = 0 then
+            rotateBookLeft
+              (paintBook (paintBook afterRedSibling nearChild 0) sibling 1) sibling
+          else afterRedSibling
+        let alignedSibling := aligned.left[pi]!
+        let asi := (alignedSibling.toNat - 1) % 4
+        let alignedFar := aligned.left[asi]!
+        rotateBookRight
+          (paintBook
+            (paintBook (paintBook aligned alignedSibling
+              (bookColorAt aligned parentAddress)) parentAddress 0) alignedFar 0)
+          parentAddress
+
+/-- Detach one order and push its stable address onto this side's exact LIFO free-list. -/
+private def removeBookAddress (tree : BookTree4) (removedAddress : UInt64) : BookTree4 :=
+  if removedAddress = 0 then tree
+  else
+    let ri := (removedAddress.toNat - 1) % 4
+    let left := tree.left[ri]!
+    let right := tree.right[ri]!
+    let successorRoot := right
+    let sr := (successorRoot.toNat - 1) % 4
+    let successorLeft1 := tree.left[sr]!
+    let sl1 := (successorLeft1.toNat - 1) % 4
+    let successorLeft2 := if successorLeft1 = 0 then 0 else tree.left[sl1]!
+    let successorAddress :=
+      if left = 0 || right = 0 then removedAddress
+      else if successorLeft2 ≠ 0 then successorLeft2
+      else if successorLeft1 ≠ 0 then successorLeft1
+      else successorRoot
+    let si := (successorAddress.toNat - 1) % 4
+    let removedColor := tree.color[si]!
+    let replacementAddress :=
+      if tree.left[si]! ≠ 0 then tree.left[si]! else tree.right[si]!
+    let replacementParent :=
+      if successorAddress = removedAddress then tree.parent[ri]!
+      else if tree.parent[si]! = removedAddress then successorAddress
+      else tree.parent[si]!
+    let moved :=
+      if left = 0 then transplantBook tree removedAddress right
+      else if right = 0 then transplantBook tree removedAddress left
+      else moveBookSuccessor tree removedAddress successorAddress replacementAddress
+    let fixed :=
+      if removedColor = 0 then fixBookDeleted moved replacementAddress replacementParent else moved
+    let rootBlack := paintBook fixed fixed.root 0
+    { rootBlack with
+      count := rootBlack.count - 1
+      freeHead := removedAddress
+      nextFree := rootBlack.nextFree.set ri rootBlack.freeHead
+      left := rootBlack.left.set ri 0
+      right := rootBlack.right.set ri 0
+      parent := rootBlack.parent.set ri 0
+      color := rootBlack.color.set ri 0 }
+
+private def minBookAddress (tree : BookTree4) : UInt64 :=
+  let a0 := tree.root
+  let a1 := if a0 = 0 then 0 else tree.left[(a0.toNat - 1) % 4]!
+  let a2 := if a1 = 0 then 0 else tree.left[(a1.toNat - 1) % 4]!
+  let a3 := if a2 = 0 then 0 else tree.left[(a2.toNat - 1) % 4]!
+  if a3 ≠ 0 then a3 else if a2 ≠ 0 then a2 else if a1 ≠ 0 then a1 else a0
+
+private def maxBookAddress (tree : BookTree4) : UInt64 :=
+  let a0 := tree.root
+  let a1 := if a0 = 0 then 0 else tree.right[(a0.toNat - 1) % 4]!
+  let a2 := if a1 = 0 then 0 else tree.right[(a1.toNat - 1) % 4]!
+  let a3 := if a2 = 0 then 0 else tree.right[(a2.toNat - 1) % 4]!
+  if a3 ≠ 0 then a3 else if a2 ≠ 0 then a2 else if a1 ≠ 0 then a1 else a0
+
+private def nextBookInOrder (tree : BookTree4) (address : UInt64) : UInt64 :=
+  if address = 0 then 0
+  else
+    let i := (address.toNat - 1) % 4
+    let right := tree.right[i]!
+    if right ≠ 0 then
+      let a1 := tree.left[(right.toNat - 1) % 4]!
+      let a2 := if a1 = 0 then 0 else tree.left[(a1.toNat - 1) % 4]!
+      let a3 := if a2 = 0 then 0 else tree.left[(a2.toNat - 1) % 4]!
+      if a3 ≠ 0 then a3 else if a2 ≠ 0 then a2 else if a1 ≠ 0 then a1 else right
+    else
+      let p1 := tree.parent[i]!
+      let p2 := if p1 = 0 then 0 else tree.parent[(p1.toNat - 1) % 4]!
+      let p3 := if p2 = 0 then 0 else tree.parent[(p2.toNat - 1) % 4]!
+      if p1 ≠ 0 && tree.left[(p1.toNat - 1) % 4]! = address then p1
+      else if p2 ≠ 0 && tree.left[(p2.toNat - 1) % 4]! = p1 then p2
+      else if p3 ≠ 0 && tree.left[(p3.toNat - 1) % 4]! = p2 then p3
+      else 0
+
+private def pruneBook
+    (tree : BookTree4) (before after : Vector UInt64 4) : BookTree4 :=
+  let t0 := if before[0]! ≠ 0 && after[0]! = 0 then removeBookAddress tree 1 else tree
+  let t1 := if before[1]! ≠ 0 && after[1]! = 0 then removeBookAddress t0 2 else t0
+  let t2 := if before[2]! ≠ 0 && after[2]! = 0 then removeBookAddress t1 3 else t1
+  if before[3]! ≠ 0 && after[3]! = 0 then removeBookAddress t2 4 else t2
+
+attribute [pf_inline] bookColorAt paintBook rotateBookLeft rotateBookRight fixBookInserted
+  nextBookAddress insertBookAddress transplantBook linkBookLeft linkBookRight
+  moveBookSuccessor fixBookDeleted removeBookAddress minBookAddress maxBookAddress
+  nextBookInOrder pruneBook
 
 /-- 官方 taker fee 默认常用 5 bps。 -/
 def defaultFeeBps : UInt64 := 5
@@ -334,6 +601,8 @@ def init (tick : UInt64) : State :=
       bidSizes := empty4
       bidLastSlots := empty4
       bidLastTimes := empty4
+      askBook := emptyBookTree
+      bidBook := emptyBookTree
       traderCount := 0
       traderBumpIndex := 1
       traderFreeHead := 1
@@ -1165,112 +1434,168 @@ private def postBidFunds
 attribute [pf_inline] registeredSeat makerKey0 makerKey1 makerKey2 makerKey3
   postAskFunds postBidFunds
 
-private def swapAskAdjacent (s : State) (j : Nat) : State :=
-  let r := j + 1
-  { s with
-    priceTicks :=
-      (s.priceTicks.set (j % 4) s.priceTicks[r]!).set (r % 4) s.priceTicks[j]!
-    sequences :=
-      (s.sequences.set (j % 4) s.sequences[r]!).set (r % 4) s.sequences[j]!
-    traders :=
-      (s.traders.set (j % 4) s.traders[r]!).set (r % 4) s.traders[j]!
-    sizes :=
-      (s.sizes.set (j % 4) s.sizes[r]!).set (r % 4) s.sizes[j]!
-    lastSlots :=
-      (s.lastSlots.set (j % 4) s.lastSlots[r]!).set (r % 4) s.lastSlots[j]!
-    lastTimes :=
-      (s.lastTimes.set (j % 4) s.lastTimes[r]!).set (r % 4) s.lastTimes[j]! }
+private def askKeyBeforeAt
+    (s : State) (price sequence address : UInt64) : Bool :=
+  let i := (address.toNat - 1) % 4
+  price < s.priceTicks[i]! ||
+    (price = s.priceTicks[i]! && sequence < s.sequences[i]!)
 
-attribute [pf_inline] swapAskAdjacent
+private def bidKeyBeforeAt
+    (s : State) (price encodedSequence address : UInt64) : Bool :=
+  let i := (address.toNat - 1) % 4
+  s.bidPriceTicks[i]! < price ||
+    (price = s.bidPriceTicks[i]! && s.bidSequences[i]! < encodedSequence)
+
+private def askInsertionParent (s : State) (price sequence : UInt64) : UInt64 :=
+  let a0 := s.askBook.root
+  let a1 := if a0 = 0 then 0 else if askKeyBeforeAt s price sequence a0 then
+    s.askBook.left[(a0.toNat - 1) % 4]! else s.askBook.right[(a0.toNat - 1) % 4]!
+  let a2 := if a1 = 0 then 0 else if askKeyBeforeAt s price sequence a1 then
+    s.askBook.left[(a1.toNat - 1) % 4]! else s.askBook.right[(a1.toNat - 1) % 4]!
+  let a3 := if a2 = 0 then 0 else if askKeyBeforeAt s price sequence a2 then
+    s.askBook.left[(a2.toNat - 1) % 4]! else s.askBook.right[(a2.toNat - 1) % 4]!
+  if a3 ≠ 0 then a3 else if a2 ≠ 0 then a2 else if a1 ≠ 0 then a1 else a0
+
+private def bidInsertionParent (s : State) (price encodedSequence : UInt64) : UInt64 :=
+  let a0 := s.bidBook.root
+  let a1 := if a0 = 0 then 0 else if bidKeyBeforeAt s price encodedSequence a0 then
+    s.bidBook.left[(a0.toNat - 1) % 4]! else s.bidBook.right[(a0.toNat - 1) % 4]!
+  let a2 := if a1 = 0 then 0 else if bidKeyBeforeAt s price encodedSequence a1 then
+    s.bidBook.left[(a1.toNat - 1) % 4]! else s.bidBook.right[(a1.toNat - 1) % 4]!
+  let a3 := if a2 = 0 then 0 else if bidKeyBeforeAt s price encodedSequence a2 then
+    s.bidBook.left[(a2.toNat - 1) % 4]! else s.bidBook.right[(a2.toNat - 1) % 4]!
+  if a3 ≠ 0 then a3 else if a2 ≠ 0 then a2 else if a1 ≠ 0 then a1 else a0
+
+private def insertAskOrder (s : State) (address price sequence : UInt64) : State :=
+  let parent := askInsertionParent s price sequence
+  let direction := if parent = 0 || askKeyBeforeAt s price sequence parent then 0 else 1
+  { s with askBook := insertBookAddress s.askBook address parent direction }
+
+private def insertBidOrder
+    (s : State) (address price encodedSequence : UInt64) : State :=
+  let parent := bidInsertionParent s price encodedSequence
+  let direction := if parent = 0 || bidKeyBeforeAt s price encodedSequence parent then 0 else 1
+  { s with bidBook := insertBookAddress s.bidBook address parent direction }
+
+/-- Ask topology in-order is ascending `(price, sequence)` and contains every live payload once. -/
+def orderedAsks (s : State) : Bool :=
+  let a0 := minBookAddress s.askBook
+  let a1 := nextBookInOrder s.askBook a0
+  let a2 := nextBookInOrder s.askBook a1
+  let a3 := nextBookInOrder s.askBook a2
+  let live : UInt64 :=
+    (if s.sizes[0]! = 0 then 0 else 1) + (if s.sizes[1]! = 0 then 0 else 1) +
+      (if s.sizes[2]! = 0 then 0 else 1) + (if s.sizes[3]! = 0 then 0 else 1)
+  let before (left right : UInt64) : Bool :=
+    right = 0 || (left ≠ 0 &&
+      let li := (left.toNat - 1) % 4
+      let ri := (right.toNat - 1) % 4
+      s.priceTicks[li]! < s.priceTicks[ri]! ||
+        (s.priceTicks[li]! = s.priceTicks[ri]! && s.sequences[li]! < s.sequences[ri]!))
+  s.askBook.count = live && (a0 = 0 || s.sizes[(a0.toNat - 1) % 4]! ≠ 0) &&
+    (a1 = 0 || s.sizes[(a1.toNat - 1) % 4]! ≠ 0) &&
+    (a2 = 0 || s.sizes[(a2.toNat - 1) % 4]! ≠ 0) &&
+    (a3 = 0 || s.sizes[(a3.toNat - 1) % 4]! ≠ 0) &&
+    before a0 a1 && before a1 a2 && before a2 a3
+
+/-- Bid topology in-order is descending price then descending encoded sequence (FIFO). -/
+def orderedBids (s : State) : Bool :=
+  let a0 := minBookAddress s.bidBook
+  let a1 := nextBookInOrder s.bidBook a0
+  let a2 := nextBookInOrder s.bidBook a1
+  let a3 := nextBookInOrder s.bidBook a2
+  let live : UInt64 :=
+    (if s.bidSizes[0]! = 0 then 0 else 1) + (if s.bidSizes[1]! = 0 then 0 else 1) +
+      (if s.bidSizes[2]! = 0 then 0 else 1) + (if s.bidSizes[3]! = 0 then 0 else 1)
+  let before (left right : UInt64) : Bool :=
+    right = 0 || (left ≠ 0 &&
+      let li := (left.toNat - 1) % 4
+      let ri := (right.toNat - 1) % 4
+      s.bidPriceTicks[ri]! < s.bidPriceTicks[li]! ||
+        (s.bidPriceTicks[li]! = s.bidPriceTicks[ri]! &&
+          s.bidSequences[ri]! < s.bidSequences[li]!))
+  s.bidBook.count = live && (a0 = 0 || s.bidSizes[(a0.toNat - 1) % 4]! ≠ 0) &&
+    (a1 = 0 || s.bidSizes[(a1.toNat - 1) % 4]! ≠ 0) &&
+    (a2 = 0 || s.bidSizes[(a2.toNat - 1) % 4]! ≠ 0) &&
+    (a3 = 0 || s.bidSizes[(a3.toNat - 1) % 4]! ≠ 0) &&
+    before a0 a1 && before a1 a2 && before a2 a3
+
+attribute [pf_inline] askKeyBeforeAt bidKeyBeforeAt askInsertionParent bidInsertionParent
+  insertAskOrder insertBidOrder
+
+private def ensureAskCapacity (s : State) (price : UInt64) : Except Error UInt64 :=
+  if s.askBook.count = 4 then
+    let evictedAddress := maxBookAddress s.askBook
+    let evictedIndex := (evictedAddress.toNat - 1) % 4
+    if price < s.priceTicks[evictedIndex]! then .ok 0 else .error .full
+  else
+    .ok 0
+
+private def ensureBidCapacity (s : State) (price : UInt64) : Except Error UInt64 :=
+  if s.bidBook.count = 4 then
+    let evictedAddress := maxBookAddress s.bidBook
+    let evictedIndex := (evictedAddress.toNat - 1) % 4
+    if s.bidPriceTicks[evictedIndex]! < price then .ok 0 else .error .full
+  else
+    .ok 0
+
+attribute [pf_inline] ensureAskCapacity ensureBidCapacity
 
 /--
-固定容量有序投影的 ask 插入。阶段 0–3 找空槽，阶段 4 在满书时按
-`get_max()` 语义驱逐最差订单，阶段 5–13 用相邻 compare/swap 排成
-`(price, sequence)` 升序。空槽视作正无穷，所以会被推到尾部。
+固定容量 ask tree 插入。payload address 在分配后保持稳定；树满时按 `get_max()`
+驱逐最差订单，删除后的 LIFO free-list 会把同一 address 交给新订单。
 
 这是 free-funds 挂单：`baseFree → baseLocked`。驱逐先把旧 maker 的 base 解锁。
 传进来已经过期的 TIF 是成功 no-op，不占 sequence。
 -/
-def postAskWithClientAt (s : State)
-    (trader price size clientOrderIdLo clientOrderIdHi lastSlot lastTime nowSlot nowTime : UInt64) :
-    Except Error (State × UInt64) :=
-  if price = 0 || size = 0 || maxOrderSequence ≤ s.sequence then
-    .error .overflow
-  else if expired lastSlot lastTime nowSlot nowTime then
-    let _ := recordPhoenix!(s, 3, 0; )
-    .ok (beginEvents s, 0)
-  else Id.run do
+private def postAskAccepted (s : State)
+    (trader price size clientOrderIdLo clientOrderIdHi lastSlot lastTime : UInt64) :
+    Except Error (State × UInt64) := Id.run do
+    let full := s.askBook.count = 4
+    let evictedAddress := if full then maxBookAddress s.askBook else 0
+    let evictedIndex := (evictedAddress.toNat - 1) % 4
+    let oldSize := if evictedAddress = 0 then 0 else s.sizes[evictedIndex]!
     let mut st := { s with
       matchStopped := 0, matchError := 0
       matchLevel := 0
       eventCount := 0, lastEvent := .uninitialized }
     for i in [0:17] do
-      if i < 4 then
-        if st.matchStopped = (0 : UInt64) then
-          let j : Nat := i
-          if st.sizes[j]! = (0 : UInt64) then
-            st := postAskFunds st trader 0 0 size
-            st := { st with
-              priceTicks := st.priceTicks.set (j % 4) price
-              sequences := st.sequences.set (j % 4) st.sequence
-              traders := st.traders.set (j % 4) trader
-              sizes := st.sizes.set (j % 4) size
-              lastSlots := st.lastSlots.set (j % 4) lastSlot
-              lastTimes := st.lastTimes.set (j % 4) lastTime
-              sequence := st.sequence + 1
-              matchStopped := 1 }
-      else if i = 4 then
-        if st.matchStopped = (0 : UInt64) then
-          if st.matchError = (0 : UInt64) then
-            let oldSize := st.sizes[3]!
-            let oldPrice := st.priceTicks[3]!
-            if price < oldPrice then
-              st := postAskFunds st trader st.traders[3]! oldSize size
-              st := { st with
-                priceTicks := st.priceTicks.set 3 price
-                sequences := st.sequences.set 3 st.sequence
-                traders := st.traders.set 3 trader
-                sizes := st.sizes.set 3 size
-                lastSlots := st.lastSlots.set 3 lastSlot
-                lastTimes := st.lastTimes.set 3 lastTime
-                sequence := st.sequence + 1
-                matchStopped := 1
-                matchLevel := 1 }
-            else
-              st := { st with matchError := matchFull }
-      else if i < 14 then
-        if st.matchStopped ≠ (0 : UInt64) then
-          if st.matchError = (0 : UInt64) then
-            let j : Nat := (i - 5) % 3
-            let r : Nat := j + 1
-            let leftSize : UInt64 := st.sizes[j]!
-            let rightSize : UInt64 := st.sizes[r]!
-            if rightSize ≠ (0 : UInt64) then
-              let leftPrice : UInt64 := st.priceTicks[j]!
-              let rightPrice : UInt64 := st.priceTicks[r]!
-              let leftSequence : UInt64 := st.sequences[j]!
-              let rightSequence : UInt64 := st.sequences[r]!
-              if leftSize = (0 : UInt64) then
-                st := swapAskAdjacent st j
-              else if rightPrice < leftPrice then
-                st := swapAskAdjacent st j
-              else if rightPrice = leftPrice then
-                if rightSequence < leftSequence then
-                  st := swapAskAdjacent st j
+      if i = 0 then
+        let address := if full then evictedAddress else st.askBook.freeHead
+        let detachedBook :=
+          if full then removeBookAddress st.askBook evictedAddress else st.askBook
+        let oldTrader : UInt64 :=
+          if evictedAddress = 0 then 0 else st.traders[evictedIndex]!
+        let funded := postAskFunds st trader oldTrader oldSize size
+        let detached := { funded with askBook := detachedBook }
+        let inserted := insertAskOrder detached address price st.sequence
+        let j := (address.toNat - 1) % 4
+        st := { inserted with
+          priceTicks := inserted.priceTicks.set j price
+          sequences := inserted.sequences.set j st.sequence
+          traders := inserted.traders.set j trader
+          sizes := inserted.sizes.set j size
+          lastSlots := inserted.lastSlots.set j lastSlot
+          lastTimes := inserted.lastTimes.set j lastTime
+          sequence := st.sequence + 1
+          matchStopped := address
+          matchLevel := if full then 1 else 0 }
       else if i = 14 then
         if st.matchStopped ≠ (0 : UInt64) then
           if st.matchError = (0 : UInt64) then
             if st.matchLevel = (1 : UInt64) then
-              let maker := s.traders[3]!
+              let maker := s.traders[evictedIndex]!
               let _ := recordPhoenix!(st, 3, 1;
                 .u8le 5, .u16le 0,
                 .u64le (makerKey0 s maker), .u64le (makerKey1 s maker),
                 .u64le (makerKey2 s maker), .u64le (makerKey3 s maker),
-                .u64le s.sequences[3]!, .u64le s.priceTicks[3]!, .u64le s.sizes[3]!)
+                .u64le s.sequences[evictedIndex]!, .u64le s.priceTicks[evictedIndex]!,
+                .u64le s.sizes[evictedIndex]!)
               st := appendEvent st
                 (.evict st.eventCount (makerKey0 s maker) (makerKey1 s maker)
                   (makerKey2 s maker) (makerKey3 s maker)
-                  s.sequences[3]! s.priceTicks[3]! s.sizes[3]!)
+                  s.sequences[evictedIndex]! s.priceTicks[evictedIndex]!
+                  s.sizes[evictedIndex]!)
       else if i = 15 then
         if st.matchStopped ≠ (0 : UInt64) then
           if st.matchError = (0 : UInt64) then
@@ -1294,6 +1619,21 @@ def postAskWithClientAt (s : State)
       .error .overflow
     else
       .ok ({ st with matchStopped := 0, matchError := 0, matchLevel := 0 }, size)
+
+attribute [pf_inline] postAskAccepted
+
+def postAskWithClientAt (s : State)
+    (trader price size clientOrderIdLo clientOrderIdHi lastSlot lastTime nowSlot nowTime : UInt64) :
+    Except Error (State × UInt64) :=
+  if price = 0 || size = 0 || maxOrderSequence ≤ s.sequence then
+    .error .overflow
+  else if expired lastSlot lastTime nowSlot nowTime then
+    let _ := recordPhoenix!(s, 3, 0; )
+    .ok (beginEvents s, 0)
+  else do
+    let _ ← ensureAskCapacity s price
+    postAskAccepted s trader price size clientOrderIdLo clientOrderIdHi
+      lastSlot lastTime
 
 attribute [pf_inline] postAskWithClientAt
 
@@ -1338,112 +1678,65 @@ private def bidCollateral (s : State) (price size : UInt64) : Except Error UInt6
 
 attribute [pf_inline] adjustedQuoteFor bidCollateral
 
-private def swapBidAdjacent (s : State) (j : Nat) : State :=
-  let r := j + 1
-  { s with
-    bidPriceTicks :=
-      (s.bidPriceTicks.set (j % 4) s.bidPriceTicks[r]!).set (r % 4) s.bidPriceTicks[j]!
-    bidSequences :=
-      (s.bidSequences.set (j % 4) s.bidSequences[r]!).set (r % 4) s.bidSequences[j]!
-    bidTraders :=
-      (s.bidTraders.set (j % 4) s.bidTraders[r]!).set (r % 4) s.bidTraders[j]!
-    bidSizes :=
-      (s.bidSizes.set (j % 4) s.bidSizes[r]!).set (r % 4) s.bidSizes[j]!
-    bidLastSlots :=
-      (s.bidLastSlots.set (j % 4) s.bidLastSlots[r]!).set (r % 4) s.bidLastSlots[j]!
-    bidLastTimes :=
-      (s.bidLastTimes.set (j % 4) s.bidLastTimes[r]!).set (r % 4) s.bidLastTimes[j]! }
-
-attribute [pf_inline] swapBidAdjacent
-
 /--
-固定容量 bid 插入。订单 ID 存官方编码 `~~~sequence`，投影按价格和编码序号降序；
-满书时只有更高价能驱逐最差 bid。free-funds collateral 从 quoteFree 锁进
-quoteLocked，驱逐则按原价准确解锁旧订单。
+固定容量 bid tree 插入。订单 ID 存官方编码 `~~~sequence`；in-order 是价格降序、
+encoded sequence 降序，因此最小 topology address 仍是 best bid。满书时只有更高价能
+驱逐 `get_max()` 的最差 bid。free-funds collateral 从 quoteFree 锁进 quoteLocked，
+驱逐则按原价准确解锁旧订单。
 -/
-def postBidWithClientAt (s : State)
-    (trader price size clientOrderIdLo clientOrderIdHi lastSlot lastTime nowSlot nowTime : UInt64) :
-    Except Error (State × UInt64) :=
-  if price = 0 || size = 0 || maxOrderSequence ≤ s.sequence then
-    .error .overflow
-  else if expired lastSlot lastTime nowSlot nowTime then
-    let _ := recordPhoenix!(s, 3, 0; )
-    .ok (beginEvents s, 0)
-  else do
+private def postBidAccepted (s : State)
+    (trader price size clientOrderIdLo clientOrderIdHi lastSlot lastTime : UInt64) :
+    Except Error (State × UInt64) := do
+    let full := s.bidBook.count = 4
+    let evictedAddress := if full then maxBookAddress s.bidBook else 0
+    let evictedIndex := (evictedAddress.toNat - 1) % 4
+    let oldSize := if evictedAddress = 0 then 0 else s.bidSizes[evictedIndex]!
+    let oldPrice := if evictedAddress = 0 then 0 else s.bidPriceTicks[evictedIndex]!
     let newLock ← bidCollateral s price size
-    let oldLock ← bidCollateral s s.bidPriceTicks[3]! s.bidSizes[3]!
+    let oldLock ← bidCollateral s oldPrice oldSize
     Id.run do
       let mut st := { s with
         matchStopped := 0, matchError := 0
         matchLevel := 0
         eventCount := 0, lastEvent := .uninitialized }
       for i in [0:17] do
-        if i < 4 then
-          if st.matchStopped = (0 : UInt64) then
-            let j : Nat := i
-            if st.bidSizes[j]! = (0 : UInt64) then
-              st := postBidFunds st trader 0 0 newLock
-              st := { st with
-                bidPriceTicks := st.bidPriceTicks.set (j % 4) price
-                bidSequences := st.bidSequences.set (j % 4) (~~~st.sequence)
-                bidTraders := st.bidTraders.set (j % 4) trader
-                bidSizes := st.bidSizes.set (j % 4) size
-                bidLastSlots := st.bidLastSlots.set (j % 4) lastSlot
-                bidLastTimes := st.bidLastTimes.set (j % 4) lastTime
-                sequence := st.sequence + 1
-                matchStopped := 1 }
-        else if i = 4 then
-          if st.matchStopped = (0 : UInt64) then
-            if st.matchError = (0 : UInt64) then
-              let oldPrice := st.bidPriceTicks[3]!
-              if oldPrice < price then
-                st := postBidFunds st trader st.bidTraders[3]! oldLock newLock
-                st := { st with
-                  bidPriceTicks := st.bidPriceTicks.set 3 price
-                  bidSequences := st.bidSequences.set 3 (~~~st.sequence)
-                  bidTraders := st.bidTraders.set 3 trader
-                  bidSizes := st.bidSizes.set 3 size
-                  bidLastSlots := st.bidLastSlots.set 3 lastSlot
-                  bidLastTimes := st.bidLastTimes.set 3 lastTime
-                  sequence := st.sequence + 1
-                  matchStopped := 1
-                  matchLevel := 1 }
-              else
-                st := { st with matchError := matchFull }
-        else if i < 14 then
-          if st.matchStopped ≠ (0 : UInt64) then
-            if st.matchError = (0 : UInt64) then
-              let j : Nat := (i - 5) % 3
-              let r : Nat := j + 1
-              let leftSize : UInt64 := st.bidSizes[j]!
-              let rightSize : UInt64 := st.bidSizes[r]!
-              if rightSize ≠ (0 : UInt64) then
-                let leftPrice : UInt64 := st.bidPriceTicks[j]!
-                let rightPrice : UInt64 := st.bidPriceTicks[r]!
-                let leftSequence : UInt64 := st.bidSequences[j]!
-                let rightSequence : UInt64 := st.bidSequences[r]!
-                if leftSize = (0 : UInt64) then
-                  st := swapBidAdjacent st j
-                else if leftPrice < rightPrice then
-                  st := swapBidAdjacent st j
-                else if rightPrice = leftPrice then
-                  if leftSequence < rightSequence then
-                    st := swapBidAdjacent st j
+        if i = 0 then
+          let address := if full then evictedAddress else st.bidBook.freeHead
+          let detachedBook :=
+            if full then removeBookAddress st.bidBook evictedAddress else st.bidBook
+          let oldTrader : UInt64 :=
+            if evictedAddress = 0 then 0 else st.bidTraders[evictedIndex]!
+          let funded := postBidFunds st trader oldTrader oldLock newLock
+          let detached := { funded with bidBook := detachedBook }
+          let encodedSequence := ~~~st.sequence
+          let inserted := insertBidOrder detached address price encodedSequence
+          let j := (address.toNat - 1) % 4
+          st := { inserted with
+            bidPriceTicks := inserted.bidPriceTicks.set j price
+            bidSequences := inserted.bidSequences.set j encodedSequence
+            bidTraders := inserted.bidTraders.set j trader
+            bidSizes := inserted.bidSizes.set j size
+            bidLastSlots := inserted.bidLastSlots.set j lastSlot
+            bidLastTimes := inserted.bidLastTimes.set j lastTime
+            sequence := st.sequence + 1
+            matchStopped := address
+            matchLevel := if full then 1 else 0 }
         else if i = 14 then
           if st.matchStopped ≠ (0 : UInt64) then
             if st.matchError = (0 : UInt64) then
               if st.matchLevel = (1 : UInt64) then
-                let maker := s.bidTraders[3]!
+                let maker := s.bidTraders[evictedIndex]!
                 let _ := recordPhoenix!(st, 3, 1;
                   .u8le 5, .u16le 0,
                   .u64le (makerKey0 s maker), .u64le (makerKey1 s maker),
                   .u64le (makerKey2 s maker), .u64le (makerKey3 s maker),
-                  .u64le (~~~s.bidSequences[3]!),
-                  .u64le s.bidPriceTicks[3]!, .u64le s.bidSizes[3]!)
+                  .u64le (~~~s.bidSequences[evictedIndex]!),
+                  .u64le s.bidPriceTicks[evictedIndex]!, .u64le s.bidSizes[evictedIndex]!)
                 st := appendEvent st
                   (.evict st.eventCount (makerKey0 s maker) (makerKey1 s maker)
                     (makerKey2 s maker) (makerKey3 s maker)
-                    (~~~s.bidSequences[3]!) s.bidPriceTicks[3]! s.bidSizes[3]!)
+                    (~~~s.bidSequences[evictedIndex]!) s.bidPriceTicks[evictedIndex]!
+                    s.bidSizes[evictedIndex]!)
         else if i = 15 then
           if st.matchStopped ≠ (0 : UInt64) then
             if st.matchError = (0 : UInt64) then
@@ -1467,6 +1760,21 @@ def postBidWithClientAt (s : State)
         .error .overflow
         else
         .ok ({ st with matchStopped := 0, matchError := 0, matchLevel := 0 }, size)
+
+attribute [pf_inline] postBidAccepted
+
+def postBidWithClientAt (s : State)
+    (trader price size clientOrderIdLo clientOrderIdHi lastSlot lastTime nowSlot nowTime : UInt64) :
+    Except Error (State × UInt64) :=
+  if price = 0 || size = 0 || maxOrderSequence ≤ s.sequence then
+    .error .overflow
+  else if expired lastSlot lastTime nowSlot nowTime then
+    let _ := recordPhoenix!(s, 3, 0; )
+    .ok (beginEvents s, 0)
+  else do
+    let _ ← ensureBidCapacity s price
+    postBidAccepted s trader price size clientOrderIdLo clientOrderIdHi
+      lastSlot lastTime
 
 attribute [pf_inline] postBidWithClientAt
 
@@ -1588,16 +1896,18 @@ private def MatchAcc.pushEvent (acc : MatchAcc) (event : MarketEvent) : Except E
 -/
 private def scanAsks (s : State) (taker limit nowSlot nowTime : UInt64)
     (behavior : SelfTradeBehavior)
-    (fuel i : Nat) (acc : MatchAcc) : Except Error MatchAcc :=
+    (fuel : Nat) (address : UInt64) (acc : MatchAcc) : Except Error MatchAcc :=
   match fuel with
   | 0 => .ok acc
   | fuel' + 1 => do
     if acc.stopped || acc.filledBase = acc.targetBase then
       .ok acc
-    else if h : i < 4 then
+    else if address ≠ 0 then
+      let i := (address.toNat - 1) % 4
+      let nextAddress := nextBookInOrder s.askBook address
       let size := acc.sizes[i]
       if size = 0 then
-        scanAsks s taker limit nowSlot nowTime behavior fuel' (i + 1) acc
+        scanAsks s taker limit nowSlot nowTime behavior fuel' nextAddress acc
       else if expired s.lastSlots[i] s.lastTimes[i] nowSlot nowTime then
         if acc.expiredBase ≤ u64Max - size then
           let maker := s.traders[i]
@@ -1605,7 +1915,7 @@ private def scanAsks (s : State) (taker limit nowSlot nowTime : UInt64)
             (.expiredOrder 0 (makerKey0 s maker) (makerKey1 s maker)
               (makerKey2 s maker) (makerKey3 s maker)
               s.sequences[i] s.priceTicks[i] size)
-          scanAsks s taker limit nowSlot nowTime behavior fuel' (i + 1)
+          scanAsks s taker limit nowSlot nowTime behavior fuel' nextAddress
             { next with
               sizes := acc.sizes.set i 0
               expiredBase := acc.expiredBase + size }
@@ -1619,7 +1929,7 @@ private def scanAsks (s : State) (taker limit nowSlot nowTime : UInt64)
         | .cancelProvide =>
           if acc.expiredBase ≤ u64Max - size then
             let next ← acc.pushEvent (.reduce 0 s.sequences[i] s.priceTicks[i] size 0)
-            scanAsks s taker limit nowSlot nowTime behavior fuel' (i + 1)
+            scanAsks s taker limit nowSlot nowTime behavior fuel' nextAddress
               { next with
                 sizes := acc.sizes.set i 0
                 expiredBase := acc.expiredBase + size }
@@ -1631,7 +1941,7 @@ private def scanAsks (s : State) (taker limit nowSlot nowTime : UInt64)
           if acc.expiredBase ≤ u64Max - reduced then
             let next ← acc.pushEvent
               (.reduce 0 s.sequences[i] s.priceTicks[i] reduced (size - reduced))
-            scanAsks s taker limit nowSlot nowTime behavior fuel' (i + 1)
+            scanAsks s taker limit nowSlot nowTime behavior fuel' nextAddress
               { next with
                 sizes := acc.sizes.set i (size - reduced)
                 targetBase := acc.targetBase - reduced
@@ -1653,7 +1963,7 @@ private def scanAsks (s : State) (taker limit nowSlot nowTime : UInt64)
                 (.fill 0 (makerKey0 s maker) (makerKey1 s maker)
                   (makerKey2 s maker) (makerKey3 s maker)
                   s.sequences[i] price fill (size - fill))
-              scanAsks s taker limit nowSlot nowTime behavior fuel' (i + 1)
+              scanAsks s taker limit nowSlot nowTime behavior fuel' nextAddress
                 { next with
                   sizes := acc.sizes.set i (size - fill)
                   targetBase := acc.targetBase
@@ -1784,6 +2094,7 @@ private def settleBuy (s : State) (taker clientOrderIdLo clientOrderIdHi : UInt6
     let feeLots := ceilDiv adjustedFee s.baseLotsPerBaseUnit
     let ledgerStart := { s with
       sizes := acc.sizes
+      askBook := pruneBook s.askBook s.sizes acc.sizes
       events := acc.events
       eventCount := acc.eventCount
       lastEvent := acc.lastEvent
@@ -1809,7 +2120,7 @@ def swapBuyForClientAt (s : State)
     (behavior : SelfTradeBehavior) :
     Except Error (State × UInt64) := do
   let s := beginEvents s
-  let acc ← scanAsks s taker limit nowSlot nowTime behavior 4 0
+  let acc ← scanAsks s taker limit nowSlot nowTime behavior 4 (minBookAddress s.askBook)
     { sizes := s.sizes, targetBase := want, filledBase := 0, adjustedQuote := 0,
       expiredBase := 0, stopped := false, events := s.events,
       eventCount := s.eventCount, lastEvent := s.lastEvent }
@@ -1851,16 +2162,18 @@ private def SellAcc.pushEvent (acc : SellAcc) (event : MarketEvent) : Except Err
 
 private def scanBids (s : State) (taker limit nowSlot nowTime : UInt64)
     (behavior : SelfTradeBehavior)
-    (fuel i : Nat) (acc : SellAcc) : Except Error SellAcc :=
+    (fuel : Nat) (address : UInt64) (acc : SellAcc) : Except Error SellAcc :=
   match fuel with
   | 0 => .ok acc
   | fuel' + 1 => do
     if acc.stopped || acc.filledBase = acc.targetBase then
       .ok acc
-    else if h : i < 4 then
+    else if address ≠ 0 then
+      let i := (address.toNat - 1) % 4
+      let nextAddress := nextBookInOrder s.bidBook address
       let size := acc.sizes[i]
       if size = 0 then
-        scanBids s taker limit nowSlot nowTime behavior fuel' (i + 1) acc
+        scanBids s taker limit nowSlot nowTime behavior fuel' nextAddress acc
       else if expired s.bidLastSlots[i] s.bidLastTimes[i] nowSlot nowTime then
         let unlocked ← bidCollateral s s.bidPriceTicks[i] size
         if acc.unlockedQuote ≤ u64Max - unlocked then
@@ -1869,7 +2182,7 @@ private def scanBids (s : State) (taker limit nowSlot nowTime : UInt64)
             (.expiredOrder 0 (makerKey0 s maker) (makerKey1 s maker)
               (makerKey2 s maker) (makerKey3 s maker)
               (~~~s.bidSequences[i]) s.bidPriceTicks[i] size)
-          scanBids s taker limit nowSlot nowTime behavior fuel' (i + 1)
+          scanBids s taker limit nowSlot nowTime behavior fuel' nextAddress
             { next with
               sizes := acc.sizes.set i 0
               unlockedQuote := acc.unlockedQuote + unlocked }
@@ -1885,7 +2198,7 @@ private def scanBids (s : State) (taker limit nowSlot nowTime : UInt64)
           if acc.unlockedQuote ≤ u64Max - unlocked then
             let next ← acc.pushEvent
               (.reduce 0 (~~~s.bidSequences[i]) s.bidPriceTicks[i] size 0)
-            scanBids s taker limit nowSlot nowTime behavior fuel' (i + 1)
+            scanBids s taker limit nowSlot nowTime behavior fuel' nextAddress
               { next with
                 sizes := acc.sizes.set i 0
                 unlockedQuote := acc.unlockedQuote + unlocked }
@@ -1898,7 +2211,7 @@ private def scanBids (s : State) (taker limit nowSlot nowTime : UInt64)
           if acc.unlockedQuote ≤ u64Max - unlocked then
             let next ← acc.pushEvent
               (.reduce 0 (~~~s.bidSequences[i]) s.bidPriceTicks[i] reduced (size - reduced))
-            scanBids s taker limit nowSlot nowTime behavior fuel' (i + 1)
+            scanBids s taker limit nowSlot nowTime behavior fuel' nextAddress
               { next with
                 sizes := acc.sizes.set i (size - reduced)
                 targetBase := acc.targetBase - reduced
@@ -1919,7 +2232,7 @@ private def scanBids (s : State) (taker limit nowSlot nowTime : UInt64)
             (.fill 0 (makerKey0 s maker) (makerKey1 s maker)
               (makerKey2 s maker) (makerKey3 s maker)
               (~~~s.bidSequences[i]) s.bidPriceTicks[i] fill (size - fill))
-          scanBids s taker limit nowSlot nowTime behavior fuel' (i + 1)
+          scanBids s taker limit nowSlot nowTime behavior fuel' nextAddress
             { next with
               sizes := acc.sizes.set i (size - fill)
               targetBase := acc.targetBase
@@ -2030,6 +2343,7 @@ private def settleSell (s : State) (taker clientOrderIdLo clientOrderIdHi : UInt
     let feeLots := ceilDiv adjustedFee s.baseLotsPerBaseUnit
     let ledgerStart := { s with
       bidSizes := acc.sizes
+      bidBook := pruneBook s.bidBook s.bidSizes acc.sizes
       events := acc.events
       eventCount := acc.eventCount
       lastEvent := acc.lastEvent
@@ -2050,7 +2364,7 @@ def swapSellForClientAt (s : State)
     (taker clientOrderIdLo clientOrderIdHi want limit nowSlot nowTime : UInt64)
     (behavior : SelfTradeBehavior) : Except Error (State × UInt64) := do
   let s := beginEvents s
-  let acc ← scanBids s taker limit nowSlot nowTime behavior 4 0
+  let acc ← scanBids s taker limit nowSlot nowTime behavior 4 (minBookAddress s.bidBook)
     { sizes := s.bidSizes, targetBase := want, filledBase := 0, adjustedQuote := 0,
       makerQuote := 0, unlockedQuote := 0, stopped := false, events := s.events,
       eventCount := s.eventCount, lastEvent := s.lastEvent }
@@ -2074,8 +2388,12 @@ private def unlockAskFold (s : State) (j : Nat) (amount : UInt64) : State :=
     { s with matchStopped := 1, matchError := 1 }
   else
     let ledger := unlockAskTrader s s.traders[j]! amount
+    let nextSize := size - amount
+    let askBook :=
+      if nextSize = 0 then removeBookAddress s.askBook (UInt64.ofNat (j + 1)) else s.askBook
     { ledger with
-      sizes := s.sizes.set (j % 4) (size - amount)
+      sizes := s.sizes.set (j % 4) nextSize
+      askBook := askBook
       matchExpired := s.matchExpired + amount }
 
 /-- Ask-fold fill: update its maker seat and all quote/base accumulators in one transition. -/
@@ -2103,8 +2421,12 @@ private def fillAskFold (s : State) (j : Nat) (fill : UInt64) : State :=
         { s with matchStopped := 1, matchError := 1 }
       else
         let ledger := fillAskTrader s s.traders[j]! fill makerQuote
+        let nextSize := size - fill
+        let askBook :=
+          if nextSize = 0 then removeBookAddress s.askBook (UInt64.ofNat (j + 1)) else s.askBook
         { ledger with
-          sizes := s.sizes.set (j % 4) (size - fill)
+          sizes := s.sizes.set (j % 4) nextSize
+          askBook := askBook
           matchFilled := s.matchFilled + fill
           matchQuote := s.matchQuote + adjusted
           matchMakerQuote := s.matchMakerQuote + makerQuote }
@@ -2164,14 +2486,18 @@ private def swapBuyFold (s : State)
     else if st.matchStopped = 0 then
       let k := i - 1
       let phase := k % 4
-      let j := st.matchLevel.toNat
-      let size := st.sizes[j]!
-      if st.matchFilled = st.matchWant then
+      let address := if phase = 0 then minBookAddress st.askBook else st.matchLevel
+      let j := (address.toNat - 1) % 4
+      let size := if address = 0 then 0 else st.sizes[j]!
+      if address = 0 then
+        st := { st with matchStopped := 1 }
+      else if st.matchFilled = st.matchWant then
         st := { st with matchStopped := 1 }
       else if phase = 3 then
-        st := { st with matchLevel := st.matchLevel + 1 }
+        st := { st with matchLevel := 0 }
       else if size ≠ 0 then
         if phase = 0 then
+          st := { st with matchLevel := address }
           if st.lastSlots[j]! ≠ 0 then
             if st.lastSlots[j]! < clockSlot then
               let unlocked := unlockAskFold st j size
@@ -2297,8 +2623,12 @@ private def unlockBidFold (s : State) (j : Nat) (amount : UInt64) : State :=
       let unlocked := (quotePerBase * amount) / s.baseLotsPerBaseUnit
       if s.matchExpired ≤ u64Max - unlocked then
         let ledger := unlockBidTrader s s.bidTraders[j]! unlocked
+        let nextSize := size - amount
+        let bidBook :=
+          if nextSize = 0 then removeBookAddress s.bidBook (UInt64.ofNat (j + 1)) else s.bidBook
         { ledger with
-          bidSizes := s.bidSizes.set (j % 4) (size - amount)
+          bidSizes := s.bidSizes.set (j % 4) nextSize
+          bidBook := bidBook
           matchExpired := s.matchExpired + unlocked }
       else
         { s with matchStopped := 1, matchError := 1 }
@@ -2332,8 +2662,12 @@ private def fillBidFold (s : State) (j : Nat) (fill : UInt64) : State :=
         { s with matchStopped := 1, matchError := 1 }
       else
         let ledger := fillBidTrader s s.bidTraders[j]! makerQuote fill
+        let nextSize := size - fill
+        let bidBook :=
+          if nextSize = 0 then removeBookAddress s.bidBook (UInt64.ofNat (j + 1)) else s.bidBook
         { ledger with
-          bidSizes := s.bidSizes.set (j % 4) (size - fill)
+          bidSizes := s.bidSizes.set (j % 4) nextSize
+          bidBook := bidBook
           matchFilled := s.matchFilled + fill
           matchQuote := s.matchQuote + adjusted
           matchMakerQuote := s.matchMakerQuote + makerQuote }
@@ -2396,14 +2730,18 @@ private def swapSellFold (s : State)
     else if st.matchStopped = 0 then
       let k := i - 1
       let phase := k % 4
-      let j := st.matchLevel.toNat
-      let size := st.bidSizes[j]!
-      if st.matchFilled = st.matchWant then
+      let address := if phase = 0 then minBookAddress st.bidBook else st.matchLevel
+      let j := (address.toNat - 1) % 4
+      let size := if address = 0 then 0 else st.bidSizes[j]!
+      if address = 0 then
+        st := { st with matchStopped := 1 }
+      else if st.matchFilled = st.matchWant then
         st := { st with matchStopped := 1 }
       else if phase = 3 then
-        st := { st with matchLevel := st.matchLevel + 1 }
+        st := { st with matchLevel := 0 }
       else if size ≠ 0 then
         if phase = 0 then
+          st := { st with matchLevel := address }
           if st.bidLastSlots[j]! ≠ 0 then
             if st.bidLastSlots[j]! < clockSlot then
               let unlocked := unlockBidFold st j size
@@ -2552,8 +2890,12 @@ def reduceAskAt (s : State) (trader price sequence qty : UInt64) :
                       if st.traderBaseFree[traderIndex]! ≤ u64Max - removed then
                         if removed ≤ st.baseLocked then
                           if st.baseFree ≤ u64Max - removed then
+                            let nextSize := size - removed
                             let reduced := { st with
-                              sizes := st.sizes.set (j % 4) (size - removed)
+                              sizes := st.sizes.set (j % 4) nextSize
+                              askBook := if nextSize = 0 then
+                                removeBookAddress st.askBook (UInt64.ofNat (j + 1))
+                              else st.askBook
                               traderBaseLocked := st.traderBaseLocked.set
                                 (traderIndex % 4) (st.traderBaseLocked[traderIndex]! - removed)
                               traderBaseFree := st.traderBaseFree.set
@@ -2664,17 +3006,20 @@ def reduceBid (s : State) (price sequence qty : UInt64) :
     (accKeyWord 1 2) (accKeyWord 1 3)
   reduceBidAt s trader price sequence qty
 
-/-- 官方部分成交：吃光档 0。抽出还认不了 `set 0 0`。 -/
+/-- 官方部分成交兼容 helper：吃光当前 best ask。 -/
 def sweepAsk (s : State) : Except Error (State × UInt64) :=
-  if s.sizes[0]! = 0 then
+  let address := minBookAddress s.askBook
+  let i := (address.toNat - 1) % 4
+  if address = 0 || s.sizes[i]! = 0 then
     .error .overflow
-  else if s.baseFree ≤ u64Max - s.sizes[0]! then
-    if s.sizes[0]! ≤ s.baseLocked then
-      let _ := tokenTransferChecked s.sizes[0]! 6
+  else if s.baseFree ≤ u64Max - s.sizes[i]! then
+    if s.sizes[i]! ≤ s.baseLocked then
+      let _ := tokenTransferChecked s.sizes[i]! 6
       .ok ({ s with
-              sizes := s.sizes.set 0 (s.sizes[0]! - s.sizes[0]!)
-              baseLocked := s.baseLocked - s.sizes[0]!
-              baseFree := s.baseFree + s.sizes[0]! }, s.sizes[0]!)
+              sizes := s.sizes.set i 0
+              askBook := removeBookAddress s.askBook address
+              baseLocked := s.baseLocked - s.sizes[i]!
+              baseFree := s.baseFree + s.sizes[i]! }, s.sizes[i]!)
     else
       .error .overflow
   else
@@ -2707,26 +3052,21 @@ def takeFee (qty : UInt64) : UInt64 :=
   if qty = 0 then 0 else feeOf qty
 
 def checkLimit (s : State) (limit : UInt64) : Bool :=
-  limit ≥ s.priceTicks[0]!
+  let address := minBookAddress s.askBook
+  address = 0 || limit ≥ s.priceTicks[(address.toNat - 1) % 4]!
 
 def checkTif (deadline : UInt64) : Bool :=
   deadline = 0 || unixTime < deadline
 
 @[pf_entry]
 def bestAsk (s : State) : UInt64 :=
-  if s.sizes[0]! ≠ 0 then s.priceTicks[0]!
-  else if s.sizes[1]! ≠ 0 then s.priceTicks[1]!
-  else if s.sizes[2]! ≠ 0 then s.priceTicks[2]!
-  else if s.sizes[3]! ≠ 0 then s.priceTicks[3]!
-  else 0
+  let address := minBookAddress s.askBook
+  if address = 0 then 0 else s.priceTicks[(address.toNat - 1) % 4]!
 
 @[pf_entry]
 def bestBid (s : State) : UInt64 :=
-  if s.bidSizes[0]! ≠ 0 then s.bidPriceTicks[0]!
-  else if s.bidSizes[1]! ≠ 0 then s.bidPriceTicks[1]!
-  else if s.bidSizes[2]! ≠ 0 then s.bidPriceTicks[2]!
-  else if s.bidSizes[3]! ≠ 0 then s.bidPriceTicks[3]!
-  else 0
+  let address := minBookAddress s.bidBook
+  if address = 0 then 0 else s.bidPriceTicks[(address.toNat - 1) % 4]!
 
 @[pf_entry]
 def askQty (s : State) : UInt64 :=

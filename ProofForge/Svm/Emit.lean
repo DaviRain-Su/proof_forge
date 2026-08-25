@@ -94,6 +94,15 @@ length pointer follows the final account header. -/
 private def headerStack (i : Nat) : Nat :=
   512 + 8 * i
 
+/-- Keep the first 24 scalar locals in the legacy compact window. Additional locals live above
+the walked-account headers (at most 64) and below CPI scratch, so they remain live across invokes
+without overlapping expression temporaries or account traversal state. -/
+private def scalarLocalStackOff (p : IR.Program) (i : Nat) : Option Nat :=
+  let offset :=
+    if i < 24 then 320 + i * 8
+    else max 1024 (headerStack (IR.cpiAccountCount p) + 8) + (i - 24) * 8
+  if offset < 2048 then some offset else none
+
 private def emitWalkAccounts (n : Nat) (tag err : String) : String :=
   Id.run do
     let mut out := "  mov64 r8, r6\n  add64 r8, 8\n"
@@ -803,12 +812,10 @@ private partial def emitLoadSelect (p : IR.Program) (cmp : Ops.Cmp) (l r t f : O
 private partial def loadVal (p : IR.Program) (v : Ops.Val) (stackOff : Nat) (nonce : Nat := 0)
     (scope : String := "value") : Except String String :=
   match v with
-  | .local i =>
-    let localOff := 320 + i * 8
-    if localOff > 504 then
-      .error "extract/unsupported: too many scalar locals"
-    else
-      .ok s!"  ; load local {i}\n  ldxdw r1, [r10 - {localOff}]\n  stxdw [r10 - {stackOff}], r1\n"
+  | .local i => do
+    let some localOff := scalarLocalStackOff p i
+      | .error "extract/unsupported: too many scalar locals"
+    .ok s!"  ; load local {i}\n  ldxdw r1, [r10 - {localOff}]\n  stxdw [r10 - {stackOff}], r1\n"
   | .lit n =>
     .ok s!"  ; load lit {n}\n  lddw r1, 0x{IR.u64Hex n}\n  stxdw [r10 - {stackOff}], r1\n"
   | .ext .clockSlot #[] =>
@@ -1427,8 +1434,7 @@ line count (an `lddw` is the worst case at two instructions per line) and place 
 between chunks. Normal execution jumps over each island; a bypass stays in the same stack frame
 while hopping between its relay labels.
 -/
-private def relayChunks (text : String) : Array String := Id.run do
-  let maxLines := 4096
+private def relayChunks (text : String) (maxLines : Nat := 4096) : Array String := Id.run do
   let mut chunks : Array String := #[]
   let mut current : Array String := #[]
   for line in text.splitOn "\n" do
@@ -1567,22 +1573,19 @@ private partial def emitOps (p : IR.Program) (label errorLabel : String)
   for op in ops do
     match op with
     | .letLocal i value =>
-      let localOff := 320 + i * 8
-      if localOff > 504 then
-        throw "extract/unsupported: too many scalar locals"
+      let some localOff := scalarLocalStackOff p i
+        | throw "extract/unsupported: too many scalar locals"
       let load ← loadVal p value 8 n s!"{label}_{n}_local_{i}"
       n := n + 1
       acc := acc ++ load ++
         s!"  ldxdw r1, [r10 - 8]\n  stxdw [r10 - {localOff}], r1\n"
     | .joinLocal i =>
-      let localOff := 320 + i * 8
-      if localOff > 504 then
-        throw "extract/unsupported: too many scalar locals"
+      let some localOff := scalarLocalStackOff p i
+        | throw "extract/unsupported: too many scalar locals"
       acc := acc ++ s!"  ; declare join local {i}\n  lddw r1, 0\n  stxdw [r10 - {localOff}], r1\n"
     | .setLocal i value =>
-      let localOff := 320 + i * 8
-      if localOff > 504 then
-        throw "extract/unsupported: too many scalar locals"
+      let some localOff := scalarLocalStackOff p i
+        | throw "extract/unsupported: too many scalar locals"
       let load ← loadVal p value 8 n s!"{label}_{n}_join_{i}"
       n := n + 1
       acc := acc ++ load ++
@@ -1673,9 +1676,8 @@ private partial def emitOps (p : IR.Program) (label errorLabel : String)
     | .forAccum bound addend resultLocal =>
       let loopLab := s!"loop_{label}_{n}"
       let doneLab := s!"done_{label}_{n}"
-      let localOff := 320 + resultLocal * 8
-      if localOff > 504 then
-        throw "extract/unsupported: too many scalar locals"
+      let some localOff := scalarLocalStackOff p resultLocal
+        | throw "extract/unsupported: too many scalar locals"
       n := n + 1
       let loadAdd ← loadVal p addend 16 n s!"{label}_{n}_acc"
       n := n + 1
@@ -1893,6 +1895,46 @@ private def cfgPositions (nodes : Array CFGAsmNode) (layout : Array Nat) :
     offset := offset + node.sizeBound
   return result
 
+/-- Split oversized CFG blocks at source-line boundaries before global relay placement. Each
+non-final chunk jumps to the next one, so normal execution is unchanged while relay islands may be
+laid out between chunks. `relayChunks` keeps every chunk below the conservative CFG jump span. -/
+private def splitLargeCFGNodes (scope : String) (inputNodes : Array CFGAsmNode)
+    (layout : Array Nat) (firstFreshId : Nat) :
+    Except String (Array CFGAsmNode × Array Nat × Nat) := do
+  let mut nodes := inputNodes
+  let mut splitLayout : Array Nat := #[]
+  let mut nextId := firstFreshId
+  for id in layout do
+    let some node := cfgNode? nodes id
+      | throw s!"svm/cfg: split references missing node {id}"
+    -- Keep chunks below half of the global 12,000-instruction relay span. This guarantees that
+    -- every midpoint has a usable chunk boundary instead of repeatedly landing inside one chunk.
+    let chunks := relayChunks node.template (maxLines := 2048)
+    if chunks.size ≤ 1 then
+      splitLayout := splitLayout.push id
+    else
+      let mut ids : Array Nat := #[id]
+      for _ in [1:chunks.size] do
+        ids := ids.push nextId
+        nextId := nextId + 1
+      for index in [0:chunks.size] do
+        let chunkId := ids[index]!
+        let isLast := index + 1 == chunks.size
+        let template :=
+          if isLast then chunks[index]!
+          else chunks[index]! ++ s!"  ja {cfgEdgeToken 0}\n"
+        let chunk : CFGAsmNode := {
+          id := chunkId
+          label := if index == 0 then node.label else s!"cfg_{scope}_chunk_{chunkId}"
+          template
+          successors := if isLast then node.successors else #[ids[index + 1]!]
+          sizeBound := cfgInstructionBound template
+        }
+        if index == 0 then nodes := nodes.set! id chunk
+        else nodes := nodes.push chunk
+        splitLayout := splitLayout.push chunkId
+  return (nodes, splitLayout, nextId)
+
 private structure CFGFarEdge where
   source : Nat
   successorIndex : Nat
@@ -1909,8 +1951,12 @@ private def firstFarCFGEdge (nodes : Array CFGAsmNode)
     for successorIndex in [0:node.successors.size] do
       let targetId := node.successors[successorIndex]!
       let some target := positions[targetId]? | continue
-      let low := min source.start target.start
-      let high := max (source.start + source.size) target.start
+      -- CFG successor jumps are emitted in the terminator at the end of the source block. Measuring
+      -- from `source.start` makes every edge out of a block larger than `maxSpan` permanently far:
+      -- inserting a relay cannot shrink the source block itself, so relay insertion exhausts fuel.
+      let sourceJump := source.start + source.size
+      let low := min sourceJump target.start
+      let high := max sourceJump target.start
       if high - low > maxSpan then
         return some {
           source := source.id
@@ -1922,9 +1968,18 @@ private def firstFarCFGEdge (nodes : Array CFGAsmNode)
 
 private partial def insertCFGRelays (scope : String) (nodes : Array CFGAsmNode)
     (layout : Array Nat) (nextId fuel : Nat) : Except String (Array CFGAsmNode × Array Nat) := do
-  if fuel == 0 then
-    throw "svm/cfg: long-jump relay layout did not converge"
   let positions ← cfgPositions nodes layout
+  if fuel == 0 then
+    match firstFarCFGEdge nodes layout positions with
+    | some edge =>
+        let source := positions[edge.source]!
+        let target := positions[edge.target]!
+        let largest := positions.foldl (init := 0) fun size position => max size position.size
+        throw (s!"svm/cfg: long-jump relay layout did not converge: " ++
+          s!"source={edge.source}@{source.start}+{source.size}, " ++
+          s!"target={edge.target}@{target.start}, midpoint={edge.midpoint}, " ++
+          s!"largestBlock={largest}, nodes={nodes.size}")
+    | none => return (nodes, layout)
   match firstFarCFGEdge nodes layout positions with
   | none => pure (nodes, layout)
   | some edge =>
@@ -1977,9 +2032,8 @@ private def checkedCFGTemplate (p : IR.Program) (scope : String)
         "  ldxdw r1, [r10 - 8]\n  ldxdw r2, [r10 - 16]\n" ++ arithmetic ++
         s!"  stxdw [r10 - 24], r4\n  ja {cfgEdgeToken 0}\n"
   | .forAccum bound addend resultLocal =>
-      let localOff := 320 + resultLocal * 8
-      if localOff > 504 then
-        throw "extract/unsupported: too many scalar locals"
+      let some localOff := scalarLocalStackOff p resultLocal
+        | throw "extract/unsupported: too many scalar locals"
       let loadAdd ← loadVal p addend 16 0 s!"{scope}_acc"
       return s!"\
   ; CFG forAccum {bound}
@@ -2139,7 +2193,8 @@ private def emitCFGBody (p : IR.Program) (marker handler : String) (method : IR.
   for block in graph.blocks do
     nodes := nodes.set! block.id (← makeCFGNode p marker handler hints block)
   let layout := graph.reachable
-  let (finalNodes, layout) ← insertCFGRelays handler nodes layout nextId 100000
+  let (splitNodes, layout, nextId) ← splitLargeCFGNodes handler nodes layout nextId
+  let (finalNodes, layout) ← insertCFGRelays handler splitNodes layout nextId 100000
   let mut body := ""
   for id in layout do
     let some node := cfgNode? finalNodes id
