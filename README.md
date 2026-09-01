@@ -1,3 +1,5 @@
+# 迁移至 [ProofForge](https://github.com/DaviRain-Su/ProofForge)
+
 # ProofForge V2 (`proof-forge-next`)
 
 [![CI](https://github.com/DaviRain-Su/proof_forge/actions/workflows/ci.yml/badge.svg)](https://github.com/DaviRain-Su/proof_forge/actions/workflows/ci.yml)
